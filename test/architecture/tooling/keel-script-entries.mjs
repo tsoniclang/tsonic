@@ -458,8 +458,9 @@ export function scriptSourceReferences(path, text, boundary) {
       [root, target, declaration].some(value => ast.parent(ast.parent(ast.parent(value))) !== block)) return undefined;
     const workspaceUse = ast.arguments(rooted)[0];
     const parameters = ast.parameters(functionNode);
-    const keyParameter = parameters.find(parameter => ast.text(ast.name(parameter)) === ast.text(keyUse));
-    const workspaceParameter = parameters.find(parameter => ast.kindName(workspaceUse) === "KindIdentifier" && ast.text(ast.name(parameter)) === ast.text(workspaceUse));
+    const keyParameter = parameters.find(parameter => ast.kindName(ast.name(parameter)) === "KindIdentifier" && ast.text(ast.name(parameter)) === ast.text(keyUse));
+    const workspaceParameter = parameters.find(parameter => ast.kindName(workspaceUse) === "KindIdentifier" &&
+      ast.kindName(ast.name(parameter)) === "KindIdentifier" && ast.text(ast.name(parameter)) === ast.text(workspaceUse));
     if (keyParameter === undefined || workspaceParameter === undefined || keyParameter === workspaceParameter || parameters.length !== 2) return undefined;
     const statements = ast.statements(block);
     const guard = statements[statements.indexOf(ast.parent(ast.parent(owner))) - 1];

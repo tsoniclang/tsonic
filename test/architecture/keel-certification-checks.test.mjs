@@ -1467,6 +1467,61 @@ test("QRC-08: canonical syntax admission preserves ordinary identifiers and none
   }
 });
 
+test("QRC-09: partial type-list readers admit only their native AST kinds without erasing runtime heritage", () => {
+  for (const [file, source] of [
+    ["ordinary.ts", "const value = 1; value + 1; ordinary();"],
+    ["ordinary.ts", "function ordinary({ value }, [first]) { return value + first; }"],
+    ["ordinary.ts", "function ordinary<T extends typeof process>(value: T): T { return value; }"],
+    ["ordinary.ts", "function ordinary<T extends { value: number }>({ value }: T) { return value; }"],
+    ["ordinary.ts", "const value = ordinary<typeof process>();"],
+    ["ordinary.ts", "const value = new Ordinary<typeof process>();"],
+    ["ordinary.ts", "const value = ordinary<typeof process>`data`;"],
+    ["ordinary.ts", "const value = ordinary<typeof process>;"],
+    ["ordinary.ts", 'type Value = import("./ordinary.mjs").Container<typeof process>;'],
+    ["ordinary.ts", "type Value = typeof ordinary<typeof process>;"],
+    ["ordinary.ts", "class Value extends Ordinary<typeof process> {}"],
+    ["ordinary.ts", "interface Value extends Ordinary<typeof process> {}"],
+    ["ordinary.ts", "declare function ordinary<T extends typeof process>(value: T): T;"],
+    ["ordinary.tsx", "const view = <Component<typeof process> />;"],
+    ["ordinary.tsx", "const view = <Component<typeof process>>text</Component>;"],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set(`src/${file}`, safetyFile(source));
+    assert.equal(boundarySafety(inputs).findings.length, 0, source);
+  }
+  for (const [file, source] of [
+    ["runtime.ts", 'eval("import(\'../test/helpers/native-ownership-cost.mjs\')");'],
+    ["runtime.ts", 'new Function("import(\'../test/helpers/native-ownership-cost.mjs\')")();'],
+    ["runtime.ts", 'class Value extends (await import("../test/helpers/native-ownership-cost.mjs")).Base {}'],
+    ["runtime.ts", 'class Value extends (process.getBuiltinModule("fs").readFileSync("../../rust-runtime/tests/helpers/allocation_counts.rs"), Ordinary) {}'],
+    ["runtime.tsx", 'const view = <Component value={process.getBuiltinModule("fs").readFileSync("../../rust-runtime/tests/helpers/allocation_counts.rs")} />;'],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set(`src/${file}`, safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, source);
+    assert.equal(result.findings.some(finding => finding.file === `src/${file}`), true, `${source}: runtime evidence is not erased`);
+  }
+});
+
+test("QRC-09: argv index text requires a literal while computed executables remain explicitly unproved", () => {
+  for (const index of ["0", '"0"', "`0`"]) {
+    const source = `import { spawn } from "node:child_process"; spawn(process.argv[${index}], ["../test/helpers/native-ownership-cost.mjs"]);`;
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/argv.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, source);
+  }
+  for (const index of ["1 + 1", "position", "select()", "{ value: 0 }"]) {
+    const source = `import { spawn } from "node:child_process"; spawn(process.argv[${index}], ["../test/helpers/native-ownership-cost.mjs"]);`;
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/argv.mjs", safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.findings.length, 0, `${source}: no evaluation or accessor panic`);
+    assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "external-process"), true,
+      `${source}: unknown executable identity is explicitly unproved`);
+  }
+});
+
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {
   for (const source of [
     'import type { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs"; export type Support = typeof nativeAllocationSupport;',
@@ -1607,6 +1662,11 @@ test("C116-F5: one finite literal input owns the actual registry targets and the
     ["second load", source.replace('  const selected = require(file)[owner.export];', '  require(file); const selected = require(file)[owner.export];')],
     ["binding escape", source.replace('  const selected = require(file)[owner.export];', '  consume(require); const selected = require(file)[owner.export];')],
     ["binding alias", source.replace('  const selected = require(file)[owner.export];', '  const alias = require; const selected = alias(file)[owner.export];')],
+    ["destructured workspace parameter", source.replace("(workspace, repo)", "({ workspace }, repo)")],
+    ["destructured owner parameter", source.replace("(workspace, repo)", "(workspace, { repo })")],
+    ["array workspace parameter", source.replace("(workspace, repo)", "([workspace], repo)")],
+    ["array owner parameter", source.replace("(workspace, repo)", "(workspace, [repo])")],
+    ["extra destructured parameter", source.replace("(workspace, repo)", "(workspace, repo, { extra })")],
     ["missing guard", source.replace('  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");', '')],
     ["non-own guard", source.replace('!Object.hasOwn(owners, repo)', 'owners[repo] === undefined')],
     ["guard after lookup", source.replace('  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");\n  const owner = owners[repo];', '  const owner = owners[repo];\n  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");')],

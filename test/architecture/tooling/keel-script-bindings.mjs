@@ -1,5 +1,6 @@
 import { Node_QuestionDotToken } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
 import { AsBindingElement } from "../../../packages/tsts/dist/src/internal/ast/generated/casts.js";
+import { HasTypeArguments } from "../../../packages/tsts/dist/src/internal/ast/utilities.js";
 
 export const guardedBuiltins = new Set(["node:fs", "node:fs/promises", "node:module", "node:process", "node:worker_threads", "node:child_process", "node:vm"]);
 const byteEntryMembers = new Set(["readFile", "copyFile", "cp", "createReadStream", "open", "openAsBlob", "link", "symlink", "rename"]
@@ -52,7 +53,8 @@ export function createKeelScriptBindings({ ast, imports, valueDeclarations, modu
     for (let current = node; current !== undefined; current = ast.parent(current)) {
       if (ast.isTypeOnlyImportOrExportDeclaration(current)) return true;
       const parent = ast.parent(current);
-      if (ast.typeNode(parent) === current || ast.typeArguments(parent).includes(current) || ast.typeParameters(parent).includes(current) ||
+      if (ast.typeNode(parent) === current || parent !== undefined && HasTypeArguments(parent) && ast.typeArguments(parent).includes(current) ||
+        ast.is.IsTypeParameterDeclaration(current) ||
         ast.hasModifierKind(parent, "ambient") || ast.isTypeOnlyImportOrExportDeclaration(parent) ||
         ["KindTypeQuery", "KindTypeAliasDeclaration", "KindInterfaceDeclaration", "KindImportType"].includes(ast.kindName(parent))) return true;
       if (["KindStatement", "KindBlock", "KindSourceFile", "KindCallExpression", "KindNewExpression"].includes(ast.kindName(parent))) break;

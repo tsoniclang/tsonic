@@ -80,9 +80,10 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     const executable = transparent(arguments_[0]);
     const executableApi = importedApi(executable);
     const argv = memberAccess(executable);
+    const argvIndex = ast.kindName(executable) === "KindElementAccessExpression" ? ast.children(executable)[1] : undefined;
     const nativeNode = literal(executable) && ast.text(executable) === "node" ||
       ["node:process#execPath", "node:process#argv0"].includes(executableApi) ||
-      ast.kindName(executable) === "KindElementAccessExpression" && ast.text(ast.children(executable)[1]) === "0" &&
+      (literal(argvIndex) || ast.kindName(argvIndex) === "KindNumericLiteral") && ast.text(argvIndex) === "0" &&
         importedApi(argv?.receiver) === "node:process#argv";
     const controls = invocationControls(arguments_, node, nativeNode
       ? ["spawnSync", "execFileSync"].includes(member) ? "processSync" : "process" : "foreignProcess");
