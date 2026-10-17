@@ -18,7 +18,7 @@ import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures } from "../transport/invocation-results.js";
-import { sourceStorageAllocation, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
 
 interface SourceStorageChildContext {
@@ -142,16 +142,18 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const reaches = reachability.region(initializer, demand);
         if (reaches === undefined) return undefined;
         if (!reaches) continue;
-        const allocation = sourceStorageAllocation(source, budget, invocation, construction.caller, (owner, bindings) => {
-          const selected = scopes.boundActivation(bindings, owner);
-          return selected?.invocation !== undefined && selected.caller !== undefined
-            ? { invocation: selected.invocation, callerBindings: selected.caller }
-            : { kind: "unresolved", reason: "Instance initialization requires its exact original allocation activation." };
+        const allocations = sourceStorageAllocations(source, budget, invocation, construction.caller, (owner, bindings) => {
+          const receiver = transport.subject(owner, "receiver");
+          const selected = receiver === undefined ? undefined : classQueries.valuesFor(receiver, bindings);
+          return selected === undefined ? { kind: "unresolved",
+            reason: "Instance initialization requires its completed original allocation receiver." } : [...selected];
         });
-        if (allocation.kind === "unresolved") return undefined;
-        const context = scopes.frameFor(owner, allocation.call, allocation.callerBindings, captured.bindings);
-        if (context === undefined) return undefined;
-        terms.push(Object.freeze({ kind: "region", region: initializer, scope: context, demand }));
+        if (allocations.kind === "unresolved") return undefined;
+        for (const allocation of allocations.allocations) {
+          const context = scopes.frameFor(owner, allocation.call, allocation.callerBindings, captured.bindings);
+          if (context === undefined) return undefined;
+          terms.push(Object.freeze({ kind: "region", region: initializer, scope: context, demand }));
+        }
       }
     }
     return Object.freeze(terms);

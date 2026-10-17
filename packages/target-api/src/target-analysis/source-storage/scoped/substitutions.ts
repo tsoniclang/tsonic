@@ -458,6 +458,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }));
     },
     boundActivation: scopes.boundActivation,
+    ownerScope: scopes.owningScope,
     isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
       scopes.withTraversal(() => {
         const bound = scopes.lookup(origin, scope);

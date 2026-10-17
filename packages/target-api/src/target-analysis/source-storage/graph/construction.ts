@@ -1,13 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";
-import { sourceStorageAllocation, sourceStorageConstructionExpression,
+import { sourceStorageAllocations, sourceStorageConstructionExpression,
   sourceStorageInstanceInitializers } from "../model/construction.js";
 import { sourceStorageClassLineages } from "../transport/invocation-results.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection,
   SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
 
-type ConstructionQueries = Pick<SourceStorageQueries, "boundActivationsFor" | "bindingsForInvocation" |
+type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForInvocation" |
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;
 type Construction = Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number];
 
@@ -53,17 +53,17 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
       if (lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete))
         return unresolved(failure ?? budget.failure() ??
           "Construction execution requires a complete actual source class lineage; imported native body contracts belong to the native premise producer.");
-      const allocation = sourceStorageAllocation(source, budget, invocation, bindings, (owner, context) => {
-        const selected = queries.boundActivationsFor(owner, context);
-        if (selected.kind === "unresolved") return selected;
-        const activation = selected.activations.length === 1 ? selected.activations[0] : undefined;
-        return activation?.kind === "invocation" ? { invocation: activation.invocation, callerBindings: activation.callerBindings } : unresolved(
-          "Constructor execution requires one exact owning allocation activation.");
+      const allocations = sourceStorageAllocations(source, budget, invocation, bindings, (owner, context) => {
+        const receiver = queries.subject(owner, "receiver");
+        if (receiver.kind === "unresolved") return receiver;
+        const selected = queries.storageProducersFor(receiver.subject, context);
+        return selected.kind === "complete" ? selected.producers : selected.kind === "unresolved" ? selected
+          : unresolved("Constructor execution requires its closed actual allocation receiver domain.");
       });
-      if (allocation.kind === "unresolved") return allocation;
+      if (allocations.kind === "unresolved") return allocations;
       const alternatives: Construction[] = [];
       let cost = 2;
-      for (const lineage of lineages) {
+      for (const lineage of lineages) for (const allocation of allocations.allocations) {
         if (!budget.step()) return unresolved(budget.failure()!);
         const root = lineage.classes[0]!.subject.node;
         const classes: SourceStorageConstructionClass[] = [];

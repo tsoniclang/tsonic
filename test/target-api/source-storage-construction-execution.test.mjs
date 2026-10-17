@@ -169,6 +169,50 @@ test("source construction cannot publish partial correspondence after its finite
   }
 });
 
+for (const reverse of [false, true]) test(`recursive explicit super initializers retain only their actual allocation, reverse=${reverse}`, () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" }, files: {
+      "/src/index.ts": `
+        class Base { base = 1;
+          constructor(value: number, count: number) {
+            if (count > 0) { new Left(11, count - 1); new Right(22, count - 1); }
+          }
+        }
+        class Left extends Base { left = 2; constructor(value: number, count: number) { super(value, count); } }
+        class Right extends Base { right = 3; constructor(value: number, count: number) { super(value, count); } }
+        const instance = new Base(0, 2);
+      `,
+    },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "The original recursive explicit constructors are checked source.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const { ast } = source;
+  const named = name => storage.nodes.find(node => ast.is.IsClassDeclaration(node) && ast.text(ast.name(node)) === name);
+  const constructor = name => ast.members(named(name)).find(ast.is.IsConstructorDeclaration);
+  const allocation = name => storage.invocations.find(node => ast.is.IsNewExpression(node) &&
+    ast.text(ast.as.AsNewExpression(node).Expression) === name);
+  const root = oneConstruction(storage.constructionFor(allocation("Base")), "actual recursive entry");
+  const names = reverse ? ["Right", "Left"] : ["Left", "Right"];
+  for (const name of names) {
+    const entry = oneConstruction(storage.constructionFor(allocation(name), root.implementation.selection.bindings), name);
+    const invocation = storage.invocations.find(node => ast.is.IsCallExpression(node) &&
+      ast.kindName(ast.as.AsCallExpression(node).Expression) === "KindSuperKeyword" &&
+      storage.enclosingRegionFor(node) === ast.body(constructor(name)));
+    assert.equal(invocation !== undefined, true, `${name}: the original checked super call exists.`);
+    const selected = oneConstruction(storage.constructionFor(invocation, entry.implementation.selection.bindings), name);
+    assert.equal(selected.allocation === allocation(name) && selected.root === named("Base"), true,
+      `${name}: a parametric constructor receiver retains its actual New origin, never a sibling or the first SCC frame.`);
+    assert.equal(selected.classes.length === 1 && selected.classes[0].owner === named("Base"), true,
+      `${name}: only this checked base initializer domain is selected.`);
+    const region = selected.classes[0].regions[0];
+    const activations = resolved(storage.boundActivationsFor(named("Base"), region.selection.bindings), name);
+    assert.equal(activations.activations.length === 1 && activations.activations[0].kind === "invocation" &&
+      activations.activations[0].invocation === allocation(name), true, `${name}: initializer allocation identity stays exact.`);
+  }
+  assert.equal(storage.failureReason() === undefined, true, "Both query orders use the same finite correlated equations.");
+});
+
 test("finite factory and copied conditional class values preserve each Base and Derived captured environment", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
     export {}; declare const flag: boolean;

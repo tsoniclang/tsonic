@@ -225,7 +225,7 @@ export function createSourceStorageDomains(
     const region = transport.regions.enclosing(invocation);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
     const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.boundActivation(bindings, owner)?.scope;
+      : transport.substitutions.ownerScope(bindings, owner);
     if (target === undefined || activation === undefined) return false;
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
       subjectFor: transport.subjectFor,
