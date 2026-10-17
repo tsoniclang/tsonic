@@ -399,7 +399,8 @@ function scriptSourceReferences(path, text, packages) {
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;
-  const source = ParseSourceFile({ FileName: path, Path: path }, text, kind);
+  const sourcePath = `/keel/${path}`;
+  const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined || (SourceFile_Diagnostics(source)?.length ?? 0) > 0) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
   const references = [];
   const visit = node => {
