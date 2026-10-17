@@ -466,12 +466,21 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.kind === "store") {
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination => Object.freeze({ ...term, destination }), { contributes: false });
       if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
-      const receiver = birth(term.receiver.subject, term.receiver.scope);
-      const destination = birth(term.destination.subject, term.destination.scope);
+      if (term.receiver.subject !== term.destination.subject) return { kind: "replace", terms: [] };
+      let receiver = birth(term.receiver.subject, term.receiver.scope);
+      let destination = birth(term.destination.subject, term.destination.scope);
       if (receiver === undefined || destination === undefined) return undefined;
-      if (receiver.key === destination.key) return { kind: "replace", terms: [term.value] };
-      const variable = receiver.variable ?? destination.variable;
-      return variable === undefined ? { kind: "replace", terms: [] } : { kind: "expand", variable };
+      while (receiver.key !== destination.key) {
+        if (!budget.step()) return undefined;
+        if (receiver.invocation === undefined || destination.invocation === undefined) {
+          const variable = receiver.invocation === undefined ? receiver.variable : destination.variable;
+          return variable === undefined ? { kind: "replace", terms: [] } : { kind: "expand", variable };
+        }
+        if (receiver.invocation !== destination.invocation) return { kind: "replace", terms: [] };
+        receiver = receiver.parent;
+        destination = destination.parent;
+      }
+      return { kind: "replace", terms: [term.value] };
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));

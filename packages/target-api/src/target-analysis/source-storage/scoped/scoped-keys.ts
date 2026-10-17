@@ -59,8 +59,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     if (!budget.step()) return undefined;
     const owner = scope === scopes.empty ? undefined : locationOwner(subject);
     const selected = scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
-    return selected === undefined ? undefined : Object.freeze({ key: `${scopes.identity(subject)}:${selected.key}`,
-      variable: selected.variable });
+    return selected === undefined ? undefined : Object.freeze({ ...selected, key: `${scopes.identity(subject)}:${selected.key}` });
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;

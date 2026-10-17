@@ -202,6 +202,11 @@ test("scoped callable implementations retain actual caller alternatives instead 
     const selected = storage.invocationImplementationsFor(callback, activation.bindings);
     assert.equal(selected.kind === "resolved" && selected.exact && selected.nodes.length === 1 &&
       selected.nodes[0] === named(implementationName), true, `${variableName}: only its own original implementation.`);
+    const other = named(implementationName === "left" ? "right" : "left");
+    const rejected = storage.bindingsForInvocation(other, callback, activation.bindings);
+    assert.equal(rejected.kind === "unresolved" &&
+      rejected.reason === "Invocation substitution has no exact completed implementation and capture activation.", true,
+    `${variableName}: an absent actual candidate is not falsely reported as budget exhaustion.`);
   }
 });
 
@@ -235,4 +240,53 @@ test("scoped callable implementations keep native, abstract, mutable and foreign
     "unresolved", "A foreign checked call cannot supply an implementation.");
   assert.equal(storage.invocationImplementationsFor(calls[0], foreign.storage.emptyBindings).kind,
     "unresolved", "Foreign binding views never become actual native/source contracts.");
+});
+
+test("optional calls retain an explicitly open source implementation domain", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    function body(): number { return 1; }
+    function invoke(callback: (() => number) | undefined): number | undefined { return callback?.(); }
+    const present = invoke(body); const absent = invoke(undefined);
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "Both present and absent optional source calls are checked.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "callback");
+  assert.equal(invocation !== undefined, true, "The original optional invocation is retained.");
+  const lexical = storage.bindingsForLexicalOwner(invocation);
+  assert.equal(lexical.kind, "resolved", "The optional call has its checked lexical source activation.");
+  for (const bindings of [undefined, lexical.bindings]) {
+    const selected = storage.invocationImplementationsFor(invocation, bindings);
+    assert.equal(selected.kind === "unresolved" || !selected.exact, true,
+      "An optional source call is not silently treated as a proven always-present body.");
+  }
+  assert.equal(storage.failureReason() === undefined, true, "The open optional domain is not budget exhaustion.");
+});
+
+test("formal interface calls distinguish whole-program producers from an unbound lexical activation", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    interface Value { read(): number; }
+    class Left implements Value { read(): number { return 1; } }
+    class Right implements Value { read(): number { return 2; } }
+    function invoke(value: Value): number { return value.read(); }
+    const left = invoke(new Left()); const right = invoke(new Right());
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "Both actual interface implementations are checked.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
+  const methods = storage.nodes.filter(node => source.ast.is.IsMethodDeclaration(node));
+  assert.equal(invocation !== undefined && methods.length === 2, true, "Only the two actual method bodies are selected.");
+  const global = storage.invocationImplementationsFor(invocation);
+  assert.equal(global.kind === "resolved" && global.exact && global.nodes.length === 2 &&
+    methods.every(method => global.nodes.includes(method)), true,
+  "The whole-program query retains both actual native method producers.");
+  const lexical = storage.bindingsForLexicalOwner(invocation);
+  assert.equal(lexical.kind, "resolved", "The formal's declaration activation is explicit.");
+  const abstract = storage.invocationImplementationsFor(invocation, lexical.bindings);
+  assert.equal(abstract.kind === "resolved" && !abstract.exact && abstract.nodes.length === 0, true,
+    "An unbound formal does not invent either nominal implementation as its actual receiver.");
+  assert.equal(storage.failureReason() === undefined, true, "Open formal correspondence is not budget exhaustion.");
 });
