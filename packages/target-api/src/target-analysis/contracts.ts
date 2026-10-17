@@ -44,6 +44,12 @@ export interface TargetContractProgram<Contract> {
   dependents(id: string): readonly string[];
 }
 
+export interface TargetContractFailure<Failure = never> {
+  readonly contractId?: string;
+  readonly reason: string;
+  readonly cause?: Failure;
+}
+
 export type TargetContractFixedPointResult<Contract, Failure = never> =
   | {
       readonly kind: "resolved";
@@ -51,9 +57,7 @@ export type TargetContractFixedPointResult<Contract, Failure = never> =
     }
   | {
       readonly kind: "rejected";
-      readonly contractId?: string;
-      readonly reason: string;
-      readonly cause?: Failure;
+      readonly failures: readonly TargetContractFailure<Failure>[];
     };
 
 interface ContractRevisionState<Contract> {
@@ -91,28 +95,69 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
   );
   const roots = normalizeContractIds(request.roots);
   if (roots.kind === "rejected") {
-    return roots;
+    return rejectedContracts([{ reason: roots.reason }]);
   }
 
   const states = new Map<string, MutableContractState<Contract>>();
   const dependenciesById = new Map<string, readonly string[]>();
   const reverse = new Map<string, Set<string>>();
+  const observedById = new Map<string, readonly string[]>();
+  const observedReverse = new Map<string, Set<string>>();
+  const failures = new Map<string, TargetContractFailure<Failure>>();
+  const blocked = new Set<string>();
   const deferred = new Map<string, string>();
   const queue: string[] = [];
   let queueHead = 0;
   const queued = new Set<string>();
   const discovered = new Set<string>();
   let evaluations = 0;
+  let currentReads: Set<string> | undefined;
+
+  const discard = (id: string): void => {
+    states.delete(id);
+    deferred.delete(id);
+    replaceReverseDependencies(id, dependenciesById.get(id) ?? [], [], reverse);
+    dependenciesById.delete(id);
+  };
+  const invalidateDependents = (owner: string, preserveTerminalFailures: boolean): void => {
+    const pending = [owner];
+    const invalidated = new Set(pending);
+    for (let cursor = 0; cursor < pending.length; cursor += 1) {
+      const id = pending[cursor]!;
+      const dependents = new Set([...reverse.get(id) ?? [], ...observedReverse.get(id) ?? []]);
+      for (const dependent of dependents) {
+        if (invalidated.has(dependent) || blocked.has(dependent) || preserveTerminalFailures && failures.has(dependent)) continue;
+        invalidated.add(dependent);
+        blocked.add(dependent);
+        failures.delete(dependent);
+        discard(dependent);
+        pending.push(dependent);
+      }
+    }
+  };
+  const reject = (id: string, failure: TargetContractFailure<Failure>): void => {
+    discard(id);
+    failures.set(id, Object.freeze(failure));
+    invalidateDependents(id, false);
+  };
+  const block = (id: string): void => {
+    blocked.add(id);
+    failures.delete(id);
+    discard(id);
+    invalidateDependents(id, true);
+  };
+  const fatal = (failure: TargetContractFailure<Failure>): TargetContractFixedPointResult<Contract, Failure> =>
+    rejectedContracts([...failures.values(), failure]);
 
   const enqueue = (
     id: string,
-  ): TargetContractFixedPointResult<Contract, Failure> | undefined => {
+  ): TargetContractFailure<Failure> | undefined => {
+    if (failures.has(id) || blocked.has(id)) return undefined;
     if (
       discovered.size >= maximumContracts &&
       !discovered.has(id)
     ) {
       return {
-        kind: "rejected",
         contractId: id,
         reason:
           `Target contract closure exceeds the ${maximumContracts}-contract limit.`,
@@ -129,15 +174,17 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
   for (const root of roots.ids) {
     const rejection = enqueue(root);
     if (rejection !== undefined) {
-      return rejection;
+      return fatal(rejection);
     }
   }
 
   const context: TargetContractEvaluationContext<Contract> = Object.freeze({
     get(id: string) {
+      currentReads?.add(id);
       return states.get(id)?.contract;
     },
     revision(id: string) {
+      currentReads?.add(id);
       return states.get(id)?.revision;
     },
   });
@@ -145,24 +192,38 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
   while (queueHead < queue.length) {
     const id = queue[queueHead++]!;
     queued.delete(id);
+    if (failures.has(id) || blocked.has(id)) continue;
     evaluations += 1;
     if (evaluations > maximumEvaluations) {
-      return {
-        kind: "rejected",
+      return fatal({
         contractId: id,
         reason:
           `Target contract closure exceeds the ${maximumEvaluations}-evaluation limit.`,
-      };
+      });
     }
 
-    const evaluation = request.evaluate(id, context);
+    const reads = new Set<string>();
+    let evaluation: TargetContractEvaluation<Contract, Failure>;
+    currentReads = reads;
+    try { evaluation = request.evaluate(id, context); }
+    finally { currentReads = undefined; }
+    const observed = normalizeContractIds([...reads]);
+    if (observed.kind === "rejected") return fatal({ contractId: id, reason: observed.reason });
+    replaceReverseDependencies(id, observedById.get(id) ?? [], observed.ids, observedReverse);
+    observedById.set(id, observed.ids);
+    const failedDependency = (dependency: string): boolean => dependency !== id &&
+      (failures.has(dependency) || blocked.has(dependency));
     if (evaluation.kind === "rejected") {
-      return {
-        kind: "rejected",
+      if (observed.ids.some(failedDependency)) {
+        block(id);
+        continue;
+      }
+      reject(id, {
         contractId: id,
         reason: evaluation.reason,
         ...(evaluation.cause === undefined ? {} : { cause: evaluation.cause }),
-      };
+      });
+      continue;
     }
     const normalizedDependencies = normalizeContractIds(
       evaluation.kind === "resolved"
@@ -170,10 +231,7 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
         : evaluation.dependencies,
     );
     if (normalizedDependencies.kind === "rejected") {
-      return {
-        ...normalizedDependencies,
-        contractId: id,
-      };
+      return fatal({ contractId: id, reason: normalizedDependencies.reason });
     }
     replaceReverseDependencies(
       id,
@@ -182,11 +240,15 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
       reverse,
     );
     dependenciesById.set(id, normalizedDependencies.ids);
+    if (observed.ids.some(failedDependency) || normalizedDependencies.ids.some(failedDependency)) {
+      block(id);
+      continue;
+    }
     for (const dependency of normalizedDependencies.ids) {
-      if (!states.has(dependency)) {
+      if (!states.has(dependency) && !deferred.has(dependency)) {
         const rejection = enqueue(dependency);
         if (rejection !== undefined) {
-          return rejection;
+          return fatal(rejection);
         }
       }
     }
@@ -210,20 +272,20 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
         stringArraysEqual(candidate.dependencies, normalizedDependencies.ids)
       ) === true
     ) {
-      return {
-        kind: "rejected",
+      reject(id, {
         contractId: id,
         reason: "Target contract analysis oscillated between previous revisions.",
-      };
+      });
+      continue;
     }
     const revision = (previous?.revision ?? 0) + 1;
     if (revision > maximumRevisionsPerContract) {
-      return {
-        kind: "rejected",
+      reject(id, {
         contractId: id,
         reason:
           `Target contract '${id}' exceeds the ${maximumRevisionsPerContract}-revision limit.`,
-      };
+      });
+      continue;
     }
     states.set(id, {
       contract: evaluation.revision.contract,
@@ -239,7 +301,7 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
     for (const dependent of reverse.get(id) ?? []) {
       const rejection = enqueue(dependent);
       if (rejection !== undefined) {
-        return rejection;
+        return fatal(rejection);
       }
     }
     if (queueHead >= 131_072 && queueHead * 2 >= queue.length) {
@@ -249,15 +311,14 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
   }
 
   if (deferred.size > 0) {
-    const [contractId, reason] = [...deferred.entries()].sort(
+    for (const [contractId, reason] of [...deferred.entries()].sort(
       ([left], [right]) => left.localeCompare(right),
-    )[0]!;
-    return {
-      kind: "rejected",
-      contractId,
-      reason: `Target contract closure remained deferred. ${reason}`,
-    };
+    )) {
+      if (blocked.has(contractId) || failures.has(contractId)) continue;
+      reject(contractId, { contractId, reason: `Target contract closure remained deferred. ${reason}` });
+    }
   }
+  if (failures.size > 0) return rejectedContracts([...failures.values()]);
 
   const ids = Object.freeze([...states.keys()].sort());
   const frozenStates = new Map([...states].map(([id, state]) => [
@@ -288,6 +349,14 @@ export function resolveTargetContractFixedPoint<Contract, Failure = never>(
     },
   });
   return Object.freeze({ kind: "resolved", program });
+}
+
+function rejectedContracts<Failure>(
+  failures: readonly TargetContractFailure<Failure>[],
+): { readonly kind: "rejected"; readonly failures: readonly TargetContractFailure<Failure>[] } {
+  return Object.freeze({ kind: "rejected", failures: Object.freeze([...failures]
+    .sort((left, right) => (left.contractId ?? "").localeCompare(right.contractId ?? ""))
+    .map(failure => Object.freeze({ ...failure }))) });
 }
 
 function checkedPositiveLimit(

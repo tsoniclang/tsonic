@@ -263,9 +263,7 @@ test("contract closure rejects unresolved, oscillating, invalid, and over-budget
   });
   assert.deepEqual(unresolved, {
     kind: "rejected",
-    contractId: "A",
-    reason:
-      "Target contract closure remained deferred. missing exact target fact",
+    failures: [{ contractId: "A", reason: "Target contract closure remained deferred. missing exact target fact" }],
   });
 
   const oscillating = resolveTargetContractFixedPoint({
@@ -281,7 +279,7 @@ test("contract closure rejects unresolved, oscillating, invalid, and over-budget
     },
   });
   assert.equal(oscillating.kind, "rejected");
-  assert.match(oscillating.reason, /oscillated/u);
+  assert.match(oscillating.failures[0].reason, /oscillated/u);
 
   const overBudget = resolveTargetContractFixedPoint({
     roots: ["A", "B"],
@@ -291,7 +289,7 @@ test("contract closure rejects unresolved, oscillating, invalid, and over-budget
     },
   });
   assert.equal(overBudget.kind, "rejected");
-  assert.match(overBudget.reason, /1-contract limit/u);
+  assert.match(overBudget.failures[0].reason, /1-contract limit/u);
 
   const invalidDependency = resolveTargetContractFixedPoint({
     roots: ["A"],
@@ -300,7 +298,7 @@ test("contract closure rejects unresolved, oscillating, invalid, and over-budget
     },
   });
   assert.equal(invalidDependency.kind, "rejected");
-  assert.match(invalidDependency.reason, /non-empty strings/u);
+  assert.match(invalidDependency.failures[0].reason, /non-empty strings/u);
   assert.throws(
     () => resolveTargetContractFixedPoint({
       roots: ["A"],
