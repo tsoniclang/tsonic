@@ -68,6 +68,8 @@ test("canonical diagnostic indexes use exact file identity and do not escape a r
   const documents = new Map([[first.file, "first\nsecond"], [second.file, "first second"]]);
   const reader = createSourceDiagnosticSpanReader({ getFileName: () => "/project/source.ts",
     getSourceText(file) {
+      assert.equal(file !== undefined, true, "the reader never requests an absent checked source file");
+      if (file === undefined) throw new Error("Missing checked diagnostic source file.");
       const text = documents.get(file);
       assert.equal(text !== undefined, true, "the original checked file identity owns this source text");
       if (text === undefined) throw new Error("Foreign diagnostic source file.");
@@ -78,7 +80,14 @@ test("canonical diagnostic indexes use exact file identity and do not escape a r
   documents.set(first.file, "first second");
   assert.equal(reader(first.file, 6, 6)?.line, 2, "one reader retains its original snapshot");
   const next = createSourceDiagnosticSpanReader({ getFileName: () => "/project/source.ts",
-    getSourceText: file => documents.get(file)! });
+    getSourceText(file) {
+      assert.equal(file !== undefined, true, "the next reader also requires an actual checked source file");
+      if (file === undefined) throw new Error("Missing checked diagnostic source file.");
+      const text = documents.get(file);
+      assert.equal(text !== undefined, true, "the actual checked file remains in the new snapshot");
+      if (text === undefined) throw new Error("Foreign diagnostic source file.");
+      return text;
+    } });
   assert.equal(next(first.file, 6, 6)?.line, 1, "a subsequent compilation creates its own reader");
 });
 
