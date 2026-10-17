@@ -17,22 +17,25 @@ export interface SourceStorageCallableInputSlot {
   readonly projection: readonly SourceStorageProjection[] | undefined;
 }
 
+type SourceStorageCallableInputEvidence = {
+  readonly kind: "selected-signature" | "source-implementation";
+  readonly signature: Signature | undefined;
+};
+
 export function sourceStorageCallableInputSlots(source: TargetSourceProgram, declaration: Node,
-  semantics: SourceFileSemantics, selectedSignature: Signature | undefined,
+  semantics: SourceFileSemantics, evidence: SourceStorageCallableInputEvidence,
   step: () => boolean): readonly SourceStorageCallableInputSlot[] | undefined {
   const { ast } = source;
-  if (!source.semantics.includes(semantics.sourceFile) || selectedSignature === undefined) return undefined;
-  let signature = selectedSignature;
-  const contract = semantics.declarations.signatureDeclaration(signature);
-  if (contract === undefined) return undefined;
-  if (contract !== declaration) {
-    const implementation = source.navigation.callableImplementation(contract);
-    if (implementation.kind !== "resolved" || implementation.implementation.declaration !== declaration) return undefined;
-    const definition = semantics.types.declarationSignatureInfo(declaration);
-    if (definition === undefined) return undefined;
-    signature = definition.signature;
+  if (!source.semantics.includes(semantics.sourceFile)) return undefined;
+  const contract = evidence.signature === undefined ? undefined : semantics.declarations.signatureDeclaration(evidence.signature);
+  if (evidence.signature !== undefined && contract === undefined) return undefined;
+  if (evidence.kind === "source-implementation") {
+    const file = ast.getSourceFile(declaration);
+    if (file === undefined || !source.semantics.includes(file) || ast.body(declaration) === undefined) return undefined;
   }
-  if (semantics.declarations.signatureDeclaration(signature) !== declaration) return undefined;
+  const signature = evidence.kind === "source-implementation" && contract !== declaration
+    ? semantics.types.declarationSignatureInfo(declaration)?.signature : evidence.signature;
+  if (signature === undefined || semantics.declarations.signatureDeclaration(signature) !== declaration) return undefined;
   const parameters = ast.parameters(declaration);
   const symbols = semantics.declarations.signatureParameters(signature);
   const effectiveParameters = semantics.types.signatureParameterInfos(signature);
@@ -80,7 +83,7 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
   const signatures = present === undefined ? [] : semantics.types.signatureInfos(present, "call");
   const signature = signatures.length === 1 ? signatures[0] : undefined;
   const inputs = sourceStorageCallableInputSlots(source, declaration, semantics,
-    semantics.types.declarationSignatureInfo(declaration)?.signature, step);
+    { kind: "source-implementation", signature: undefined }, step);
   if (signature === undefined || inputs === undefined) return undefined;
   const matching = inputs.filter(input => input.parameter === formal.node);
   if (matching.length === 0) return undefined;
@@ -299,8 +302,8 @@ export function createSourceStorageInvocationInputs(
             ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
       }
     } else {
-      const signature = isAccessor(invocation) ? consumer.types.declarationSignatureInfo(candidate)?.signature : selected?.selectedSignature;
-      const slots = sourceStorageCallableInputSlots(source, candidate, consumer, signature, budget.step);
+      const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
+        { kind: "source-implementation", signature: selected?.selectedSignature }, budget.step);
       const owned = slots?.filter(slot => slot.parameter === formal.node);
       if (owned === undefined || owned.length === 0) subjects.add(formal);
       else {

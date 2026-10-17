@@ -336,7 +336,8 @@ for (const [name, declarationText, sourceText, projections] of [
       "the selected external declaration is not an included authored source file");
     assert.throws(() => source.semantics.forNode(declaration), /exact source file from the checked program/u,
       "the strict facade membership boundary remains unchanged");
-    const slots = sourceStorageCallableInputSlots(source, declaration, consumer, selected.selectedSignature, () => true);
+    const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
+      { kind: "selected-signature", signature: selected.selectedSignature }, () => true);
     assert.equal(slots?.length, projections.length, "the actual instantiated effective slot count is preserved");
     const parameter = ast.parameters(declaration)[0];
     for (const [index, projection] of projections.entries()) {
@@ -348,11 +349,13 @@ for (const [name, declarationText, sourceText, projections] of [
       assert.equal(slots[index].projection[0].kind, projection.kind, "the component kind is exact");
       assert.equal(slots[index].projection[0].index, projection.index, "the tuple position is exact");
     }
-    assert.equal(sourceStorageCallableInputSlots(source, declaration, consumer, undefined, () => true), undefined,
+    assert.equal(sourceStorageCallableInputSlots(source, declaration, consumer,
+      { kind: "selected-signature", signature: undefined }, () => true), undefined,
       "missing selected signature is unresolved, never reconstructed from the declaration");
     const foreign = await fixture("foreign-slot-context-" + name, "export function other(value: number): number { return value; }");
     assert.equal(sourceStorageCallableInputSlots(source, declaration,
-      foreign.source.semantics.forNode(foreign.declaration("other")), selected.selectedSignature, () => true), undefined,
+      foreign.source.semantics.forNode(foreign.declaration("other")),
+      { kind: "selected-signature", signature: selected.selectedSignature }, () => true), undefined,
     "a different checked program is not a consumer context");
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
     assert.equal(storage.failureReason() === undefined, true, "external selected rest transport does not cross the source-file boundary");
@@ -377,14 +380,73 @@ test("an actual checked overload signature maps only to its canonical source imp
   assert.equal(implementation.kind, "resolved", "the selected overload has one exact checked implementation");
   const declaration = implementation.implementation.declaration;
   assert.equal(declaration !== contract, true, "the implementation is not the selected bodyless contract");
-  const slots = sourceStorageCallableInputSlots(source, declaration, consumer, selected.selectedSignature, () => true);
+  const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
+    { kind: "source-implementation", signature: selected.selectedSignature }, () => true);
   assert.equal(slots?.length, 1, "one implementation input corresponds to the selected overload");
   assert.equal(slots[0].parameter === ast.parameters(declaration)[0], true, "the implementation owns its formal");
   assert.equal(slots[0].sourceParameterIndex, 0, "source index retains the actual implementation signature");
   assert.equal(slots[0].effectiveIndex, 0, "checked effective index is unchanged");
   assert.equal(sourceStorageCallableInputSlots(source, current.declaration("unrelated"), consumer,
-    selected.selectedSignature, () => true), undefined, "a different checked callable cannot inherit the selected overload");
+    { kind: "selected-signature", signature: selected.selectedSignature }, () => true), undefined,
+  "a different declaration cannot inherit selected signature formals");
+  assert.equal(current.storage.bindingsForInvocation(current.declaration("unrelated"), invocation).kind, "unresolved",
+    "the actual storage producer selection refuses an unrelated source implementation");
 });
+
+for (const [name, text, owners] of [
+  ["function-type-alias", `function deliver(actual: number): number { return actual; }
+    const alias: (renamed: number) => number = deliver; export const result = alias(7);`, ["deliver"]],
+  ["this-tuple-rest-alias", `function deliver(this: void, ...values: [actual: number, label: string]): number { return values[0]; }
+    const alias: (renamed: number, label: string) => number = deliver; export const result = alias(7, "text");`, ["deliver"]],
+  ["finite-callable-union", `function deliver(actual: number): number { return actual; }
+    function alternative(actual: number): number { return actual; }
+    export function run(flag: boolean): number { const alias = flag ? deliver : alternative; return alias(7); }`, ["deliver", "alternative"]],
+  ["interface-method", `interface Contract { deliver(renamed: number): number; }
+    class Holder implements Contract { deliver(actual: number): number { return actual; } }
+    const alias: Contract = new Holder(); export const result = alias.deliver(7);`, ["Holder"]],
+  ["overridden-method", `class Base { deliver(actual: number): number { return actual; } }
+    class Derived extends Base { override deliver(actual: number): number { return actual; } }
+    const alias: Base = new Derived(); export const result = alias.deliver(7);`, ["Derived"]],
+  ["constructor-alias", `class Holder { constructor(actual: number) { void actual; } }
+    const Selected: new (renamed: number) => Holder = Holder; export const result = new Selected(7);`, ["Holder"]],
+]) for (const reversed of [false, true]) {
+  test("storage-proven actual implementations retain checked callable inputs: " + name + "/" + reversed, async () => {
+    const current = await fixture("actual-input-implementation-" + name, text +
+      "\nfunction unrelated(value: number): number { return value; }");
+    const { ast, nodes, source, storage } = current;
+    const invocation = nodes.find(node => (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) &&
+      ast.arguments(node).some(argument => argument !== undefined && ast.is.IsNumericLiteral(argument) && ast.text(argument) === "7"));
+    const consumer = source.semantics.forNode(invocation);
+    const selected = consumer.operations.call(invocation);
+    assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "one real checked call owns effective actual bindings");
+    const unrelated = current.declaration("unrelated");
+    if (reversed) assert.equal(storage.bindingsForInvocation(unrelated, invocation).kind, "unresolved",
+      "an unrelated source body cannot acquire this call's actual binding");
+    const candidates = resolved(storage.invocationImplementationsFor(invocation));
+    for (const name of reversed ? [...owners].reverse() : owners) {
+      const declaration = nodes.find(node =>
+        (ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === name ||
+          (ast.is.IsMethodDeclaration(node) || ast.is.IsConstructorDeclaration(node)) && ast.text(ast.name(ast.parent(node))) === name) &&
+        ast.body(node) !== undefined);
+      assert.equal(declaration !== undefined && candidates.nodes.includes(declaration), true,
+        "the existing storage owner, not a selected type declaration, proves the actual body");
+      const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
+        { kind: "source-implementation", signature: selected.selectedSignature }, () => true);
+      assert.equal(slots !== undefined && slots.length > 0, true, "actual implementation has its own completed input correspondence");
+      const slot = slots[0];
+      assert.equal(slot.projection !== undefined, true, "the actual authored input component is proven, not an omitted projection");
+      const formal = resolved(storage.subject(slot.parameter, "input", slot.projection)).subject;
+      const bindings = resolved(storage.bindingsForInvocation(declaration, invocation)).bindings;
+      const origins = resolved(storage.boundOriginsFor(formal, bindings));
+      assert.equal(origins.subjects.length, 1, "one actual argument, never a contract parameter or merged source row");
+      assert.equal(ast.is.IsNumericLiteral(origins.subjects[0].node) && ast.text(origins.subjects[0].node) === "7", true,
+        "the exact checked value reaches the actual source input, including this/rest expansion");
+    }
+    assert.equal(storage.bindingsForInvocation(unrelated, invocation).kind, "unresolved",
+      "candidate validation remains with the same canonical storage producer owner");
+    assert.equal(storage.failureReason() === undefined, true, "body-contract differences do not become a budget failure");
+  });
+}
 
 test("explicit callback entry rejects foreign or fabricated evidence and does not invent unreachable bodies", async () => {
   const text = "function other(callback: () => void): void { callback(); } export function create() { return () => {}; }";

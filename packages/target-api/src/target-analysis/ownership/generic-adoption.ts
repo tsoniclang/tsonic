@@ -269,7 +269,7 @@ export function analyzeSourceGenericAdoption(input: {
           }
           const owner = implementation.implementation.declaration;
           const slots = sourceStorageCallableInputSlots(source, owner, semantics,
-            semantics.types.declarationSignatureInfo(owner)?.signature, () => step(executor));
+            { kind: "source-implementation", signature: undefined }, () => step(executor));
           const resolve = slots?.find(slot => slot.effectiveIndex === 0);
           if (slots === undefined || resolve !== undefined && (resolve.repeated || resolve.projection === undefined)) {
             if (generic) markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,

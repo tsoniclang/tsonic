@@ -344,9 +344,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     const consumer = source.semantics.forNode(invocation);
     const selection = consumer.operations.call(invocation);
-    const signature = callback !== undefined || source.ast.is.IsGetAccessorDeclaration(candidate) || source.ast.is.IsSetAccessorDeclaration(candidate)
-      ? consumer.types.declarationSignatureInfo(candidate)?.signature : selection?.selectedSignature;
-    for (const slot of sourceStorageCallableInputSlots(source, candidate, consumer, signature, budget.step) ?? []) {
+    for (const slot of sourceStorageCallableInputSlots(source, candidate, consumer,
+      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step) ?? []) {
       if (!budget.step()) return undefined;
       if (slot.projection === undefined || slot.projection.length === 0) continue;
       const formal = subject(slot.parameter, "input", slot.projection);

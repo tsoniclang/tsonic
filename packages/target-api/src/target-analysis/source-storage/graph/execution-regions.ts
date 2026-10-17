@@ -32,9 +32,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const regions = [body];
     const consumer = semantics.forNode(invocation ?? declaration);
     const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
-    const signature = invocation === undefined || callback !== undefined
-      ? consumer.types.declarationSignatureInfo(declaration)?.signature : selection?.selectedSignature;
-    const slots = sourceStorageCallableInputSlots(source, declaration, consumer, signature, step);
+    const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
+      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, step);
     for (const parameter of ast.parameters(declaration)) {
       if (!step()) break;
       const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);

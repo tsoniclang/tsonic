@@ -337,7 +337,8 @@ export function createSourceStorageTransport(
             parameter.parameterIndex === binding.sourceParameterIndex)?.parameterDeclaration;
           const actual = subjectFor(selected.sourceArguments[binding.sourceArgumentIndex]?.expression);
           const rest = binding.sourceParameterForm !== "rest-element" || signature === undefined ? undefined
-            : sourceStorageCallableInputSlots(source, signature, consumer, selected.selectedSignature, step)?.filter(slot =>
+            : sourceStorageCallableInputSlots(source, signature, consumer,
+              { kind: "selected-signature", signature: selected.selectedSignature }, step)?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
           const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
@@ -650,7 +651,7 @@ export function createSourceStorageTransport(
           if (!step()) return;
           const consumer = semantics.forNode(invocation);
           const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
-            consumer.types.declarationSignatureInfo(candidate)?.signature, step);
+            { kind: "source-implementation", signature: undefined }, step);
           for (const slot of slots ?? []) {
             if (!step()) return;
             if (slot.projection === undefined) continue;
@@ -668,7 +669,8 @@ export function createSourceStorageTransport(
         if (!once(candidate)) continue;
         const consumer = semantics.forNode(invocation);
         const selected = consumer.operations.call(invocation);
-        const slots = sourceStorageCallableInputSlots(source, candidate, consumer, selected?.selectedSignature, step);
+        const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
+          { kind: "source-implementation", signature: selected?.selectedSignature }, step);
         const result = selected === undefined ? undefined : consumer.operations.callResult(selected);
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
