@@ -170,7 +170,7 @@ test("const-asserted initializer fields keep their actual checked source declara
 test("context selection preserves the real initializer and effectful key refusal", () => {
   const { source, literal, declarations } = fixture(`
 declare function readKey(): "value";
-const { value } = { [readKey()]: 7 } as const;
+const { ...value } = { [readKey()]: 7 } as const;
 `);
   const declaration = declarations.find(candidate => source.ast.is.IsVariableDeclaration(candidate));
   if (declaration === undefined) throw new Error("The actual initializer owner is required.");
