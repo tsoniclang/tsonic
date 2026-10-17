@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   createKeelViolationInventory, evaluateKeelDeterminism, evaluateKeelSafety,
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
 } from "./tooling/keel-certification-checks.mjs";
-import { keelCheckIds, keelFinding } from "./tooling/keel-contract.mjs";
+import { keelCheckIds, keelFinding, keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
+import { keelNativeTokens, keelNativeUnsafeSites } from "./tooling/keel-native-tokens.mjs";
 import { keelFixtureGeneration, keelFixtureGuard, keelFixtureHas, keelFixtureModel } from "./tooling/keel-test-fixtures.mjs";
 import { evaluateKeelLayers } from "./tooling/keel-layer-checks.mjs";
 
@@ -70,38 +72,38 @@ test("AC12 uses checked assertion/directive syntax, preserves existing occurrenc
   const file = "src/analysis/program/value.ts";
   const previous = "export function value(input: unknown): unknown { return input as any; }";
   const baseModel = keelFixtureModel([[file, previous]]);
-  const common = { repo: "tsonic", trackedFiles: [], currentSources: new Map(), baseSources: new Map(), baseModel };
-  assert.equal(evaluateKeelSafety({ ...common, currentModel: baseModel }).length, 0);
+  const common = { repo: "tsonic", trackedFiles: [], currentSources: new Map(), baseSources: new Map(), baseModel, workspaceInputs: nativeBoundaryInputs() };
+  assert.equal(evaluateKeelSafety({ ...common, currentModel: baseModel }).findings.length, 0);
   const changed = `${previous}\nexport function extra(input: unknown): unknown { return input as any; }`;
-  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, changed]]) }).filter(row => row.check === "AC12").length, 1);
+  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, changed]]) }).findings.filter(row => row.check === "AC12").length, 1);
   for (const source of [
     'const text = "as any @ts-ignore"; export function value(input: unknown): unknown { return input; }',
     '/* an example of as any */ export function value(input: unknown): unknown { return input; }',
-  ]) assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, source]]) }).length, 0);
+  ]) assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, source]]) }).findings.length, 0);
   const suppressed = "// @ts-ignore\nexport const value: number = 'not a number';";
-  assert.equal(keelFixtureHas(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, suppressed]]) }), "AC12", "suppression"), true);
+  assert.equal(keelFixtureHas(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[file, suppressed]]) }).findings, "AC12", "suppression"), true);
   const preserved = keelFixtureModel([[file, suppressed]]);
-  assert.equal(evaluateKeelSafety({ ...common, baseModel: preserved, currentModel: preserved }).length, 0);
-  assert.equal(keelFixtureHas(evaluateKeelSafety({ ...common, trackedFiles: [".analysis/private.json"], currentModel: baseModel }), "AC12", "ignored and untracked"), true);
+  assert.equal(evaluateKeelSafety({ ...common, baseModel: preserved, currentModel: preserved }).findings.length, 0);
+  assert.equal(keelFixtureHas(evaluateKeelSafety({ ...common, trackedFiles: [".analysis/private.json"], currentModel: baseModel }).findings, "AC12", "ignored and untracked"), true);
 });
 
 for (const [repo, file] of [["rust-runtime", "src/lib.rs"], ["csharp-runtime", "src/Runtime.cs"]]) {
   test(`${repo}: AC12 rejects added unsafe sites and does not mistake literal/comment text for unsafe`, () => {
     const previous = "unsafe { existing(); }";
-    const sources = { repo, trackedFiles: [], currentSources: new Map([[file, previous]]), baseSources: new Map([[file, previous]]) };
-    assert.equal(evaluateKeelSafety(sources).length, 0);
+    const sources = { repo, trackedFiles: [], currentSources: new Map([[file, previous]]), baseSources: new Map([[file, previous]]), workspaceInputs: nativeBoundaryInputs() };
+    assert.equal(evaluateKeelSafety(sources).findings.length, 0);
     sources.currentSources.set(file, `${previous}\nunsafe { additional(); }`);
-    assert.equal(keelFixtureHas(evaluateKeelSafety(sources), "AC12", "unsafe site"), true);
+    assert.equal(keelFixtureHas(evaluateKeelSafety(sources).findings, "AC12", "unsafe site"), true);
     sources.currentSources.set(file, '/* unsafe { not_code(); } */ const text = "unsafe";');
-    assert.equal(evaluateKeelSafety(sources).length, 0);
+    assert.equal(evaluateKeelSafety(sources).findings.length, 0);
   });
   test(`${repo}: AC12 preserves moved unchanged safety tokens and rejects a copied duplicate`, () => {
     const previous = "unsafe { existing(); }";
     const moved = file.replace("src/", "src/owned/");
-    const sources = { repo, trackedFiles: [], currentSources: new Map([[moved, previous]]), baseSources: new Map([[file, previous]]) };
-    assert.equal(evaluateKeelSafety(sources).length, 0);
+    const sources = { repo, trackedFiles: [], currentSources: new Map([[moved, previous]]), baseSources: new Map([[file, previous]]), workspaceInputs: nativeBoundaryInputs() };
+    assert.equal(evaluateKeelSafety(sources).findings.length, 0);
     sources.currentSources.set(file, previous);
-    assert.equal(evaluateKeelSafety(sources).filter(row => row.check === "AC12").length, 1);
+    assert.equal(evaluateKeelSafety(sources).findings.filter(row => row.check === "AC12").length, 1);
   });
 }
 
@@ -110,9 +112,226 @@ test("AC12 assertion lineage is exact and counted within a repo, not inferred fr
   const base = "src/source/value.ts";
   const moved = "src/analysis/value.ts";
   const common = { repo: "tsonic", trackedFiles: [], currentSources: new Map(), baseSources: new Map(),
-    baseModel: keelFixtureModel([[base, source]]) };
-  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[moved, source]]) }).length, 0);
-  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[base, source], [moved, source]]) }).length, 1);
+    baseModel: keelFixtureModel([[base, source]]), workspaceInputs: nativeBoundaryInputs() };
+  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[moved, source]]) }).findings.length, 0);
+  assert.equal(evaluateKeelSafety({ ...common, currentModel: keelFixtureModel([[base, source], [moved, source]]) }).findings.length, 1);
+});
+
+function nativeBoundaryInputs() {
+  const inputs = new Map(keelWorkspaceRepositories.map(repo => [repo, new Map()]));
+  inputs.get("rust-runtime").set("tests/helpers/allocation_counts.rs", safetyFile(readFileSync(
+    new URL("../../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url), "utf8")));
+  inputs.get("tsonic-rust").set("test/helpers/native-ownership-cost.mjs", safetyFile(readFileSync(
+    new URL("../../../tsonic-rust/test/helpers/native-ownership-cost.mjs", import.meta.url), "utf8")));
+  inputs.get("rust-runtime").set("Cargo.toml", safetyFile('[[test]]\nname = "control"\npath = "tests/control.rs"\n'));
+  inputs.get("rust-runtime").set("tests/control.rs", safetyFile('#[path = "helpers/allocation_counts.rs"] mod allocation_counts;'));
+  return inputs;
+}
+
+function safetyFile(text, tracked = true) {
+  return Object.freeze({ kind: "file", tracked, mode: "100644", sha256: keelDigest(text), text });
+}
+
+function boundarySafety(workspaceInputs = nativeBoundaryInputs(), currentSources, baseSources) {
+  const path = "tests/helpers/allocation_counts.rs";
+  const text = nativeBoundaryInputs().get("rust-runtime").get(path).text;
+  let inherited = text;
+  const sites = keelNativeTokens(text).filter(token => token.kind === "identifier" && token.text === "unsafe");
+  for (const [index, token] of [...sites.entries()].reverse()) {
+    if (index !== 7) inherited = inherited.slice(0, token.offset) + inherited.slice(token.offset + token.text.length);
+  }
+  return evaluateKeelSafety({ repo: "rust-runtime", trackedFiles: [path], workspaceInputs,
+    currentSources: currentSources ?? new Map([[path, workspaceInputs.get("rust-runtime").get(path)?.text ?? text]]),
+    baseSources: baseSources ?? new Map([["tests/old-observer.rs", inherited]]),
+  });
+}
+
+test("NS-T01: C67 pins the full module and nine windows, accounting exactly eight original raw findings", () => {
+  const result = boundarySafety();
+  assert.equal(result.findings.length, 0);
+  const boundary = result.nativeAllocationBoundary;
+  assert.equal(boundary === undefined, false, "canonical boundary exists");
+  assert.equal(boundary.approvalId, "C-0067/Q-109");
+  assert.equal(boundary.boundaryId, "TEST-ALLOCATOR");
+  assert.equal(boundary.repo, "rust-runtime");
+  assert.equal(boundary.path, "tests/helpers/allocation_counts.rs");
+  assert.equal(boundary.sourceSha256, "51b161241b9b6d49690154c9ab0506b671d1546075a7a81c5ee45335f9b48dc5");
+  assert.equal(boundary.reviewedUnsafeCount, 9);
+  const source = nativeBoundaryInputs().get("rust-runtime").get(boundary.path).text;
+  const expected = keelNativeUnsafeSites(source).filter((_site, index) => index !== 7).map(site =>
+    keelFinding("AC12", "rust-runtime", boundary.path, "native safety", "A new native unsafe site is forbidden.", { bodySha256: keelDigest(site) }).id);
+  assert.equal(boundary.accountedAdditions.length, 8);
+  assert.deepEqual(boundary.accountedAdditions.map(finding => finding.id).sort(), expected.sort());
+  assert.equal(Object.isFrozen(boundary) && Object.isFrozen(boundary.accountedAdditions), true);
+  assert.match(boundary.workspaceInputsSha256, /^[a-f0-9]{64}$/u);
+});
+
+test("NS-T02: an unsafe addition anywhere in the exact module grants zero approved additions", () => {
+  const inputs = nativeBoundaryInputs();
+  const path = "tests/helpers/allocation_counts.rs";
+  inputs.get("rust-runtime").set(path, safetyFile(`${inputs.get("rust-runtime").get(path).text}\nunsafe fn unreviewed() {}\n`));
+  const result = boundarySafety(inputs);
+  assert.equal(result.nativeAllocationBoundary === undefined, true, "extra unsafe invalidates approval");
+  assert.equal(keelFixtureHas(result.findings, "AC12", "nine reviewed"), true);
+  assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 9);
+});
+
+test("NS-T03: forwarding changes fail the complete digest even when the nine unsafe windows match", () => {
+  const path = "tests/helpers/allocation_counts.rs";
+  const original = nativeBoundaryInputs().get("rust-runtime").get(path).text;
+  const changed = original.replace("System.realloc(pointer, layout, new_size)", "System.realloc(pointer, layout, new_size + 1)");
+  assert.notEqual(changed, original);
+  assert.deepEqual(keelNativeUnsafeSites(changed), keelNativeUnsafeSites(original));
+  const inputs = nativeBoundaryInputs();
+  inputs.get("rust-runtime").set(path, safetyFile(changed));
+  const result = boundarySafety(inputs);
+  assert.equal(result.nativeAllocationBoundary === undefined, true, "forwarding is fully pinned");
+  assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8);
+});
+
+test("NS-T04: second tracked implementations and symlink aliases never acquire canonical permission", () => {
+  for (const [repo, path, symlink] of [
+    ["rust-runtime", "tests/copy.rs", false], ["rust-js", "tests/copied.rs", false],
+    ["tsonic-rust", "src/copy.bin", false], ["rust-runtime", "tests/alias.rs", true],
+    ["rust-js", "src/alias.rs", true],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    const source = inputs.get("rust-runtime").get("tests/helpers/allocation_counts.rs");
+    inputs.get(repo).set(path, symlink ? Object.freeze({ kind: "symlink", mode: "120000", tracked: true,
+      target: repo === "rust-runtime" ? "helpers/allocation_counts.rs" : "../../rust-runtime/tests/helpers/allocation_counts.rs" }) : source);
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, `${repo}/${path}`);
+    assert.equal(keelFixtureHas(result.findings, "AC12", symlink ? "symlink" : "second tracked"), true, `${repo}/${path}`);
+  }
+});
+
+test("NS-T05: unchanged direct, cross-repo, package and computed first-party test entries fail closed", () => {
+  const cases = [
+    [["rust-runtime", "src/lib.rs", '#[path = "../tests/helpers/allocation_counts.rs"] mod allocator;']],
+    [["csharp-runtime", "src/Emitter.cs", 'class Emitter { string Source() { return System.IO.File.ReadAllText("../../rust-runtime/tests/helpers/allocation_counts.rs"); } }']],
+    [["rust-js", "src/lib.rs", 'include!("../../rust-runtime/tests/helpers/allocation_counts.rs");']],
+    [["rust-runtime", "lib.rs", 'mod tests;'], ["rust-runtime", "tests/mod.rs", '#[path = "helpers/allocation_counts.rs"] mod observed;']],
+    [["rust-runtime", "src/lib.rs", 'include!("/native-workspace/rust-runtime/tests/helpers/allocation_counts.rs");']],
+    [["rust-runtime", "Cargo.toml", '[lib]\npath = "tests/control.rs"']],
+    [["rust-runtime", "Cargo.toml", '[package]\nname = "control"\nbuild = "tests/control.rs"']],
+    [["tsonic-rust", "src/emitter.mjs", 'import { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs";']],
+    [["rust-js", "src/bridge.mjs", 'export { nativeAllocationSupport } from "../../tsonic-rust/test/helpers/native-ownership-cost.mjs";'],
+      ["tsonic-rust", "src/emitter.mjs", 'import { nativeAllocationSupport } from "../../rust-js/src/bridge.mjs";']],
+    [["rust-js", "package.json", '{"name":"@control/bridge","exports":{".":"./test/bridge.mjs"}}']],
+    [["rust-js", "package.json", '{"name":"@control/bridge","exports":{"./*":"./*"}}'],
+      ["rust-js", "test/bridge.mjs", 'export const bridge = 1;']],
+    [["tsonic-rust", "src/emitter.mjs", 'const suffix = process.env.SUFFIX; const path = new URL("../test/" + suffix, import.meta.url);']],
+    [["tsonic-rust", "src/emitter.mjs", 'const encoded = process.env.ENTRY; const path = new URL(encoded, import.meta.url);']],
+    [["rust-runtime", "src/lib.rs", 'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/control.rs"));']],
+    [["rust-runtime", "src/lib.rs", '#[cfg(test)] #[path = "../tests/helpers/allocation_counts.rs"] mod observed;\n#[path = "../tests/helpers/allocation_counts.rs"] mod product;']],
+    [["rust-runtime", "src/lib.rs", '#[cfg(test)] mod tests { #[path = "../tests/helpers/allocation_counts.rs"] mod observed; }\ninclude!("../tests/helpers/allocation_counts.rs");']],
+  ];
+  for (const [index, entries] of cases.entries()) {
+    const inputs = nativeBoundaryInputs();
+    for (const [repo, path, source] of entries) inputs.get(repo).set(path, safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, `unchanged entry ${index}`);
+    assert.equal(keelFixtureHas(result.findings, "AC12", "test-only cut"), true, `unchanged entry ${index}`);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, `raw findings retained ${index}`);
+  }
+  for (const source of [
+    '#[cfg(test)] #[path = "../tests/helpers/allocation_counts.rs"] mod observed; fn ordinary() {}',
+    '#[cfg(test)] mod tests { { let value = 1; } #[path = "../tests/helpers/allocation_counts.rs"] mod observed; } fn ordinary() {}',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("src/lib.rs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).findings.length, 0, "genuine lexical cfg(test) enclosure");
+  }
+  const external = nativeBoundaryInputs();
+  external.get("tsonic").set("packages/host/src/plugin.mjs", safetyFile(
+    'import { pathToFileURL } from "node:url"; export async function load(entryPath) { return import(pathToFileURL(entryPath).href); }'));
+  const result = boundarySafety(external);
+  assert.equal(result.findings.length, 0);
+  assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length, 1);
+  assert.match(result.nativeAllocationBoundary.staticEntryCut, /arbitrary external dynamic IO is not proven/u);
+});
+
+test("NS-T06: complete inputs and the fixed source, owner and copy-writer identities are mandatory", () => {
+  for (const kind of ["missing-source", "wrong-repo", "wrong-path", "untracked", "wrong-writer"]) {
+    const inputs = nativeBoundaryInputs();
+    const file = "tests/helpers/allocation_counts.rs";
+    const source = inputs.get("rust-runtime").get(file);
+    if (kind === "untracked") inputs.get("rust-runtime").set(file, { ...source, tracked: false });
+    else if (kind === "wrong-writer") inputs.get("tsonic-rust").set("test/helpers/native-ownership-cost.mjs", safetyFile("export const wrong = 1;"));
+    else {
+      inputs.get("rust-runtime").delete(file);
+      if (kind !== "missing-source") inputs.get(kind === "wrong-repo" ? "rust-js" : "rust-runtime")
+        .set(kind === "wrong-path" ? "tests/wrong.rs" : file, source);
+    }
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, kind);
+  }
+  assert.throws(() => boundarySafety(new Map()), /all 15 repositories/u);
+  const incomplete = nativeBoundaryInputs();
+  incomplete.get("rust-js").set("src/bridge.mjs", { kind: "file", tracked: true, mode: "100644", sha256: "0".repeat(64) });
+  assert.throws(() => boundarySafety(incomplete), /Incomplete or inconsistent/u);
+  const forged = nativeBoundaryInputs();
+  forged.get("rust-runtime").set("tests/helpers/allocation_counts.rs", { ...forged.get("rust-runtime").get("tests/helpers/allocation_counts.rs"), text: "forged" });
+  assert.throws(() => boundarySafety(forged), /Incomplete or inconsistent/u);
+  const mismatch = boundarySafety(nativeBoundaryInputs(), new Map([["tests/helpers/allocation_counts.rs", "unsafe fn unreviewed() {}"]]));
+  assert.equal(mismatch.nativeAllocationBoundary === undefined, true, "changed and complete source must agree");
+  assert.equal(keelFixtureHas(mismatch.findings, "AC12", "snapshot"), true);
+});
+
+test("NS-T07: both physical-wait production unsafe blocks remain forbidden alongside C67", () => {
+  const inputs = nativeBoundaryInputs();
+  const result = evaluateKeelSafety({ repo: "rust-nodejs", trackedFiles: [], workspaceInputs: inputs,
+    currentSources: new Map([["rust/crates/node/src/worker/physical_child.rs", "unsafe { unix_wait(); }\nunsafe { windows_wait(); }"]]),
+    baseSources: new Map(),
+  });
+  assert.equal(result.findings.length, 2);
+  assert.equal(result.findings.every(finding => finding.subject === "native safety"), true);
+  assert.equal(result.nativeAllocationBoundary === undefined, true, "no product boundary");
+  const removed = evaluateKeelSafety({ repo: "rust-nodejs", trackedFiles: [], workspaceInputs: inputs,
+    currentSources: new Map([["rust/crates/node/src/worker/physical_child.rs", "safe_wait();"]]), baseSources: new Map() });
+  assert.equal(removed.findings.length, 0);
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary.accountedAdditions.length, 8);
+});
+
+test("NS-T08: unsafe text is not executable evidence, but canonical comments are still exact-source pinned", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("rust-runtime").set("tests/unrelated.rs", safetyFile('/* unsafe fn example() {} */ const TEXT: &str = "unsafe { demo(); }";'));
+  assert.equal(boundarySafety(inputs).findings.length, 0);
+  const path = "tests/helpers/allocation_counts.rs";
+  const text = inputs.get("rust-runtime").get(path).text;
+  inputs.get("rust-runtime").set(path, safetyFile(`${text}\n// Same executable allocator; changed immutable source.\n`));
+  assert.deepEqual(keelNativeUnsafeSites(inputs.get("rust-runtime").get(path).text), keelNativeUnsafeSites(text));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "canonical comments are pinned");
+});
+
+test("NS-T09: an ignored private test copy is not a second maintained source; a tracked copy is", () => {
+  const inputs = nativeBoundaryInputs();
+  const before = boundarySafety(inputs);
+  const copy = inputs.get("rust-runtime").get("tests/helpers/allocation_counts.rs");
+  inputs.get("tsonic-rust").set(".temp/private-test/allocation_counts.rs", { ...copy, tracked: false });
+  const temporary = boundarySafety(inputs);
+  assert.equal(temporary.findings.length, 0);
+  assert.equal(temporary.nativeAllocationBoundary.sourceSha256, before.nativeAllocationBoundary.sourceSha256);
+  inputs.get("tsonic-rust").set(".temp/private-test/allocation_counts.rs", copy);
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a tracked copy is maintained");
+});
+
+test("NS-T10: full nine-window review does not grant a ninth or duplicated inherited credit", () => {
+  const inputs = nativeBoundaryInputs();
+  const path = "tests/helpers/allocation_counts.rs";
+  const source = inputs.get("rust-runtime").get(path).text;
+  const noCredit = boundarySafety(inputs, new Map([[path, source]]), new Map());
+  assert.equal(noCredit.nativeAllocationBoundary.accountedAdditions.length, 8);
+  assert.equal(noCredit.findings.length, 1);
+  assert.equal(noCredit.findings[0].evidence.bodySha256, keelDigest(keelNativeUnsafeSites(source)[7]));
+  const duplicate = "dealloc(pointer, layout) } } unsafe fn realloc(&self, pointer: *mut u8) {}";
+  assert.equal(keelNativeUnsafeSites(duplicate)[0], keelNativeUnsafeSites(source)[7]);
+  const spent = boundarySafety(inputs, new Map([["tests/duplicate-declaration.rs", duplicate], [path, source]]));
+  assert.equal(spent.nativeAllocationBoundary.accountedAdditions.length, 8);
+  assert.equal(spent.findings.length, 1);
+  assert.equal(spent.findings[0].file, path);
+  assert.equal(spent.findings[0].evidence.bodySha256, noCredit.findings[0].evidence.bodySha256);
+  inputs.get("rust-runtime").set(path, safetyFile(source.replace("unsafe fn realloc", "fn realloc")));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "missing ninth window invalidates proof");
 });
 
 test("the exact violation baseline shrinks monotonically and cannot hide new, renamed or tampered findings", () => {
