@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse } from "./expression-use.js";
+import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse,
+  sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
@@ -146,4 +147,113 @@ test("transparent operand selection has one exact checked syntax owner", () => {
   };
   visit(file);
   assert.deepEqual([...seen].sort(), [...expected].sort());
+});
+
+test("shared construct inputs retain original owners, defaults, for order and switch case indexes", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      declare function step(): number;
+      export function run(value = 1): number {
+        for (step(); value < 3; step()) { if (value === 2) break; }
+        for (let index = 0; index < value; index++) { value += index; }
+        switch (value) { case 1: return 1; default: break; case 3: return 3; }
+        return value;
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "shared construct source is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  const loops: Node[] = [];
+  let switchNode: Node | undefined;
+  let parameter: Node | undefined;
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsForStatement(node)) loops.push(node);
+    if (source.ast.is.IsSwitchStatement(node)) switchNode = node;
+    if (source.ast.is.IsParameterDeclaration(node)) parameter = node;
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(loops.length, 2, "both original loops exist");
+  const first = sourceConstructValueInputs(source.ast, loops[0]!);
+  assert.deepEqual(first.map(input => input.slot.kind), ["initializer", "condition", "effect"]);
+  for (const input of first) assert.equal(input.owner === loops[0], true, "for input keeps its original construct owner");
+  assert.deepEqual(sourceConstructValueInputs(source.ast, loops[1]!).map(input => input.slot.kind), ["condition", "effect"],
+    "a declaration initializer remains a construct, not an expression");
+  assert.equal(switchNode !== undefined, true, "checked switch exists");
+  const switchInputs = sourceConstructValueInputs(source.ast, switchNode!);
+  assert.deepEqual(switchInputs.map(input => input.slot.kind === "case" ? `case:${input.slot.index}` : input.slot.kind),
+    ["condition", "case:0", "case:2"], "default clauses still occupy their source index");
+  for (const input of switchInputs) assert.equal(input.owner === switchNode, true, "case expressions retain the switch owner");
+  assert.equal(parameter !== undefined, true, "checked parameter exists");
+  const defaults = sourceConstructValueInputs(source.ast, parameter!);
+  assert.equal(defaults.length, 1, "one source default");
+  assert.equal(defaults[0]!.owner === parameter && defaults[0]!.slot.kind === "default", true, "target absence guards do not replace the original default owner");
+});
+
+test("shared expression inputs retain holes, spreads, spans and branch roles without executing callable bodies", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      export function run(value: number) {
+        const array = [, value, ...[value + 1]];
+        const text = \`value=\${value}:\${array.length}\`;
+        const callback = () => value + 2;
+        return value > 0 ? (text as string) : "none";
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "shared expression source is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  const declarations = new Map<string, Node>();
+  let conditional: Node | undefined;
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) declarations.set(source.ast.text(source.ast.name(node)), node);
+    if (source.ast.is.IsConditionalExpression(node)) conditional = node;
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  const initializer = (name: string) => source.ast.as.AsVariableDeclaration(declarations.get(name))!.Initializer!;
+  const array = initializer("array");
+  const elements = sourceExpressionValueInputs(source.ast, array)!;
+  assert.deepEqual(elements.map(input => input.slot.kind === "element" ? input.slot.index : -1), [1, 2], "omitted elements do not renumber later source slots");
+  assert.equal(elements[1]!.expression === source.ast.as.AsSpreadElement(source.ast.children(array)[2])?.Expression, true,
+    "spread uses its original underlying expression");
+  assert.deepEqual(sourceExpressionValueInputs(source.ast, initializer("text"))!.map(input => input.slot.kind === "span" ? input.slot.index : -1), [0, 1]);
+  assert.equal(conditional !== undefined, true, "checked conditional exists");
+  assert.deepEqual(sourceExpressionValueInputs(source.ast, conditional!)!.map(input => input.slot.kind === "branch" ? input.slot.branch : input.slot.kind),
+    ["condition", "true", "false"]);
+  const callback = initializer("callback");
+  assert.equal(sourceExpressionValueInputs(source.ast, callback)!.length, 0, "creating a callable does not execute its body");
+  const body = sourceConstructValueInputs(source.ast, callback);
+  assert.equal(body.length, 1, "the admitted callable construct separately owns its concise return");
+  assert.equal(body[0]!.owner === callback && body[0]!.expression === source.ast.body(callback), true, "same original body and owner");
+  for (const input of elements) assert.equal(Object.isFrozen(input) && Object.isFrozen(input.slot), true, "source occurrence rows are immutable");
+});
+
+test("shared value inputs never turn type queries or signature syntax into runtime operands", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      declare function unused(value: number): number;
+      type Callback = typeof unused;
+      interface Contract { invoke(value: number): number; }
+      export function run(value: Callback): number { return value(1); }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "type metadata source is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  let typeQuery: Node | undefined;
+  let signature: Node | undefined;
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsTypeQueryNode(node)) typeQuery = node;
+    if (source.ast.is.IsMethodSignatureDeclaration(node)) signature = node;
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(typeQuery !== undefined && signature !== undefined, true, "both original metadata nodes exist");
+  for (const node of [typeQuery!, signature!]) {
+    assert.equal(sourceExpressionValueInputs(source.ast, node) === undefined, true, "metadata has no runtime expression inputs");
+    assert.equal(sourceConstructValueInputs(source.ast, node).length, 0, "metadata is not an executable construct root");
+  }
 });
