@@ -123,8 +123,9 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
       ? ast.as.AsArrayTypeNode(arrayType).ElementType : undefined;
     const entryName = entryType === undefined ? undefined : ast.children(entryType).find(child => ast.is.IsIdentifier(child));
     const initializer = selected.Initializer;
-    const call = initializer === undefined ? undefined : ast.as.AsCallExpression(initializer);
-    const callee = call === undefined ? undefined : ast.as.AsPropertyAccessExpression(call.Expression);
+    const call = initializer !== undefined && ast.is.IsCallExpression(initializer) ? ast.as.AsCallExpression(initializer) : undefined;
+    const callee = call !== undefined && ast.is.IsPropertyAccessExpression(call.Expression)
+      ? ast.as.AsPropertyAccessExpression(call.Expression) : undefined;
     const [array] = call === undefined ? [] : ast.arguments(initializer);
     if (ast.name(selected) === undefined || !ast.is.IsIdentifier(ast.name(selected)) || ast.text(ast.name(selected)) === "Object" ||
         entryType === undefined || !ast.is.IsTypeReferenceNode(entryType) || ast.text(entryName) !== registryImports[0].name ||
