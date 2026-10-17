@@ -10,6 +10,7 @@ import type {
   ResolvedSourceIterationInfo,
   ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyAccessInfo,
+  ResolvedSourcePropertyNameInfo,
   ResolvedSourceResourceManagementInfo,
   ResolvedSourceStorageInfo,
   ResolvedSourceWellKnownSymbolInfo,
@@ -47,6 +48,7 @@ import type {
 
 export interface SourceOperationEvidenceQueries {
   call(node: Node): ResolvedSourceCallInfo | undefined;
+  propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
   propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
   flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
   elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;
@@ -163,6 +165,7 @@ export interface SourceFactSubjectQueries {
 
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
+  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
   readonly operations: SourceOperationEvidenceQueries;
   readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
@@ -229,6 +232,7 @@ export type SourceValueTypeRefinementSelection =
     };
 
 export interface SourceProgramSemantics {
+  readonly enumConstants: import("./enum-constants.js").SourceEnumConstantIndex;
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;

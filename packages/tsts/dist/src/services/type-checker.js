@@ -1,22 +1,24 @@
 import { Background } from "../go/context.js";
-import { Node_Text } from "../internal/ast/ast.js";
+import { Node_Symbol, Node_Text } from "../internal/ast/ast.js";
+import { Node_Name } from "../internal/ast/spine.js";
 import { readTypeIndexInfo } from "./type-members.js";
 import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
-import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
-import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
+import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
+import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
-import { Checker_GetPropertyOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
+import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
-import { CheckModeNormal } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getSymbolOfDeclaration, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
-import { Checker_getApparentTypeOfContextualType, Checker_getContextualType, Checker_getContextualTypeForObjectLiteralElement, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
+import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_getApparentTypeOfContextualType, Checker_getContextualType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
 import { Checker_GetConstantValue, Checker_GetExportsOfModule, Checker_GetRootSymbols, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
+import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct, TypeFlagsNumberLiteral, TypeFlagsStringLiteral, TypeFlagsUniqueESSymbol } from "../internal/checker/types.js";
+import { Number_String } from "../internal/jsnum/string.js";
 import { resolveSourceCallableCompletionInfo, resolveSourceGeneratorInfo, resolveSourceResourceManagementInfo, resolveSourceWellKnownSymbolInfo, resolveSourceYieldInfo, } from "./source-control-flow-evidence.js";
 import { resolveSourceFlowConditionInfo } from "./source-flow-conditions.js";
 export function createTypeCheckerQueries(program, defaultOptions) {
@@ -24,10 +26,12 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         throw new Error("Type-checker queries require one source file from the compiler program.");
     }
     const callInfos = new WeakMap();
+    const propertyNames = new WeakMap();
     const propertyAccessInfos = new WeakMap();
     const elementAccessInfos = new WeakMap();
     const iterationInfos = new WeakMap();
     const objectLiteralElementInfos = new WeakMap();
+    const objectLiteralElementSymbols = new WeakMap();
     const storageInfos = new WeakMap();
     const callableCompletionInfos = new WeakMap();
     const flowConditionInfos = new WeakMap();
@@ -39,6 +43,43 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getTypeAtLocation: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeAtLocation(checker, node)),
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         getContextualType: (node, contextFlags = ContextFlagsNone) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getContextualType(checker, node, contextFlags)),
+        getEffectivePropertyName(node) {
+            if (node === undefined)
+                return undefined;
+            const cached = propertyNames.get(node);
+            if (cached !== undefined)
+                return cached ?? undefined;
+            const selected = withCheckerForNode(program, node, defaultOptions, checker => {
+                if (!IsPropertyName(node))
+                    return undefined;
+                const [literalName, present] = Checker_getEffectivePropertyNameForPropertyNameNode(checker, node);
+                if (!present)
+                    return undefined;
+                const type = Checker_getLiteralTypeFromPropertyName(checker, node);
+                if (type === undefined)
+                    return undefined;
+                const declaration = node.Parent;
+                const staticallyBound = declaration !== undefined && !IsDynamicName(node) &&
+                    (IsPropertyDeclaration(declaration) || IsPropertySignatureDeclaration(declaration) ||
+                        IsMethodDeclaration(declaration) || IsMethodSignatureDeclaration(declaration) ||
+                        IsGetAccessorDeclaration(declaration) || IsSetAccessorDeclaration(declaration)) &&
+                    !IsObjectLiteralExpression(declaration.Parent);
+                const symbol = staticallyBound ? Node_Symbol(declaration) : undefined;
+                if (staticallyBound && symbol === undefined)
+                    return undefined;
+                const name = staticallyBound ? symbol.Name : literalName;
+                if ((type.flags & TypeFlagsUniqueESSymbol) !== 0)
+                    return Object.freeze({ kind: "unique-symbol", name, type });
+                if ((type.flags & TypeFlagsNumberLiteral) !== 0)
+                    return Object.freeze({ kind: "numeric",
+                        name: staticallyBound ? name : Number_String(getNumberLiteralValue(type)), type });
+                if ((type.flags & TypeFlagsStringLiteral) !== 0)
+                    return Object.freeze({ kind: "string", name, type });
+                return undefined;
+            });
+            propertyNames.set(node, selected ?? null);
+            return selected;
+        },
         getSymbolAtLocation: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetSymbolAtLocation(checker, node)),
         getLexicallyResolvedSymbol: (identifier) => withCheckerForNode(program, identifier, defaultOptions, (checker) => IsIdentifier(identifier)
             ? Checker_ResolveName(checker, Node_Text(identifier), identifier, (SymbolFlagsValue | SymbolFlagsType | SymbolFlagsNamespace | SymbolFlagsAlias), false)
@@ -61,7 +102,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedPropertyAccessEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
         getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
-        getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node))),
+        getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node, objectLiteralElementSymbols))),
         getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
         getResolvedCallableCompletionInfo: (node) => memoizeResolvedNodeQuery(callableCompletionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceCallableCompletionInfo(checker, node))),
         getResolvedFlowConditionInfo: (node) => memoizeResolvedNodeQuery(flowConditionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceFlowConditionInfo(checker, node))),
@@ -98,7 +139,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     };
     return Object.freeze(queries);
 }
-function getResolvedSourceObjectLiteralElementInfo(checker, element) {
+function getResolvedSourceObjectLiteralElementInfo(checker, element, symbolsByType) {
     const elementKind = resolvedSourceObjectLiteralElementKind(element);
     const objectLiteral = element?.Parent;
     if (checker === undefined || element === undefined || elementKind === undefined ||
@@ -109,18 +150,42 @@ function getResolvedSourceObjectLiteralElementInfo(checker, element) {
     const objectLiteralType = Checker_GetTypeAtLocation(checker, objectLiteral);
     const sourceElementType = Checker_GetTypeAtLocation(checker, element);
     const contextualType = Checker_getApparentTypeOfContextualType(checker, objectLiteral, ContextFlagsNone);
-    const sourceElementSymbol = Checker_getSymbolOfDeclaration(checker, element);
-    if (objectLiteralType === undefined || sourceElementType === undefined ||
-        sourceElementSymbol === undefined) {
+    if (objectLiteralType === undefined || sourceElementType === undefined) {
         return undefined;
     }
+    let symbols = symbolsByType.get(objectLiteralType);
+    if (symbols === undefined) {
+        const selected = new Map();
+        const ambiguous = new Set();
+        for (const symbol of Checker_GetPropertiesOfType(checker, objectLiteralType)) {
+            if (symbol === undefined)
+                continue;
+            for (const declaration of symbol.Declarations ?? []) {
+                if (declaration === undefined || ambiguous.has(declaration))
+                    continue;
+                const prior = selected.get(declaration);
+                if (prior !== undefined && prior !== symbol) {
+                    selected.delete(declaration);
+                    ambiguous.add(declaration);
+                }
+                else {
+                    selected.set(declaration, symbol);
+                }
+            }
+        }
+        symbols = selected;
+        symbolsByType.set(objectLiteralType, symbols);
+    }
+    const sourceElementSymbol = symbols.get(element);
+    if (sourceElementSymbol === undefined)
+        return undefined;
     const selectedOwnerType = contextualType ?? objectLiteralType;
     const sourceSelectedSymbol = Checker_GetPropertyOfType(checker, selectedOwnerType, sourceElementSymbol.Name);
     const sourceSelectedType = contextualType === undefined
         ? sourceSelectedSymbol === undefined
             ? sourceElementType
             : Checker_getTypeOfSymbol(checker, sourceSelectedSymbol)
-        : Checker_getContextualTypeForObjectLiteralElement(checker, element, ContextFlagsNone);
+        : Checker_getTypeOfPropertyOfContextualTypeEx(checker, contextualType, sourceElementSymbol.Name, Checker_getLiteralTypeFromPropertyName(checker, Node_Name(element)));
     if (sourceSelectedType === undefined) {
         return undefined;
     }

@@ -11,6 +11,7 @@ export function createSourceProgramQueries(program, options = {}) {
     const sourceFileQueries = new WeakMap();
     const moduleSourceFiles = new WeakMap();
     const included = (sourceFile) => options.includeSourceFile?.(sourceFile) !== false;
+    const containsSourceFile = (sourceFile) => sourceFile !== undefined && Program_GetSourceFile(program, ast.getFileName(sourceFile)) === sourceFile;
     const getSourceFiles = () => (Program_GetSourceFiles(program) ?? []).filter((sourceFile) => sourceFile !== undefined && included(sourceFile));
     const getSourceFile = (fileName) => {
         const sourceFile = Program_GetSourceFile(program, fileName);
@@ -70,6 +71,7 @@ export function createSourceProgramQueries(program, options = {}) {
     };
     return Object.freeze({
         ast,
+        containsSourceFile,
         getSourceFiles,
         getSourceFile,
         getSourceFileQueries,
