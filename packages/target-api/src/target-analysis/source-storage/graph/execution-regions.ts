@@ -34,7 +34,13 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const slots = sourceStorageCallableInputSlots(source, declaration, step);
     for (const parameter of ast.parameters(declaration)) {
       if (!step()) break;
-      const initializer = parameter === undefined ? undefined : Node_Initializer(ast, parameter);
+      const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
+      if (parameter === undefined || file === undefined || !semantics.includes(file) ||
+        !ast.is.IsParameterDeclaration(parameter) || ast.parent(parameter) !== declaration) {
+        budget.reject("Source storage callable inputs require exact checked parameter declaration ownership.");
+        break;
+      }
+      const initializer = Node_Initializer(ast, parameter);
       if (initializer === undefined) continue;
       if (callback !== undefined && invocation !== undefined) {
         const inputs = sourceStorageNativeInputSlots(source, declaration,
