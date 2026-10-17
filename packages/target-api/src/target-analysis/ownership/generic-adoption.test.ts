@@ -6,8 +6,212 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { analyzeSourceGenericAdoption } from "./generic-adoption.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
+import type { SourceStorageEffects } from "../source-storage/model/types.js";
 
-function fixture(text: string, projectRoot = "/src") {
+function nativeEntryFixture(text: string, timing?: "synchronous" | "deferred") {
+  return fixture(text, "/src", (source, nodes) => {
+    const declaration = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(declaration !== undefined && source.ast.body(declaration) === undefined, true,
+      "one exact checked ambient declaration owns this unit fixture's native contract");
+    return Object.freeze({ callbackEntries(node, selected) {
+      return timing !== undefined && source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === declaration
+        ? Object.freeze([{ parameterIndex: 0, timing }]) : undefined;
+    } } satisfies SourceStorageEffects);
+  });
+}
+
+for (const timing of ["synchronous", "deferred", undefined] as const) {
+  for (const ordinary of [false, true]) {
+    test("native callback resolver sensitivity preserves " + timing + "/" + (ordinary ? "ordinary" : "adopting") + " actual", () => {
+      const current = nativeEntryFixture(`
+        declare function nativeInvoke(callback: () => void): void;
+        function wrap<Value>(value: Value): Promise<Value> {
+          return new Promise<Value>(resolve => { nativeInvoke(() => { resolve(value); }); });
+        }
+        ${ordinary
+          ? "export function use(value: number): void { void wrap(value); }"
+          : "export function use(value: Promise<number>): void { void wrap(value); }"}
+      `, timing);
+      const selected = current.query();
+      if (ordinary) {
+        assert.equal(selected.kind, "resolved", "canonical Awaited ordinary proof precedes local unresolved sensitivity");
+        if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "no blanket native callback refusal");
+      } else if (timing === undefined) {
+        assert.equal(selected.kind, "unresolved", "an opaque callback is not certified by zero source edges");
+        if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), "resolve(value)",
+          "the actual unresolved resolving operation owns the reason");
+      } else {
+        assert.equal(selected.kind, "resolved", "known native execution has complete shared admission");
+        if (selected.kind === "resolved") {
+          assert.equal(selected.issues.length, 1, "one unsupported actual generic adoption");
+          assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "the actual instantiation owns C15");
+          assert.equal(current.textFor(selected.issues[0]!.operation), "resolve(value)", "the captured real resolver is sensitive");
+        }
+      }
+    });
+  }
+}
+
+for (const reversed of [false, true]) {
+  test("native helper callback/value rows stay correlated in source admission, order=" + reversed, () => {
+    const current = nativeEntryFixture(`
+      declare function nativeInvoke(callback: () => void): void;
+      function deliver<Part>(callback: (value: Part) => void, value: Part): void {
+        nativeInvoke(() => { callback(value); });
+      }
+      function wrap<Value>(value: Value): Promise<number> {
+        return new Promise<number>(resolve => {
+          const observer = (actual: Value): void => { void actual; };
+          ${reversed ? "deliver(resolve, 7); deliver(observer, value);" : "deliver(observer, value); deliver(resolve, 7);"}
+        });
+      }
+      export function use(value: Promise<number>): void { void wrap(value); }
+    `, "synchronous");
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", "actual source entries and existing equations are complete");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+      "only resolver/number is sensitive; observer/Promise must not taint the helper binder globally");
+  });
+}
+
+test("an uncalled nested callback does not create native resolver adoption", () => {
+  const current = nativeEntryFixture(`
+    declare function nativeInvoke(callback: () => void): void;
+    function wrap<Value>(value: Value): Promise<Value> {
+      return new Promise<Value>((resolve, reject) => {
+        function unused(): void { nativeInvoke(() => { resolve(value); }); }
+        reject(new Error("expected"));
+      });
+    }
+    export function use(value: Promise<number>): void { void wrap(value); }
+  `, "synchronous");
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "canonical unused-body evidence remains authoritative");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "no AST-nesting sensitivity");
+});
+
+test("a foreign same-spelled source body does not acquire a native callback contract", () => {
+  const current = fixture(`
+    function nativeInvoke(callback: () => void): void { void callback; }
+    function wrap<Value>(value: Value): Promise<Value> {
+      return new Promise<Value>((resolve, reject) => {
+        nativeInvoke(() => { resolve(value); });
+        reject(new Error("expected"));
+      });
+    }
+    export function use(value: Promise<number>): void { void wrap(value); }
+  `);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "the source implementation, not spelling, owns execution");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the foreign body never invokes its callback");
+});
+
+test("a foreign Promise constructor is not a native executor or resolver by spelling", () => {
+  const current = fixture(`
+    export function use<Value>(value: Value): void {
+      class Promise<Part> { constructor(executor: (resolve: (value: Part) => void) => void) { void executor; } }
+      void new Promise<Value>(resolve => { resolve(value); });
+    }
+    export function run(promised: Promise<number>): void { use(promised); }
+  `);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "actual checked foreign constructor is distinct");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "no native resolver is invented for a source constructor");
+});
+
+test("a native default initializer does not taint a proven present ordinary callback input", () => {
+  const current = fixture(`
+    declare function nativeInvoke(values: number[], callback: (value: number) => void): void;
+    function wrap<Value>(value: Value): Promise<number | Value> {
+      return new Promise<number | Value>(resolve => {
+        nativeInvoke([7], (actual: number | Value = value) => { resolve(actual); });
+      });
+    }
+    export function run(promised: Promise<number>): void { void wrap(promised); }
+  `, "/src", (source, nodes) => {
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    return { callbackEntries(node, selected) {
+      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        ? [{ parameterIndex: 1, timing: "synchronous", inputs: [{ parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 }] }]
+        : undefined;
+    } };
+  });
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "checked required number input excludes its authored default");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the unused default does not create generic adoption");
+});
+
+for (const ordinary of [false, true]) {
+  test("native contextual input bounds qualify the same generic source callback: ordinary=" + ordinary, () => {
+    const current = fixture(`
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function wrap<Value>(value: Value): Promise<Value> {
+        return new Promise<Value>(resolve => {
+          function deliver<Actual extends Value>(actual: Actual): void { resolve(actual); }
+          nativeInvoke([value], deliver);
+        });
+      }
+      export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+        source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", "the selected native signature is a checked input bound, not a value witness");
+    if (selected.kind === "resolved") {
+      assert.equal(selected.issues.length, ordinary ? 0 : 1, "only the actual outer adopting binder is refused");
+      if (!ordinary) assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "original checked instantiation site");
+    }
+  });
+}
+
+for (const ordinary of [false, true]) {
+  test("an actual native resolver with an opaque input bound stays demand-local: ordinary=" + ordinary, () => {
+    const current = fixture(`
+      declare function nativeInvoke(callback: (actual: any) => void): void;
+      function wrap<Value>(value: Value): Promise<Value> {
+        return new Promise<Value>(resolve => { nativeInvoke(resolve); });
+      }
+      export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 0, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, ordinary ? "resolved" : "unresolved", "opaque input is not an invented native value or a global budget rejection");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "canonical ordinary Awaited identity remains sufficient");
+    else assert.equal(current.textFor(selected.at), "nativeInvoke(resolve)", "the actual opaque resolver entry owns the missing proof");
+  });
+}
+
+for (const withDefault of [false, true]) {
+  test("zero-input native callback preserves actual absence and its real default: default=" + withDefault, () => {
+    const current = nativeEntryFixture(`
+      declare function nativeInvoke(callback: () => void): void;
+      function wrap<Value>(value: Value): Promise<Value | undefined> {
+        return new Promise<Value | undefined>(resolve => {
+          nativeInvoke((${withDefault ? "actual: Value = value" : "actual?: Value"}) => { resolve(actual); });
+        });
+      }
+      export function run(value: Promise<number>): void { void wrap(value); }
+    `, "synchronous");
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", "zero-input is an exact checked native signature, not opaque provenance");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, withDefault ? 1 : 0,
+      "a missing argument does not adopt; its actually executed captured default does");
+  });
+}
+
+function fixture(text: string, projectRoot = "/src", effectsFor?: (source: TargetSourceProgram, nodes: readonly Node[]) => SourceStorageEffects) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: projectRoot, files: { [`${projectRoot}/index.ts`]: text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics
@@ -19,7 +223,7 @@ function fixture(text: string, projectRoot = "/src") {
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   for (const file of source.sourceFiles) if (!source.ast.isDeclarationFile(file)) visit(file);
-  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const storage = createSourceStorageQuery(source, source.sourceFiles, undefined, effectsFor?.(source, nodes));
   const query = (maximumSteps = defaultSourceStorageLimits.maximumSteps, exemptTypeParameter?: (node: Node) => boolean) =>
     analyzeSourceGenericAdoption({ source, projectRoot, nodes, storage, budget: createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps }),
       ...(exemptTypeParameter === undefined ? {} : { exemptTypeParameter }) });

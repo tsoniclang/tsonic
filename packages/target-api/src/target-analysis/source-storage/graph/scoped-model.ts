@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import type { SourceStorageValueGuards } from "./guarded-values.js";
+import type { SourceStorageCallbackEntry } from "../model/types.js";
 
 export interface SourceStorageFrame {
   readonly kind: "frame";
@@ -10,6 +11,7 @@ export interface SourceStorageFrame {
   readonly invocation?: Node;
   readonly caller?: SourceStorageScope;
   readonly equation?: SourceStorageEquation;
+  readonly callback?: SourceStorageCallbackEntry;
   readonly entries: ReadonlyMap<SourceStorageSubject, readonly SourceStorageReference[]>;
   readonly parents: readonly SourceStorageScope[];
 }
@@ -26,6 +28,7 @@ export interface SourceStorageVariable {
   readonly equation: SourceStorageEquation;
   readonly owner: Node;
   readonly capture?: Node;
+  readonly callback?: SourceStorageCallbackEntry;
 }
 
 export interface SourceStorageScopeView {
@@ -39,6 +42,7 @@ export type SourceStorageScope = SourceStorageFrame | SourceStorageVariable | So
 export type SourceStorageActivation = {
   readonly key: string;
   readonly variable: SourceStorageVariable | undefined;
+  readonly nativeEntry?: string;
 } & (
   | { readonly invocation: Node; readonly parent: SourceStorageActivation }
   | { readonly invocation: undefined; readonly parent: undefined }
@@ -53,7 +57,7 @@ export interface SourceStorageReference {
 
 export type SourceStorageOperation =
   | { readonly mode: "value" }
-  | { readonly mode: "execution"; readonly demand: Node };
+  | { readonly mode: "execution"; readonly demand: Node; readonly deferred?: boolean };
 
 export type SourceStorageMemberSelection =
   | { readonly kind: "access"; readonly node: Node }
@@ -62,10 +66,11 @@ export type SourceStorageMemberSelection =
 export type SourceStorageTerm =
   | SourceStorageReference
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
-      readonly scope: SourceStorageScope; readonly reason: string }
+      readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node }
   | { readonly kind: "empty" }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
-      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
+      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
+      readonly callback?: SourceStorageCallbackEntry } & SourceStorageOperation)
   | ({ readonly kind: "member"; readonly selection: SourceStorageMemberSelection; readonly receiver: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;
@@ -73,8 +78,8 @@ export type SourceStorageTerm =
   | { readonly kind: "guarded"; readonly reference: Node; readonly value: SourceStorageTerm }
   | { readonly kind: "store"; readonly destination: SourceStorageTerm; readonly receiver: SourceStorageTerm;
       readonly value: SourceStorageTerm }
-  | { readonly kind: "execution-root"; readonly demand: Node }
-  | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope; readonly demand: Node }
+  | { readonly kind: "execution-root"; readonly demand: Node; readonly deferred?: boolean }
+  | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope; readonly demand: Node; readonly deferred?: boolean }
   | { readonly kind: "effect"; readonly store: SourceStorageStore; readonly scope: SourceStorageScope };
 
 export type SourceStorageBinding =

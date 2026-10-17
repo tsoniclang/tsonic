@@ -10,6 +10,7 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer,
   SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import { sourceStorageComponentType } from "../source-storage/model/components.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
 
 export const sourceGenericAdoptionDiagnosticCode = "TSONIC_GENERIC_ASYNC_ADOPTION_UNSUPPORTED";
@@ -226,7 +227,7 @@ export function analyzeSourceGenericAdoption(input: {
   };
   const reactionBodies = new Set<Node>();
   const entries: { readonly producer: SourceStorageProducer; readonly declaration: Node;
-    readonly resolver: SourceStorageSubject; readonly bindings: SourceStorageBindings }[] = [];
+    readonly resolver: SourceStorageSubject; readonly bindings: SourceStorageBindings; readonly resultType: Type }[] = [];
   const calls: { readonly node: Node; readonly selected: ResolvedSourceCallInfo; readonly declaration: Node }[] = [];
   for (const node of nodes) {
     if (!step(node)) break;
@@ -270,13 +271,14 @@ export function analyzeSourceGenericAdoption(input: {
           const owner = implementation.implementation.declaration;
           const resolve = ast.parameters(owner)[0];
           if (resolve !== undefined) {
-            const selected = input.storage.subject(resolve, "input");
-            if (selected.kind === "unresolved") refuse(resolve, selected.reason);
+            const resolver = input.storage.subject(resolve, "input");
+            if (resolver.kind === "unresolved") refuse(resolve, resolver.reason);
             else {
               const activation = input.storage.bindingsForDeclaration(owner, producer.bindings);
               if (activation.kind === "unresolved") { refuse(executor, activation.reason); continue; }
               if (!rows.add(1)) { refuse(executor, budget.failure()!); continue; }
-              entries.push(Object.freeze({ producer, declaration: owner, resolver: selected.subject, bindings: activation.bindings }));
+              entries.push(Object.freeze({ producer, declaration: owner, resolver: resolver.subject, bindings: activation.bindings,
+                resultType: selected.sourceResultType }));
             }
           }
         }
@@ -335,17 +337,15 @@ export function analyzeSourceGenericAdoption(input: {
         mark(body, body);
     }
   }
-  const resolverFor = (producer: Pick<SourceStorageProducer, "subject" | "bindings">): boolean | SourceOwnershipUnresolved => {
-    let unknown: SourceOwnershipUnresolved | undefined;
-    for (const entry of entries) {
+  const resolverFor = (producer: Pick<SourceStorageProducer, "subject" | "bindings">,
+    entry: (typeof entries)[number]): boolean | SourceOwnershipUnresolved => {
+    if (producer.subject === entry.resolver) {
       if (!step(producer.subject.node)) return Object.freeze({ kind: "unresolved", at: producer.subject.node, reason: budget.failure()! });
-      if (producer.subject !== entry.resolver) continue;
       const selected = input.storage.boundActivationsFor(entry.declaration, producer.bindings);
       if (selected.kind === "resolved" && selected.activations.some(activation => activation.bindings === entry.bindings)) return true;
-      unknown ??= Object.freeze({ kind: "unresolved", at: producer.subject.node, reason: selected.kind === "unresolved"
+      return Object.freeze({ kind: "unresolved", at: producer.subject.node, reason: selected.kind === "unresolved"
         ? selected.reason : "A resolver input requires its identical native callback entry activation." });
     }
-    if (unknown !== undefined) return unknown;
     const declaration = producer.subject.node;
     if (producer.subject.kind === "value" && producer.subject.projection.length === 0 &&
       (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
@@ -354,35 +354,78 @@ export function analyzeSourceGenericAdoption(input: {
       reason: "A generic resolving call requires its exact source callable or canonical native resolver identity." });
   };
   const qualify = (operation: Node, argument: Node, activation: SourceStorageBoundActivation,
-    unresolved?: SourceOwnershipUnresolved): void => {
+    knownResolverResult: Type | undefined, unresolved?: SourceOwnershipUnresolved): void => {
     const sensitivity: Sensitivity = Object.freeze({ operation, ...(unresolved === undefined ? {} : { unresolved }) });
     const selected = input.storage.subjectFor(argument);
-    const origins = selected.kind === "unresolved" ? selected : input.storage.boundOriginsFor(selected.subject, activation.bindings);
-    if (origins.kind === "unresolved") {
+    const origins = selected.kind === "unresolved" ? selected : input.storage.storageProducersFor(selected.subject, activation.bindings);
+    if (origins.kind === "unresolved" || origins.producers.length === 0) {
       if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
       const semantics = source.semantics.forNode(argument);
       const type = semantics.types.expressionType(argument);
       if (type === undefined) { refuse(operation, "A qualified resolver requires its exact checked argument type."); return; }
-      markType(operation, type, semantics, unresolved ?? Object.freeze({ kind: "unresolved", at: operation, reason: origins.reason }),
+      markType(operation, type, semantics, unresolved ?? Object.freeze({ kind: "unresolved", at: operation,
+        reason: origins.kind === "unresolved" ? origins.reason : "A qualified resolver requires a nonempty original value domain." }),
         activation.kind === "invocation" ? activation.declaration : undefined);
-    } else for (const origin of origins.subjects) {
-      const type = input.storage.typeFor(origin);
-      if (type.kind === "unresolved") { refuse(operation, type.reason); return; }
-      markType(operation, type.type, source.semantics.forFile(type.sourceFile), unresolved,
+      if (knownResolverResult !== undefined && (semantics.types.isAny(type) || semantics.types.isUnknown(type)))
+        markType(operation, knownResolverResult, semantics, Object.freeze({ kind: "unresolved", at: operation,
+          reason: "An actual native resolver requires a completed checked argument bound." }));
+    } else for (const producer of origins.producers) {
+      const origin = producer.subject;
+      let selectedType = producer.type;
+      let selectedSemantics = source.semantics.forFile(producer.sourceFile);
+      if (origin.kind === "input" && ast.is.IsParameterDeclaration(origin.node)) {
+        const owner = ast.parent(origin.node);
+        const owning = owner === undefined ? undefined : input.storage.boundActivationsFor(owner, producer.bindings);
+        if (owning?.kind === "unresolved" && input.storage.failureReason() !== undefined) {
+          refuse(operation, input.storage.failureReason()!); return;
+        }
+        const ownerActivation = owning?.kind === "resolved" && owning.activations.length === 1 ? owning.activations[0] : undefined;
+        const entry = ownerActivation?.kind === "declaration" ? ownerActivation.nativeEntry : undefined;
+        if (entry !== undefined) {
+          selectedSemantics = source.semantics.forNode(entry.invocation);
+          const callbackType = selectedSemantics.types.nonNullableType(entry.argument.binding.selectedParameterType);
+          const signatures = callbackType === undefined ? [] : selectedSemantics.types.signatureInfos(callbackType, "call");
+          const parameterIndex = ast.parameters(owner!).indexOf(origin.node);
+          if (signatures.length === 1 && parameterIndex >= signatures[0]!.parameters.length &&
+            !signatures[0]!.parameters.some(parameter => parameter.parameterKind === "rest")) continue;
+          let nativeType = signatures.length === 1 ? signatures[0]!.parameters[parameterIndex]?.type : undefined;
+          for (const component of origin.projection) {
+            if (!step(operation)) return;
+            nativeType = nativeType === undefined ? undefined : sourceStorageComponentType(nativeType, component, selectedSemantics);
+          }
+          if (nativeType === undefined) {
+            markType(operation, knownResolverResult ?? producer.type, source.semantics.forFile(producer.sourceFile), Object.freeze({ kind: "unresolved", at: operation,
+              reason: "A native resolver callback requires its exact checked input component type bound." }));
+            continue;
+          }
+          selectedType = nativeType;
+        }
+      }
+      if (knownResolverResult !== undefined && (selectedSemantics.types.isAny(selectedType) || selectedSemantics.types.isUnknown(selectedType))) {
+        markType(operation, knownResolverResult, selectedSemantics, Object.freeze({ kind: "unresolved", at: operation,
+          reason: "An actual native resolver requires a completed checked argument bound." }));
+        continue;
+      }
+      markType(operation, selectedType, selectedSemantics, unresolved,
         activation.kind === "invocation" ? activation.declaration : undefined);
     }
+    const type = source.semantics.forNode(argument).types.expressionType(argument);
+    if (type === undefined) { refuse(operation, "A qualified resolver requires its exact checked argument type."); return; }
+    qualifyInstantiation(operation, type, source.semantics.forNode(argument), activation, sensitivity);
+  };
+  const qualifyInstantiation = (operation: Node, type: Type, inputSemantics: SourceFileSemantics,
+    activation: SourceStorageBoundActivation, sensitivity: Sensitivity): void => {
     if (activation.kind !== "invocation") return;
     const semantics = source.semantics.forNode(activation.invocation);
     const call = semantics.operations.call(activation.invocation);
     const declaration = call?.sourceSelectedSignatureKind === "resolved"
       ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
     const implementation = declaration === undefined ? undefined : source.navigation.callableImplementation(declaration);
-    const type = source.semantics.forNode(argument).types.expressionType(argument);
     if (declaration === undefined || implementation?.kind !== "resolved" ||
-      implementation.implementation.declaration !== activation.declaration || type === undefined) {
+      implementation.implementation.declaration !== activation.declaration) {
       refuse(operation, "A qualified resolver requires its exact checked argument and invocation implementation."); return;
     }
-    const affected = topLevelParameters(type, source.semantics.forNode(argument));
+    const affected = topLevelParameters(type, inputSemantics);
     const qualified = new Set<Node>();
     for (const actual of call?.sourceSelectedMethodTypeArguments ?? []) {
       const formal = sourceParameter(actual.typeParameter, semantics);
@@ -395,6 +438,25 @@ export function analyzeSourceGenericAdoption(input: {
     if ([...(affected ?? [])].some(parameter => parameters.get(parameter)?.owner === activation.declaration && !qualified.has(parameter)))
       refuse(operation, "A qualified generic resolver requires every affected parameter's exact checked invocation binding.");
   };
+  const unknownArgument = (operation: Node, argument: Node, reason: string): void => {
+    if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
+    const semantics = source.semantics.forNode(argument);
+    const type = semantics.types.expressionType(argument);
+    if (type === undefined) { refuse(operation, "An unresolved resolver demand requires its checked argument type."); return; }
+    markType(operation, type, semantics, Object.freeze({ kind: "unresolved", at: operation, reason }));
+  };
+  const unknownNativeInput = (operation: Node, callback: Type, reason: string): void => {
+    if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
+    const semantics = source.semantics.forNode(operation);
+    const type = semantics.types.nonNullableType(callback);
+    const signatures = type === undefined ? [] : semantics.types.signatureInfos(type, "call");
+    if (signatures.length === 0) { refuse(operation, "An unresolved native callback requires its checked input type bounds."); return; }
+    for (const signature of signatures) {
+      const parameter = signature.parameters[0];
+      if (parameter !== undefined) markType(operation, parameter.type, semantics,
+        Object.freeze({ kind: "unresolved", at: operation, reason }));
+    }
+  };
   for (const { node, selected, declaration } of calls) {
     if (!step(node)) break;
     const semantics = source.semantics.forNode(node);
@@ -405,31 +467,97 @@ export function analyzeSourceGenericAdoption(input: {
       const subject = input.storage.subjectFor(callee);
       if (subject.kind === "unresolved") { refuse(node, subject.reason); break; }
       for (const entry of entries) {
-        const activations = input.storage.contributingActivationsFor(subject.subject, owner, entry.producer);
-        if (activations.kind === "unresolved") {
-          refuse(node, activations.reason);
+        const executions = input.storage.contributingExecutionsFor(subject.subject, owner, entry.producer);
+        if (executions.kind === "unresolved") {
+          unknownArgument(node, argument, executions.reason);
           continue;
         }
-        for (const activation of activations.activations) {
+        for (const execution of executions.producers) {
+          const activations = input.storage.boundActivationsFor(owner, execution.bindings);
+          if (activations.kind === "unresolved") { unknownArgument(node, argument, activations.reason); continue; }
+          for (const activation of activations.activations) {
           const origins = input.storage.storageProducersFor(subject.subject, activation.bindings);
           if (origins.kind === "unresolved") {
             if (input.storage.failureReason() !== undefined) refuse(node, input.storage.failureReason()!);
-            else qualify(node, argument, activation, Object.freeze({ kind: "unresolved", at: node, reason: origins.reason }));
+            else qualify(node, argument, activation, undefined, Object.freeze({ kind: "unresolved", at: node, reason: origins.reason }));
             continue;
           }
           const resolvers: SourceStorageProducer[] = [];
           let unknown: SourceOwnershipUnresolved | undefined;
           for (const producer of origins.producers) {
-            const selected = resolverFor(producer);
+            const selected = resolverFor(producer, entry);
             if (selected === true) resolvers.push(producer);
             else if (selected !== false) unknown ??= selected;
           }
-          if (resolvers.length !== 0) qualify(node, argument, activation);
+          if (resolvers.length !== 0) qualify(node, argument, activation, entry.resultType, executions.kind === "open"
+            ? Object.freeze({ kind: "unresolved", at: node, reason: "A relevant callback execution remains open." }) : undefined);
           if (origins.kind === "open" && origins.boundaries.some(boundary => boundary.kind !== "external-input" ||
             !resolvers.some(producer => producer.subject === boundary.subject))) unknown ??= Object.freeze({ kind: "unresolved", at: node,
             reason: "A generic resolving call requires its complete same-activation callable provenance." });
-          if (unknown !== undefined) qualify(node, argument, activation,
+          if (unknown !== undefined) qualify(node, argument, activation, undefined,
             Object.freeze({ kind: "unresolved", at: node, reason: unknown.reason }));
+          }
+        }
+      }
+    }
+    if (entries.length !== 0 && owner !== undefined) {
+      const callbacks = input.storage.nativeCallbackArgumentsFor(node);
+      if (callbacks.kind === "unresolved") {
+        if (input.storage.failureReason() !== undefined) refuse(node, input.storage.failureReason()!);
+        else for (const binding of selected.sourceArgumentBindings) {
+          const type = semantics.types.nonNullableType(binding.selectedParameterType);
+          if (type !== undefined && semantics.types.signatureInfos(type, "call").length !== 0)
+            unknownNativeInput(node, binding.selectedParameterType, callbacks.reason);
+        }
+      }
+      if (callbacks.kind !== "unresolved" && callbacks.arguments.length !== 0) {
+        const subject = input.storage.subjectFor(callee);
+        if (subject.kind === "unresolved") { refuse(node, subject.reason); break; }
+        for (const entry of entries) {
+          const executions = input.storage.contributingExecutionsFor(subject.subject, owner, entry.producer);
+          if (executions.kind === "unresolved") {
+            for (const callback of callbacks.arguments) unknownNativeInput(node, callback.binding.selectedParameterType, executions.reason);
+            continue;
+          }
+          for (const execution of executions.producers) {
+            const activations = input.storage.boundActivationsFor(owner, execution.bindings);
+            if (activations.kind === "unresolved") {
+              for (const callback of callbacks.arguments) unknownNativeInput(node, callback.binding.selectedParameterType, activations.reason);
+              continue;
+            }
+            for (const callback of callbacks.arguments) {
+              const origins = input.storage.storageProducersFor(callback.actual, execution.bindings);
+              if (origins.kind === "unresolved") { unknownNativeInput(node, callback.binding.selectedParameterType, origins.reason); continue; }
+              const resolvers: SourceStorageProducer[] = [];
+              let unresolved: SourceOwnershipUnresolved | undefined;
+              for (const producer of origins.producers) {
+                const identity = resolverFor(producer, entry);
+                if (identity === true) resolvers.push(producer);
+                else if (identity !== false) unresolved ??= identity;
+              }
+              if (resolvers.length === 0 && unresolved === undefined) continue;
+              const openOrigins = origins.kind === "open" && origins.boundaries.some(boundary => boundary.kind !== "external-input" ||
+                !resolvers.some(producer => producer.subject === boundary.subject));
+              if (callbacks.kind === "open" || executions.kind === "open" || openOrigins) unresolved ??=
+                Object.freeze({ kind: "unresolved", at: node, reason: "A native resolver callback requires its complete same-activation execution and identity." });
+              const type = semantics.types.nonNullableType(callback.binding.selectedParameterType);
+              const signatures = type === undefined ? [] : semantics.types.signatureInfos(type, "call");
+              if (signatures.length !== 1) { unknownNativeInput(node, callback.binding.selectedParameterType,
+                "A native resolver callback requires its exact checked contextual signature."); continue; }
+              const parameter = signatures[0]!.parameters[0];
+              if (parameter === undefined) continue;
+              if (resolvers.length !== 0 && (semantics.types.isAny(parameter.type) || semantics.types.isUnknown(parameter.type))) {
+                markType(node, entry.resultType, semantics, Object.freeze({ kind: "unresolved", at: node,
+                  reason: "An actual native resolver requires a completed checked native input bound." }));
+                continue;
+              }
+              for (const activation of activations.activations) {
+                markType(node, parameter.type, semantics, unresolved, activation.kind === "invocation" ? activation.declaration : undefined);
+                qualifyInstantiation(node, parameter.type, semantics, activation,
+                  Object.freeze({ operation: node, ...(unresolved === undefined ? {} : { unresolved }) }));
+              }
+            }
+          }
         }
       }
     }

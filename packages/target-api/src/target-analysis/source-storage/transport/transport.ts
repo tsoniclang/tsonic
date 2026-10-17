@@ -20,8 +20,9 @@ import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js"
 import { createSourceStorageInvocationResults, sourceStorageClassLineages } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "../model/types.js";
-import { snapshotSourceStorageCallEffect } from "../graph/call-effects.js";
+import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
+  SourceStorageCallbackEntry } from "../model/types.js";
+import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues } from "../graph/stored-values.js";
@@ -50,6 +51,7 @@ export function createSourceStorageTransport(
   const invocationArguments = new Map<Node, readonly Node[]>();
   const invocationDeclarations = new Map<Node, Node>();
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
+  const callbackEntries = new Map<Node, readonly SourceStorageCallbackEntry[]>();
   const checkedSourceFiles = new Map<Node, SourceFile>();
   const unresolvedInvocations = new Map<Node, string>();
   const memberImplementations = new Map<Node, Set<Node>>();
@@ -351,6 +353,24 @@ export function createSourceStorageTransport(
           connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
+        const supplied = effects.callbackEntries?.(node, selected);
+        const callbacks = supplied === undefined ? undefined : snapshotSourceStorageCallbackEffects(supplied, selected, budget);
+        const nativeEntries: SourceStorageCallbackEntry[] = [];
+        for (const argument of arguments_) {
+          if (!step()) break;
+          if (semantics.forNode(node).types.isNullish(argument.binding.selectedArgumentType)) continue;
+          const known = callbacks?.find(callback => callback.parameterIndex === argument.binding.sourceParameterIndex);
+          if (callbacks !== undefined && known === undefined) continue;
+          const types = semantics.forNode(node).types;
+          const parameterType = types.nonNullableType(argument.binding.selectedParameterType);
+          const argumentType = types.nonNullableType(argument.binding.selectedArgumentType);
+          const callable = parameterType !== undefined && types.signatureInfos(parameterType, "call").length !== 0 ||
+            argumentType !== undefined && types.signatureInfos(argumentType, "call").length !== 0;
+          if (known === undefined && !callable) continue;
+          if (!budget.row()) break;
+          nativeEntries.push(Object.freeze({ argument, timing: known?.timing ?? "unknown", ...(known?.inputs === undefined ? {} : { inputs: known.inputs }) }));
+        }
+        callbackEntries.set(node, Object.freeze(nativeEntries));
       } else {
         unresolvedInvocations.set(node, "An invocation has no exact checked selected signature transport.");
       }
@@ -542,6 +562,21 @@ export function createSourceStorageTransport(
   const invocationImplementations = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> =>
     invocationImplementationSelection(invocation, originsFor)?.nodes ?? new Set();
+  const callbackEntriesFor = (invocation: Node): readonly SourceStorageCallbackEntry[] => {
+    const selected = invocationImplementationSelection(invocation);
+    if (selected?.exact === true && [...selected.nodes].some(candidate => ast.body(candidate) !== undefined)) return [];
+    return callbackEntries.get(invocation) ?? [];
+  };
+  const callbackImplementationsFor = (entry: SourceStorageCallbackEntry): ReadonlySet<Node> => {
+    const implementations = new Set<Node>();
+    for (const producer of originSubjects(entry.argument.actual) ?? []) {
+      if (!step()) break;
+      const selected = navigation.callableImplementation(producer.node);
+      if (selected.kind === "resolved" && ast.body(selected.implementation.declaration) !== undefined)
+        implementations.add(selected.implementation.declaration);
+    }
+    return implementations;
+  };
   const physicalMemberInputs = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
     const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
@@ -684,7 +719,7 @@ export function createSourceStorageTransport(
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
+    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles, callbackEntriesFor, callbackImplementationsFor,
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
@@ -731,6 +766,7 @@ export function createSourceStorageTransport(
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
+    callbackEntriesFor, callbackImplementationsFor,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };

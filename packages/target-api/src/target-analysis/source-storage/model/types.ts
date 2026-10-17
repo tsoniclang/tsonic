@@ -18,6 +18,15 @@ export interface SourceStorageCallEffect {
 
 export interface SourceStorageEffects {
   readonly call?: (node: Node, selected: ResolvedSourceCallInfo) => SourceStorageCallEffect | undefined;
+  readonly callbackEntries?: (node: Node, selected: ResolvedSourceCallInfo) => readonly {
+    readonly parameterIndex: number;
+    readonly timing: "synchronous" | "deferred";
+    readonly inputs?: readonly {
+      readonly parameterIndex: number;
+      readonly from: "receiver-element" | "argument-element";
+      readonly sourceParameterIndex?: number;
+    }[];
+  }[] | undefined;
 }
 
 export interface SourceStorageUnresolved {
@@ -85,8 +94,16 @@ export interface SourceStorageArgumentTransport {
   readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
 }
 
+export interface SourceStorageCallbackEntry {
+  readonly argument: SourceStorageArgumentTransport;
+  readonly timing: "synchronous" | "deferred" | "unknown";
+  readonly inputs?: NonNullable<ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>>>[number]["inputs"];
+}
+
 export type SourceStorageArgumentsSelection =
   | { readonly kind: "resolved"; readonly arguments: readonly SourceStorageArgumentTransport[] }
+  | { readonly kind: "open"; readonly arguments: readonly SourceStorageArgumentTransport[];
+      readonly boundaries: readonly SourceStorageDomainBoundary[] }
   | SourceStorageUnresolved;
 
 export interface SourceStorageBoundary {
@@ -111,7 +128,9 @@ export type SourceStorageBindingsSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageBoundActivation =
-  | { readonly kind: "declaration"; readonly declaration: Node; readonly bindings: SourceStorageBindings }
+  | { readonly kind: "declaration"; readonly declaration: Node; readonly bindings: SourceStorageBindings;
+      readonly nativeEntry?: { readonly invocation: Node; readonly argument: SourceStorageArgumentTransport;
+        readonly callerBindings: SourceStorageBindings } }
   | { readonly kind: "invocation"; readonly declaration: Node; readonly invocation: Node;
       readonly bindings: SourceStorageBindings; readonly callerBindings: SourceStorageBindings };
 
@@ -194,8 +213,9 @@ export interface SourceStorageQueries {
     { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
   boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;
-  contributingActivationsFor(subject: SourceStorageSubject, declaration: Node,
-    entry: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageActivationsSelection;
+  contributingExecutionsFor(subject: SourceStorageSubject, declaration: Node,
+    entry: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageProducersSelection;
+  nativeCallbackArgumentsFor(invocation: Node): SourceStorageArgumentsSelection;
   boundValueFrontierFor(subject: SourceStorageSubject, bindings: SourceStorageBindings,
     boundaries: readonly SourceStorageSubject[], position?: "value" | "input"): SourceStorageValueFrontierSelection;
   invocationArgumentsFor(invocation: Node): SourceStorageNodesSelection;

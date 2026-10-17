@@ -2,7 +2,7 @@ import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import type { SourceStorageStoredProjection } from "../graph/store-projections.js";
-import type { SourceStorageCallEffect } from "../model/types.js";
+import type { SourceStorageCallEffect, SourceStorageCallbackEntry } from "../model/types.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageMemberFlow } from "../graph/member-flow.js";
 import type { createSourceStorageContextInputs } from "./context-inputs.js";
@@ -29,6 +29,8 @@ export interface SourceStorageScopedTransport {
   storedValuesFor(subject: SourceStorageSubject): readonly SourceStorageStoredProjection[] | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
+  callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
+  callbackImplementationsFor(entry: SourceStorageCallbackEntry): ReadonlySet<Node>;
   memberAccessorsFor(declaration: Node): ReadonlySet<Node> | undefined;
   isOpaque(invocation: Node): boolean;
 }

@@ -249,7 +249,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const values = new Set<SourceStorageBoundSubject>();
     for (const value of selected) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") { budget.reject(value.reason); return undefined; }
+      if (value.kind === "unresolved") { if (value.exposure === undefined) budget.reject(value.reason); return undefined; }
       if (value.kind === "leaf") values.add(Object.freeze({ subject: value.subject, bindings: value.scope }));
     }
     return values;
@@ -260,16 +260,23 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (selected === undefined) return undefined;
     const subjects = new Set<SourceStorageSubject>();
     let reason: string | undefined;
+    let fatalReason: string | undefined;
     for (const value of selected) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") reason ??= value.reason;
+      if (value.kind === "unresolved") {
+        reason ??= value.reason;
+        if (value.exposure === undefined) fatalReason ??= value.reason;
+      }
       if (value.kind === "leaf") subjects.add(value.subject);
     }
-    return Object.freeze({ origins: subjects, reason });
+    return Object.freeze({ origins: subjects, reason, fatalReason });
   });
   const origins = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
     const selected = provenance(origin, scope);
-    if (selected?.reason !== undefined) { budget.reject(selected.reason); return undefined; }
+    if (selected?.reason !== undefined) {
+      if (selected.fatalReason !== undefined) budget.reject(selected.fatalReason);
+      return undefined;
+    }
     return selected?.origins;
   };
   const contributingExecutions = (origin: SourceStorageSubject, declaration: Node, creation: SourceStorageScope) =>
@@ -277,19 +284,26 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const body = source.ast.body(declaration);
       const scope = scopes.declarationFor(declaration, creation);
       if (body === undefined || scope === undefined) return undefined;
-      const root = intern(Object.freeze({ kind: "region", region: body, scope, demand: origin.node }));
+      const root = intern(Object.freeze({ kind: "region", region: body, scope, demand: origin.node, deferred: true }));
       const selected = root === undefined ? undefined : results(root);
       if (selected === undefined) return undefined;
       const subjects: SourceStorageBoundSubject[] = [];
+      const boundaries: Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[] = [];
       let reason: string | undefined;
       for (const value of selected) {
         if (!budget.step()) return undefined;
-        if (value.kind === "unresolved") reason ??= value.reason;
+        if (value.kind === "unresolved") {
+          if (value.exposure === undefined) reason ??= value.reason;
+          else {
+            if (!temporary.add(1)) return undefined;
+            boundaries.push(value);
+          }
+        }
         if (value.kind !== "leaf" || value.subject !== origin) continue;
         if (!temporary.add(1)) return undefined;
         subjects.push(Object.freeze({ subject: value.subject, bindings: value.scope }));
       }
-      return Object.freeze({ subjects: Object.freeze(subjects), reason });
+      return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
     stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {

@@ -52,6 +52,13 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
           for (const child of transport.regions.callable(candidate, transport.accessorTargets.has(invocation) ? undefined : invocation))
             if (!add(child)) return undefined;
         }
+        for (const entry of transport.callbackEntriesFor(invocation)) {
+          if (!budget.step()) return undefined;
+          for (const candidate of transport.callbackImplementationsFor(entry)) {
+            if (!budget.step()) return undefined;
+            for (const child of transport.regions.callable(candidate, invocation, undefined, entry)) if (!add(child)) return undefined;
+          }
+        }
         if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
           const instance = transport.regions.instance(invocation);
           if (instance === undefined) return undefined;

@@ -8,10 +8,12 @@ import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import type { SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
+import type { SourceStorageCallbackEntry } from "../model/types.js";
 
 interface SourceStorageIncomingCallSite {
   readonly invocation: Node;
   readonly caller: Node;
+  readonly callback?: SourceStorageCallbackEntry;
 }
 
 const noSites: readonly SourceStorageIncomingCallSite[] = Object.freeze([]);
@@ -49,6 +51,14 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
           const callers = incoming.get(candidate) ?? [];
           if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
           callers.push(Object.freeze({ invocation, caller: owner }));
+          incoming.set(candidate, callers);
+        }
+        for (const callback of transport.callbackEntriesFor(invocation)) for (const candidate of transport.callbackImplementationsFor(callback)) {
+          if (!budget.step()) return undefined;
+          if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
+          const callers = incoming.get(candidate) ?? [];
+          if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
+          callers.push(Object.freeze({ invocation, caller: owner, callback }));
           incoming.set(candidate, callers);
         }
       }
@@ -106,8 +116,8 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
           if (!budget.step()) return undefined;
           const caller = site.caller;
           if (!component.has(caller)) continue;
-          const inputs = invocationInputs(formal, owner, site.invocation);
-          if (inputs.context !== "caller" || inputs.subjects.size !== 1) return undefined;
+          const inputs = invocationInputs(formal, owner, site.invocation, site.callback);
+          if (inputs.context !== "caller" || inputs.subjects.size !== 1 || (inputs.defaults?.length ?? 0) !== 0) return undefined;
           const input = budget.withRows(temporary => {
             let input = inputs.subjects.values().next().value!;
             const visited = new Set<SourceStorageSubject>();
