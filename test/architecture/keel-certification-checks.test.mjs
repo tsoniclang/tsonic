@@ -1415,6 +1415,58 @@ test("QRC-02: optional print operands retain unresolved option, preload and stdi
     "unknown optional operand role is recorded, not silently certified");
 });
 
+test("QRC-08: canonical parsing precedes lexical root admission for every escaped builtin spelling", () => {
+  for (const source of [
+    String.raw`\u0065val("im" + "port('../test/helpers/native-ownership-cost.mjs')");`,
+    String.raw`\u{65}val("im" + "port('../test/helpers/native-ownership-cost.mjs')");`,
+    String.raw`new \u0046unction("im" + "port('../test/helpers/native-ownership-cost.mjs')")();`,
+    String.raw`\u0046\u0075nction("im" + "port('../test/helpers/native-ownership-cost.mjs')")();`,
+    String.raw`\u{46}unction("im" + "port('../test/helpers/native-ownership-cost.mjs')")();`,
+    String.raw`glo\u0062alThis.e\u0076al("im" + "port('../test/helpers/native-ownership-cost.mjs')");`,
+    String.raw`mo\u0064ule.re\u0071uire("../test/helpers/native-ownership-cost.mjs");`,
+    String.raw`pr\u006fcess.getBuiltinMod\u0075le("fs").readFi\u006ceSync("../../rust-runtime/tests/helpers/allocation_counts.rs");`,
+    String.raw`glo\u0062alThis.pro\u0063ess.getBuiltinMod\u0075le("fs").readFi\u006ceSync("../../rust-runtime/tests/helpers/allocation_counts.rs");`,
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/escaped.mjs", safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, source);
+    assert.equal(result.findings.some(finding => finding.file === "src/escaped.mjs" && finding.reason.includes("test-only cut")), true,
+      `${source}: the canonical parser exposes the actual native binding`);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8,
+      `${source}: an executable promotion grants no allocator credit`);
+    const contained = nativeBoundaryInputs();
+    contained.get("tsonic-rust").set("test/escaped.test.mjs", safetyFile(`import test from "node:test";\n${source}`));
+    assert.equal(boundarySafety(contained).findings.length, 0, `${source}: the same computed entry retains its actual test boundary`);
+  }
+});
+
+test("QRC-08: canonical syntax admission preserves ordinary identifiers and nonexecution but rejects malformed executable bodies", () => {
+  for (const source of [
+    "const value = 1; value + 1;",
+    String.raw`const \u0070rocess = { ordinary: 1 }; \u0070rocess.ordinary;`,
+    String.raw`function run(Fu\u006ection) { Fu\u006ection("im" + "port('../test/helpers/native-ownership-cost.mjs')"); }`,
+    String.raw`function run(pr\u006fcess) { pr\u006fcess.value; }`,
+    String.raw`const text = "\\u0065val('not executed')";`,
+    String.raw`const pattern = /\u0065val\(value\)/u;`,
+    String.raw`/* \u0065val('not executable'); const incomplete = ; */ const value = 1;`,
+    "#!/usr/bin/env node\nconst value = 1;",
+    "",
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${source}: actual syntax and scoped identity, not a raw word filter`);
+  }
+  for (const source of ["const value = ;", "function run( {", String.raw`let value = "\uZZZZ";`]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/malformed.mjs", safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, `${source}: malformed executable input is unresolved`);
+    assert.equal(result.findings.some(finding => finding.file === "src/malformed.mjs" && finding.reason.includes("unresolved executable source syntax")),
+      true, "the existing bounded parser diagnostic route owns syntax refusal");
+  }
+});
+
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {
   for (const source of [
     'import type { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs"; export type Support = typeof nativeAllocationSupport;',
@@ -1530,6 +1582,16 @@ test("C116-F5: one finite literal input owns the actual registry targets and the
   }), true, "the actual cut and recorded artifact hashes cover identical bytes");
   const namespaceRoot = source.replace('import { resolve } from "node:path";', 'import * as paths from "node:path";').replaceAll('resolve(', 'paths.resolve(');
   assert.equal(boundarySafety(registryInputs(namespaceRoot)).findings.length, 0, "a proven native namespace uses the same finite root contract");
+  for (const changed of [source.replaceAll("createRequire", String.raw`createR\u0065quire`),
+    source.replaceAll("createRequire", String.raw`createR\u{65}quire`).replace('"node:module"', String.raw`"node:mod\u0075le"`)]) {
+    assert.notEqual(changed, source, "escaped names remain raw source bytes, not cooked fixture identifiers");
+    const escaped = registryInputs(changed);
+    assert.deepEqual(keelSafetyBuiltModuleEntries(escaped), targets, "canonical semantic identity, not a raw createRequire substring, seeds capture");
+    const actual = boundarySafety(escaped);
+    assert.equal(actual.findings.length, 0, "the same closed finite owner remains ordinary through escaped native names");
+    assert.deepEqual(actual.nativeAllocationBoundary.builtModuleInputs.map(input => input.path), targets,
+      "discovery and final admission consume the same actual compiled target bytes");
+  }
   for (const [label, changed] of [
     ["observer row", source.replace('  "csharp-nodejs":', '  "rust-runtime": { file: "tests/helpers/allocation_counts.rs", export: "observer", form: "value" },\n  "csharp-nodejs":')],
     ["writer row", source.replace('  "csharp-nodejs":', '  "tsonic-rust": { file: "test/helpers/native-ownership-cost.mjs", export: "nativeAllocationSupport", form: "function" },\n  "csharp-nodejs":')],

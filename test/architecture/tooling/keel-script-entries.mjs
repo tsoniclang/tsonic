@@ -25,7 +25,6 @@ export function staticFileAddress(sourcePath, specifier) {
 }
 
 export function scriptSourceReferences(path, text, boundary) {
-  if (!/\b(?:import|export|require|module|eval|Function|URL|readFile|copyFile|Worker|fork|getBuiltinModule|process|globalThis|global|self|window)\b/u.test(text)) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;

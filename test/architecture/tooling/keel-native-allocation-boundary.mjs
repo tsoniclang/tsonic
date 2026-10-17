@@ -411,7 +411,7 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
   const targets = new Set();
   for (const [repo, files] of workspaceInputs) {
     for (const [file, input] of files) {
-      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file) || !input.builtModule && !input.text.includes("createRequire")) continue;
+      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file)) continue;
       const path = `${repo}/${file}`;
       const script = scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary);
       for (const target of script.finiteModuleTargets) targets.add(target);
