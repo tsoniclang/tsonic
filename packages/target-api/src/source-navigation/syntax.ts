@@ -11,8 +11,12 @@ export type SourceReferenceMeaning = "value" | "type" | "namespace";
 export function sourceReferenceMeaning(ast: AstReader, node: Node): SourceReferenceMeaning {
   let reference = node;
   let parent = ast.parent(reference);
-  while (parent !== undefined && ast.is.IsQualifiedName(parent)) {
-    if (ast.as.AsQualifiedName(parent)?.Left === reference) return "namespace";
+  let propertyQualifier = false;
+  while (parent !== undefined &&
+    (ast.is.IsQualifiedName(parent) || ast.is.IsPropertyAccessExpression(parent))) {
+    if (ast.is.IsQualifiedName(parent) && ast.as.AsQualifiedName(parent)?.Left === reference) return "namespace";
+    if (ast.is.IsPropertyAccessExpression(parent) &&
+      ast.as.AsPropertyAccessExpression(parent)?.Expression === reference) propertyQualifier = true;
     reference = parent;
     parent = ast.parent(reference);
   }
@@ -27,7 +31,7 @@ export function sourceReferenceMeaning(ast: AstReader, node: Node): SourceRefere
     const clause = ast.parent(parent);
     const owner = ast.parent(clause);
     if (owner !== undefined && (ast.is.IsInterfaceDeclaration(owner) ||
-      ast.implementsHeritageElements(owner).includes(parent))) return "type";
+      ast.implementsHeritageElements(owner).includes(parent))) return propertyQualifier ? "namespace" : "type";
   }
   if (parent !== undefined && ast.name(parent) === reference) {
     if (ast.is.IsTypeAliasDeclaration(parent) || ast.is.IsInterfaceDeclaration(parent) ||
