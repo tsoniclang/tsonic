@@ -248,9 +248,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         frame.kind === "frame" && frame.invocation !== undefined && frame.owner !== undefined &&
         sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
-      const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
+      const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
-      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason,
+      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
         ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
         : [selected.kind, scopes.identity(selected.subject), birth, context];
     };

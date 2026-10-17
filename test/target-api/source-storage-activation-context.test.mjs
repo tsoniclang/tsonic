@@ -448,6 +448,45 @@ for (const [name, text, owners] of [
   });
 }
 
+for (const timing of ["synchronous", "unknown", "none"]) for (const reversed of [false, true]) {
+  test("uncertain native execution is possible, never certified as an executed source body: " + timing + "/" + reversed, async () => {
+    const current = await fixture("native-execution-certainty-" + timing, `
+      declare function observe(value: number): void;
+      declare function nativeInvoke(callback: () => void): void;
+      export function create(value: number) { return () => { nativeInvoke(() => { observe(value); }); }; }
+    `, (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        if (source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) !== native) return undefined;
+        return timing === "synchronous" ? [{ parameterIndex: 0, timing }] : timing === "none" ? [] : undefined;
+      } };
+    });
+    const { ast, nodes, storage, declaration } = current;
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.is.IsReturnStatement(ast.parent(node)));
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+    const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const produced = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
+    assert.equal(produced.kind, "complete", "one actual explicit source entry creation");
+    assert.equal(produced.producers.length, 1, "the checked entry is not replaced with a global root");
+    const demand = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+    if (reversed) resolved(storage.originSubjectsFor(demand));
+    const selected = storage.contributingExecutionsFor(demand, owner, produced.producers[0]);
+    assert.equal(selected.kind, timing === "unknown" ? "open" : "complete", "only actual missing execution evidence creates an open demand");
+    assert.equal(selected.producers.length, timing === "synchronous" ? 1 : 0,
+      "possible execution is not a certified producer, and known no-invocation stays empty");
+    if (selected.kind === "open") {
+      assert.equal(selected.boundaries.length, 1, "the actual native callback owns one possible continuation");
+      const boundary = selected.boundaries[0];
+      assert.equal(boundary.subject === demand, true, "the demanded original use, not an unrelated call, retains uncertainty");
+      const origins = resolved(storage.boundOriginsFor(resolved(storage.subjectFor(ast.arguments(use)[0])).subject, boundary.bindings));
+      assert.equal(origins.subjects.length === 1 && origins.subjects[0].node === ast.parameters(declaration("create"))[0], true,
+        "possible native execution keeps the original capture binding");
+    }
+    assert.equal(storage.failureReason() === undefined, true, "local execution uncertainty is not a global failure");
+  });
+}
+
 test("explicit callback entry rejects foreign or fabricated evidence and does not invent unreachable bodies", async () => {
   const text = "function other(callback: () => void): void { callback(); } export function create() { return () => {}; }";
   const current = await fixture("source-entry-owned", text);

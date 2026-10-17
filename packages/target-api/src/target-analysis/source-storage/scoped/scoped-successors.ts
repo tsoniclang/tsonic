@@ -77,6 +77,20 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration)) &&
     transport.memberAccessorsFor(declaration)?.size === 0;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
+  const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
+    reasons: { readonly value: string; readonly effect: string }): readonly SourceStorageTerm[] | undefined => {
+    const selected = transport.subjectFor(demand);
+    const terms: SourceStorageTerm[] = [];
+    for (const result of walkSourceStorageExecution(budget, roots, readRelation)) {
+      if (!budget.step()) return undefined;
+      if (result.kind === "unresolved") terms.push(result);
+      else if (result.kind === "leaf" && result.subject === selected)
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
+      else if (result.kind === "effect" && result.store.region === demand)
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
+    }
+    return budget.failure() === undefined ? Object.freeze(terms) : undefined;
+  };
   const readEffects = function* (store: SourceStorageStore, selection:
     | { readonly kind: "general"; readonly execution?: SourceStorageTerm }
     | { readonly kind: "own-construction"; readonly execution: SourceStorageTerm }, deferred = false, context?: SourceStorageScope) {
@@ -565,15 +579,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
                 callee: leaf(value.subject, value.bindings), scope: term.scope, projection: [],
                 ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
                 mode: "execution", demand: term.demand, deferred: term.deferred });
-              for (const result of walkSourceStorageExecution(budget, [possible], readRelation)) {
-                if (!budget.step()) return undefined;
-                if (result.kind === "leaf" && result.subject === selected || result.kind === "unresolved")
-                  terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure: frontier.exposure,
-                    reason: "A relevant source callable crosses a native input without completed value and capture correspondence." }));
-                else if (result.kind === "effect" && result.store.region === term.demand)
-                  terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure: frontier.exposure,
-                    reason: "A relevant source effect crosses a native input without completed value and capture correspondence." }));
-              }
+              const conditional = conditionalExecutions([possible], term.demand, frontier.exposure, {
+                value: "A relevant source callable crosses a native input without completed value and capture correspondence.",
+                effect: "A relevant source effect crosses a native input without completed value and capture correspondence.",
+              });
+              if (conditional === undefined) return undefined;
+              terms.push(...conditional);
             }
           }
         }
@@ -664,10 +675,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (scope === undefined) return undefined;
         const regions = regionsFor(candidate, term.invocation, scope, term.demand, undefined, term.deferred);
         if (regions === undefined) return undefined;
-        const terms = [...regions];
-        if (regions.length !== 0 && term.callback.timing === "unknown") terms.push(Object.freeze({ kind: "unresolved",
-          subject: demand, scope, exposure: term.invocation,
-          reason: "The relevant native callback has no completed checked execution contract." }));
+        const reason = "The relevant native callback has no completed checked execution contract.";
+        const terms = term.callback.timing === "unknown" ? conditionalExecutions(regions, term.demand, term.invocation,
+          { value: reason, effect: reason }) : regions;
+        if (terms === undefined) return undefined;
         return { kind: "replace", terms, dependencies };
       }
       const construction = ast.is.IsNewExpression(term.invocation) || ast.kindName(Node_Expression(ast, term.invocation)) === "KindSuperKeyword";
