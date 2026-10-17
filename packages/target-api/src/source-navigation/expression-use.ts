@@ -137,3 +137,101 @@ export function sourceCallableDefinitionIsDiscarded(declaration: Node, ast: AstR
   }
   return false;
 }
+
+export type SourceValueInputSlot =
+  | { readonly kind: "effect" | "initializer" | "return" | "thrown" | "condition" | "default" | "receiver" | "callee" | "key" }
+  | { readonly kind: "operand"; readonly position: "only" | "left" | "right" }
+  | { readonly kind: "branch"; readonly branch: "true" | "false" }
+  | { readonly kind: "element" | "member" | "span" | "case"; readonly index: number };
+
+export interface SourceValueInput {
+  readonly owner: Node;
+  readonly expression: Node;
+  readonly slot: SourceValueInputSlot;
+}
+
+function sourceValueInput(owner: Node, expression: Node | undefined, slot: SourceValueInputSlot): readonly SourceValueInput[] {
+  return expression === undefined ? [] : [Object.freeze({ owner, expression, slot: Object.freeze(slot) })];
+}
+
+export function sourceConstructValueInputs(ast: AstReader, owner: Node): readonly SourceValueInput[] {
+  const use = (expression: Node | undefined, slot: SourceValueInputSlot) => sourceValueInput(owner, expression, slot);
+  if (ast.is.IsExpressionStatement(owner)) return use(ast.as.AsExpressionStatement(owner)?.Expression, { kind: "effect" });
+  if (ast.is.IsReturnStatement(owner)) return use(ast.as.AsReturnStatement(owner)?.Expression, { kind: "return" });
+  if (ast.is.IsThrowStatement(owner)) return use(ast.as.AsThrowStatement(owner)?.Expression, { kind: "thrown" });
+  if (ast.is.IsVariableDeclaration(owner)) return use(ast.as.AsVariableDeclaration(owner)?.Initializer, { kind: "initializer" });
+  if (ast.is.IsBindingElement(owner)) return use(ast.as.AsBindingElement(owner)?.Initializer, { kind: "default" });
+  if (ast.is.IsParameterDeclaration(owner)) return use(ast.as.AsParameterDeclaration(owner)?.Initializer, { kind: "default" });
+  if (ast.is.IsEnumMember(owner)) return use(ast.as.AsEnumMember(owner)?.Initializer, { kind: "initializer" });
+  if (ast.is.IsIfStatement(owner)) return use(ast.as.AsIfStatement(owner)?.Expression, { kind: "condition" });
+  if (ast.is.IsWhileStatement(owner)) return use(ast.as.AsWhileStatement(owner)?.Expression, { kind: "condition" });
+  if (ast.is.IsDoStatement(owner)) return use(ast.as.AsDoStatement(owner)?.Expression, { kind: "condition" });
+  if (ast.is.IsForOfStatement(owner) || ast.is.IsForInStatement(owner)) return use(ast.as.AsForInOrOfStatement(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsForStatement(owner)) {
+    const statement = ast.as.AsForStatement(owner);
+    const initializer = statement?.Initializer;
+    return [...(initializer === undefined || ast.is.IsVariableDeclarationList(initializer) ? [] : use(initializer, { kind: "initializer" })),
+      ...use(statement?.Condition, { kind: "condition" }), ...use(statement?.Incrementor, { kind: "effect" })];
+  }
+  if (ast.is.IsSwitchStatement(owner)) {
+    const statement = ast.as.AsSwitchStatement(owner);
+    const clauses = statement?.CaseBlock === undefined ? [] : ast.children(statement.CaseBlock);
+    return [...use(statement?.Expression, { kind: "condition" }), ...clauses.flatMap((clause, index) =>
+      clause === undefined || !ast.is.IsCaseClause(clause) ? [] : use(ast.as.AsCaseOrDefaultClause(clause)?.Expression, { kind: "case", index }))];
+  }
+  if (ast.is.IsExportAssignment(owner)) {
+    const assignment = ast.as.AsExportAssignment(owner);
+    return assignment?.IsExportEquals === false ? use(assignment.Expression, { kind: "initializer" }) : [];
+  }
+  if (ast.is.IsArrowFunction(owner)) {
+    const body = ast.body(owner);
+    return body === undefined || ast.is.IsBlock(body) ? [] : use(body, { kind: "return" });
+  }
+  return [];
+}
+
+export function sourceExpressionValueInputs(ast: AstReader, owner: Node): readonly SourceValueInput[] | undefined {
+  const use = (expression: Node | undefined, slot: SourceValueInputSlot) => sourceValueInput(owner, expression, slot);
+  const transparent = sourceTransparentExpressionOperand(ast, owner);
+  if (transparent !== undefined) return use(transparent, { kind: "operand", position: "only" });
+  if (ast.is.IsConditionalExpression(owner)) {
+    const value = ast.as.AsConditionalExpression(owner);
+    return [...use(value?.Condition, { kind: "condition" }), ...use(value?.WhenTrue, { kind: "branch", branch: "true" }),
+      ...use(value?.WhenFalse, { kind: "branch", branch: "false" })];
+  }
+  if (ast.is.IsBinaryExpression(owner)) {
+    const value = ast.as.AsBinaryExpression(owner);
+    return [...use(value?.Left, { kind: "operand", position: "left" }), ...use(value?.Right, { kind: "operand", position: "right" })];
+  }
+  if (ast.is.IsPrefixUnaryExpression(owner)) return use(ast.as.AsPrefixUnaryExpression(owner)?.Operand, { kind: "operand", position: "only" });
+  if (ast.is.IsPostfixUnaryExpression(owner)) return use(ast.as.AsPostfixUnaryExpression(owner)?.Operand, { kind: "operand", position: "only" });
+  if (ast.is.IsAwaitExpression(owner)) return use(ast.as.AsAwaitExpression(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsYieldExpression(owner)) return use(ast.as.AsYieldExpression(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsTypeOfExpression(owner)) return use(ast.as.AsTypeOfExpression(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsVoidExpression(owner)) return use(ast.as.AsVoidExpression(owner)?.Expression, { kind: "effect" });
+  if (ast.is.IsDeleteExpression(owner)) return use(ast.as.AsDeleteExpression(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsSpreadElement(owner)) return use(ast.as.AsSpreadElement(owner)?.Expression, { kind: "operand", position: "only" });
+  if (ast.is.IsPropertyAccessExpression(owner)) return use(ast.as.AsPropertyAccessExpression(owner)?.Expression, { kind: "receiver" });
+  if (ast.is.IsElementAccessExpression(owner)) {
+    const value = ast.as.AsElementAccessExpression(owner);
+    return [...use(value?.Expression, { kind: "receiver" }), ...use(value?.ArgumentExpression, { kind: "key" })];
+  }
+  if (ast.is.IsArrayLiteralExpression(owner)) return ast.children(owner).flatMap((element, index) =>
+    element === undefined || ast.is.IsOmittedExpression(element) ? []
+      : use(ast.is.IsSpreadElement(element) ? ast.as.AsSpreadElement(element)?.Expression : element, { kind: "element", index }));
+  if (ast.is.IsObjectLiteralExpression(owner)) return ast.children(owner).flatMap((member, index) => member === undefined ? []
+    : ast.is.IsPropertyAssignment(member) ? use(ast.as.AsPropertyAssignment(member)?.Initializer, { kind: "member", index })
+    : ast.is.IsShorthandPropertyAssignment(member) ? use(ast.name(member), { kind: "member", index })
+    : ast.is.IsSpreadAssignment(member) ? use(ast.as.AsSpreadAssignment(member)?.Expression, { kind: "member", index }) : []);
+  if (ast.is.IsTemplateExpression(owner)) return (ast.as.AsTemplateExpression(owner)?.TemplateSpans?.Nodes ?? []).flatMap((span, index) =>
+    span === undefined ? [] : use(ast.as.AsTemplateSpan(span)?.Expression, { kind: "span", index }));
+  if (ast.is.IsCallExpression(owner) || ast.is.IsNewExpression(owner)) return [];
+  if (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner) || ast.is.IsClassExpression(owner)) return [];
+  return sourceValueLeafKinds.has(ast.kindName(owner)) ? [] : undefined;
+}
+
+const sourceValueLeafKinds: ReadonlySet<string> = new Set([
+  "KindIdentifier", "KindPrivateIdentifier", "KindThisKeyword", "KindSuperKeyword", "KindNumericLiteral", "KindBigIntLiteral",
+  "KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindTrueKeyword", "KindFalseKeyword", "KindNullKeyword",
+  "KindRegularExpressionLiteral", "KindOmittedExpression", "KindMetaProperty",
+]);
