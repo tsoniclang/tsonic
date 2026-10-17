@@ -87,14 +87,36 @@ test("single lexical invocation rejects repeated, recursive, escaping and deferr
   ]) assert.equal(fixture(body).select("read"), false, body);
 });
 
-test("single invocation navigation terminates cyclic and excessively deep ancestors", () => {
+test("enclosing callable navigation accepts finite deep ancestry and terminates cycles", () => {
   const node = {} as Node;
   const ast = { parent: () => node, kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
   assert.equal(sourceEnclosingCallable(node, ast) === undefined, true);
-  const nodes = Array.from({ length: 130 }, () => ({} as Node));
-  const deep = { parent: (value: Node) => nodes[nodes.indexOf(value) + 1],
-    kindName: (value: Node) => value === nodes[129] ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], deep) === undefined, true);
+  const nodes = Array.from({ length: 4096 }, () => ({} as Node));
+  const indexes = new Map(nodes.map((value, index) => [value, index]));
+  const deep = { parent: (value: Node) => nodes[indexes.get(value)! + 1],
+    kindName: (value: Node) => value === nodes.at(-1) ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
+  assert.equal(sourceEnclosingCallable(nodes[0], deep) === nodes.at(-1), true,
+    "finite lexical ancestry reaches its actual callable beyond an arbitrary depth");
+  assert.equal(sourceEnclosingCallable(undefined, deep) === undefined, true, "an absent source has no callable");
+  const cyclic = { parent: (value: Node) => nodes[(indexes.get(value)! + 1) % nodes.length],
+    kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
+  assert.equal(sourceEnclosingCallable(nodes[0], cyclic) === undefined, true,
+    "a long malformed cycle cannot manufacture an enclosing callable");
+});
+
+test("unused lexical admission uses actual checked ancestry beyond the optimization budget", () => {
+  const current = fixture(`${"{".repeat(180)}
+function dormant(): number { throw 3; }
+function called(): number { return 1; }
+called();
+${"}".repeat(180)}
+return 0;`);
+  const dormant = current.declaration("dormant");
+  assert.equal(sourceEnclosingCallable(current.source.ast.parent(dormant), current.source.ast) === current.declaration("outer"), true,
+    "the checked declaration retains its exact enclosing owner");
+  assert.equal(current.unused("dormant"), true, "an unused deep native body remains erased");
+  assert.equal(current.unused("called"), false, "a real deep invocation still requires its native body");
+  assert.equal(current.select("called"), false, "the separate conservative single-invocation optimization budget is unchanged");
 });
 
 test("finite source participation closes inherited erasure independently of input order", () => {

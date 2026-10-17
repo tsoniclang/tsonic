@@ -53,7 +53,7 @@ export function sourceNodesOutsideErasedSubtrees(
 export function sourceEnclosingCallable(node: Node | undefined, ast: AstReader): Node | undefined {
   const visited = new Set<Node>();
   for (let current = node; current !== undefined; current = ast.parent(current)) {
-    if (visited.has(current) || visited.size >= 128) return undefined;
+    if (visited.has(current)) return undefined;
     visited.add(current);
     if (isSourceCallableBodyBoundary(ast, current)) return current;
   }
