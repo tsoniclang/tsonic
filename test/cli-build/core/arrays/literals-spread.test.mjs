@@ -269,7 +269,7 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<destination>_*tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(1\);\s*\(int, int\) (?<pair>__tsonic_sequence_\d+) = pair;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ 2\)\);\s*\k<destination>\.Add\(\k<pair>\.Item1\);\s*\k<destination>\.Add\(\k<pair>\.Item2\);\s*return \k<destination>\.AppendElement\(4\);/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<destination>_*tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(1\);\s*\(int, int\) (?<pair>__+tsonic_sequence_source) = pair;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ 2\)\);\s*\k<destination>\.Add\(\k<pair>\.Item1\);\s*\k<destination>\.Add\(\k<pair>\.Item2\);\s*return \k<destination>\.AppendElement\(4\);/u);
   assert.doesNotMatch(generatedSource, /\.concat\(|new int\[\]/u);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
   assert.match(generatedSource, /values = global::Smoke\.Generated\.Index\.compose\(\(2, 3\)\);/);
@@ -318,7 +318,7 @@ test("CLI executes inferred empty arrays with the exact never element carrier", 
 });
 
 function assertArraySpreadCopies(source, inputs) {
-  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__tsonic_sequence_\d+) = (?<input>[A-Za-z][A-Za-z0-9:.]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
+  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__+tsonic_sequence_source) = (?<input>[A-Za-z][A-Za-z0-9:.]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
   assert.deepEqual(copies.map(copy => copy.groups.input), inputs);
   return copies.map(copy => copy.groups.destination);
 }

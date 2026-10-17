@@ -123,10 +123,10 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue (?<receiver>__tsonic_value_\d+) = value;\s*return \k<receiver>\.ReadDynamicSlot\("create"\)\.InvokeDynamicWithThis\(\k<receiver>, "Ada"\);/);
   assert.doesNotMatch(generatedSource, /InvokeDynamicSlot|new object\?\[\]/);
   assert.match(generatedSource, /return value\.ConstructDynamic\("Ada"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinary\(value, "\+", 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinaryBoolean\(value, "===", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.Add\(value, 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.StrictEqual\(value, 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.LogicalNot\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicTypeof\(value\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.TsValue voidValue\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*value\.ReadDynamicSlot\("name"\);\s*return default\(Tsonic\.CSharp\.Runtime\.TsValue\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
