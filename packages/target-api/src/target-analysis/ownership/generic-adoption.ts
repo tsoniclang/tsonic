@@ -160,7 +160,7 @@ export function analyzeSourceGenericAdoption(input: {
   const canonicalPromiseMember = (declaration: Node): string | undefined => {
     const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
     if (fact?.providerId === "tsonic.js.source-virtual-modules" &&
-      (fact.exportName === "Promise" || fact.exportName === "PromiseConstructor")) {
+      (fact.exportName === "Promise" || fact.exportName === "PromiseLike" || fact.exportName === "PromiseConstructor")) {
       return fact.memberKey?.kind === "property-key" ? fact.memberKey.name : fact.memberName ?? "construct";
     }
     const file = ast.getSourceFile(declaration);
@@ -169,7 +169,7 @@ export function analyzeSourceGenericAdoption(input: {
         source.semantics.forNode(declaration).declarations.isDefaultLibraryDeclaration(declaration))) return undefined;
     const owner = ast.parent(declaration);
     const ownerName = ast.text(ast.name(owner));
-    if (ownerName !== "Promise" && ownerName !== "PromiseConstructor") return undefined;
+    if (ownerName !== "Promise" && ownerName !== "PromiseLike" && ownerName !== "PromiseConstructor") return undefined;
     return ast.is.IsConstructSignatureDeclaration(declaration) ? "construct" : ast.text(ast.name(declaration));
   };
   const reactionBodies = new Set<Node>();

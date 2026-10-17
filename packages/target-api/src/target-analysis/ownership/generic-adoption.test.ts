@@ -51,6 +51,10 @@ const declarations = [
   ["nested async arrow", "function nested<T>(value: T) { return async () => value; }", "nested"],
   ["reaction return", "function reaction<T>(value: T) { void Promise.resolve(0).then(() => value); }", "reaction"],
   ["reaction catch", "function caught<T>(value: T) { void Promise.resolve(0).catch(() => value); }", "caught"],
+  ["reaction finally", "function final<T>(value: T) { void Promise.resolve(0).finally(() => value); }", "final"],
+  ["PromiseLike reaction", `function likeReaction<T>(value: T): void {
+    const pending: PromiseLike<number> = Promise.resolve(0); void pending.then(() => value);
+  }`, "likeReaction"],
   ["named reaction", "function named<T>(value: T) { function read(): T { return value; } void Promise.resolve(0).then(read); }", "named"],
   ["resolve callback", "function resolving<T>(value: T) { return new Promise<T>(resolve => { resolve(value); }); }", "resolving"],
   ["aliased resolver", "function aliased<T>(value: T) { return new Promise<T>(resolve => { const done = resolve; done(value); }); }", "aliased"],
