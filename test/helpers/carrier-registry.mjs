@@ -139,6 +139,20 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
     const aggregate = elements.length > 0 && elements.every(element => ast.is.IsSpreadElement(element) &&
       ast.is.IsIdentifier(ast.as.AsSpreadElement(element).Expression));
     const runtimeImports = imports.filter(statement => !ast.isTypeOnlyImportDeclaration(statement));
+    const runtimeBindings = new Map();
+    const runtimeImportsValid = runtimeImports.every(statement => {
+      const imported = ast.as.AsImportDeclaration(statement);
+      const bindings = imported.ImportClause?.NamedBindings;
+      if (imported.ImportClause?.name !== undefined || bindings === undefined || !ast.is.IsNamedImports(bindings)) return false;
+      return ast.children(bindings).every(specifier => {
+        if (!ast.is.IsImportSpecifier(specifier) || ast.as.AsImportSpecifier(specifier).IsTypeOnly) return false;
+        const name = ast.text(ast.name(specifier));
+        if (name === "Object" || runtimeBindings.has(name)) return false;
+        runtimeBindings.set(name, { specifier: ast.text(imported.ModuleSpecifier),
+          imported: ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) });
+        return true;
+      });
+    });
     const typeImportsValid = imports.filter(statement => ast.isTypeOnlyImportDeclaration(statement)).every(statement => {
       const imported = ast.as.AsImportDeclaration(statement);
       const module = ast.text(imported.ModuleSpecifier);
@@ -150,10 +164,14 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
           ast.is.IsImportSpecifier(specifier) &&
           ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) === expected);
     });
-    if (!typeImportsValid || !aggregate && runtimeImports.length !== 0) { reject(); continue; }
+    if (!typeImportsValid || !runtimeImportsValid || !aggregate && runtimeImports.length !== 0 ||
+        aggregate && !elements.every(element => runtimeBindings.has(ast.text(ast.as.AsSpreadElement(element).Expression)))) {
+      reject(); continue;
+    }
     const ranges = aggregate ? [] : elements.map(rowRanges);
     if (ranges.some(value => value === undefined)) { reject(); continue; }
-    modules.set(file, { aggregate, ranges: ranges.flat(), runtimeSpecifiers: new Set(runtimeImports.map(statement =>
+    modules.set(file, { aggregate, name: ast.text(ast.name(selected)), ranges: ranges.flat(), runtimeBindings,
+      runtimeSpecifiers: new Set(runtimeImports.map(statement =>
       ast.text(ast.as.AsImportDeclaration(statement).ModuleSpecifier))) });
   }
 
@@ -162,9 +180,14 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
     if (modules.has(edge.target) && !modules.get(edge.source)?.aggregate) {
       failures.push(`Production consumer of carrier registry metadata: ${edge.source}`);
     }
-    if (modules.get(edge.source)?.aggregate && modules.get(edge.source).runtimeSpecifiers.has(edge.specifier) &&
-        !modules.has(edge.target)) {
-      failures.push(`Carrier registry aggregate imports non-metadata: ${edge.source}`);
+    const aggregate = modules.get(edge.source);
+    if (aggregate?.aggregate && aggregate.runtimeSpecifiers.has(edge.specifier)) {
+      const imported = modules.get(edge.target);
+      if (imported === undefined) failures.push(`Carrier registry aggregate imports non-metadata: ${edge.source}`);
+      else if ([...aggregate.runtimeBindings.values()].some(binding =>
+        binding.specifier === edge.specifier && binding.imported !== imported.name)) {
+        failures.push(`Carrier registry aggregate imports an unproven metadata value: ${edge.source}`);
+      }
     }
   }
   if (failures.length === 0) {

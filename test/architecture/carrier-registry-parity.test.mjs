@@ -38,7 +38,7 @@ test("the native trait constructor has its actual named-contract counterpart and
   assert.equal(native.genericArguments[2].value === extent, true);
   assert.equal(native.associatedConstraints.length, 0, "the actual constructor does not invent associated bindings");
   const counterpart = csharpTargetNamedType("checked.Contract`1", [value], undefined,
-    { allowsRefLikeTypeArguments: [false], valueType: false });
+    { allowsRefLikeTypeArguments: [false] });
   assert.equal(counterpart.kind, "target-named");
   assert.equal(counterpart.typeArguments[0] === value, true, "the CLR native named contract preserves its type argument");
   const row = registries[1].rows.find(entry => entry.declaration.symbol === "rustNativeTraitRef");

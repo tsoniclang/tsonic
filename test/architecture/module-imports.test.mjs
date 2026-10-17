@@ -10,13 +10,20 @@ test("module import inventory separates actual JavaScript imports from fixture s
       export { value };
       export { other } from "./missing.mjs";
       const fixture = \`import { backing } from "./fixture-only.js";\`;
+      const typeFixture = \`type Hidden = typeof import("./type-fixture-only.js");\`;
       void import("./dynamic.mjs");
       void import(\`./template.mjs\`);
+      void import(("./wrapped-string.mjs"));
+      void import(((\`./wrapped-template.mjs\`)));
     `],
     ["side-effect.mjs", "export {};"],
     ["value.mjs", "export const value = 1;"],
     ["dynamic.mjs", "export const value = 2;"],
     ["template.mjs", "export const value = 3;"],
+    ["wrapped-string.mjs", "export const value = 4;"],
+    ["wrapped-template.mjs", "export const value = 5;"],
+    ["type-use.ts", 'export type Imported = typeof import("./typed-value.js");'],
+    ["typed-value.ts", "export const value = 6;"],
   ]);
   const result = buildTypeScriptModuleAnalysis(source);
   assert.equal(result.modules.length, source.size);
@@ -26,5 +33,8 @@ test("module import inventory separates actual JavaScript imports from fixture s
     ["./side-effect.mjs", false],
     ["./template.mjs", false],
     ["./value.mjs", false],
+    ["./wrapped-string.mjs", false],
+    ["./wrapped-template.mjs", false],
+    ["./typed-value.js", false],
   ]);
 });

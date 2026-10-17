@@ -236,11 +236,29 @@ export const registry: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]
   const proof = inspectMetadata(registryMetadata, [["src/aggregate.ts", aggregate]]);
   assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
   assert.equal(proof.modules.length, 2, "literal metadata and its non-selecting aggregate");
+  const alias = aggregate.replace("{ nativeEntries }", "{ nativeEntries as selectedEntries }")
+    .replace("[...nativeEntries]", "[...selectedEntries]");
+  const aliased = inspectMetadata(registryMetadata, [["src/aggregate.ts", alias]]);
+  assert.equal(aliased.failures.length, 0, aliased.failures.join("\n"));
+  for (const invalidAggregate of [
+    aggregate.replace("{ nativeEntries }", "{ nativeEntries, nativeEntries as Object }"),
+    aggregate.replace("[...nativeEntries]", "[...unboundEntries]"),
+    aggregate.replace("{ nativeEntries }", "{ wrongExport as nativeEntries }"),
+    aggregate.replace("{ nativeEntries }", "* as nativeEntries"),
+    aggregate.replace("{ nativeEntries }", "nativeEntries"),
+  ]) {
+    const invalid = inspectMetadata(registryMetadata, [["src/aggregate.ts", invalidAggregate]]);
+    assert.equal(invalid.failures.length > 0, true, "only the actual imported metadata export can be aggregated");
+    assert.equal(invalid.sources.get("src/unrestricted-name.ts"), registryMetadata, "invalid bindings authorize no masking");
+  }
   for (const consumer of [
     'import { nativeEntries } from "./unrestricted-name.js"; export const selected = nativeEntries[0].counterpart.symbol;',
     'export { nativeEntries } from "./unrestricted-name.js";',
     'export async function select() { return (await import("./unrestricted-name.js")).nativeEntries[0].counterpart; }',
     'export async function select() { return (await import(`./unrestricted-name.js`)).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(("./unrestricted-name.js"))).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(((`./unrestricted-name.js`)))).nativeEntries[0].counterpart; }',
+    'export type Counterpart = (typeof import("./unrestricted-name.js"))["nativeEntries"][number]["counterpart"];',
   ]) {
     const invalid = inspectMetadata(registryMetadata, [["src/consumer.ts", consumer]]);
     assert.equal(invalid.failures.includes("Production consumer of carrier registry metadata: src/consumer.ts"), true,

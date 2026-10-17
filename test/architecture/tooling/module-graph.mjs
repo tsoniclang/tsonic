@@ -92,22 +92,34 @@ function collectModuleSpecifiers(ast, sourceFile) {
       if (moduleNode !== undefined) {
         specifiers.push(ast.text(moduleNode));
       }
+    } else if (kind === "KindImportType") {
+      const specifier = literalModuleSpecifier(ast, ast.as.AsImportTypeNode(node).Argument);
+      if (specifier !== undefined) specifiers.push(specifier);
     } else if (kind === "KindCallExpression") {
       const children = ast.children(node);
       if (
         children.some((child) => ast.kindName(child) === "KindImportKeyword")
       ) {
         const [argument] = ast.arguments(node);
-        if (argument !== undefined && (ast.kindName(argument) === "KindStringLiteral" ||
-            ast.kindName(argument) === "KindNoSubstitutionTemplateLiteral")) {
-          specifiers.push(ast.text(argument));
-        }
+        const specifier = literalModuleSpecifier(ast, argument);
+        if (specifier !== undefined) specifiers.push(specifier);
       }
     }
     ast.forEachChild(node, visit);
   };
   visit(sourceFile);
   return Object.freeze(specifiers);
+}
+
+function literalModuleSpecifier(ast, node) {
+  let literal = node;
+  while (ast.kindName(literal) === "KindParenthesizedExpression" || ast.kindName(literal) === "KindLiteralType") {
+    literal = ast.kindName(literal) === "KindParenthesizedExpression"
+      ? ast.as.AsParenthesizedExpression(literal).Expression
+      : ast.as.AsLiteralTypeNode(literal).Literal;
+  }
+  return ast.kindName(literal) === "KindStringLiteral" || ast.kindName(literal) === "KindNoSubstitutionTemplateLiteral"
+    ? ast.text(literal) : undefined;
 }
 
 function compareEdges(left, right) {
