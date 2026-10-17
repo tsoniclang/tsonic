@@ -24,16 +24,21 @@ export function staticFileAddress(sourcePath, specifier) {
   } catch { return { unresolved: true, firstParty: true }; }
 }
 
-export function scriptSourceReferences(path, text, boundary) {
+export function scriptSourceReferences(path, text, boundary, entryRole) {
+  if (!["authored", "native-entry"].includes(entryRole)) throw new Error("Invalid AC12 executable source role.");
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?ts$/u.test(path) ? ScriptKindTS : ScriptKindJS;
   const sourcePath = `/keel/${path}`;
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
-  if (source.IsDeclarationFile) return { references: [], testEntry: false, nativeJavaScript: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+  const declarationFile = source.IsDeclarationFile === true;
+  const nativeEntry = entryRole === "native-entry";
+  if (declarationFile && !nativeEntry) return { references: [], testEntry: false, nativeJavaScript: false, declarationFile, nativeEntry,
+    literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0 || (SourceFile_JSDiagnostics(source)?.length ?? 0) > 0) {
-    return { references: [{ unresolved: true }], testEntry: false, nativeJavaScript: kind === ScriptKindJS, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+    return { references: [{ unresolved: true }], testEntry: false, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry,
+      literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   }
   const references = [];
   const nodes = [];
@@ -319,7 +324,7 @@ export function scriptSourceReferences(path, text, boundary) {
       } else if (module) references.push({ external: true, offset: ast.pos(node) });
     }
   }
-  return { references, testEntry, nativeJavaScript: kind === ScriptKindJS, literalUrlLoaders: Object.freeze(literalUrlLoaders),
+  return { references, testEntry, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry, literalUrlLoaders: Object.freeze(literalUrlLoaders),
     finiteModuleTargets: Object.freeze([...new Set([...moduleBindings.values()].flatMap(binding => binding.finiteTargets ?? []))]) };
 
   function initializer(declaration) {

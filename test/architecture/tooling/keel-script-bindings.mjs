@@ -52,6 +52,7 @@ export function createKeelScriptBindings({ ast, imports, valueDeclarations, modu
   function typeOnlyUse(node) {
     for (let current = node; current !== undefined; current = ast.parent(current)) {
       if (ast.isTypeOnlyImportOrExportDeclaration(current)) return true;
+      if (ast.kindName(current) === "KindFunctionDeclaration" && ast.body(current) === undefined) return true;
       const parent = ast.parent(current);
       if (ast.typeNode(parent) === current || parent !== undefined && HasTypeArguments(parent) && ast.typeArguments(parent).includes(current) ||
         ast.is.IsTypeParameterDeclaration(current) ||
