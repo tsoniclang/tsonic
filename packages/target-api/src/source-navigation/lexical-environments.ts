@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
-import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection } from "./lexical-captures.js";
+import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection,
+  type SourceNodeDomain } from "./lexical-captures.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection {
@@ -11,8 +12,14 @@ export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection 
 export function sourceLexicalEnvironment(
   scope: Node, roots: readonly Node[], ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary">,
+  domain: SourceNodeDomain,
   isRuntimeUse: (use: SourceDeclarationUse, declaration: Node) => boolean = () => true,
 ): SourceLexicalEnvironment | { readonly kind: "unresolved"; readonly reason: string } {
+  if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
+    throw new Error("Lexical environments require an explicit source-node domain.");
+  }
+  const includes = (node: Node): boolean => domain === "source" || domain.has(node);
+  if (!includes(scope)) return { kind: "unresolved", reason: "A lexical environment requires its scope in the explicit source-node domain." };
   const captures = new Map<Node, Set<Node>>();
   const receivers = new Map<Node, Set<Node>>();
   const selfReferences = new Set<Node>();
@@ -25,6 +32,10 @@ export function sourceLexicalEnvironment(
   while (pending.length > 0) {
     if (++steps > 262_144) return exhausted();
     const { owner, roots: selectedRoots } = pending.pop()!;
+    if (!includes(owner)) return { kind: "unresolved", reason: "A lexical callable requires its owner in the explicit source-node domain." };
+    if (selectedRoots.some(root => !includes(root))) return {
+      kind: "unresolved", reason: "A lexical environment requires every root in its explicit source-node domain.",
+    };
     if (callableRoots.has(owner)) continue;
     callableRoots.add(owner);
     const evaluationPending: Node[] = [];
@@ -41,8 +52,9 @@ export function sourceLexicalEnvironment(
       if (body !== undefined) evaluationPending.push(body);
     }
     while (evaluationPending.length > 0) {
-      if (++evaluationSteps > 4_194_304) return exhausted();
       const node = evaluationPending.pop()!;
+      if (!includes(node)) continue;
+      if (++evaluationSteps > 4_194_304) return exhausted();
       if (evaluated.has(node)) continue;
       evaluated.add(node);
       const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
@@ -55,7 +67,7 @@ export function sourceLexicalEnvironment(
       }
       forEachSourceImmediateEvaluationChild(ast, node, child => evaluationPending.push(child));
     }
-    const selected = sourceLexicalCaptures(owner, selectedRoots, ast, navigation);
+    const selected = sourceLexicalCaptures(owner, selectedRoots, ast, navigation, domain);
     if (owner === scope) for (const reference of selected.selfReferences) selfReferences.add(reference);
     for (const receiver of selected.receivers) {
       if (within(receiver.owner)) continue;
@@ -113,6 +125,7 @@ export function sourceLexicalEnvironment(
     if (existing !== undefined) return existing;
     const indexed = new Map<Node, SourceDeclarationUse>();
     for (const use of navigation.declarationUseSummary(declaration).uses) {
+      if (!includes(use.reference)) continue;
       if (++steps > 262_144 || indexed.has(use.reference)) return undefined;
       indexed.set(use.reference, use);
     }

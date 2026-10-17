@@ -25,7 +25,7 @@ function fixture(body: string) {
   visit(file!);
   return { source, declarations, select(name: string) {
     const declaration = declarations.get(name)!;
-    return sourceLexicalEnvironment(declaration, [declaration], source.ast, source.navigation);
+    return sourceLexicalEnvironment(declaration, [declaration], source.ast, source.navigation, "source");
   } };
 }
 
@@ -48,6 +48,45 @@ test("direct lexical calls retain transitive environments, not first-class calla
     "oversized roots reject before graph construction");
 });
 
+test("selected lexical environments and ordering retain real captures without erased callable dependencies", () => {
+  const current = fixture(`let count = 0; function read() { return ++count; }
+    function owner() { function erased() { return read; } const real = () => count; return real; }
+    return owner;`);
+  const owner = current.declarations.get("owner")!;
+  const read = current.declarations.get("read")!;
+  const erased = current.declarations.get("erased")!;
+  const excluded = new Set<Node>();
+  const visit = (node: Node): void => {
+    excluded.add(node);
+    current.source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(erased);
+  const domain = Object.freeze({ has: (node: Node) => !excluded.has(node) });
+  const selected = sourceLexicalEnvironment(owner, [owner], current.source.ast, current.source.navigation, domain);
+  assert.equal(selected.kind, "resolved", "selected native lexical environment");
+  if (selected.kind !== "resolved") return;
+  assert.equal(selected.captures.length, 1, "only the real retained lexical capture");
+  assert.equal(selected.captures[0]?.declaration === current.declarations.get("count"), true, "original source binding identity");
+  assert.equal(selected.captures[0]?.references.every(reference => !excluded.has(reference)), true, "no inherited-erased reference");
+  const source = current.select("owner");
+  assert.equal(source.kind, "resolved", "full source is separately explicit");
+  if (source.kind !== "resolved") return;
+  assert.equal(source.captures.some(capture => capture.declaration === read), true, "full source retains erased callable capture");
+  const nativeOrder = sourceLexicalFunctionValueOrder([owner, read], current.source.ast, current.source.navigation, domain);
+  const sourceOrder = sourceLexicalFunctionValueOrder([owner, read], current.source.ast, current.source.navigation, "source");
+  assert.equal(nativeOrder.kind, "resolved", "selected callable order");
+  assert.equal(sourceOrder.kind, "resolved", "source callable order");
+  if (nativeOrder.kind !== "resolved" || sourceOrder.kind !== "resolved") return;
+  assert.equal(nativeOrder.declarations[0] === owner, true, "no native dependency introduced by erased code");
+  assert.equal(sourceOrder.declarations[0] === read, true, "full source dependency remains ordered");
+  assert.equal(sourceLexicalEnvironment(erased, [erased], current.source.ast, current.source.navigation, domain).kind,
+    "unresolved", "excluded owner cannot yield an empty environment");
+  assert.equal(sourceLexicalEnvironment(owner, [owner, erased], current.source.ast, current.source.navigation, domain).kind,
+    "unresolved", "mixed or excluded roots cannot yield a partial environment");
+  assert.equal(sourceLexicalFunctionValueOrder([owner, erased], current.source.ast, current.source.navigation, domain).kind,
+    "unresolved", "excluded declaration cannot yield partial callable ordering");
+});
+
 test("parameter-property member names are not lexical parameter captures", () => {
   const current = fixture(`class Value {
     constructor(public value: number) {
@@ -62,7 +101,7 @@ test("parameter-property member names are not lexical parameter captures", () =>
     assert.equal(current.source.ast.is.IsVariableDeclaration(declaration), true);
     const expression = current.source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
     assert.equal(expression !== undefined, true);
-    return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation);
+    return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation, "source");
   };
   const read = select("read");
   const input = select("input");
@@ -89,7 +128,7 @@ test("first-class lexical captures retain callable identity without duplicating 
   assert.equal(selected.captures[0]?.declaration === current.declarations.get("next"), true, "exact retained callable");
   assert.equal(selected.callableRoots.length, 1);
   const ordered = sourceLexicalFunctionValueOrder(
-    [current.declarations.get("get")!, current.declarations.get("next")!], current.source.ast, current.source.navigation);
+    [current.declarations.get("get")!, current.declarations.get("next")!], current.source.ast, current.source.navigation, "source");
   assert.equal(ordered.kind, "resolved");
   if (ordered.kind !== "resolved") return;
   assert.equal(ordered.declarations[0] === current.declarations.get("next"), true, "dependency initializes first");
@@ -107,7 +146,7 @@ test("recursive direct-call graphs are finite and lost callable evidence fails c
   const invalid = sourceLexicalEnvironment(current.declarations.get("left")!, [current.declarations.get("left")!],
     current.source.ast, { ...current.source.navigation, declarationUseSummary(declaration) {
       return { ...current.source.navigation.declarationUseSummary(declaration), uses: [] };
-    } });
+    } }, "source");
   assert.equal(invalid.kind, "unresolved");
 });
 

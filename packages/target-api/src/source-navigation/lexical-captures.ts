@@ -14,18 +14,27 @@ export interface SourceLexicalCaptureSelection {
   readonly receivers: readonly { readonly owner: Node; readonly references: readonly Node[] }[];
 }
 
+export type SourceNodeDomain = "source" | { readonly has: (node: Node) => boolean };
+
 export function sourceLexicalCaptures(
   scope: Node,
   roots: readonly Node[],
   ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  domain: SourceNodeDomain,
   step: (node?: Node) => void = () => {},
 ): SourceLexicalCaptureSelection {
+  if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
+    throw new Error("Lexical captures require an explicit source-node domain.");
+  }
+  const includes = (node: Node): boolean => domain === "source" || domain.has(node);
+  if (!includes(scope)) throw new Error("A lexical-capture scope must belong to its explicit source-node domain.");
   const captures = new Map<Node, Node[]>();
   const selfReferences: Node[] = [];
   const receivers = new Map<Node, Node[]>();
   const visited = new Set<Node>();
   const visit = (node: Node): void => {
+    if (!includes(node)) return;
     step(node);
     if (visited.has(node) || isTypeSyntaxNode(ast, node)) return;
     visited.add(node);
@@ -60,6 +69,7 @@ export function sourceLexicalCaptures(
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   for (const root of roots) {
+    if (!includes(root)) throw new Error("A lexical-capture root must belong to its explicit source-node domain.");
     if (!within(root, scope, ast, step)) throw new Error("A lexical-capture root must belong to its exact source scope.");
     visit(root);
   }

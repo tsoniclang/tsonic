@@ -77,7 +77,7 @@ export function createSourceStorageContextInputs(
           }
         }
         if (ast.body(node) !== undefined || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-          const captures = sourceLexicalCaptures(node, [node], ast, navigation);
+          const captures = sourceLexicalCaptures(node, [node], ast, navigation, "source");
           for (const capture of captures.captures) {
             if (!budget.step()) return undefined;
             add(queries.subjectFor(capture.declaration));
