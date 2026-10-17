@@ -655,6 +655,56 @@ for (const mapped of [false, true]) for (const invoked of [false, true]) for (co
   });
 }
 
+for (const reversed of [false, true]) {
+  test("an uncertain native input boundary publishes each actual factory creation binding: " + reversed, async () => {
+    const current = await fixture("native-boundary-factory-creation", `
+      declare function observe(value: number): void;
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function make(callback: (value: number) => void, value: number): () => void { return () => { callback(value); }; }
+      export function create(first: number, second: number) {
+        const firstCallback = make(observe, first);
+        const secondCallback = make(observe, second);
+        return () => { nativeInvoke([${reversed ? "secondCallback, firstCallback" : "firstCallback, secondCallback"}], next => { next(); }); };
+      }
+    `, (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const { ast, nodes, storage, declaration } = current;
+    const make = declaration("make");
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+    const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parent(node) !== undefined && ast.is.IsReturnStatement(ast.parent(node)) && node !== owner);
+    const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
+    assert.equal(domain.kind, "complete", "the actual executor creation is closed");
+    assert.equal(domain.producers.length, 1, "one original executor activation");
+    const selected = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+      owner, domain.producers[0]);
+    assert.equal(selected.kind, "open", "uncertain input remains a boundary, not an invented execution");
+    assert.equal(selected.producers.length, 0, "no source invocation is fabricated");
+    const argument = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+    const actuals = new Set();
+    const creationScopes = new Set();
+    for (const boundary of selected.boundaries) {
+      assert.equal(Object.isFrozen(boundary) && Object.isFrozen(boundary.bindings), true, "immutable owned public boundary data");
+      const activations = resolved(storage.boundActivationsFor(make, boundary.bindings));
+      assert.equal(activations.activations.length, 1, "each possible source payload has one original factory activation");
+      creationScopes.add(activations.activations[0].bindings);
+      const origins = resolved(storage.boundOriginsFor(argument, boundary.bindings));
+      for (const subject of origins.subjects) actuals.add(subject.node);
+    }
+    assert.equal(creationScopes.size, 2, "same arrow, distinct actual creation bindings");
+    assert.equal(actuals.size === 2 && ast.parameters(declaration("create")).every(parameter => actuals.has(parameter)), true,
+      "both factory argument rows survive without substitution or cross-union");
+    assert.equal(storage.boundOriginsFor(argument, {}).kind, "unresolved", "a fabricated scope is never replaced with empty bindings");
+    assert.equal(storage.failureReason() === undefined, true, "unknown correspondence stays local");
+  });
+}
+
 test("a known empty native execution fact does not become unknown or invoke an unused callback", async () => {
   const current = await fixture("native-empty-entry", `
     declare function nativeInvoke(callback: () => void): void;
@@ -706,6 +756,9 @@ for (const form of ["foreign-slot", "duplicate-slot", "accessor", "unknown-timin
     assert.equal(selected.arguments.length, 1, "the actual checked callable remains present");
     assert.equal(selected.boundaries.length, 1, "one explicit unclassified exposure");
     assert.equal(selected.boundaries[0].exposure === native, true, "the original checked native invocation owns the boundary");
+    assert.equal(Object.isFrozen(selected.boundaries[0].bindings), true, "the public native-entry boundary owns canonical readonly bindings");
+    assert.equal(current.storage.boundActivationsFor(current.declaration("create"), selected.boundaries[0].bindings).kind, "resolved",
+      "the actual lexical owner is preserved instead of a fabricated empty scope");
     assert.equal(getterCalls, 0, "validation does not execute metadata accessors");
     assert.equal(current.storage.failureReason() === undefined, true, "a local malformed native fact does not reject the shared budget");
   });

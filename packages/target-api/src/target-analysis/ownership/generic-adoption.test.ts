@@ -276,6 +276,55 @@ for (const [name, payload] of [
   });
 }
 
+for (const adopting of [false, true]) for (const reversed of [false, true]) {
+  test("opaque native payloads keep actual returned-closure factory rows: " + adopting + "/" + reversed, () => {
+    const current = fixture(`
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { done(value); }; }
+      function wrap<Value>(value: Value): Promise<Value | number> {
+        return new Promise<Value | number>(resolve => {
+          const observer = make((actual: Value): void => { void actual; }, value);
+          const completion = make(resolve, ${adopting ? "value" : "7"});
+          ${reversed ? `${adopting ? "observer" : "completion"}(); nativeInvoke([${adopting ? "completion" : "observer"}], next => { next(); });`
+            : `nativeInvoke([${adopting ? "completion" : "observer"}], next => { next(); }); ${adopting ? "observer" : "completion"}();`}
+        });
+      }
+      export function run(value: Promise<number>): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, adopting ? "unresolved" : "resolved", "actual factory bindings, not the shared arrow body, select resolver sensitivity");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+      "the unused Value union arm cannot be tainted by an observer or the separately resolved number");
+    else assert.equal(current.textFor(selected.at), "done(value)", "only the genuinely possible captured resolver input remains unresolved");
+  });
+}
+
+test("a factory callee is not a returned native callback payload", () => {
+  const current = fixture(`
+    declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+    function make<Value>(value: Value, done: (actual: number) => void): () => void { done(7); return () => { void value; }; }
+    function wrap<Value>(value: Value): Promise<Value | number> {
+      return new Promise<Value | number>(resolve => { const observer = make(value, resolve); nativeInvoke([observer], next => { next(); }); });
+    }
+    export function run(value: Promise<number>): void { void wrap(value); }
+  `, "/src", (source, nodes) => {
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    return { callbackEntries(node, selected) {
+      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+    } };
+  });
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "the canonical value relation excludes the already executed source factory");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the returned closure observes Value but never resolves it");
+});
+
 for (const form of ["uncalled", "nonresolver", "ignored-source-argument", "unused-native-input"] as const) {
   test("opaque native inputs do not taint unrelated resolving paths: " + form, () => {
     const payload = form === "nonresolver" ? "() => { void value; }" : "() => { resolve(value); }";

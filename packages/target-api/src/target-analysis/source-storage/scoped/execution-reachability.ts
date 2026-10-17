@@ -113,12 +113,12 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
     }); } finally { if (!complete) owned.release(); }
   };
   return Object.freeze({
-    frontiers(invocation: Node, target: Node): readonly SourceStorageDomainBoundary[] | undefined {
+    frontiers(invocation: Node, target: Node): readonly Omit<SourceStorageDomainBoundary, "bindings">[] | undefined {
       const selected = reaching(target, "callers");
       if (selected === undefined) return undefined;
       const frontiers = transport.callbackInputFrontiersFor(invocation);
       if (frontiers === undefined) return undefined;
-      const relevant: SourceStorageDomainBoundary[] = [];
+      const relevant: Omit<SourceStorageDomainBoundary, "bindings">[] = [];
       for (const frontier of frontiers) {
         if (!budget.step()) return undefined;
         if (transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);

@@ -4,7 +4,7 @@ import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
 
 interface WitnessGroup {
-  readonly values: SourceStorageDomainBoundary[];
+  readonly values: Omit<SourceStorageDomainBoundary, "bindings">[];
   readonly kinds: Map<SourceStorageDomainBoundary["kind"], Map<Node, Set<SourceStorageSubject | undefined>>>;
   inputs?: Set<SourceStorageSubject | undefined>;
 }
@@ -12,7 +12,7 @@ interface WitnessGroup {
 export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) {
   const groups = new Map<SourceStorageSubject, WitnessGroup>();
   const rows = budget.createRows();
-  const empty: readonly SourceStorageDomainBoundary[] = Object.freeze([]);
+  const empty: readonly Omit<SourceStorageDomainBoundary, "bindings">[] = Object.freeze([]);
   const noInputs: ReadonlySet<SourceStorageSubject | undefined> = new Set();
   return Object.freeze({
     add(subject: SourceStorageSubject | undefined, kind: SourceStorageDomainBoundary["kind"], exposure: Node,
@@ -39,7 +39,7 @@ export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) 
       }
       groups.set(subject, selected);
     },
-    forSubject(subject: SourceStorageSubject): readonly SourceStorageDomainBoundary[] {
+    forSubject(subject: SourceStorageSubject): readonly Omit<SourceStorageDomainBoundary, "bindings">[] {
       return groups.get(subject)?.values ?? empty;
     },
     inputOwners(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject | undefined> {

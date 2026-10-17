@@ -20,6 +20,7 @@ import { sourceStorageProjectComponents } from "../graph/component-projections.j
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures } from "../transport/invocation-results.js";
 import { sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
+import { sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -513,13 +514,30 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
               continue;
             }
             if (native.callback.timing === "deferred" && !term.deferred) continue;
-            const values = readRelation(sourceStorageReference(frontier.subject, native.caller));
-            if (values === undefined) return undefined;
-            for (const value of values) {
+            const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
+              subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
+              hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
+              componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
+              valuesFor: (subject, scope) => {
+                const selected = readRelation(sourceStorageReference(subject, scope));
+                if (selected === undefined) return undefined;
+                const values: SourceStorageBoundSubject[] = [];
+                let complete = true;
+                for (const value of selected) {
+                  if (!budget.step()) return undefined;
+                  if (value.kind === "leaf") values.push({ subject: value.subject, bindings: value.scope });
+                  else if (value.kind === "unresolved") complete = false;
+                }
+                return { values, complete };
+              },
+            });
+            if (payloads === undefined) return undefined;
+            if (!payloads.complete) terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: native.caller,
+              exposure: frontier.exposure, reason: "A relevant native callback input requires its actual source payload and creation correspondence." }));
+            for (const value of payloads.values) {
               if (!budget.step()) return undefined;
-              if (value.kind !== "leaf" && value.kind !== "unresolved") continue;
-              if (value.kind === "leaf" && value.subject !== frontier.subject) continue;
-              terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: value.scope,
+              if (value.subject !== frontier.subject) continue;
+              terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: value.bindings,
                 exposure: frontier.exposure,
                 reason: "A relevant source callable crosses a native input without completed value and capture correspondence." }));
             }

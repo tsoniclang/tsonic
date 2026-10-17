@@ -3,9 +3,11 @@ import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
-import { sourceStorageComponentType } from "../model/components.js";
+import { sourceStorageComponentType, sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageClassValue } from "../transport/invocation-results.js";
 
 export interface SourceStorageCallableInputSlot {
   readonly parameter: Node;
@@ -100,6 +102,97 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
     }
   }
   return selected.length === 0 ? undefined : Object.freeze(selected);
+}
+
+export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+  invocation: Node, bindings: Bindings, queries: {
+    subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+    valuesFor(subject: SourceStorageSubject, bindings: Bindings): {
+      readonly values: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
+    } | undefined;
+    componentFor(value: SourceStorageClassValue<Bindings>, component: SourceStorageProjection): SourceStorageSubject | undefined;
+    callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
+    hasSourceImplementation(invocation: Node): boolean;
+  }): { readonly values: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean } | undefined {
+  return budget.withRows(rows => {
+    const { ast, semantics } = source;
+    const pending: SourceStorageClassValue<Bindings>[] = [];
+    const visited = new Map<Bindings, Set<SourceStorageSubject>>();
+    const values: SourceStorageClassValue<Bindings>[] = [];
+    let complete = true;
+    const schedule = (subject: SourceStorageSubject | undefined, bindings: Bindings): boolean => {
+      if (subject === undefined) { complete = false; return true; }
+      const previous = visited.get(bindings);
+      if (previous?.has(subject)) return true;
+      if (!budget.step() || !rows.add(previous === undefined ? 3 : 2)) return false;
+      const selected = previous ?? new Set<SourceStorageSubject>();
+      selected.add(subject); visited.set(bindings, selected);
+      pending.push({ subject, bindings });
+      return true;
+    };
+    const inputs = (invocation: Node, bindings: Bindings): boolean => {
+      const selected = semantics.forNode(invocation).operations.call(invocation);
+      if (selected === undefined) { complete = false; return true; }
+      const callbacks = queries.callbackEntriesFor(invocation);
+      for (const [index, argument] of selected.sourceArguments.entries()) {
+        if (!budget.step()) return false;
+        if (callbacks.some(callback => callback.argument.binding.sourceArgumentIndex === index)) continue;
+        if (!schedule(queries.subjectFor(argument.expression), bindings)) return false;
+      }
+      const receiver = selected.sourceReceiver?.expression ?? selected.sourceCalleeAccess?.receiver.expression;
+      return receiver === undefined || schedule(queries.subjectFor(receiver), bindings);
+    };
+    if (!inputs(invocation, bindings)) return undefined;
+    while (pending.length !== 0) {
+      if (!budget.step()) return undefined;
+      const selected = pending.pop()!;
+      const producers = queries.valuesFor(selected.subject, selected.bindings);
+      if (producers === undefined) {
+        if (budget.failure() !== undefined) return undefined;
+        complete = false; continue;
+      }
+      complete &&= producers.complete;
+      for (const producer of producers.values) {
+        if (!budget.step()) return undefined;
+        if (sourceStorageHasOriginalCallableValue(producer.subject, ast)) {
+          if (!values.some(value => value.subject === producer.subject && value.bindings === producer.bindings)) {
+            if (!rows.add(1)) return undefined;
+            values.push(producer);
+          }
+          continue;
+        }
+        const node = producer.subject.node;
+        const context = semantics.forNode(node);
+        const type = sourceStorageSubjectType(source, producer.subject);
+        if (type !== undefined && producer.subject.kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsNewExpression(node) ||
+          ast.is.IsCallExpression(node))) for (const component of sourceStorageComponents(type, context))
+          if (!budget.step() || !schedule(queries.componentFor(producer, component), producer.bindings)) return undefined;
+        if (producer.subject.projection.length !== 0) continue;
+        if (ast.is.IsObjectLiteralExpression(node)) for (const member of ast.properties(node)) {
+          if (!budget.step()) return undefined;
+          if (member === undefined || !sourceStorageIsDataMember(member, ast) && !ast.is.IsMethodDeclaration(member)) continue;
+          const component: SourceStorageProjection = { kind: ast.is.IsMethodDeclaration(member) ? "method-value" : "member", declaration: member };
+          if (!schedule(queries.componentFor(producer, component), producer.bindings)) return undefined;
+        }
+        if (ast.is.IsNewExpression(node) && type !== undefined) {
+          const members = context.types.structuralMembers(type, type);
+          if (members.kind === "available") for (const member of members.members) {
+            if (!budget.step()) return undefined;
+            if (member.kind !== "present") continue;
+            for (const declaration of member.source.declarations) {
+              if (!budget.step()) return undefined;
+              if (!source.navigation.isProjectDeclaration(declaration) || !sourceStorageIsDataMember(declaration, ast) ||
+                ast.hasModifierKind(declaration, "static")) continue;
+              if (!schedule(queries.componentFor(producer, { kind: "member", declaration }), producer.bindings)) return undefined;
+            }
+          }
+        }
+        if ((ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node)) && !queries.hasSourceImplementation(node) &&
+          !inputs(node, producer.bindings)) return undefined;
+      }
+    }
+    return budget.failure() === undefined ? Object.freeze({ values: Object.freeze(values), complete }) : undefined;
+  });
 }
 
 export interface SourceStorageInvocationInputs {

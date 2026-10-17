@@ -19,7 +19,8 @@ import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults, sourceStorageClassLineages } from "./invocation-results.js";
-import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
+import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
+  sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
   SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
@@ -738,44 +739,18 @@ export function createSourceStorageTransport(
     argumentsFor: node => invocationArguments.get(node) ?? [],
   }, graphQueries);
   const nativePayloadCandidates = graphQueries.query((invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
-    const call = semantics.forNode(invocation).operations.call(invocation);
-    if (call === undefined) return undefined;
-    const callbacks = callbackEntriesFor(invocation);
-    const inputs = new Set<SourceStorageSubject>();
-    for (const [index, argument] of call.sourceArguments.entries()) {
-      if (!step()) return undefined;
-      if (callbacks.some(callback => callback.argument.binding.sourceArgumentIndex === index)) continue;
-      const input = subjectFor(argument.expression);
-      if (input !== undefined) inputs.add(input);
-    }
-    const receiver = subjectFor(call.sourceReceiver?.expression ?? call.sourceCalleeAccess?.receiver.expression);
-    if (receiver !== undefined) inputs.add(receiver);
-    const candidates = new Set<SourceStorageSubject>();
-    let complete = true;
-    const empty: ReadonlySet<SourceStorageSubject> = new Set();
-    const ancestors = createSourceStorageAncestorQuery(budget, selected => {
-      if (sourceStorageHasOriginalCallableValue(selected, ast)) return empty;
-      const context = contextualInputs(selected);
-      if (context === undefined) { complete = false; return empty; }
-      const inputs = new Set([...context, ...incomingFor(selected)]);
-      if (ast.is.IsNewExpression(selected.node) || invocations.has(selected.node) && invocationImplementations(selected.node).size === 0)
-        for (const argument of invocationArguments.get(selected.node) ?? []) {
-          if (!step()) break;
-          const input = subjectFor(argument);
-          if (input !== undefined) inputs.add(input);
-        }
-      if (ast.is.IsNewExpression(selected.node)) for (const region of regions.instance(selected.node)?.regions ?? []) {
-        if (!step()) break;
-        const input = subjectFor(region.node);
-        if (input !== undefined) inputs.add(input);
-      }
-      return inputs;
+    const selected = sourceStorageNativeCallablePayloads(source, budget, invocation, undefined, {
+      subjectFor, callbackEntriesFor,
+      hasSourceImplementation: invocation => [...invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
+      valuesFor: selected => {
+        const values = originSubjects(selected);
+        return values === undefined ? undefined : { values: [...values].map(subject => ({ subject, bindings: undefined })), complete: true };
+      },
+      componentFor: (value, component) => component.kind === "member" || component.kind === "method-value"
+        ? sourceStorageMemberSubject(component.declaration, ast, subject)
+        : subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
     });
-    for (const input of inputs) for (const candidate of ancestors(input)) {
-      if (!step()) return undefined;
-      if (sourceStorageHasOriginalCallableValue(candidate, ast)) candidates.add(candidate);
-    }
-    return complete && budget.failure() === undefined ? candidates : undefined;
+    return selected === undefined ? undefined : new Set(selected.values.map(value => value.subject));
   });
   let nativeInputs: ReadonlyMap<Node, readonly { readonly invocation: Node; readonly candidate: Node;
     readonly callback: SourceStorageCallbackEntry }[]> | undefined;
@@ -804,8 +779,8 @@ export function createSourceStorageTransport(
     }
     return nativeInputs.get(parameter) ?? [];
   };
-  const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<SourceStorageDomainBoundary> | undefined => {
-    const selected = new Set<SourceStorageDomainBoundary>();
+  const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings">> | undefined => {
+    const selected = new Set<Omit<SourceStorageDomainBoundary, "bindings">>();
     const operands = new Set<SourceStorageSubject>();
     const target = invocationTargets.get(invocation);
     if (target !== undefined) operands.add(target);
