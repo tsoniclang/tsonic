@@ -6,6 +6,7 @@ import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
+import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
@@ -30,19 +31,21 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     if (body === undefined) return [];
     const regions = [body];
     const selection = invocation === undefined ? undefined : semantics.forNode(invocation).operations.call(invocation);
-    for (const [index, parameter] of ast.parameters(declaration).entries()) {
+    const slots = sourceStorageCallableInputSlots(source, declaration, step);
+    for (const parameter of ast.parameters(declaration)) {
       if (!step()) break;
       const initializer = parameter === undefined ? undefined : Node_Initializer(ast, parameter);
       if (initializer === undefined) continue;
       if (callback !== undefined && invocation !== undefined) {
-        const types = semantics.forNode(invocation).types;
-        const type = types.nonNullableType(callback.argument.binding.selectedParameterType);
-        const signatures = type === undefined ? [] : types.signatureInfos(type, "call");
-        const input = signatures.length === 1 ? signatures[0]!.parameters[index] : undefined;
-        if (input === undefined || input.acceptsOmission || typeMayBeAbsent(input.type, invocation)) regions.push(initializer);
+        const inputs = sourceStorageNativeInputSlots(source, declaration,
+          { node: parameter, kind: "input", projection: [] }, callback.argument.binding.selectedParameterType, step);
+        if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
+          typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
         continue;
       }
-      const bindings = selection?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === index);
+      const inputs = slots?.filter(slot => slot.parameter === parameter);
+      const bindings = inputs === undefined ? undefined : selection?.sourceArgumentBindings.filter(binding =>
+        inputs.some(slot => slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
         const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;

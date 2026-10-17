@@ -10,7 +10,7 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer,
   SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import { sourceStorageComponentType } from "../source-storage/model/components.js";
+import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "../source-storage/graph/invocation-inputs.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
 
 export const sourceGenericAdoptionDiagnosticCode = "TSONIC_GENERIC_ASYNC_ADOPTION_UNSUPPORTED";
@@ -269,10 +269,14 @@ export function analyzeSourceGenericAdoption(input: {
             continue;
           }
           const owner = implementation.implementation.declaration;
-          const resolve = ast.parameters(owner)[0];
-          if (resolve !== undefined) {
-            const resolver = input.storage.subject(resolve, "input");
-            if (resolver.kind === "unresolved") refuse(resolve, resolver.reason);
+          const slots = sourceStorageCallableInputSlots(source, owner, () => step(executor));
+          const resolve = slots?.find(slot => slot.effectiveIndex === 0);
+          if (slots === undefined || resolve !== undefined && (resolve.repeated || resolve.projection === undefined)) {
+            if (generic) markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,
+              reason: "A generic Promise executor requires its exact checked resolver input slot." }));
+          } else if (resolve !== undefined) {
+            const resolver = input.storage.subject(resolve.parameter, "input", resolve.projection);
+            if (resolver.kind === "unresolved") refuse(resolve.parameter, resolver.reason);
             else {
               const activation = input.storage.bindingsForDeclaration(owner, producer.bindings);
               if (activation.kind === "unresolved") { refuse(executor, activation.reason); continue; }
@@ -337,6 +341,15 @@ export function analyzeSourceGenericAdoption(input: {
         mark(body, body);
     }
   }
+  const nonResolver = (subject: SourceStorageSubject): boolean => subject.kind === "value" && subject.projection.length === 0 &&
+    (ast.is.IsFunctionDeclaration(subject.node) || ast.is.IsFunctionExpression(subject.node) ||
+      ast.is.IsArrowFunction(subject.node) || ast.is.IsMethodDeclaration(subject.node));
+  const unresolvedExecution = (operation: Node, subject: SourceStorageSubject, entry: (typeof entries)[number]): void => {
+    const origins = input.storage.originSubjectsFor(subject);
+    if (origins.kind === "resolved" && origins.subjects.length !== 0 && origins.subjects.every(nonResolver)) return;
+    markType(operation, entry.resultType, source.semantics.forNode(entry.declaration), Object.freeze({ kind: "unresolved", at: operation,
+      reason: "A relevant native callback input requires completed original value, resolver and creation-binding correspondence." }));
+  };
   const resolverFor = (producer: Pick<SourceStorageProducer, "subject" | "bindings">,
     entry: (typeof entries)[number]): boolean | SourceOwnershipUnresolved => {
     if (producer.subject === entry.resolver) {
@@ -347,9 +360,7 @@ export function analyzeSourceGenericAdoption(input: {
         ? selected.reason : "A resolver input requires its identical native callback entry activation." });
     }
     const declaration = producer.subject.node;
-    if (producer.subject.kind === "value" && producer.subject.projection.length === 0 &&
-      (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
-        ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration))) return false;
+    if (nonResolver(producer.subject)) return false;
     return Object.freeze({ kind: "unresolved", at: declaration,
       reason: "A generic resolving call requires its exact source callable or canonical native resolver identity." });
   };
@@ -371,7 +382,7 @@ export function analyzeSourceGenericAdoption(input: {
           reason: "An actual native resolver requires a completed checked argument bound." }));
     } else for (const producer of origins.producers) {
       const origin = producer.subject;
-      let selectedType = producer.type;
+      let selectedTypes: readonly Type[] = [producer.type];
       let selectedSemantics = source.semantics.forFile(producer.sourceFile);
       if (origin.kind === "input" && ast.is.IsParameterDeclaration(origin.node)) {
         const owner = ast.parent(origin.node);
@@ -383,31 +394,24 @@ export function analyzeSourceGenericAdoption(input: {
         const entry = ownerActivation?.kind === "declaration" ? ownerActivation.nativeEntry : undefined;
         if (entry !== undefined) {
           selectedSemantics = source.semantics.forNode(entry.invocation);
-          const callbackType = selectedSemantics.types.nonNullableType(entry.argument.binding.selectedParameterType);
-          const signatures = callbackType === undefined ? [] : selectedSemantics.types.signatureInfos(callbackType, "call");
-          const parameterIndex = ast.parameters(owner!).indexOf(origin.node);
-          if (signatures.length === 1 && parameterIndex >= signatures[0]!.parameters.length &&
-            !signatures[0]!.parameters.some(parameter => parameter.parameterKind === "rest")) continue;
-          let nativeType = signatures.length === 1 ? signatures[0]!.parameters[parameterIndex]?.type : undefined;
-          for (const component of origin.projection) {
-            if (!step(operation)) return;
-            nativeType = nativeType === undefined ? undefined : sourceStorageComponentType(nativeType, component, selectedSemantics);
-          }
-          if (nativeType === undefined) {
+          const nativeInputs = sourceStorageNativeInputSlots(source, owner!, origin,
+            entry.argument.binding.selectedParameterType, () => step(operation));
+          if (nativeInputs === undefined || nativeInputs.some(input => !input.absent && input.type === undefined)) {
             markType(operation, knownResolverResult ?? producer.type, source.semantics.forFile(producer.sourceFile), Object.freeze({ kind: "unresolved", at: operation,
               reason: "A native resolver callback requires its exact checked input component type bound." }));
-            continue;
           }
-          selectedType = nativeType;
+          selectedTypes = (nativeInputs ?? []).flatMap(input => !input.absent && input.type !== undefined ? [input.type] : []);
         }
       }
-      if (knownResolverResult !== undefined && (selectedSemantics.types.isAny(selectedType) || selectedSemantics.types.isUnknown(selectedType))) {
-        markType(operation, knownResolverResult, selectedSemantics, Object.freeze({ kind: "unresolved", at: operation,
-          reason: "An actual native resolver requires a completed checked argument bound." }));
-        continue;
+      for (const selectedType of selectedTypes) {
+        if (knownResolverResult !== undefined && (selectedSemantics.types.isAny(selectedType) || selectedSemantics.types.isUnknown(selectedType))) {
+          markType(operation, knownResolverResult, selectedSemantics, Object.freeze({ kind: "unresolved", at: operation,
+            reason: "An actual native resolver requires a completed checked argument bound." }));
+          continue;
+        }
+        markType(operation, selectedType, selectedSemantics, unresolved,
+          activation.kind === "invocation" ? activation.declaration : undefined);
       }
-      markType(operation, selectedType, selectedSemantics, unresolved,
-        activation.kind === "invocation" ? activation.declaration : undefined);
     }
     const type = source.semantics.forNode(argument).types.expressionType(argument);
     if (type === undefined) { refuse(operation, "A qualified resolver requires its exact checked argument type."); return; }
@@ -472,6 +476,7 @@ export function analyzeSourceGenericAdoption(input: {
           unknownArgument(node, argument, executions.reason);
           continue;
         }
+        if (executions.kind === "open") unresolvedExecution(node, subject.subject, entry);
         for (const execution of executions.producers) {
           const activations = input.storage.boundActivationsFor(owner, execution.bindings);
           if (activations.kind === "unresolved") { unknownArgument(node, argument, activations.reason); continue; }
@@ -519,6 +524,7 @@ export function analyzeSourceGenericAdoption(input: {
             for (const callback of callbacks.arguments) unknownNativeInput(node, callback.binding.selectedParameterType, executions.reason);
             continue;
           }
+          if (executions.kind === "open") for (const callback of callbacks.arguments) unresolvedExecution(node, callback.actual, entry);
           for (const execution of executions.producers) {
             const activations = input.storage.boundActivationsFor(owner, execution.bindings);
             if (activations.kind === "unresolved") {

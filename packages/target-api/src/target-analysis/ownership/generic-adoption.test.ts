@@ -211,6 +211,101 @@ for (const withDefault of [false, true]) {
   });
 }
 
+for (const mapped of [false, true]) for (const ordinary of [false, true]) for (const forwarded of [false, true]) {
+  test("native input callable payload retains captured resolver uncertainty: " + mapped + "/" + ordinary + "/" + forwarded, () => {
+    const current = fixture(`
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function deliver(callback: () => void): void { callback(); }
+      function wrap<Value>(value: Value): Promise<Value> {
+        return new Promise<Value>(resolve => {
+          const callback = (): void => { resolve(value); };
+          nativeInvoke([callback], actual => { ${forwarded ? "deliver(actual);" : "actual();"} });
+        });
+      }
+      export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous", ...(mapped ? { inputs: [
+            { parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 },
+          ] } : {}) }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, mapped || ordinary ? "resolved" : "unresolved",
+      "a callable input type cannot prove the absence of a captured generic resolver");
+    if (selected.kind === "resolved") {
+      assert.equal(selected.issues.length, ordinary ? 0 : 1, "ordinary Awaited identity remains independently sufficient");
+      if (!ordinary) assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "only the actual adopting instantiation is refused");
+    } else assert.equal(current.textFor(selected.at), "resolve(value)", "the actually demanded captured resolver owns the missing proof");
+  });
+}
+
+for (const [name, payload] of [
+  ["map", "new Map<number, () => void>([[0, callback]])"],
+  ["set", "new Set<() => void>([callback])"],
+  ["object", "{ callback }"],
+  ["class-field", "new Holder()"],
+  ["returned-closure", "returned()"],
+] as const) for (const ordinary of [false, true]) {
+  test("native container payload callable is not silently absent: " + name + "/" + ordinary, () => {
+    const current = fixture(`
+      declare function nativeInvoke<Part>(payload: Part, callback: (actual: () => void) => void): void;
+      function wrap<Value>(value: Value): Promise<Value> {
+        return new Promise<Value>(resolve => {
+          const callback = (): void => { resolve(value); };
+          class Holder { callback = (): void => { resolve(value); }; }
+          function returned(): () => void { return callback; }
+          nativeInvoke(${payload}, actual => { actual(); });
+        });
+      }
+      export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, ordinary ? "resolved" : "unresolved",
+      "a real source callable in an opaque native input is potential execution, not proven absence");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "a canonical ordinary native payload stays admitted");
+    else assert.equal(current.textFor(selected.at), "resolve(value)", "only the relevant original resolving operation is unresolved");
+  });
+}
+
+for (const form of ["uncalled", "nonresolver", "ignored-source-argument", "unused-native-input"] as const) {
+  test("opaque native inputs do not taint unrelated resolving paths: " + form, () => {
+    const payload = form === "nonresolver" ? "() => { void value; }" : "() => { resolve(value); }";
+    const run = form === "uncalled" ? "void actual;"
+      : form === "unused-native-input" ? "(() => {})();" : "actual();";
+    const current = fixture(`
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function ignore(callback: () => void): () => void { void callback; return () => {}; }
+      function wrap<Value>(value: Value): Promise<Value | number> {
+        return new Promise<Value | number>(resolve => {
+          const payload = ${payload};
+          nativeInvoke([${form === "ignored-source-argument" ? "ignore(payload)" : "payload"}], actual => { ${run} });
+          resolve(7);
+        });
+      }
+      export function run(value: Promise<number>): void { void wrap(value); }
+    `, "/src", (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", "only relevant callable payloads may open resolver execution");
+    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+      "unused or proven nonresolving payloads do not create a generic adoption refusal");
+  });
+}
+
 function fixture(text: string, projectRoot = "/src", effectsFor?: (source: TargetSourceProgram, nodes: readonly Node[]) => SourceStorageEffects) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: projectRoot, files: { [`${projectRoot}/index.ts`]: text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();

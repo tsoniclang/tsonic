@@ -491,6 +491,40 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const reaches = reachability.invocation(invocation, term.demand);
         if (reaches === undefined) return undefined;
         if (!reaches) continue;
+        const frontiers = reachability.frontiers(invocation, term.demand);
+        if (frontiers === undefined) return undefined;
+        for (const frontier of frontiers) {
+          if (!budget.step()) return undefined;
+          const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, ast);
+          const selected = transport.subjectFor(term.demand);
+          if (selected === undefined) return undefined;
+          const contexts = scopes.nativeExecutionRoots(term.scope);
+          if (contexts === undefined) return undefined;
+          for (const context of contexts) {
+            if (!budget.step()) return undefined;
+            if (owner === undefined || context.owner !== owner) continue;
+            const activation = scopes.boundActivation(context.scope, owner);
+            const native = activation?.nativeEntry;
+            if (native?.invocation !== frontier.exposure) {
+              if (context.scope.kind === "variable" && context.callback !== undefined &&
+                transport.callbackEntriesFor(frontier.exposure).includes(context.callback))
+                terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: context.scope, exposure: frontier.exposure,
+                  reason: "A relevant native callback input requires its completed same-activation value correspondence." }));
+              continue;
+            }
+            if (native.callback.timing === "deferred" && !term.deferred) continue;
+            const values = readRelation(sourceStorageReference(frontier.subject, native.caller));
+            if (values === undefined) return undefined;
+            for (const value of values) {
+              if (!budget.step()) return undefined;
+              if (value.kind !== "leaf" && value.kind !== "unresolved") continue;
+              if (value.kind === "leaf" && value.subject !== frontier.subject) continue;
+              terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: value.scope,
+                exposure: frontier.exposure,
+                reason: "A relevant source callable crosses a native input without completed value and capture correspondence." }));
+            }
+          }
+        }
         for (const callback of transport.callbackEntriesFor(invocation)) {
           if (!budget.step()) return undefined;
           if (callback.timing === "deferred" && !term.deferred) continue;

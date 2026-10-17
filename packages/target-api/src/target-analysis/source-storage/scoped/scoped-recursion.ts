@@ -117,7 +117,7 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
           const caller = site.caller;
           if (!component.has(caller)) continue;
           const inputs = invocationInputs(formal, owner, site.invocation, site.callback);
-          if (inputs.context !== "caller" || inputs.subjects.size !== 1 || (inputs.defaults?.length ?? 0) !== 0) return undefined;
+          if (inputs.context !== "caller" || inputs.subjects.size !== 1 || (inputs.calleeSubjects?.length ?? 0) !== 0) return undefined;
           const input = budget.withRows(temporary => {
             let input = inputs.subjects.values().next().value!;
             const visited = new Set<SourceStorageSubject>();
