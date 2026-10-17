@@ -422,14 +422,14 @@ for (const rest of [false, true]) for (const selectedIndex of [0, 1]) for (const
       const slot = slots[index];
       const formal = resolved(storage.subject(slot.parameter, "input", slot.projection)).subject;
       const origins = resolved(storage.boundOriginsFor(formal, bindings));
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === (index === 0 ? "first" : "second"));
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === (index === 0 ? "first" : "second"));
       const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
       assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
         `effective input ${index} preserves its exact source tuple element and allocation`);
     }
-    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "result");
     const selected = storage.closedOriginsFor(resolved(storage.subjectFor(result)).subject);
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === (selectedIndex === 0 ? "first" : "second"));
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === (selectedIndex === 0 ? "first" : "second"));
     const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
     assert.equal(selected.kind === "complete" && selected.origins.length === 1 && selected.origins[0].subject === expected, true,
       "the selected body result retains exactly its original checked actual");
@@ -547,8 +547,8 @@ test("initialized aggregate inputs select the root before its checked component"
   `);
   const { ast, nodes, storage } = current;
   for (const [name, expectedName] of [["supplied", "present"], ["omitted", "fallback"]]) {
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
-    const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === expectedName);
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+    const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === expectedName);
     const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(original).Initializer)).subject;
     const selected = storage.closedOriginsFor(resolved(storage.subjectFor(variable)).subject);
     assert.equal(selected.kind === "complete" && selected.origins.length === 1 && selected.origins[0].subject === expected, true,
@@ -586,7 +586,7 @@ for (const reversed of [false, true]) {
     const { ast, nodes, storage } = current;
     const rows = reversed ? [["present", "replacement"], ["absent", "fallback"]] : [["absent", "fallback"], ["present", "replacement"]];
     for (const [name, expectedName] of rows) {
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
       const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
       assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
         selected.producers[0].subject.node === current.declaration(expectedName), true,
@@ -610,12 +610,12 @@ test("an unreachable guarded contribution is not a proved omitted input", async 
     export {};
   `);
   const { ast, nodes, storage } = current;
-  const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+  const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
   const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
   assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
     selected.producers[0].subject.node === current.declaration("replacement"), true,
   "the impossible absence branch has no value contribution; it cannot select the callee default");
-  const omitted = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "absent");
+  const omitted = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "absent");
   const fallback = storage.storageProducersFor(resolved(storage.subjectFor(omitted)).subject);
   assert.equal(fallback.kind === "complete" && fallback.producers.length === 1 &&
     fallback.producers[0].subject.node === current.declaration("fallback"), true,
@@ -646,7 +646,7 @@ for (const reversed of [false, true]) for (const shape of ["direct", "copy", "ne
       : [["firstReader", "left"], ["secondReader", "right"]];
     const creationScopes = new Set();
     for (const [name, actual] of selections) {
-      const node = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const node = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
       const subject = resolved(storage.subjectFor(node)).subject;
       const selected = storage.storageProducersFor(subject);
       assert.equal(selected.kind === "complete", true, name + ": copied method value is completely selected");
@@ -660,7 +660,7 @@ for (const reversed of [false, true]) for (const shape of ["direct", "copy", "ne
       assert.equal(caller.activations.length, 1, name + ": the original caller relation is retained");
       creationScopes.add(activation.activations[0].bindings);
       const origins = resolved(storage.boundOriginsFor(formal, activation.activations[0].bindings));
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === actual);
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === actual);
       const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
       assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
         name + ": generic actual and source capture remain correlated with this factory creation");
@@ -684,7 +684,7 @@ for (const shape of ["own-method", "own-field", "mutation"]) {
       export const selected = copied.read;
     `);
     const { ast, nodes, storage } = current;
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
     const original = nodes.find(node => ast.is.IsMethodDeclaration(node));
     const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
     assert.equal(selected.kind, "complete", "the copied destination has exact source method/field contributions");
@@ -745,7 +745,7 @@ for (const reversed of [false, true]) for (const nested of [false, true]) {
       assert.equal(creation.activations.length, 1, name + ": one actual original factory activation");
       scopes.add(creation.activations[0].bindings);
       const actual = resolved(storage.boundOriginsFor(formal, creation.activations[0].bindings));
-      const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === value);
+      const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === value);
       const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(original).Initializer)).subject;
       assert.equal(actual.subjects.length === 1 && actual.subjects[0] === expected, true,
         name + ": receiver capture and factory argument cannot cross between real evaluations");
@@ -864,23 +864,23 @@ for (const reversed of [false, true]) for (const copied of [false, true]) {
     const pairs = reversed ? [["second", "right"], ["first", "left"]] : [["first", "left"], ["second", "right"]];
     const creations = new Set();
     for (const [name, expected] of pairs) {
-      const reader = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name + "Reader");
+      const reader = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name + "Reader");
       const selected = storage.storageProducersFor(resolved(storage.subjectFor(reader)).subject);
       assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === method, true,
         "rest copies the actual method rather than an opaque binding or an invented implementation");
       const activation = resolved(storage.boundActivationsFor(make, selected.producers[0].bindings));
       const values = resolved(storage.boundOriginsFor(formal, activation.activations[0].bindings));
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === expected);
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === expected);
       const original = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
       assert.equal(values.subjects.length === 1 && values.subjects[0] === original, true,
         "the copied method retains its exact original factory actual and capture row");
       creations.add(activation.activations[0].bindings);
-      const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
       const domain = storage.storageProducersFor(resolved(storage.subjectFor(result)).subject);
       assert.equal(domain.kind === "complete" && domain.producers.length === 1 &&
         (copied ? ast.is.IsObjectLiteralExpression(domain.producers[0].subject.node) : ast.is.IsBindingElement(domain.producers[0].subject.node)), true,
       "the rest/copy allocation is not collapsed into its original receiver");
-      const field = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name + "Value");
+      const field = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name + "Value");
       const selectedField = storage.storageProducersFor(resolved(storage.subjectFor(field)).subject);
       assert.equal(selectedField.kind === "complete" && selectedField.producers.length === 1 &&
         selectedField.producers[0].subject === original, true, "passive rest fields preserve the original actual value");
@@ -953,12 +953,12 @@ test("writes to a copied getter result are writes to its new own field, not to t
   `);
   const { ast, nodes, storage } = current;
   const arrows = nodes.filter(node => ast.is.IsArrowFunction(node));
-  const selectedNode = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+  const selectedNode = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
   const selected = storage.storageProducersFor(resolved(storage.subjectFor(selectedNode)).subject);
   assert.equal(selected.kind === "complete" && selected.producers.length === 2 &&
     arrows.every(arrow => selected.producers.some(producer => producer.subject.node === arrow)), true,
   "the existing flow-insensitive field domain retains its original snapshot and the actual later own write");
-  const untouchedNode = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "untouched");
+  const untouchedNode = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "untouched");
   const untouched = storage.storageProducersFor(resolved(storage.subjectFor(untouchedNode)).subject);
   assert.equal(untouched.kind === "complete" && untouched.producers.length === 1 && untouched.producers[0].subject.node === arrows[0], true,
     "a new own-field mutation cannot become a write to the original getter return");
@@ -1792,5 +1792,135 @@ for (const form of ["foreign-slot", "duplicate-slot", "accessor", "unknown-timin
       "the actual lexical owner is preserved instead of a fabricated empty scope");
     assert.equal(getterCalls, 0, "validation does not execute metadata accessors");
     assert.equal(current.storage.failureReason() === undefined, true, "a local malformed native fact does not reject the shared budget");
+  });
+}
+
+for (const view of ["View", "{ tag: number; read?: () => number }"]) for (const inherited of [false, true]) {
+  test("a closed actual class absence preserves the earlier copied method: " + view + "/" + inherited, async () => {
+    const { ast, nodes, storage } = await fixture("class-copy-positive-absence-" + view + "/" + inherited, `
+      interface View { tag: number; read?: () => number; }
+      const original = { read(): number { return 7; } };
+      class Empty implements View { tag = 1; }
+      ${inherited ? "class Derived extends Empty {}" : ""}
+      function copy(view: ${view}) { return { ...original, ...view }; }
+      export const selected = copy(new ${inherited ? "Derived" : "Empty"}()).read;
+    `);
+    const selected = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) &&
+      ast.text(ast.name(node)) === "selected");
+    const original = nodes.find(node => ast.is.IsMethodDeclaration(node));
+    const result = storage.storageProducersFor(resolved(storage.subjectFor(selected)).subject);
+    assert.equal(result.kind === "complete" && result.producers.length === 1 && result.producers[0].subject.node === original, true,
+      "complete actual optional absence resumes the earlier contribution, never unknown or an invented undefined");
+    assert.equal(storage.failureReason() === undefined, true, "positive absence preserves a monotone completed relation");
+  });
+}
+
+for (const shape of ["absent", "present", "conditional"]) for (const reversed of [false, true]) {
+  test("closed present and absent class alternatives keep both source outcomes: " + shape + "/" + reversed, async () => {
+    const { ast, nodes, storage, declaration } = await fixture("class-copy-alternatives-" + shape + "/" + reversed, `
+      interface View { tag: number; read?: () => number; }
+      const original = { read(): number { return 7; } };
+      class Empty implements View { tag = 1; }
+      class Present implements View { tag = 2; read = (): number => 11; }
+      function copy(view: View) { return { ...original, ...view }; }
+      export function choose(flag: boolean) {
+        const actual = ${shape === "conditional" ? "flag ? new Empty() : new Present()" : `new ${shape === "absent" ? "Empty" : "Present"}()`};
+        return copy(actual).read;
+      }
+    `);
+    const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node));
+    const subject = resolved(storage.subjectFor(access)).subject;
+    const bindings = resolved(storage.bindingsForDeclaration(declaration("choose"))).bindings;
+    if (reversed) resolved(storage.originSubjectsFor(subject));
+    const result = storage.storageProducersFor(subject, bindings);
+    assert.equal(result.kind, "complete", "every actual alternative has checked class/member correspondence");
+    const earlier = nodes.find(node => ast.is.IsMethodDeclaration(node));
+    const later = nodes.find(node => ast.is.IsArrowFunction(node));
+    assert.equal(result.producers.some(value => value.subject.node === earlier), shape !== "present",
+      "only a genuinely absent alternative preserves the earlier source method");
+    assert.equal(result.producers.some(value => value.subject.node === later), shape !== "absent",
+      "the actual own field overrides, never the static optional view");
+    assert.equal(storage.failureReason() === undefined, true, "query order cannot retract a proved absence");
+  });
+}
+
+for (const form of ["ordinary", "renamed", "default", "rest"]) for (const reversed of [false, true]) {
+  test("registered binding getters keep real value execution and context identity: " + form + "/" + reversed, async () => {
+    const binding = form === "rest" ? "const { ignored, ...copied } = source; return copied.read();"
+      : form === "renamed" ? "const { read: selected } = source; return selected();"
+      : form === "default" ? "const { read = () => -1 } = source; return read();"
+      : "const { read } = source; return read();";
+    const current = await fixture("binding-getter-real-execution-" + form + "/" + reversed, `
+      declare function observe(value: number): void;
+      function make(value: number) {
+        const source = { ignored: 0, get read(): () => number { observe(value); return () => value; } };
+        return () => { ${binding} };
+      }
+      export const first = make(7); export const second = make(11);
+    `);
+    const { ast, nodes, storage, declaration } = current;
+    const observe = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const demanded = resolved(storage.subjectFor(ast.as.AsCallExpression(observe).Expression)).subject;
+    const getter = nodes.find(node => ast.is.IsGetAccessorDeclaration(node));
+    const argument = resolved(storage.subjectFor(ast.arguments(observe)[0])).subject;
+    const names = reversed ? ["second", "first"] : ["first", "second"];
+    const keys = new Map();
+    for (const name of names) {
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+      const result = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
+      assert.equal(result.kind === "complete" && result.producers.length === 1, true, "one actual independently created executor");
+      const executions = storage.contributingExecutionsFor(demanded, getter, result.producers[0]);
+      assert.equal(executions.kind === "complete" && executions.producers.length === 1, true,
+        "the actual binding executes its getter once, never an invented property access");
+      const origins = resolved(storage.boundOriginsFor(argument, executions.producers[0].bindings));
+      assert.equal(origins.subjects.length === 1 && ast.text(origins.subjects[0].node) === (name === "first" ? "7" : "11"), true,
+        "the getter retains its exact original factory actual");
+      const site = storage.accessorInvocations.find(node => ast.is.IsBindingElement(node));
+      const context = resolved(storage.invocationContextKeyFor(site, executions.producers[0].bindings));
+      keys.set(name, context.key);
+    }
+    assert.equal(keys.get("first") !== keys.get("second"), true, "different actual creation demands never share a getter context");
+    assert.equal(ast.body(declaration("make")) !== undefined && storage.failureReason() === undefined, true);
+  });
+}
+
+for (const shape of ["class", "inherited", "object"]) for (const mapped of [false, true]) for (const invoked of [false, true]) {
+  test("native payload getters require an actual evaluation and preserve local uncertainty: " + shape + "/" + mapped + "/" + invoked, async () => {
+    const declarationText = shape === "object" ? "return { get run(): () => void { return () => { observe(value); }; } };"
+      : `class Payload { get run(): () => void { return () => { observe(value); }; } }
+         ${shape === "inherited" ? "class Derived extends Payload {}" : ""}
+         return new ${shape === "inherited" ? "Derived" : "Payload"}();`;
+    const { ast, nodes, storage, declaration } = await fixture("native-passive-getter-" + shape + "/" + mapped + "/" + invoked, `
+      declare function observe(value: number): void;
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      function make(value: number) { ${declarationText} }
+      export function create(first: number, second: number) {
+        const left = make(first); const right = make(second);
+        return () => { nativeInvoke([left, right], actual => { ${invoked ? "actual.run();" : "void actual;"} }); };
+      }
+    `, (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous", ...(mapped ? { inputs: [
+            { parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 },
+          ] } : {}) }] : undefined;
+      } };
+    });
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parent(node) !== undefined &&
+      ast.is.IsReturnStatement(ast.parent(node)) && ast.parent(ast.parent(node)) === ast.body(declaration("create")));
+    const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const result = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
+    assert.equal(result.kind === "complete" && result.producers.length === 1, true, "one checked executor creation");
+    const demanded = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+    const selected = storage.contributingExecutionsFor(demanded, owner, result.producers[0]);
+    assert.equal(selected.kind, invoked && !mapped ? "open" : "complete", "uncertainty belongs only to a relevant actual native input");
+    assert.equal(selected.producers.length > 0, invoked && mapped, "payload discovery is never a getter invocation license");
+    if (selected.kind === "open") assert.equal(selected.boundaries.length > 0 && selected.boundaries.every(boundary =>
+      ast.is.IsCallExpression(boundary.exposure) && ast.text(ast.as.AsCallExpression(boundary.exposure).Expression) === "nativeInvoke"), true,
+    "the real native invocation retains each actual creation frontier");
+    assert.equal(storage.failureReason() === undefined, true, "a passive getter cannot poison unrelated source storage");
   });
 }

@@ -25,7 +25,8 @@ export function createSourceStorageDomains(
   const { ast, navigation, semantics } = source;
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, (ancestor, current) => {
-    if (ancestor.subject.node !== current.subject.node || ancestor.subject.kind !== current.subject.kind ||
+    if (!semantics.forFile(current.sourceFile).types.isIdentical(ancestor.type, current.type) ||
+      ancestor.subject.node !== current.subject.node || ancestor.subject.kind !== current.subject.kind ||
       ancestor.subject.projection.length >= current.subject.projection.length ||
       transport.subject(current.subject.node, current.subject.kind,
         current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;

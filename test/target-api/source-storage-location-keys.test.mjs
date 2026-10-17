@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture(count = 4, limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -37,7 +39,9 @@ function fixture(count = 4, limits = {}) {
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation),
+    ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const reference = (scope, selected = root) => ({ kind: "reference", subject: selected, scope });
   return { budget, owner, subject, root, locations, inputs, empty, first, second, keys, reference, failure,
     locationReads: () => locationReads, unavailable: value => { unavailable = value; } };

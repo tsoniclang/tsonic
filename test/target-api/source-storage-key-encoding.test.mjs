@@ -3,6 +3,7 @@ import test from "node:test";
 import { createSourceStorageKeyEncoder } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
 
 const set = (...values) => ({ kind: "set", values });
 const budget = limits => createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -57,7 +58,8 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
   const keys = createSourceStorageScopedKeys({}, current, {
     contextualInputs: () => new Set(),
     bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),
-  }, scopes);
+  }, scopes, { footprints: createSourceStorageContextFootprints(current, () => new Set(), () => undefined),
+    ownerFor: () => undefined });
   const selected = keys.encode(term);
   assert.equal(typeof selected === "string" && selected.length < 4096, true, "the exact 20-level binding DAG is a bounded key");
   assert.equal(current.failure() === undefined, true);

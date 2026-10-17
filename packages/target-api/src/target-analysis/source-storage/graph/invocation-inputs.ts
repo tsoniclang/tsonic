@@ -3,7 +3,7 @@ import { Node_Expression, Node_Initializer } from "../../../source-navigation/in
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import { sourceStorageHasOriginalCallableValue } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
@@ -176,13 +176,21 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
     componentsFor(value: SourceStorageSubject): readonly SourceStorageProjection[] | undefined;
     callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
     hasSourceImplementation(invocation: Node): boolean;
-  }): { readonly values: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean } | undefined {
+  }): { readonly values: readonly SourceStorageClassValue<Bindings>[];
+    readonly uncertain: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean } | undefined {
   return budget.withRows(rows => {
     const { ast, semantics } = source;
     const pending: SourceStorageClassValue<Bindings>[] = [];
     const visited = new Map<Bindings, Set<SourceStorageSubject>>();
     const values: SourceStorageClassValue<Bindings>[] = [];
+    const uncertain: SourceStorageClassValue<Bindings>[] = [];
     let complete = true;
+    const markUncertain = (value: SourceStorageClassValue<Bindings>): boolean => {
+      complete = false;
+      if (uncertain.some(previous => previous.subject === value.subject && previous.bindings === value.bindings)) return true;
+      if (!rows.add(1)) return false;
+      uncertain.push(value); return true;
+    };
     const schedule = (subject: SourceStorageSubject | undefined, bindings: Bindings): boolean => {
       if (subject === undefined) { complete = false; return true; }
       const previous = visited.get(bindings);
@@ -212,9 +220,11 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
       const producers = queries.valuesFor(selected.subject, selected.bindings);
       if (producers === undefined) {
         if (budget.failure() !== undefined) return undefined;
-        complete = false; continue;
+        if (!markUncertain(selected)) return undefined;
+        continue;
       }
       complete &&= producers.complete;
+      if (!producers.complete && !markUncertain(selected)) return undefined;
       for (const producer of producers.values) {
         if (!budget.step()) return undefined;
         if (sourceStorageHasOriginalCallableValue(producer.subject, ast)) {
@@ -229,20 +239,26 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
         const type = sourceStorageSubjectType(source, producer.subject);
         const alternatives = type === undefined ? [] : context.types.isUnion(type) || context.types.isIntersection(type)
           ? context.types.unionOrIntersectionTypes(type) : [type];
-        if (type === undefined || alternatives.some(alternative => {
+        if ((type === undefined || alternatives.some(alternative => {
           const symbol = context.declarations.typeSymbol(alternative);
           return context.types.isAny(alternative) || context.types.isUnknown(alternative) ||
             context.types.callSignatures(alternative).length !== 0 || context.types.constructSignatures(alternative).length !== 0 ||
             symbol !== undefined && context.declarations.symbolDeclarations(symbol).some(declaration => ast.is.IsTypeParameterDeclaration(declaration));
-        })) complete = false;
+        })) && !markUncertain(producer)) return undefined;
         if (producer.subject.kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
           ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node) || ast.is.IsBindingElement(node))) {
           const components = queries.componentsFor(producer.subject);
-          if (components === undefined) complete = false;
+          if (components === undefined) { if (!markUncertain(producer)) return undefined; }
           else for (const component of components) {
+            const selected = queries.componentFor(producer, component);
             if ((component.kind === "member" || component.kind === "method-value") && ast.is.IsGetAccessorDeclaration(component.declaration) &&
-              ast.parent(component.declaration) === node) { complete = false; continue; }
-            if (!budget.step() || !schedule(queries.componentFor(producer, component), producer.bindings)) return undefined;
+              (ast.parent(component.declaration) === node || !ast.is.IsObjectLiteralExpression(node) &&
+                sourceStorageObjectRestOwner(node, ast) === undefined) &&
+              (selected?.kind !== "return" || selected.node !== component.declaration)) {
+              if (!markUncertain(producer)) return undefined;
+              continue;
+            }
+            if (!budget.step() || !schedule(selected, producer.bindings)) return undefined;
           }
         }
         if (producer.subject.projection.length !== 0) continue;
@@ -250,7 +266,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
           !inputs(node, producer.bindings)) return undefined;
       }
     }
-    return budget.failure() === undefined ? Object.freeze({ values: Object.freeze(values), complete }) : undefined;
+    return budget.failure() === undefined ? Object.freeze({ values: Object.freeze(values), uncertain: Object.freeze(uncertain), complete }) : undefined;
   });
 }
 

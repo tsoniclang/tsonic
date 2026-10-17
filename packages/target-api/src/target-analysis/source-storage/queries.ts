@@ -7,7 +7,8 @@ import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject } from "./model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection,
+  sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
@@ -33,6 +34,11 @@ export function createSourceStorageQuery(
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const checkedNode = (node: Node): boolean => {
     if (!budget.step()) return false;
+    if (declarations === undefined) {
+      if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
+      declarations = new Set(transport.visitedNodes);
+    }
+    if (!declarations.has(node)) return transport.hasCheckedContext(node);
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
   };
@@ -247,7 +253,10 @@ export function createSourceStorageQuery(
     subject(node, kind, projection) {
       if (kind !== undefined && kind !== "input" && kind !== "value" && kind !== "member" && kind !== "return" && kind !== "receiver")
         return unresolved("A source storage subject requires an exact input, value, member, return or receiver kind.");
-      return selectedSubject(checkedNode(node) ? transport.subject(node, kind, projection) : undefined);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      return selectedSubject(checkedNode(node) && components !== undefined && components.every(component =>
+        !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration))
+        ? transport.subject(node, kind, components) : undefined);
     },
     subjectFor(node) {
       return selectedSubject(checkedNode(node) ? transport.subjectFor(node) : undefined);
@@ -259,7 +268,10 @@ export function createSourceStorageQuery(
       return selectedSubject(member ? sourceStorageMemberSubject(node, ast, transport.subject) : undefined);
     },
     storageSubjectFor(node, projection) {
-      return selectedSubject(checkedNode(node) ? transport.storageSubject(node, projection) : undefined);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      return selectedSubject(checkedNode(node) && components !== undefined && components.every(component =>
+        !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration))
+        ? transport.storageSubject(node, components) : undefined);
     },
     typeFor(subject) {
       const reason = subjectReason(subject);

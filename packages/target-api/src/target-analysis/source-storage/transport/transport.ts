@@ -360,7 +360,8 @@ export function createSourceStorageTransport(
               { kind: "selected-signature", signature: selected.selectedSignature }, step)?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
-          const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
+          const projection = binding.sourceParameterForm === "parameter" ? []
+            : rest?.length === 1 && !rest[0]!.repeated ? rest[0]!.projection : undefined;
           if (formal === undefined || actual === undefined || projection === undefined) {
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
@@ -876,7 +877,7 @@ export function createSourceStorageTransport(
     storesIn: storedValues.storesIn,
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
-    sourceFileFor, retainCheckedContext, invocationTargets,
+    sourceFileFor, retainCheckedContext, hasCheckedContext: (node: Node) => checkedSourceFiles.has(node), invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor,
     accessorTargets, invocationInputs, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,

@@ -47,7 +47,7 @@ export function sourceStorageOriginalComponents(
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
-    if (semantics.types.isIdentical(from, to)) return [component];
+    if (from === to) return [component];
     const correspondence = semantics.types.structuralMembers(from, to);
     if (correspondence.kind !== "available") return [];
     return correspondence.members.flatMap(member => member.kind === "present" &&

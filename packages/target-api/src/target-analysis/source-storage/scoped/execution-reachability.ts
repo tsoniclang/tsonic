@@ -274,8 +274,12 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
           },
         });
         if (payloads === undefined) return undefined;
-        if (!payloads.complete && !uncertain(native.caller,
-          "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+        if (!payloads.complete) {
+          for (const value of payloads.uncertain) if (!uncertain(value.bindings,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+          if (payloads.uncertain.length === 0 && !uncertain(native.caller,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+        }
         for (const value of payloads.values) {
           if (!budget.step()) return undefined;
           if (frontier.subject !== frontier.owner && value.subject !== frontier.subject) continue;

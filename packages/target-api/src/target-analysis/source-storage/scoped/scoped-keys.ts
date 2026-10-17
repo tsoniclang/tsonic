@@ -6,8 +6,9 @@ import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../mo
 import type { SourceStorageActivation, SourceStorageReference, SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
-import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "../graph/context-footprints.js";
+import type { SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
 import { createSourceStorageKeyEncoder, type SourceStorageKey, type SourceStorageKeyValue as Encoded } from "../graph/key-encoding.js";
@@ -24,20 +25,13 @@ interface ReferenceEncodings {
 }
 
 export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
-  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes) {
-  const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
-    transport.contextLocation, transport.contextualInputs.applicationFor);
+  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, creation: SourceStorageCreationContext) {
+  const { footprints, ownerFor: locationOwner } = creation;
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
   const ownerRows = budget.createRows();
   const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
   const referenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
-  const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
-    if (subject.kind === "input") return sourceStorageFormalOwner(subject, source.ast);
-    const region = transport.regions.enclosing(subject.node);
-    return subject.kind === "return" || subject.kind === "receiver" ? subject.node
-      : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
-  };
   const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
     if (!budget.step()) return undefined;
     if (footprint.locations.size === 0) return [];
@@ -246,7 +240,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       const omittedInput = selected.kind === "leaf" && selected.subject.kind === "input"
         ? scopes.lookup(selected.subject, selected.scope) : undefined;
-      if ((selected.kind === "reference" || selected.kind === "leaf" && omittedInput?.kind === "replace" && omittedInput.initialization === "absent") &&
+      if (selected.kind === "leaf" && omittedInput?.kind === "replace" && omittedInput.initialization === "absent") {
+        const activation = birthKey(selected.subject, selected.scope);
+        return activation === undefined ? undefined : ["absent-input", scopes.identity(selected.subject), activation];
+      }
+      if (selected.kind === "reference" &&
         (selected.subject.kind === "receiver" || selected.subject.kind === "input" &&
         Node_Initializer(source.ast, selected.subject.node) === undefined)) {
         const bound = selected.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, selected, undefined)

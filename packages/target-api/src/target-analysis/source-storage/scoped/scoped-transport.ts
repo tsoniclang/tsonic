@@ -119,10 +119,6 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
       return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
     } };
   }
-  if (bound.initialization === "absent") return term.subject.projection.length !== 0
-    ? unresolved("A source input component requires its actual present value before projection.")
-    : { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject,
-      owner === undefined ? term.scope : scopes.owningScope(term.scope, owner) ?? term.scope) })] };
   if (initializer === undefined) return bound;
   const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   if (activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
@@ -130,16 +126,21 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   const fallback = transport.subjectFor(initializer);
   if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
   const defaultValue = sourceStorageReference(fallback, activation.scope);
+  if (bound.initialization === "absent") return { kind: "replace", terms: [defaultValue] };
   return { kind: "project", inputs: bound.terms,
-    select: value => sourceStorageInitializedValue(source, budget, term, defaultValue, value) };
+    select: value => sourceStorageInitializedValue(source, budget, scopes, term, defaultValue, value) };
 }
 
 export function sourceStorageInitializedValue(source: TargetSourceProgram, budget: SourceStorageBudget,
-  input: SourceStorageReference, fallback: SourceStorageReference,
+  scopes: SourceStorageScopes, input: SourceStorageReference, fallback: SourceStorageReference,
   value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm, { readonly kind: "empty" }>):
     readonly import("../graph/scoped-model.js").SourceStorageTerm[] | undefined {
   if (!budget.step()) return undefined;
   if (value.kind === "empty") return [value.absence === undefined ? value : fallback];
+  if (value.subject.kind === "input") {
+    const selected = scopes.lookup(value.subject, value.scope);
+    if (selected?.kind === "replace" && selected.initialization === "absent") return [fallback];
+  }
   const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
   const file = source.ast.getSourceFile(value.subject.node);
   const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);

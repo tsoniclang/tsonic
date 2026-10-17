@@ -7,6 +7,8 @@ import { sourceStorageReference } from "../../packages/target-api/dist/target-an
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture(limits = {}, length = 50) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -31,7 +33,6 @@ function fixture(limits = {}, length = 50) {
   graph.seal();
   const invocationInputs = origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(),
     context: "caller", omitted: false });
-  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined);
   const transport = {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
     contextLocation: () => undefined,
@@ -39,8 +40,11 @@ function fixture(limits = {}, length = 50) {
     guardedValues: { appliesTo: () => false },
   };
   transport.bindingInputFor = createSourceStorageBindingInputs(source.ast, transport, budget);
-  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
-  return { budget, subject, scopes, keys, source, transport, outer, inner, innerParameter, formal, input, nodes, inputs };
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation),
+    ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation);
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
+  return { budget, subject, scopes, keys, source, transport, creation, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 
 test("substitution into the canonical empty scope preserves identity with one bounded operation", () => {
@@ -191,7 +195,8 @@ test("a completed unavailable key reference is not mistaken for an unfinished cy
   const current = fixture();
   const scope = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
   const keys = createSourceStorageScopedKeys(current.source, current.budget,
-    { ...current.transport, contextualInputs: () => undefined }, current.scopes);
+    { ...current.transport, contextualInputs: () => undefined }, current.scopes,
+    { ...current.creation, footprints: createSourceStorageContextFootprints(current.budget, () => undefined, current.transport.contextLocation) });
   const reference = () => sourceStorageReference(current.nodes[0], scope);
   const term = { kind: "store", destination: reference(), receiver: reference(), value: reference() };
   assert.equal(keys.encode(term) === undefined, true, "the original unavailable context cannot become a fabricated key");
@@ -445,7 +450,7 @@ test("replacement selection intersects exact free variables on the smaller side 
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(current.source, budget, current.subject,
-    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined);
+    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined, current.creation);
   const owners = Array.from({ length: 64 }, () => ({ parameters: [] }));
   const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
   const variables = owners.map(owner => scopes.variable(equation, owner));

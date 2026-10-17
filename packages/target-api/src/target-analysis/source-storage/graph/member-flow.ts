@@ -43,7 +43,7 @@ export function createSourceStorageMemberFlow(
       if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
       if (selected.kind === "available") {
         if (!rows.add(1 + selected.members.length)) return undefined;
-        const contextualMembers = contextual === undefined || !selected.members.some(member => member.kind === "absent")
+        const contextualMembers = contextual === undefined
           ? undefined : queries.types.structuralMembers(contextual, to);
         const contextualByDestination = new Map<SourceStructuralMemberPair["destination"]["property"]["symbol"], SourceStructuralMemberPair>();
         if (contextualMembers?.kind === "available") for (const member of contextualMembers.members) {
@@ -54,8 +54,10 @@ export function createSourceStorageMemberFlow(
         const members = new Map<Node, Set<Node>>();
         for (const member of selected.members) {
           if (!budget.step()) return undefined;
-          const physical = member.kind === "absent" && contextualByDestination.size !== 0
-            ? contextualByDestination.get(member.destination.property.symbol) ?? member : member;
+          const contract = contextualByDestination.get(member.destination.property.symbol);
+          const physical: SourceStructuralMemberPair = member.kind === "present" && contract?.kind === "present" && contract.source.property.readonly
+            ? Object.freeze({ ...member, source: Object.freeze({ ...member.source,
+              property: Object.freeze({ ...member.source.property, readonly: true }) }) }) : member;
           physicalMembers.push(physical);
           if (physical.kind !== "present") continue;
           for (const target of physical.destination.declarations) {
@@ -111,7 +113,7 @@ export function createSourceStorageMemberFlow(
     const queries = source.semantics.forFile(file);
     const type = sourceStorageSubjectType(source, owner, file);
     let declarations: readonly Node[] | undefined;
-    if (type !== undefined && queries.types.isIdentical(type, destinationType)) {
+    if (type !== undefined && type === destinationType) {
       const members = queries.types.propertyInfos(type).map(property => Object.freeze([...new Set(
         [property.symbol, ...property.rootSymbols].flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]));
       const selected = members.filter(declarations => declarations.includes(declaration));
