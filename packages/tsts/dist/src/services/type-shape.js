@@ -1,12 +1,14 @@
 import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
+import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
-import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetSourceFile, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { getExtensionHost } from "../extensions/host.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
-import { Checker_getTypeOfSymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_getTypeOfSymbol, Checker_getInstantiatedBaseTypes, } from "../internal/checker/checker/symbols.js";
 import { Checker_getBaseTypeOfLiteralType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
 import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
 import { Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
@@ -70,6 +72,31 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => hasFlags(type, TypeFlagsObject) && type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0
             ? Checker_GetTypeArguments(checker, type)
             : []) ?? [],
+        getInstantiatedBaseTypes(type) {
+            const owner = type?.checker;
+            if (owner === undefined ||
+                Program_GetSourceFile(program, SourceFile_FileName(defaultOptions.sourceFile)) !== defaultOptions.sourceFile)
+                return undefined;
+            return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
+                if (checker === undefined)
+                    return undefined;
+                if (checker !== owner && checker.program !== owner.program) {
+                    const host = getExtensionHost(checker.program);
+                    if (host === undefined || host !== getExtensionHost(owner.program))
+                        return undefined;
+                }
+                const bases = Checker_getInstantiatedBaseTypes(owner, type);
+                if (bases === undefined)
+                    return undefined;
+                const selected = [];
+                for (const base of bases) {
+                    if (base === undefined || base === owner.errorType)
+                        return undefined;
+                    selected.push(base);
+                }
+                return Object.freeze(selected);
+            });
+        },
         getTypeReferenceArgumentInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
             if (type === undefined || checker === undefined || !hasFlags(type, TypeFlagsObject))
                 return undefined;

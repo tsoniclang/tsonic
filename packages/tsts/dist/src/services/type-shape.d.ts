@@ -85,6 +85,7 @@ export interface TypeShapeQueries {
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
+    readonly getInstantiatedBaseTypes: (type: GoPtr<Type>) => readonly Type[] | undefined;
     readonly getSubstitutionBaseType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTupleElementInfos: (type: GoPtr<Type>) => readonly TypeTupleElementInfo[];
