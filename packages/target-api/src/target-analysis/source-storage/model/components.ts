@@ -84,7 +84,10 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
   if (value.kind === "return") {
     const signature = semantics.types.declarationSignatureInfo(value.node);
     selected = signature !== undefined && semantics.declarations.signatureDeclaration(signature.signature) === value.node
-      ? signature.returnType : undefined;
+      ? source.ast.hasModifierKind(value.node, "async")
+        ? semantics.types.awaitedType(signature.returnType)
+        : signature.returnType
+      : undefined;
   } else if (value.kind === "receiver") {
     selected = sourceStorageReceiverType(source, value.node, semantics);
   } else {
