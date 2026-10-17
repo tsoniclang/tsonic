@@ -6,7 +6,7 @@ import type { SourceStorageSubject, SourceStorageProjection } from "../model/sub
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
   sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
-import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
+import { createSourceStorageExecutionReachability, walkSourceStorageExecution } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
   SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
@@ -27,40 +27,6 @@ interface SourceStorageChildContext {
   readonly contributes?: boolean;
   readonly independentCallee?: Node;
   readonly correlated?: boolean;
-}
-
-export function* walkSourceStorageExecution(budget: SourceStorageBudget, roots: Iterable<SourceStorageTerm>,
-  read: (term: SourceStorageTerm) => Iterable<SourceStorageTerm> | undefined): Generator<SourceStorageTerm> {
-  const rows = budget.createRows();
-  const frontier = budget.createRows();
-  let maximumFrontier = 0;
-  const pending: SourceStorageTerm[] = [];
-  const visited = new Set<SourceStorageTerm>();
-  const schedule = (term: SourceStorageTerm): boolean => {
-    if (!budget.step()) return false;
-    if (visited.has(term)) return true;
-    if (!rows.add(1)) return false;
-    if (pending.length === maximumFrontier) {
-      if (!frontier.add(1)) return false;
-      maximumFrontier += 1;
-    }
-    visited.add(term); pending.push(term);
-    return true;
-  };
-  try {
-    for (const root of roots) if (!schedule(root)) return;
-    while (pending.length !== 0) {
-      if (!budget.step()) return;
-      const term = pending.pop()!;
-      if (term.kind === "leaf" || term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
-      if (term.kind === "empty") continue;
-      const successors = read(term);
-      if (successors === undefined) {
-        budget.reject("Source storage execution requires its active scoped relation."); return;
-      }
-      for (const successor of successors) if (!schedule(successor)) return;
-    }
-  } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
 }
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -474,18 +440,33 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         terms.push(sourceStorageReference(projected, term.receiver.scope));
         continue;
       }
-      witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
+      const copied = ast.is.IsObjectLiteralExpression(term.receiver.subject.node) &&
+        ast.parent(original) !== term.receiver.subject.node &&
+        ast.properties(term.receiver.subject.node).some(element => ast.is.IsSpreadAssignment(element));
+      if (copied) {
+        const inputs = transport.memberFlow.spreadInputsFor(term.receiver.subject, original, receiverType);
+        if (inputs === undefined) terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.receiver.scope,
+          reason: "Copied source storage requires its exact original spread component and creation binding." }));
+        else for (const input of inputs) {
+          if (!budget.step()) return undefined;
+          const value = transport.subjectFor(input.expression);
+          const projected = value === undefined ? undefined : transport.subject(value.node, value.kind,
+            [...value.projection, input.component, ...term.projection]);
+          if (projected === undefined) return undefined;
+          terms.push(sourceStorageReference(projected, term.receiver.scope));
+        }
+      } else witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
       const stores = transport.storedValuesFor(subject);
       if ((term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined) {
         terms.push(sourceStorageReference(subject, term.receiver.scope)); continue;
       }
       if (stores === undefined) {
-        terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
+        if (!copied) terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
           ? leaf(subject, creatorScope(original, term.receiver.scope)) : sourceStorageReference(subject, term.receiver.scope));
         continue;
       }
-      if (ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined)
+      if (!copied && ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined)
         terms.push(leaf(subject, creatorScope(original, term.receiver.scope)));
       for (const { store, value } of stores) {
         if (!budget.step()) return undefined;

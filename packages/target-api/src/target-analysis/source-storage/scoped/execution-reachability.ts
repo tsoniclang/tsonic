@@ -4,6 +4,41 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageTerm } from "../graph/scoped-model.js";
+
+export function* walkSourceStorageExecution(budget: SourceStorageBudget, roots: Iterable<SourceStorageTerm>,
+  read: (term: SourceStorageTerm) => Iterable<SourceStorageTerm> | undefined): Generator<SourceStorageTerm> {
+  const rows = budget.createRows();
+  const frontier = budget.createRows();
+  let maximumFrontier = 0;
+  const pending: SourceStorageTerm[] = [];
+  const visited = new Set<SourceStorageTerm>();
+  const schedule = (term: SourceStorageTerm): boolean => {
+    if (!budget.step()) return false;
+    if (visited.has(term)) return true;
+    if (!rows.add(1)) return false;
+    if (pending.length === maximumFrontier) {
+      if (!frontier.add(1)) return false;
+      maximumFrontier += 1;
+    }
+    visited.add(term); pending.push(term);
+    return true;
+  };
+  try {
+    for (const root of roots) if (!schedule(root)) return;
+    while (pending.length !== 0) {
+      if (!budget.step()) return;
+      const term = pending.pop()!;
+      if (term.kind === "leaf" || term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
+      if (term.kind === "empty") continue;
+      const successors = read(term);
+      if (successors === undefined) {
+        budget.reject("Source storage execution requires its active scoped relation."); return;
+      }
+      for (const successor of successors) if (!schedule(successor)) return;
+    }
+  } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
+}
 
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {

@@ -42,6 +42,27 @@ export function sourceStorageInvocationActual(
     [...actual.projection, { kind: "tuple-element", index }]);
 }
 
+export function sourceStorageInvocationArgumentAbsence(
+  source: TargetSourceProgram,
+  selected: ResolvedSourceCallInfo,
+  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+): "absent" | "present" | "possible" {
+  const argument = selected.sourceArguments[binding.sourceArgumentIndex];
+  const file = argument === undefined ? undefined : source.ast.getSourceFile(argument.expression);
+  if (argument === undefined || file === undefined || !source.semantics.includes(file)) return "possible";
+  const types = source.semantics.forFile(file).types;
+  const type = binding.selectedArgumentType;
+  if (types.isNullish(type) || types.isVoidLike(type)) return "absent";
+  if (binding.sourceForm === "spread-element") {
+    const index = binding.spreadElementIndex;
+    const element = index === undefined || !types.isTuple(argument.type) ? undefined : types.tupleElementInfos(argument.type)[index];
+    if (element?.elementKind !== "required") return "possible";
+  } else if (binding.sourceForm !== "value") return "possible";
+  const present = types.nonNullableType(type);
+  return types.isAny(type) || types.isUnknown(type) || present === undefined || !types.isIdentical(type, present)
+    ? "possible" : "present";
+}
+
 type SourceStorageCallableInputEvidence = {
   readonly kind: "selected-signature" | "source-implementation";
   readonly signature: Signature | undefined;
@@ -267,6 +288,7 @@ export function createSourceStorageInvocationInputs(
   const { ast, semantics } = source;
   return (formal, candidate, invocation, callback) => {
     const subjects = new Set<SourceStorageSubject>();
+    const calleeSubjects = new Set<SourceStorageSubject>();
     let context: SourceStorageInvocationInputs["context"] = "caller";
     if (isUnresolved(invocation)) return { subjects, context };
     const consumer = semantics.forNode(invocation);
@@ -287,7 +309,6 @@ export function createSourceStorageInvocationInputs(
       const types = consumer.types;
       const nativeInputs = sourceStorageNativeInputSlots(source, candidate, formal,
         callback.argument.binding.selectedParameterType, consumer, budget.step);
-      const calleeSubjects = new Set<SourceStorageSubject>();
       const initializer = Node_Initializer(ast, formal.node);
       if (initializer !== undefined && (nativeInputs === undefined || nativeInputs.some(input => {
         const type = input.type;
@@ -340,7 +361,9 @@ export function createSourceStorageInvocationInputs(
       const owned = slots?.filter(slot => slot.parameter === formal.node);
       if (owned === undefined || owned.length === 0) subjects.add(formal);
       else {
+        const initializer = Node_Initializer(ast, formal.node);
         let bound = false;
+        let mayBeAbsent = false;
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!budget.step()) break;
           for (const slot of owned) {
@@ -354,14 +377,23 @@ export function createSourceStorageInvocationInputs(
             const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
             const origin = actual === undefined ? undefined : subject(actual.node, actual.kind,
               [...actual.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
-            if (origin !== undefined) { bound = true; subjects.add(origin); }
+            const absence = selected === undefined ? "possible" : sourceStorageInvocationArgumentAbsence(source, selected, binding);
+            mayBeAbsent ||= absence !== "present";
+            if (origin !== undefined) {
+              bound = true;
+              if (initializer === undefined || absence !== "absent") subjects.add(origin);
+            }
           }
+        }
+        if (bound && mayBeAbsent && initializer !== undefined) {
+          const root = subjectFor(initializer);
+          const value = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...formal.projection]);
+          if (value !== undefined) calleeSubjects.add(value);
         }
         if (!bound) {
           const access = isAccessor(invocation) ? ast.parent(invocation) : undefined;
           const assignment = access === undefined || !ast.is.IsBinaryExpression(access) ? undefined : ast.as.AsBinaryExpression(access);
           const actual = assignment?.Left === invocation && ast.operatorKindName(access) === "KindEqualsToken" ? assignment.Right : undefined;
-          const initializer = Node_Initializer(ast, formal.node);
           const argument = subjectFor(actual ?? initializer);
           if (actual === undefined && initializer !== undefined) context = "callee";
           if (argument === undefined) subjects.add(formal);
@@ -369,6 +401,6 @@ export function createSourceStorageInvocationInputs(
         }
       }
     }
-    return { subjects, context };
+    return { subjects, context, calleeSubjects: Object.freeze([...calleeSubjects]) };
   };
 }

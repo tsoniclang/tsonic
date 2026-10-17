@@ -436,6 +436,174 @@ for (const rest of [false, true]) for (const selectedIndex of [0, 1]) for (const
   });
 }
 
+for (const reversed of [false, true]) {
+  test("finite tuple actuals retain an overload's real implementation input: " + reversed, async () => {
+    const current = await fixture("overload-spread-implementation-" + reversed, `
+      function increment(value: number): number { return value + 1; }
+      function use(callback: (value: number) => number): number;
+      function use(callback: (value: number) => number): number { return callback(7); }
+      function unrelated(callback: (value: number) => number): number { return callback(9); }
+      const actuals: [typeof increment] = [increment];
+      export const direct = use(increment);
+      export const spread = use(...actuals);
+    `);
+    const { ast, nodes, storage, source } = current;
+    const implementation = nodes.find(node => ast.is.IsFunctionDeclaration(node) &&
+      ast.text(ast.name(node)) === "use" && ast.body(node) !== undefined);
+    const formal = resolved(storage.subject(ast.parameters(implementation)[0], "input")).subject;
+    const original = current.declaration("increment");
+    const unscoped = resolved(storage.originSubjectsFor(formal));
+    assert.equal(unscoped.subjects.length === 1 && unscoped.subjects[0].node === original, true,
+      "the selected overload and the source-body parameter share the exact original callable");
+    const invocations = nodes.filter(node => ast.is.IsCallExpression(node) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "use");
+    for (const invocation of reversed ? [...invocations].reverse() : invocations) {
+      const selected = source.semantics.forNode(invocation).operations.call(invocation);
+      assert.equal(source.semantics.forNode(invocation).declarations.signatureDeclaration(selected.selectedSignature) !== implementation, true,
+        "the actual selected declaration is the separate overload contract");
+      const bindings = resolved(storage.bindingsForInvocation(implementation, invocation)).bindings;
+      const actual = storage.storageProducersFor(formal, bindings);
+      assert.equal(actual.kind === "complete" && actual.producers.length === 1 && actual.producers[0].subject.node === original, true,
+        "direct and finite-spread entries preserve the identical actual source implementation");
+      assert.equal(storage.bindingsForInvocation(current.declaration("unrelated"), invocation).kind, "unresolved",
+        "the tuple cannot authorize a different implementation declaration");
+    }
+  });
+}
+
+for (const form of ["omitted", "optional-empty", "undefined", "present"]) {
+  test("finite source defaults retain their actual value contribution: " + form, async () => {
+    const actuals = form === "omitted" ? "" : form === "optional-empty" ? "...empty"
+      : form === "undefined" ? "undefined" : "...present";
+    const current = await fixture("finite-default-input-" + form, `
+      interface Value { readonly token: {}; }
+      const fallback: Value = { token: {} };
+      const actual: Value = { token: {} };
+      function deliver(value: Value = fallback): Value { return value; }
+      const empty: [Value?] = [];
+      const present: [Value] = [actual];
+      export const result = deliver(${actuals});
+    `);
+    const { ast, nodes, storage } = current;
+    const declaration = current.declaration("deliver");
+    const invocation = nodes.find(node => ast.is.IsCallExpression(node));
+    const bindings = resolved(storage.bindingsForInvocation(declaration, invocation)).bindings;
+    const formal = resolved(storage.subject(ast.parameters(declaration)[0], "input")).subject;
+    const original = nodes.find(node => ast.is.IsVariableDeclaration(node) &&
+      ast.text(ast.name(node)) === (form === "present" ? "actual" : "fallback"));
+    const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(original).Initializer)).subject;
+    const origins = resolved(storage.boundOriginsFor(formal, bindings));
+    assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
+      "omission contributes the original callee default; a required present tuple contributes only its actual value");
+    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+    const selected = storage.closedOriginsFor(resolved(storage.subjectFor(result)).subject);
+    assert.equal(selected.kind === "complete" && selected.origins.length === 1 && selected.origins[0].subject === expected, true,
+      "default initializer execution and input VALUE correspond through the same source body");
+  });
+}
+
+for (const reversed of [false, true]) for (const shape of ["direct", "copy", "nested-copy", "last-spread"]) {
+  test("copied method producers retain the original factory activation: " + shape + "/" + reversed, async () => {
+    const copied = shape === "direct" ? "original" : shape === "copy" ? "{ aaa: 3, ...original }"
+      : shape === "nested-copy" ? "{ ...{ aaa: 3, ...original } }" : "{ ...make({ token: {} }), ...original }";
+    const current = await fixture("method-spread-creation-" + shape + "/" + reversed, `
+      function make<Value>(value: Value): { read(): Value } { return { read(): Value { return value; } }; }
+      function copy<Actual>(value: Actual) { const original = make(value); return ${copied}; }
+      const left = { token: {} };
+      const right = { token: {} };
+      const first = copy(left);
+      const second = copy(right);
+      const firstReader = first.read;
+      const secondReader = second.read;
+      export {};
+    `);
+    const { ast, nodes, storage } = current;
+    const make = current.declaration("make");
+    const copy = current.declaration("copy");
+    const method = nodes.find(node => ast.is.IsMethodDeclaration(node));
+    const formal = resolved(storage.subject(ast.parameters(make)[0], "input")).subject;
+    const selections = reversed ? [["secondReader", "right"], ["firstReader", "left"]]
+      : [["firstReader", "left"], ["secondReader", "right"]];
+    const creationScopes = new Set();
+    for (const [name, actual] of selections) {
+      const node = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const subject = resolved(storage.subjectFor(node)).subject;
+      const selected = storage.storageProducersFor(subject);
+      assert.equal(selected.kind === "complete", true, name + ": copied method value is completely selected");
+      assert.equal(selected.producers.length === 1 && selected.producers[0].subject.node === method, true,
+        name + ": later spread and nesting preserve exactly the actual original method");
+      const producer = selected.producers[0];
+      const activation = resolved(storage.boundActivationsFor(make, producer.bindings));
+      assert.equal(activation.activations.length === 1 && activation.activations[0].kind === "invocation", true,
+        name + ": the actual MAKE frame is not replaced with COPY");
+      const caller = resolved(storage.boundActivationsFor(copy, producer.bindings));
+      assert.equal(caller.activations.length, 1, name + ": the original caller relation is retained");
+      creationScopes.add(activation.activations[0].bindings);
+      const origins = resolved(storage.boundOriginsFor(formal, activation.activations[0].bindings));
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === actual);
+      const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
+      assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
+        name + ": generic actual and source capture remain correlated with this factory creation");
+    }
+    assert.equal(creationScopes.size, 2, "two actual factory creations sharing a method AST never merge");
+  });
+}
+
+for (const shape of ["own-method", "own-field", "mutation"]) {
+  test("object spread contribution preserves its later actual override: " + shape, async () => {
+    const properties = shape === "own-method" ? "...original, read(): {} { return replacement; }"
+      : shape === "own-field" ? "...original, read: () => replacement" : "...original";
+    const mutation = shape === "mutation" ? "copied.read = () => replacement;" : "";
+    const current = await fixture("method-spread-override-" + shape, `
+      const value = {};
+      const replacement = {};
+      function make(input: {}): { read(): {} } { return { read(): {} { return input; } }; }
+      const original = make(value);
+      const copied = { ${properties} };
+      ${mutation}
+      export const selected = copied.read;
+    `);
+    const { ast, nodes, storage } = current;
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+    const original = nodes.find(node => ast.is.IsMethodDeclaration(node));
+    const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
+    assert.equal(selected.kind, "complete", "the copied destination has exact source method/field contributions");
+    const replacement = nodes.filter(node => ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node)).at(-1);
+    assert.equal(selected.producers.some(value => value.subject.node === replacement), true, "the actual later override is retained");
+    if (shape !== "mutation") assert.equal(selected.producers.length === 1 && selected.producers[0].subject.node === replacement, true,
+      "a definite own declaration overrides an earlier spread rather than unioning it");
+    else assert.equal(selected.producers.some(value => value.subject.node === original), true,
+      "flow-insensitive destination mutation preserves the original source value and the actual write");
+  });
+}
+
+for (const optional of [false, true]) for (const reversed of [false, true]) {
+  test("an external spread keeps only the applicable original method alternatives: " + optional + "/" + reversed, async () => {
+    const current = await fixture("method-spread-external-" + optional + "/" + reversed, `
+      function make(value: {}): { read(): {} } { return { read(): {} { return value; } }; }
+      export function choose(external: { read${optional ? "?" : ""}: () => {} }) {
+        const original = make({});
+        const copied = { ...original, ...external };
+        return copied.read;
+      }
+    `);
+    const { ast, nodes, storage } = current;
+    const owner = current.declaration("choose");
+    const expression = nodes.find(node => ast.is.IsPropertyAccessExpression(node));
+    const original = nodes.find(node => ast.is.IsMethodDeclaration(node));
+    const subject = resolved(storage.subjectFor(expression)).subject;
+    const bindings = resolved(storage.bindingsForDeclaration(owner)).bindings;
+    if (reversed) assert.equal(storage.closedOriginsFor(subject, bindings).kind, "open",
+      "an external last contributor is not completed merely because an earlier source factory is known");
+    const selected = storage.storageProducersFor(subject, bindings);
+    assert.equal(selected.kind, "open", "the exact external member demand remains open");
+    assert.equal(selected.producers.some(value => value.subject.node === original), optional,
+      "only an optional later member can leave the earlier source implementation present");
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "formal-external"), true,
+      "the unknown producer retains its genuine external-input boundary");
+  });
+}
+
 for (const [name, text, owners] of [
   ["function-type-alias", `function deliver(actual: number): number { return actual; }
     const alias: (renamed: number) => number = deliver; export const result = alias(7);`, ["deliver"]],

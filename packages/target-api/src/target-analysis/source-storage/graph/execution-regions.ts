@@ -6,7 +6,7 @@ import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
-import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
+import { sourceStorageCallableInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
@@ -56,6 +56,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
         inputs.some(slot => slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
+        if (binding.sourceForm === "spread-element" && selection !== undefined &&
+          sourceStorageInvocationArgumentAbsence(source, selection, binding) !== "present") return true;
         const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;
         const types = argumentTypes === undefined || binding.sourceForm === "spread-element" ? [binding.selectedArgumentType]
           : expression === undefined ? undefined : argumentTypes(expression);

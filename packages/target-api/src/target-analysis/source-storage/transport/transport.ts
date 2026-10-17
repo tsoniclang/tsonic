@@ -688,17 +688,27 @@ export function createSourceStorageTransport(
         if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!step()) break;
-          if (binding.sourceForm !== "value" || binding.sourceParameterForm === "rest-sequence") continue;
+          if (binding.sourceForm === "spread-sequence" || binding.sourceParameterForm === "rest-sequence") continue;
           const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
           for (const slot of slots ?? []) {
             if (!step()) return;
             if (slot.projection === undefined || slot.effectiveIndex !== binding.effectiveArgumentIndex &&
               !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)) continue;
             const destination = subject(slot.parameter, "input", slot.projection);
-            connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), destination,
+            const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
+            connect(actual, destination,
               { from: binding.selectedArgumentType, to: binding.selectedParameterType });
             if (slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
           }
+        }
+        for (const slot of slots ?? []) {
+          if (!step()) return;
+          if (slot.projection === undefined) continue;
+          const destination = subject(slot.parameter, "input", slot.projection);
+          if (destination === undefined) return;
+          const inputs = invocationInputs(destination, candidate, invocation);
+          if (inputs.context === "callee") for (const origin of inputs.subjects) connect(origin, destination);
+          for (const origin of inputs.calleeSubjects ?? []) connect(origin, destination);
         }
       }
     };

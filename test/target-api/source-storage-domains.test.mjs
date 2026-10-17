@@ -684,9 +684,9 @@ test("default-library recursive callback publication stays finite without poison
 for (const readonly of [false, true]) {
   test(`recursive array publication keeps actual external prefixes without unrolling values/${readonly}`, async () => {
     const current = await fixture(`storage-domain-recursive-array-publication-${readonly}`, `
-      type Tree = number | ${readonly ? "readonly " : ""}Tree[];
+      interface Tree extends ${readonly ? "ReadonlyArray" : "Array"}<Tree> {}
       export function read(value: Tree): Tree { return value; }
-      const original: Tree = [2, [3, 4]];
+      const original: Tree = [[], [[]]];
       const selected = read(original);
     `);
     complete(current.selection("original"), "an external formal does not publish a private caller's original allocation");

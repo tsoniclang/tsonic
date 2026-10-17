@@ -3,7 +3,9 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStructuralMemberPair } from "../../../source-semantics/structural-members.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
+import { SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 
 interface MemberIndex {
   readonly members: readonly SourceStructuralMemberPair[];
@@ -108,7 +110,48 @@ export function createSourceStorageMemberFlow(
     }
     return declarations;
   };
-  return Object.freeze({ declarationsFor,
+  const spreadInputsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): readonly {
+    readonly expression: Node; readonly component: SourceStorageProjection;
+  }[] | undefined => {
+    const file = sourceFileFor(owner);
+    const object = source.ast.as.AsObjectLiteralExpression(owner.node);
+    const index = selectedIndex(owner, destinationType);
+    if (file === undefined || object === undefined || owner.projection.length !== 0 || index === undefined) return undefined;
+    const selected = index.members.filter(member => member.kind === "present" &&
+      (member.source.declarations.includes(declaration) || member.destination.declarations.includes(declaration)));
+    if (selected.length !== 1 || selected[0]?.kind !== "present") return undefined;
+    const property = selected[0].source.property;
+    const queries = source.semantics.forFile(file);
+    const inputs: { readonly expression: Node; readonly component: SourceStorageProjection }[] = [];
+    for (const element of [...source.ast.properties(owner.node)].reverse()) {
+      if (!budget.step()) return undefined;
+      if (!source.ast.is.IsSpreadAssignment(element)) {
+        const selected = queries.operations.objectLiteralElement(element);
+        const symbol = selected?.sourceElementSymbol;
+        if (selected === undefined || symbol === undefined) return undefined;
+        if (queries.declarations.symbolName(symbol) === property.name) break;
+        continue;
+      }
+      const expression = SpreadAssignment_Expression(source.ast, element);
+      const type = expression === undefined ? undefined : queries.types.expressionType(expression);
+      const members = type === undefined ? undefined : indexFor(file, type, type);
+      if (members === undefined || expression === undefined) return undefined;
+      const matches = members.members.filter(member => member.kind === "present" && member.source.property.name === property.name);
+      if (matches.length === 0) continue;
+      if (matches.length !== 1 || matches[0]?.kind !== "present") return undefined;
+      const member = matches[0].source;
+      if (member.read !== "property" && member.read !== "method" || member.declarations.length === 0) return undefined;
+      for (const original of member.declarations) {
+        if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
+        inputs.push(Object.freeze({ expression, component: Object.freeze({
+          kind: member.read === "method" ? "method-value" : "member", declaration: original,
+        }) }));
+      }
+      if (!member.property.optional) break;
+    }
+    return Object.freeze(inputs);
+  };
+  return Object.freeze({ declarationsFor, spreadInputsFor,
     membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
       selectedIndex(owner, destinationType)?.members });
 }
