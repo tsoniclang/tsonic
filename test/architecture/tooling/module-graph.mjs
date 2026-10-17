@@ -98,7 +98,8 @@ function collectModuleSpecifiers(ast, sourceFile) {
         children.some((child) => ast.kindName(child) === "KindImportKeyword")
       ) {
         const [argument] = ast.arguments(node);
-        if (argument !== undefined && ast.kindName(argument) === "KindStringLiteral") {
+        if (argument !== undefined && (ast.kindName(argument) === "KindStringLiteral" ||
+            ast.kindName(argument) === "KindNoSubstitutionTemplateLiteral")) {
           specifiers.push(ast.text(argument));
         }
       }

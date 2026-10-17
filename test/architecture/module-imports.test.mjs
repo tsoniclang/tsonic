@@ -11,10 +11,12 @@ test("module import inventory separates actual JavaScript imports from fixture s
       export { other } from "./missing.mjs";
       const fixture = \`import { backing } from "./fixture-only.js";\`;
       void import("./dynamic.mjs");
+      void import(\`./template.mjs\`);
     `],
     ["side-effect.mjs", "export {};"],
     ["value.mjs", "export const value = 1;"],
     ["dynamic.mjs", "export const value = 2;"],
+    ["template.mjs", "export const value = 3;"],
   ]);
   const result = buildTypeScriptModuleAnalysis(source);
   assert.equal(result.modules.length, source.size);
@@ -22,6 +24,7 @@ test("module import inventory separates actual JavaScript imports from fixture s
     ["./dynamic.mjs", false],
     ["./missing.mjs", true],
     ["./side-effect.mjs", false],
+    ["./template.mjs", false],
     ["./value.mjs", false],
   ]);
 });
