@@ -10,6 +10,7 @@ import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inpu
 import { sourceStorageCallableInputSlots } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
 import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageBinding, SourceStorageReference,
@@ -148,7 +149,12 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   });
   const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
-    if (term.kind === "execution-root" || term.kind === "empty") return term;
+    if (term.kind === "execution-root") return term;
+    if (term.kind === "empty") {
+      if (term.absence === undefined) return term;
+      const scope = applyScope(term.absence.scope, replacements);
+      return scope === undefined ? undefined : Object.freeze({ kind: "empty", absence: Object.freeze({ ...term.absence, scope }) });
+    }
     if (term.kind === "guarded") {
       const value = applyTerm(term.value, replacements);
       return value === undefined ? undefined : Object.freeze({ ...term, value });
@@ -204,7 +210,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const to = root === undefined ? undefined : sourceStorageSubjectType(source, root);
       if (from === undefined || to === undefined) return undefined;
       sourceStorageProjectComponents(entry.subject.projection, from, to, origin.projection,
-        source.semantics.forNode(entry.subject.node), budget, collect);
+        source.semantics.forNode(entry.subject.node), source.ast, budget, collect);
     }
     return budget.failure() === undefined ? selected : undefined;
   };
@@ -362,6 +368,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       }
       for (const input of selected.calleeSubjects ?? []) {
         if (!budget.step()) return undefined;
+        if (values.length !== 0 && formal.kind === "input" && Node_Initializer(source.ast, formal.node) !== undefined && input !== formal) continue;
         values.push(input === formal ? Object.freeze({ kind: "leaf", subject: input, scope: frame }) : sourceStorageReference(input, frame));
       }
       if (values.length === 0) continue;

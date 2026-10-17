@@ -30,7 +30,7 @@ function fixture() {
     ast.text(ast.name(node)) === name);
   const initializer = name => ast.as.AsVariableDeclaration(named(name)).Initializer;
   const inputs = createSourceStorageInvocationInputs(source, budget, transport.subject, transport.subjectFor,
-    call => transport.accessorTargets.has(call), call => transport.unresolvedInvocations.has(call));
+    transport.accessorTargets, call => transport.unresolvedInvocations.has(call));
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined);

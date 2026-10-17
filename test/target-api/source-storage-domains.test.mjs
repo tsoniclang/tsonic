@@ -701,6 +701,23 @@ for (const readonly of [false, true]) {
   });
 }
 
+for (const readonly of [false, true]) {
+  test(`a recursive scalar-or-array union cannot license an unnarrowed component/${readonly}`, async () => {
+    const current = await fixture(`storage-domain-recursive-union-projection-${readonly}`, `
+      type Tree = number | ${readonly ? "ReadonlyArray" : "Array"}<Tree>;
+      export function read(value: Tree): Tree { return value; }
+      const original: Tree = [[], [[]]];
+      const selected = read(original);
+    `);
+    const owner = namedDeclaration(current.source.ast, current.file, "read");
+    const parameter = current.source.ast.parameters(owner)[0];
+    const selected = current.storage.subject(parameter, "input", [{ kind: "array-element" }]);
+    assert.equal(selected.kind, "unresolved", "the original scalar alternative requires checked narrowing before an element exists");
+    assert.equal(current.storage.failureReason() === undefined, true, "an unproven component does not increase limits or poison the source graph");
+    complete(current.selection("selected"), "the actual recursive array value remains selected without an invented scalar component");
+  });
+}
+
 test("recursive contextual transport converges without inventing an original root or exhausting the graph", async () => {
   const current = await fixture("storage-domain-context-cycle", `
     function recurse<T>(value: T): T { return recurse(value); }

@@ -61,7 +61,7 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
       selections += 1;
       return new Set([node.candidate]);
     },
-  }, (_formal, _candidate, invocation) => ({ context: "caller",
+  }, (_formal, _candidate, invocation) => ({ context: "caller", omitted: false,
     subjects: new Set([subject(invocation.caller.parameters[0], "input")]) }));
   const component = recursion.componentFor(owners[0]);
   assert.equal(component?.size === owners.length && owners.every(owner => component.has(owner)) && !component.has(external), true,

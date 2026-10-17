@@ -62,15 +62,21 @@ export type SourceStorageOperation =
   | { readonly mode: "value" }
   | { readonly mode: "execution"; readonly demand: Node; readonly deferred?: boolean };
 
+export interface SourceStorageAccessorInvocation {
+  readonly declaration: Node;
+  readonly receiver: Node;
+}
+
 export type SourceStorageMemberSelection =
   | { readonly kind: "access"; readonly node: Node }
-  | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node };
+  | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node;
+      readonly evaluation: Node | undefined };
 
 export type SourceStorageTerm =
   | SourceStorageReference
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
       readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node }
-  | { readonly kind: "empty" }
+  | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
       readonly callback?: SourceStorageCallbackEntry } & SourceStorageOperation)
@@ -92,9 +98,9 @@ export type SourceStorageBinding =
 export type SourceStorageReduction =
   | SourceStorageBinding & { readonly witnesses?: readonly SourceStorageRelationWitness[];
       readonly dependencies?: readonly SourceStorageTerm[] }
-  | { readonly kind: "project"; readonly input: SourceStorageTerm;
+  | { readonly kind: "project"; readonly inputs: readonly SourceStorageTerm[];
       readonly valueFilter?: Node;
-      readonly select: (value: SourceStorageReference) => readonly SourceStorageTerm[] | undefined };
+      readonly select: (value: SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" }>) => readonly SourceStorageTerm[] | undefined };
 
 export interface SourceStorageScopedSubject {
   readonly subject: SourceStorageSubject;

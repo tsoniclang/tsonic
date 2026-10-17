@@ -9,6 +9,7 @@ import { createSourceOwnershipQuery } from "./query.js";
 import { createSourceRetentionQuery } from "./retention.js";
 import { decideSourceAsyncResultUse } from "./result-decision.js";
 import { resolveSourceAsyncResultDisposition } from "./result-use.js";
+import { sourceOwnershipContractProblem } from "./contracts.js";
 import type { SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionReadSelection } from "./model.js";
 
 function fixture(kind: "input-duration" | "type-argument",
@@ -99,6 +100,27 @@ function fixture(kind: "input-duration" | "type-argument",
   assert.equal(calls.length, 3, "all actual result-use demands");
   return { source, storage, budget, premises, query, declaration, selectedDeclaration, calls };
 }
+
+test("selected ownership contracts use the checked consumer identity even when the selected declaration has no authored file", () => {
+  const current = fixture("input-duration");
+  const call = current.calls[0]!;
+  const selected = current.source.semantics.forNode(call).operations.call(call);
+  assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "the actual checked call owns the contract");
+  if (selected?.sourceSelectedSignatureKind !== "resolved") return;
+  const declaration = current.selectedDeclaration(call)!;
+  const source = { ...current.source, ast: { ...current.source.ast,
+    getSourceFile: (node: Node | undefined) => node === declaration ? undefined : current.source.ast.getSourceFile(node),
+  } };
+  const evidence = { contractDeclaration: declaration, checkedType: selected.sourceResultType };
+  assert.equal(sourceOwnershipContractProblem(source, call, selected.sourceResultType, evidence), undefined,
+    "the selected native/provider declaration is still the identical checked call contract");
+  assert.equal(sourceOwnershipContractProblem(source, call, selected.sourceResultType, {
+    ...evidence, contractDeclaration: current.declaration("independent"),
+  }) !== undefined, true, "an unrelated declaration cannot borrow that checked selection");
+  const foreign = fixture("input-duration");
+  assert.equal(sourceOwnershipContractProblem(source, foreign.calls[0]!, selected.sourceResultType, evidence) !== undefined, true,
+    "an actual foreign consumer source file remains rejected");
+});
 
 for (const kind of ["input-duration", "type-argument"] as const) {
   test(`actual owned completion evidence preserves passed and receiver uses beside ${kind} lease negatives`, () => {

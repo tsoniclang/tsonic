@@ -20,20 +20,19 @@ import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
-  sourceStorageNativeCallablePayloads, sourceStorageInvocationActual } from "../graph/invocation-inputs.js";
+  sourceStorageNativeCallablePayloads, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
   SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
-import { createSourceStorageMemberFlow } from "../graph/member-flow.js";
+import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues } from "../graph/stored-values.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
-import { sourceStorageIsScalarType } from "../model/components.js";
 import { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
 
 export function createSourceStorageTransport(
@@ -209,7 +208,8 @@ export function createSourceStorageTransport(
   const regions = createSourceStorageExecutionRegions(source, budget, invocation => constructionLineagesFor(invocation));
   const memberAccessors = createSourceStorageMemberAccessors(source, budget, {
     subject, subjectFor, incomingFor, connect, recordInvocation: regions.recordInvocation,
-    implementationsFor: (declaration, invocation) => implementationsFor(declaration, invocation).nodes,
+    spreadMembersFor: expression => memberFlow.spreadMembersFor(expression),
+    implementationsFor: (declaration, invocation, receiver) => implementationsFor(declaration, invocation, originSubjects, receiver),
   }, graphQueries);
   const accessorTargets = memberAccessors.targets;
   const storedValues = createSourceStorageStoredValues(ast, budget, regions.enclosing, node => {
@@ -261,6 +261,7 @@ export function createSourceStorageTransport(
     if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
       connect(subjectFor(node), subject(parent));
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
+    if (ast.is.IsSpreadAssignment(node)) memberAccessors.record(node);
     if (ast.is.IsPropertyDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
       storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
@@ -369,7 +370,8 @@ export function createSourceStorageTransport(
           }
           arguments_.push(Object.freeze({ actual, formal: destination, selectedParameterDeclaration: formal,
             binding: Object.freeze({ ...binding }) }));
-          connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+          if (Node_Initializer(ast, formal) === undefined || sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
+            connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
         const supplied = effects.callbackEntries?.(node, selected);
@@ -448,80 +450,10 @@ export function createSourceStorageTransport(
     return budget.failure() === undefined ? values : undefined;
   });
   const memberFlow = createSourceStorageMemberFlow(source, budget, sourceFileFor, retainCheckedContext);
-  const implementationsFor = (declaration: Node, invocation: Node,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
-      readonly slots?: ReadonlySet<SourceStorageSubject> } => {
-    const selected = new Set<Node>();
-    const implementation = navigation.callableImplementation(declaration);
-    if (implementation.kind === "resolved") selected.add(implementation.implementation.declaration);
-    if (ast.hasModifierKind(declaration, "static") || ast.hasModifierKind(declaration, "private") ||
-      !ast.is.IsMethodDeclaration(declaration) && ast.kindName(declaration) !== "KindMethodSignature" &&
-      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
-        return { nodes: selected, exact: implementation.kind === "resolved" };
-    const queries = semantics.forNode(invocation);
-    const call = queries.operations.call(invocation);
-    const access = queries.operations.propertyAccess(invocation);
-    const receiver = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-      ?? access?.receiver.expression;
-    const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type;
-    const valueType = receiver === undefined ? undefined : queries.types.expressionType(receiver);
-    if (valueType !== undefined && sourceStorageIsScalarType(valueType, queries))
-      return { nodes: selected, exact: true };
-    if (ast.kindName(receiver) === "KindSuperKeyword") return { nodes: selected, exact: true };
-    const receiverSubject = subjectFor(receiver);
-    const origins = receiverSubject === undefined ? undefined : originsFor(receiverSubject);
-    const exact = new Set<Node>();
-    const slots = new Set<SourceStorageSubject>();
-    let unknown = receiverSubject === undefined;
-    const selectMember = (member: Node): void => {
-      if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) {
-        exact.add(member);
-        return;
-      }
-      const slot = sourceStorageMemberSubject(member, ast, subject);
-      if (slot !== undefined) slots.add(slot);
-      const values = slot === undefined ? undefined : originsFor(slot);
-      for (const value of values ?? []) {
-        if (!step()) return;
-        if (!sourceStorageHasOriginalValue(value, ast, incomingFor(value).size !== 0)) continue;
-        const implementation = navigation.callableImplementation(value.node);
-        if (implementation.kind !== "resolved") { unknown = true; continue; }
-        exact.add(implementation.implementation.declaration);
-      }
-    };
-    for (const origin of origins ?? []) {
-      if (!step()) return { nodes: selected, exact: false };
-      if (ast.is.IsParameterDeclaration(origin.node)) unknown = true;
-      if (incomingFor(origin).size !== 0) continue;
-      if (ast.is.IsNewExpression(origin.node)) {
-        const lineages = constructionLineagesFor(origin.node, originsFor);
-        unknown ||= lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete);
-        for (const lineage of lineages ?? []) {
-          const concrete = lineage.classes[0]?.subject.node;
-          const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
-          if (target?.kind !== "resolved") { unknown = true; continue; }
-          const original = target.implementation.declaration;
-          exact.add(original);
-          const slot = sourceStorageMemberSubject(original, ast, subject);
-          if (slot !== undefined && storedValues.storesFor(slot) !== undefined) selectMember(original);
-        }
-      } else if (ast.is.IsObjectLiteralExpression(origin.node)) {
-        const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
-        unknown ||= members === undefined;
-        for (const member of members ?? []) {
-          if (!step()) return { nodes: selected, exact: false };
-          selectMember(member);
-        }
-      } else unknown = true;
-    }
-    if (!unknown) return { nodes: exact, exact: true, slots };
-    for (const implementation of exact) selected.add(implementation);
-    for (const target of memberImplementations.get(declaration) ?? []) {
-      if (!step()) break;
-      selected.add(target);
-    }
-    return { nodes: selected, exact: false };
-  };
+  const implementationsFor = createSourceStorageMemberImplementations(source, budget, {
+    subject, subjectFor, incomingFor, originsFor: originSubjects, declarationsFor: memberFlow.declarationsFor,
+    storesFor: storedValues.storesFor, constructionLineagesFor, contracts: memberImplementations, accessorTargets,
+  });
   const collectInvocationImplementations = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects):
       { readonly nodes: ReadonlySet<Node>; readonly exact: boolean } => {
@@ -566,7 +498,7 @@ export function createSourceStorageTransport(
       for (const implementation of selected.nodes) implementations.add(implementation);
     }
     for (const accessor of accessorTargets.get(invocation) ?? []) {
-      const selected = implementationsFor(accessor, invocation, originsFor);
+      const selected = implementationsFor(accessor.declaration, invocation, originsFor);
       exact = target === undefined ? selected.exact : exact && selected.exact;
       for (const implementation of selected.nodes) implementations.add(implementation);
     }
@@ -598,13 +530,20 @@ export function createSourceStorageTransport(
   };
   const physicalMemberInputs = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
-    const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
-    if (declaration === undefined) return undefined;
-    const selected = implementationsFor(declaration, invocation, originsFor);
-    return selected.exact ? selected.slots : undefined;
+    const declaration = invocationDeclarations.get(invocation);
+    const declarations = declaration === undefined ? accessorTargets.get(invocation)?.map(target => target.declaration) : [declaration];
+    if (declarations === undefined || declarations.length === 0) return undefined;
+    const slots = new Set<SourceStorageSubject>();
+    for (const declaration of declarations) {
+      if (!step()) return undefined;
+      const selected = implementationsFor(declaration, invocation, originsFor);
+      if (!selected.exact) return undefined;
+      for (const slot of selected.slots ?? []) slots.add(slot);
+    }
+    return slots;
   };
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
-    invocation => accessorTargets.has(invocation), invocation => unresolvedInvocations.has(invocation));
+    accessorTargets, invocation => unresolvedInvocations.has(invocation));
   const invocationOrigins = (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> => {
     const origins = new Set<SourceStorageSubject>();
     if (unresolvedInvocations.has(invocation)) return origins;
@@ -646,8 +585,12 @@ export function createSourceStorageTransport(
         if (!once(origin)) continue;
         for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
           if (!step()) break;
-          if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) continue;
-          const location = sourceStorageMemberSubject(member, ast, subject);
+          const copied = ast.is.IsObjectLiteralExpression(origin.node) && ast.parent(member) !== origin.node &&
+            ast.properties(origin.node).some(element => ast.is.IsSpreadAssignment(element));
+          if (!copied && (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member))) continue;
+          const location = copied ? subject(origin.node, origin.kind, [...origin.projection, {
+            kind: sourceStorageIsMethodMember(member, ast) ? "method-value" : "member", declaration: member,
+          }]) : sourceStorageMemberSubject(member, ast, subject);
           if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
             connect(subjectFor(assignment.Right), location);
           storedValues.bind(location, access);
@@ -696,9 +639,10 @@ export function createSourceStorageTransport(
               !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)) continue;
             const destination = subject(slot.parameter, "input", slot.projection);
             const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-            connect(actual, destination,
-              { from: binding.selectedArgumentType, to: binding.selectedParameterType });
-            if (slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
+            const initialized = Node_Initializer(ast, slot.parameter) !== undefined;
+            if (!initialized || selected !== undefined && sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
+              connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+            if (!initialized && slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
           }
         }
         for (const slot of slots ?? []) {
@@ -859,10 +803,10 @@ export function createSourceStorageTransport(
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
+    invocationDeclarations, invocationEffects, invocations, accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
-  }, invocationInputs, graphQueries);
+  }, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
     selected => substitutions.walk(selected, substitutions.empty), unresolvedSubjects);
   const boundaries: SourceStorageBoundary[] = [];
@@ -907,7 +851,7 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor,
-    accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
+    accessorTargets, invocationInputs, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };
 }

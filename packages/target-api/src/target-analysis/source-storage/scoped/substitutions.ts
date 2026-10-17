@@ -3,7 +3,6 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import { createSourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "./scoped-keys.js";
@@ -12,11 +11,12 @@ import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
 import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
 import { walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 
 export type SourceStorageSubstitutions = SourceStorageScope;
@@ -31,8 +31,9 @@ interface SourceStorageRelation {
 }
 
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
-  transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery,
+  transport: SourceStorageScopedTransport,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
+  const { invocationInputs } = transport;
   const recursion = createSourceStorageScopedRecursion(source, budget, transport, invocationInputs);
   const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
@@ -46,7 +47,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const referenceRows = budget.createRows();
   const withQuery = scopes.withQuery;
   const rows = budget.createRows();
-  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty" });
+  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
     if (scope === scopes.empty || subject.kind === "member") return scope;
     const region = transport.regions.enclosing(subject.node);
@@ -81,8 +82,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const input = binding ? transport.bindingInputFor(term.subject)
           : sourceStorageTransparentInput(term.subject, source.ast, transport);
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
-        if (term.subject.kind === "input" || term.subject.kind === "receiver") {
-          const selected = scopes.lookup(term.subject, term.scope);
+        if (term.subject.kind === "receiver" || term.subject.kind === "input" && Node_Initializer(source.ast, term.subject.node) === undefined) {
+          const selected = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, undefined)
+            : scopes.lookup(term.subject, term.scope);
           if (selected?.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
         }
       }
@@ -97,6 +99,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const destination = normalize(term.destination, witnesses, temporary, false);
       const receiver = normalize(term.receiver, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
       return destination === undefined || receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, destination, receiver, value });
+    }
+    if (term.kind === "empty" && term.absence !== undefined) {
+      if (!budget.step() || !temporary.add(1)) return undefined;
+      witnesses.push({ subject: term.absence.subject, bindings: witnessScope(term.absence.subject, term.absence.scope), contributes });
     }
     if (term.kind === "guarded") {
       let current: SourceStorageTerm = term;
@@ -184,24 +190,29 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
-        const input = retain(selected.input, false);
-        if (input !== undefined && selected.valueFilter !== undefined) {
-          if (relation.filter === undefined && !rows.add(1)) return false;
-          relation.filter = { reference: selected.valueFilter, input };
-        }
-        return input !== undefined && project(input, value => scopes.withTraversal(() => {
-          const projected = value.kind === "leaf" ? selected.select(value)
-            : value.kind === "unresolved" || value.kind === "empty" ? [value] : [];
-          if (projected === undefined) return undefined;
-          const outputs: SourceStorageRelation[] = [];
-          for (const output of projected) {
-            if (!budget.step()) return undefined;
-            const normalized = retain(output);
-            if (normalized === undefined) return undefined;
-            outputs.push(normalized);
+        for (const term of selected.inputs) {
+          const input = retain(term, false);
+          if (input === undefined) return false;
+          if (selected.valueFilter !== undefined) {
+            if (selected.inputs.length !== 1) { budget.reject("A guarded storage projection requires one exact original value."); return false; }
+            if (relation.filter === undefined && !rows.add(1)) return false;
+            relation.filter = { reference: selected.valueFilter, input };
           }
-          return outputs;
-        }));
+          if (!project(input, value => scopes.withTraversal(() => {
+            const projected = value.kind === "leaf" || value.kind === "empty" ? selected.select(value)
+              : value.kind === "unresolved" ? [value] : [];
+            if (projected === undefined) return undefined;
+            const outputs: SourceStorageRelation[] = [];
+            for (const output of projected) {
+              if (!budget.step()) return undefined;
+              const normalized = retain(output);
+              if (normalized === undefined) return undefined;
+              outputs.push(normalized);
+            }
+            return outputs;
+          }))) return false;
+        }
+        return true;
       }
       for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : []) {
         if (!budget.step() || retain(dependency, false) === undefined) return false;

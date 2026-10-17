@@ -615,6 +615,28 @@ test("a receiver forwards sensitivity through the exact outer function binder", 
     "the owning checked call supplies the actual binding, not a guessed member spelling");
 });
 
+for (const inherited of [false, true]) {
+  test("native class this and static receivers retain exact apparent bindings: " + inherited, () => {
+    const current = fixture(`
+      class Box<Value> {
+        static count = 0;
+        constructor(readonly value: Value) { Box.count += 1; }
+        read(): Value { return this.value; }
+        static from<Part>(value: Part): Box<Part> { return new Box(value); }
+      }
+      ${inherited ? "class Derived<Value> extends Box<Value> { readAgain(): Value { return this.read(); } }" : ""}
+      export function use(): number {
+        const first = ${inherited ? "new Derived(7)" : "Box.from(7)"};
+        const second = Box.from(5);
+        return first.${inherited ? "readAgain" : "read"}() + second.read() + Box.count;
+      }
+    `);
+    const selected = current.query();
+    assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+      selected.kind === "unresolved" ? selected.reason : "this is the checked class constraint; static owners do not require instance bindings");
+  });
+}
+
 test("a synchronous class-binder result is native pass-through, not an invented async completion", () => {
   const current = fixture(`interface Method<Value> { read(): Value; }
     interface Property<Value> { read: () => Value; }

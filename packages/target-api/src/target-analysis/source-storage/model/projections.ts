@@ -23,7 +23,7 @@ export function createSourceStorageProjectionFlow(
     const queries = semantics.forNode(node);
     const access = queries.operations.elementAccess(node);
     const component = access === undefined ? undefined
-      : sourceIndexedStorageProjection(access.receiver.type, access.argument.expression, queries);
+      : sourceIndexedStorageProjection(access.receiver.type, access.argument.expression, queries, ast);
     const declaration = access?.selectedDeclaration;
     if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))

@@ -5,8 +5,7 @@ import type { SourceOwnershipContractEvidence, SourceOwnershipUnresolved } from 
 export function sourceOwnershipContractProblem(source: TargetSourceProgram, node: Node, type: Type,
   evidence: SourceOwnershipContractEvidence): string | undefined {
   const file = source.ast.getSourceFile(node);
-  const declarationFile = source.ast.getSourceFile(evidence.contractDeclaration);
-  if (file === undefined || declarationFile === undefined || !source.semantics.includes(file)) {
+  if (file === undefined || !source.semantics.includes(file)) {
     return "Ownership contract evidence must belong to the exact checked source program.";
   }
   const semantics = source.semantics.forNode(node);

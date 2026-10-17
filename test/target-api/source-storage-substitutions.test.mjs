@@ -29,12 +29,13 @@ function fixture(limits = {}, length = 50) {
     parent: node => node === parameter ? outer : node === innerParameter ? inner : node === inner ? outer : undefined } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
-  const scopes = createSourceStorageScopes(source, budget, subject,
-    origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph, () => undefined);
+  const invocationInputs = origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(),
+    context: "caller", omitted: false });
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined);
   const transport = {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
     contextLocation: () => undefined,
-    storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
+    storedValuesFor: () => undefined, invocationEffects: new Map(), invocationInputs, regions: { enclosing: () => undefined },
     guardedValues: { appliesTo: () => false },
   };
   transport.bindingInputFor = createSourceStorageBindingInputs(source.ast, transport, budget);
@@ -444,7 +445,7 @@ test("replacement selection intersects exact free variables on the smaller side 
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(current.source, budget, current.subject,
-    () => ({ subjects: new Set(), context: "caller" }), graph, () => undefined);
+    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined);
   const owners = Array.from({ length: 64 }, () => ({ parameters: [] }));
   const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
   const variables = owners.map(owner => scopes.variable(equation, owner));

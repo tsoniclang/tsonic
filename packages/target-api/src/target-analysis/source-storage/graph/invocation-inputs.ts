@@ -8,6 +8,7 @@ import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
+import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
 
 export interface SourceStorageCallableInputSlot {
   readonly parameter: Node;
@@ -153,10 +154,10 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
       const native = signature.parameters[parameterIndex] ?? (restIndex !== undefined && parameterIndex >= restIndex ? last : undefined);
       let type = native?.type;
       if (native?.parameterKind === "rest" && type !== undefined)
-        type = sourceStorageComponentType(type, { kind: "array-element" }, semantics);
+        type = sourceStorageComponentType(type, { kind: "array-element" }, semantics, source.ast);
       for (const component of projection) {
         if (!step()) return undefined;
-        type = type === undefined ? undefined : sourceStorageComponentType(type, component, semantics);
+        type = type === undefined ? undefined : sourceStorageComponentType(type, component, semantics, source.ast);
       }
       selected.push(Object.freeze({ parameterIndex, type, absent: native === undefined,
         acceptsOmission: native === undefined || native.acceptsOmission, projection }));
@@ -267,6 +268,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
 export interface SourceStorageInvocationInputs {
   readonly subjects: ReadonlySet<SourceStorageSubject>;
   readonly context: "caller" | "callee";
+  readonly omitted: boolean;
   readonly calleeSubjects?: readonly SourceStorageSubject[];
 }
 
@@ -282,7 +284,7 @@ export function createSourceStorageInvocationInputs(
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
-  isAccessor: (invocation: Node) => boolean,
+  accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>,
   isUnresolved: (invocation: Node) => boolean,
 ): SourceStorageInvocationInputQuery {
   const { ast, semantics } = source;
@@ -290,7 +292,11 @@ export function createSourceStorageInvocationInputs(
     const subjects = new Set<SourceStorageSubject>();
     const calleeSubjects = new Set<SourceStorageSubject>();
     let context: SourceStorageInvocationInputs["context"] = "caller";
-    if (isUnresolved(invocation)) return { subjects, context };
+    let omitted = false;
+    if (isUnresolved(invocation)) {
+      subjects.add(formal);
+      return { subjects, context: "callee", omitted };
+    }
     const consumer = semantics.forNode(invocation);
     const selected = consumer.operations.call(invocation);
     if (callback !== undefined) {
@@ -304,18 +310,13 @@ export function createSourceStorageInvocationInputs(
         binding.selectedArgumentType === callback.argument.binding.selectedArgumentType &&
         binding.selectedParameterType === callback.argument.binding.selectedParameterType)) {
         subjects.add(formal);
-        return { subjects, context: "callee" };
+        return { subjects, context: "callee", omitted };
       }
       const types = consumer.types;
       const nativeInputs = sourceStorageNativeInputSlots(source, candidate, formal,
         callback.argument.binding.selectedParameterType, consumer, budget.step);
       const initializer = Node_Initializer(ast, formal.node);
-      if (initializer !== undefined && (nativeInputs === undefined || nativeInputs.some(input => {
-        const type = input.type;
-        const present = type === undefined ? undefined : types.nonNullableType(type);
-        return input.absent || input.acceptsOmission || type === undefined || types.isAny(type) || types.isUnknown(type) ||
-          types.isNullish(type) || types.isVoidLike(type) || present === undefined || !types.isIdentical(type, present);
-      }))) {
+      if (initializer !== undefined && nativeInputs?.some(input => input.absent)) {
         const root = subjectFor(initializer);
         const value = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...formal.projection]);
         if (value !== undefined) calleeSubjects.add(value);
@@ -323,7 +324,10 @@ export function createSourceStorageInvocationInputs(
       if (nativeInputs === undefined) calleeSubjects.add(formal);
       for (const native of nativeInputs ?? []) {
         if (!budget.step()) break;
-        if (native.absent) { calleeSubjects.add(formal); continue; }
+        if (native.absent) {
+          if (initializer === undefined) calleeSubjects.add(formal);
+          continue;
+        }
         const input = callback.inputs?.find(input => input.parameterIndex === native.parameterIndex);
         let receiver: Node | undefined;
         if (input?.from === "receiver-element") receiver = selected.sourceReceiver?.expression;
@@ -339,7 +343,8 @@ export function createSourceStorageInvocationInputs(
         if (projected === undefined) calleeSubjects.add(formal);
         else subjects.add(projected);
       }
-      return { subjects, context: "caller", calleeSubjects: Object.freeze([...calleeSubjects]) };
+      omitted = initializer === undefined && nativeInputs !== undefined && nativeInputs.length !== 0 && nativeInputs.every(input => input.absent);
+      return { subjects, context: "caller", omitted, calleeSubjects: Object.freeze([...calleeSubjects]) };
     }
     const add = (origin: SourceStorageSubject | undefined): void => {
       if (origin === undefined) return;
@@ -352,7 +357,8 @@ export function createSourceStorageInvocationInputs(
         const base = sourceStorageSuperConstructor(invocation, source, budget.step);
         add(ast.is.IsNewExpression(invocation) ? subject(invocation)
           : base !== undefined ? subject(base.owner, "receiver")
-          : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
+          : subjectFor(accessorTargets.get(invocation)?.find(target => target.declaration === candidate)?.receiver
+            ?? selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
             ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
       }
     } else {
@@ -363,7 +369,7 @@ export function createSourceStorageInvocationInputs(
       else {
         const initializer = Node_Initializer(ast, formal.node);
         let bound = false;
-        let mayBeAbsent = false;
+        let matched = false;
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!budget.step()) break;
           for (const slot of owned) {
@@ -374,33 +380,30 @@ export function createSourceStorageInvocationInputs(
             const wanted = formal.projection[0];
             if (component !== undefined && (wanted === undefined || wanted.kind !== "array-element" &&
               (wanted.kind !== "tuple-element" || component.kind !== "tuple-element" || wanted.index !== component.index))) continue;
+            matched = true;
             const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
             const origin = actual === undefined ? undefined : subject(actual.node, actual.kind,
               [...actual.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
-            const absence = selected === undefined ? "possible" : sourceStorageInvocationArgumentAbsence(source, selected, binding);
-            mayBeAbsent ||= absence !== "present";
             if (origin !== undefined) {
               bound = true;
-              if (initializer === undefined || absence !== "absent") subjects.add(origin);
+              subjects.add(origin);
             }
           }
         }
-        if (bound && mayBeAbsent && initializer !== undefined) {
-          const root = subjectFor(initializer);
-          const value = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...formal.projection]);
-          if (value !== undefined) calleeSubjects.add(value);
-        }
-        if (!bound) {
-          const access = isAccessor(invocation) ? ast.parent(invocation) : undefined;
+        if (!bound && matched) subjects.add(formal);
+        else if (!bound) {
+          const access = accessorTargets.has(invocation) ? ast.parent(invocation) : undefined;
           const assignment = access === undefined || !ast.is.IsBinaryExpression(access) ? undefined : ast.as.AsBinaryExpression(access);
           const actual = assignment?.Left === invocation && ast.operatorKindName(access) === "KindEqualsToken" ? assignment.Right : undefined;
           const argument = subjectFor(actual ?? initializer);
           if (actual === undefined && initializer !== undefined) context = "callee";
+          omitted = actual === undefined && initializer === undefined && selected !== undefined &&
+            owned.every(slot => slot.projection !== undefined && slot.projection.length === 0);
           if (argument === undefined) subjects.add(formal);
           else add(argument);
         }
       }
     }
-    return { subjects, context, calleeSubjects: Object.freeze([...calleeSubjects]) };
+    return { subjects, context, omitted, calleeSubjects: Object.freeze([...calleeSubjects]) };
   };
 }

@@ -1,4 +1,4 @@
-import { Node_Expression } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -6,12 +6,13 @@ import type { SourceStorageSubject, SourceStorageProjection } from "../model/sub
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
   sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
-import { createSourceStorageExecutionReachability, walkSourceStorageExecution } from "./execution-reachability.js";
+import { createSourceStorageExecutionReachability, createSourceStorageInputExecutions, walkSourceStorageExecution } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
   SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
+import { sourceStorageInputBinding } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
@@ -21,7 +22,6 @@ import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorag
   sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
-import { sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -36,7 +36,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   closed: (term: SourceStorageTerm) => boolean | undefined,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
   const { ast, navigation, semantics } = source;
-  const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty" });
+  const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined });
   const absent: Extract<SourceStorageReduction, { readonly kind: "replace" }> = Object.freeze({
     kind: "replace", terms: Object.freeze([empty]),
   });
@@ -44,113 +44,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration)) &&
     transport.memberAccessorsFor(declaration)?.size === 0;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
-  const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
-    reasons: { readonly value: string; readonly effect: string }): readonly SourceStorageTerm[] | undefined => {
-    const selected = transport.subjectFor(demand);
-    const terms: SourceStorageTerm[] = [];
-    for (const result of walkSourceStorageExecution(budget, roots, readRelation)) {
-      if (!budget.step()) return undefined;
-      if (result.kind === "unresolved") terms.push(result);
-      else if (result.kind === "leaf" && result.subject === selected)
-        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
-      else if (result.kind === "effect" && result.store.region === demand)
-        terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
-    }
-    return budget.failure() === undefined ? Object.freeze(terms) : undefined;
-  };
-  const nativeInputExecutions = (invocation: Node, scope: SourceStorageScope, demand: Node, deferred: boolean | undefined,
-    callback?: { readonly entry: SourceStorageCallbackEntry; readonly subject: SourceStorageSubject;
-      readonly bindings: SourceStorageScope }): readonly SourceStorageTerm[] | undefined => {
-    const frontiers = reachability.frontiers(invocation, demand);
-    if (frontiers === undefined) return undefined;
-    if (frontiers.length === 0 && callback === undefined) return Object.freeze([]);
-    const contexts = scopes.nativeExecutionRoots(scope);
-    if (contexts === undefined) return undefined;
-    const terms: SourceStorageTerm[] = [];
-    const selected = transport.subjectFor(demand);
-    let covered = false;
-    let incomplete = false;
-    const uncertain = (bindings: SourceStorageScope, reason: string, exposure: Node): boolean => {
-      if (selected !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: bindings, reason, exposure }));
-      else for (const store of transport.storesIn(demand) ?? []) {
-        if (!budget.step()) return false;
-        terms.push(Object.freeze({ kind: "unresolved", subject: store.storage, scope: bindings, reason, exposure }));
-      }
-      return budget.failure() === undefined;
-    };
-    for (const frontier of frontiers) {
-      if (!budget.step()) return undefined;
-      if (callback === undefined ? frontier.callback !== undefined
-        : frontier.callback !== callback.entry || frontier.owner !== callback.subject) continue;
-      const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, ast);
-      const actual = callback === undefined || owner === undefined ? undefined
-        : scopes.boundActivation(callback.bindings, owner)?.nativeEntry;
-      if (callback !== undefined) {
-        if (actual === undefined) { incomplete = true; continue; }
-        if (actual.invocation !== frontier.exposure) continue;
-      }
-      let matched = false;
-      for (const context of contexts) {
-        if (!budget.step()) return undefined;
-        if (owner === undefined || context.owner !== owner) continue;
-        const activation = scopes.boundActivation(context.scope, owner);
-        const native = activation?.nativeEntry;
-        if (native?.invocation !== frontier.exposure) {
-          if (context.scope.kind === "variable" && context.callback !== undefined &&
-            transport.callbackEntriesFor(frontier.exposure).includes(context.callback))
-            if (!uncertain(context.scope, "A relevant native callback input requires its completed same-activation value correspondence.",
-              frontier.exposure)) return undefined;
-          continue;
-        }
-        if (actual !== undefined && (native.callback !== actual.callback || native.caller !== actual.caller)) continue;
-        matched = true;
-        covered = true;
-        if (native.callback.timing === "deferred" && !deferred) continue;
-        const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
-          subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
-          hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
-          componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
-          valuesFor: (subject, bindings) => {
-            const selected = readRelation(sourceStorageReference(subject, bindings));
-            if (selected === undefined) return undefined;
-            const values: SourceStorageBoundSubject[] = [];
-            let complete = true;
-            for (const value of selected) {
-              if (!budget.step()) return undefined;
-              if (value.kind === "leaf") values.push({ subject: value.subject, bindings: value.scope });
-              else if (value.kind === "unresolved") complete = false;
-            }
-            return { values, complete };
-          },
-        });
-        if (payloads === undefined) return undefined;
-        if (!payloads.complete && !uncertain(native.caller,
-          "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
-        for (const value of payloads.values) {
-          if (!budget.step()) return undefined;
-          if (value.subject !== frontier.subject) continue;
-          if (frontier.callback?.timing === "deferred" && !deferred) continue;
-          const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation,
-            callee: leaf(value.subject, value.bindings), scope, projection: [],
-            ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
-            mode: "execution", demand, deferred });
-          const conditional = conditionalExecutions([possible], demand, frontier.exposure, {
-            value: "A relevant source callable crosses a native input without completed value and capture correspondence.",
-            effect: "A relevant source effect crosses a native input without completed value and capture correspondence.",
-          });
-          if (conditional === undefined) return undefined;
-          terms.push(...conditional);
-        }
-      }
-      if (callback !== undefined && !matched) incomplete = true;
-    }
-    if (callback !== undefined && (!covered || incomplete)) {
-      if (selected === undefined) return undefined;
-      terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope, exposure: invocation,
-        reason: "A native callback entry requires its exact original source implementation and capture context." }));
-    }
-    return budget.failure() !== undefined ? undefined : Object.freeze(terms);
-  };
+  const { conditionalExecutions, nativeInputExecutions } = createSourceStorageInputExecutions(source, budget, transport, scopes, reachability, readRelation);
   const readEffects = function* (store: SourceStorageStore, selection:
     | { readonly kind: "general"; readonly execution?: SourceStorageTerm }
     | { readonly kind: "own-construction"; readonly execution: SourceStorageTerm }, deferred = false, context?: SourceStorageScope) {
@@ -308,7 +202,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             const members = access === undefined ? undefined : transport.memberFlow.declarationsFor(receiver, store.storage.node, access.receiver.type);
             if (members === undefined || !members.includes(component.declaration)) continue;
           }
-          const selectedType = sourceStorageComponentType(receiverType, component, context);
+          const selectedType = sourceStorageComponentType(receiverType, component, context, ast);
           const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value);
           if (selectedType === undefined || valueType === undefined || store.reason !== undefined) {
             terms.push(Object.freeze({ kind: "unresolved", subject, scope,
@@ -317,7 +211,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           }
           const values: SourceStorageSubject[] = [];
           sourceStorageProjectComponents(store.value!.projection, valueType, selectedType, subject.projection.slice(index + 1),
-            semantics.forNode(store.value!.node), budget, projection => {
+            semantics.forNode(store.value!.node), ast, budget, projection => {
               const value = transport.subject(store.value!.node, store.value!.kind, projection);
               if (value !== undefined) values.push(value);
             });
@@ -376,9 +270,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return Object.freeze([...members]);
   };
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
-    const access = term.selection.kind === "access" ? term.selection.node : undefined;
+    const access = term.selection.kind === "access" ? term.selection.node : term.selection.evaluation;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
-    const selected = access === undefined ? undefined : property ?? semantics.forNode(access).operations.elementAccess(access);
+    const selected = access === undefined ? undefined : property ?? (ast.is.IsElementAccessExpression(access)
+      ? semantics.forNode(access).operations.elementAccess(access) : undefined);
     const declaration = term.selection.kind === "projection" ? term.selection.declaration : property?.selectedReadDeclaration ?? selected?.selectedDeclaration;
     const receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
     if (receiverType === undefined || declaration === undefined) {
@@ -418,8 +313,34 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const witnesses: SourceStorageRelationWitness[] = [];
     for (const original of originals) {
       if (!budget.step()) return undefined;
-      if (ast.is.IsGetAccessorDeclaration(original) || ast.is.IsSetAccessorDeclaration(original)) {
+      const copied = ast.is.IsObjectLiteralExpression(term.receiver.subject.node) &&
+        ast.parent(original) !== term.receiver.subject.node &&
+        ast.properties(term.receiver.subject.node).some(element => ast.is.IsSpreadAssignment(element));
+      const subject = copied ? transport.subject(term.receiver.subject.node, term.receiver.subject.kind, [...term.receiver.subject.projection, {
+        kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member", declaration: original,
+      }, ...term.projection]) : sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
+      if (subject === undefined) return undefined;
+      if (copied) {
+        const inputs = transport.memberFlow.spreadInputsFor(term.receiver.subject, original, receiverType);
+        if (inputs === undefined) terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.receiver.scope,
+          reason: "Copied source storage requires its exact original spread component and creation binding." }));
+        else for (const input of inputs) {
+          if (!budget.step()) return undefined;
+          const value = transport.subjectFor(input.expression);
+          if (value === undefined || !sourceStorageIsMemberProjection(input.component)) return undefined;
+          terms.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: value,
+            declaration: input.component.declaration, evaluation: input.evaluation }), scope: term.receiver.scope,
+            receiver: sourceStorageReference(value, term.receiver.scope), projection: term.projection, mode: "value" }));
+        }
+      }
+      if (!copied && (ast.is.IsGetAccessorDeclaration(original) || ast.is.IsSetAccessorDeclaration(original))) {
         if (access === undefined) { budget.reject("A projected storage member cannot manufacture an accessor invocation."); return undefined; }
+        const projection = term.selection.kind === "projection" ? term.selection : undefined;
+        if (projection !== undefined && (!ast.is.IsSpreadAssignment(access) ||
+          !transport.accessorTargets.get(access)?.some(target => target.declaration === original &&
+            transport.subjectFor(target.receiver) === projection.subject))) {
+          budget.reject("An implicit spread getter requires its original checked evaluation and receiver."); return undefined;
+        }
         const scope = scopes.frameFor(original, access, term.scope, term.receiver.scope);
         const result = transport.subject(original, "return", term.projection);
         if (scope === undefined || result === undefined) return undefined;
@@ -430,8 +351,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         } else terms.push(sourceStorageReference(result, scope));
         continue;
       }
-      const subject = sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
-      if (subject === undefined) return undefined;
       if (scopes.isSymbolic(term.receiver) && (sourceStorageIsDataMember(original, ast) || sourceStorageIsMethodMember(original, ast))) {
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
           [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",
@@ -440,22 +359,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         terms.push(sourceStorageReference(projected, term.receiver.scope));
         continue;
       }
-      const copied = ast.is.IsObjectLiteralExpression(term.receiver.subject.node) &&
-        ast.parent(original) !== term.receiver.subject.node &&
-        ast.properties(term.receiver.subject.node).some(element => ast.is.IsSpreadAssignment(element));
-      if (copied) {
-        const inputs = transport.memberFlow.spreadInputsFor(term.receiver.subject, original, receiverType);
-        if (inputs === undefined) terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.receiver.scope,
-          reason: "Copied source storage requires its exact original spread component and creation binding." }));
-        else for (const input of inputs) {
-          if (!budget.step()) return undefined;
-          const value = transport.subjectFor(input.expression);
-          const projected = value === undefined ? undefined : transport.subject(value.node, value.kind,
-            [...value.projection, input.component, ...term.projection]);
-          if (projected === undefined) return undefined;
-          terms.push(sourceStorageReference(projected, term.receiver.scope));
-        }
-      } else witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
+      if (!copied) witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
       const stores = transport.storedValuesFor(subject);
       if ((term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined) {
@@ -511,7 +415,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const materializeChild = (child: SourceStorageTerm,
     select: (child: SourceStorageReference) => readonly SourceStorageTerm[] | undefined,
-    independentCallee?: Node): Extract<SourceStorageReduction, { readonly kind: "project" }> => ({ kind: "project", input: child, select: value => {
+    independentCallee?: Node): Extract<SourceStorageReduction, { readonly kind: "project" }> => ({ kind: "project", inputs: [child], select: value => {
+      if (value.kind === "empty") return [value];
       if (independentCallee !== undefined) {
         const selected = navigation.callableImplementation(value.subject.node);
         if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
@@ -531,7 +436,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return materializeChild(child, value => [replace(value)], independent ? undefined : context.independentCallee);
     }
     const selected = reduce(child, context.correlated ?? true);
-    if (selected?.kind === "project") return { kind: "project", input: selected.input,
+    if (selected?.kind === "project") return { kind: "project", inputs: selected.inputs,
       select: value => selected.select(value)?.map(child => child.kind === "empty" ? child : replace(child)) };
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(child => child.kind === "empty" ? child : replace(child)), dependencies: selected.dependencies,
       witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness : { ...witness, contributes: false }),
@@ -613,12 +518,16 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (target !== undefined) terms.push(application(invocation, target, term.scope, [],
           { mode: "execution", demand: term.demand, deferred: term.deferred }));
         else if (transport.accessorTargets.has(invocation)) {
-          const operation = ast.is.IsPropertyAccessExpression(invocation) ? semantics.forNode(invocation).operations.propertyAccess(invocation)
-            : semantics.forNode(invocation).operations.elementAccess(invocation);
-          const receiver = transport.subjectFor(operation?.receiver.expression);
-          if (receiver === undefined) return undefined;
-          terms.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, term.scope),
-            scope: term.scope, projection: [], mode: "execution", demand: term.demand, deferred: term.deferred }));
+          for (const target of transport.accessorTargets.get(invocation) ?? []) {
+            if (!budget.step()) return undefined;
+            const receiver = transport.subjectFor(target.receiver);
+            if (receiver === undefined) return undefined;
+            const selection = ast.is.IsSpreadAssignment(invocation)
+              ? Object.freeze({ kind: "projection" as const, subject: receiver, declaration: target.declaration, evaluation: invocation })
+              : Object.freeze({ kind: "access" as const, node: invocation });
+            terms.push(Object.freeze({ kind: "member", selection, receiver: sourceStorageReference(receiver, term.scope),
+              scope: term.scope, projection: [], mode: "execution", demand: term.demand, deferred: term.deferred }));
+          }
         }
       }
       return { kind: "replace", terms };
@@ -772,18 +681,28 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const result = transport.subject(candidate, "return", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
     }
-    const bound = scopes.lookup(term.subject, term.scope);
+    const initializer = term.subject.kind === "input" ? Node_Initializer(ast, term.subject.node) : undefined;
+    const bound = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, initializer)
+      : scopes.lookup(term.subject, term.scope);
     if (bound !== undefined) return bound;
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
+    if (term.subject.kind === "value" && term.subject.projection.length !== 0 &&
+      (ast.is.IsVariableDeclaration(node) || ast.is.IsIdentifier(node) || ast.is.IsBindingElement(node))) {
+      const root = transport.subject(node, term.subject.kind);
+      return root === undefined ? undefined : materializeChild(sourceStorageReference(root, term.scope), value => {
+        const projected = transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, ...term.subject.projection]);
+        return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
+      });
+    }
     const memberIndex = term.subject.projection.findIndex(sourceStorageIsMemberProjection);
     const component = term.subject.projection[memberIndex];
     if (component !== undefined && sourceStorageIsMemberProjection(component)) {
       const receiver = transport.subject(node, term.subject.kind, term.subject.projection.slice(0, memberIndex));
       if (receiver === undefined) return undefined;
       return { kind: "replace", terms: [Object.freeze({ kind: "member",
-        selection: Object.freeze({ kind: "projection", subject: receiver, declaration: component.declaration }), scope: term.scope,
+        selection: Object.freeze({ kind: "projection", subject: receiver, declaration: component.declaration, evaluation: undefined }), scope: term.scope,
         receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection.slice(memberIndex + 1), mode: "value" })] };
     }
     if (term.subject.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))) {
@@ -867,8 +786,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return { kind: "replace", terms };
     }
     const parents = transport.incomingFor(term.subject);
-    if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0 &&
-      ast.elements(node).length === 0) return absent;
+    if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0) {
+      const elements = ast.elements(node);
+      const component = term.subject.projection[0];
+      if (component?.kind === "tuple-element" && term.subject.projection.length === 1 &&
+        !elements.some(element => element !== undefined && ast.is.IsSpreadElement(element)) &&
+        (elements[component.index] === undefined || ast.is.IsOmittedExpression(elements[component.index])))
+        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) })] };
+      if (elements.length === 0) return absent;
+    }
     const receiver = term.subject.kind === "return" && ast.body(node) !== undefined
       ? transport.subject(node, "receiver") : undefined;
     const selectedBody = receiver !== undefined && scopes.lookup(receiver, term.scope) !== undefined;

@@ -9,6 +9,12 @@ import type { createSourceStorageContextInputs } from "./context-inputs.js";
 import type { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
 import type { SourceStorageContextLocation } from "../graph/context-locations.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
+import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
+import type { SourceStorageScopes } from "./scoped-scopes.js";
+import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
+import { sourceStorageReference } from "../graph/scoped-model.js";
+import { sourceStorageFormalOwner } from "../model/subjects.js";
+import { sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageScopedTransport {
   readonly subject: SourceStorageSubjectQuery;
@@ -16,7 +22,8 @@ export interface SourceStorageScopedTransport {
   readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
   readonly invocationDeclarations: ReadonlyMap<Node, Node>;
   readonly invocations: ReadonlySet<Node>;
-  readonly accessorTargets: ReadonlyMap<Node, readonly Node[]>;
+  readonly accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>;
+  readonly invocationInputs: SourceStorageInvocationInputQuery;
   readonly sourceFiles: readonly SourceFile[];
   readonly regions: ReturnType<typeof createSourceStorageExecutionRegions>;
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
@@ -91,4 +98,52 @@ export function createSourceStorageBindingInputs(ast: AstReader,
     selections.set(subject, selected ?? null);
     return selected;
   };
+}
+
+export function sourceStorageInputBinding(source: TargetSourceProgram, budget: SourceStorageBudget,
+  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
+  term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
+  const owner = sourceStorageFormalOwner(term.subject, source.ast);
+  const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
+  const bound = scopes.lookup(term.subject, term.scope);
+  if (owner === undefined || activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
+    return bound;
+  const unresolved = (reason: string): Extract<SourceStorageReduction, { readonly kind: "replace" }> => ({ kind: "replace", terms: [Object.freeze({
+    kind: "unresolved", subject: term.subject, scope: term.scope, reason,
+  })] });
+  if (initializer !== undefined && term.subject.projection.length !== 0) {
+    const root = transport.subject(term.subject.node, "input");
+    return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)], select: value => {
+      if (value.kind === "empty") return [value];
+      const projected = transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, ...term.subject.projection]);
+      return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
+    } };
+  }
+  const invocation = activation.invocation ?? activation.nativeEntry?.invocation;
+  if (invocation === undefined) return unresolved("An initialized input requires its actual invocation activation.");
+  const selected = transport.invocationInputs(term.subject, owner, invocation, activation.nativeEntry?.callback);
+  if (selected.omitted) return term.subject.projection.length !== 0
+    ? unresolved("A source input component requires its actual present value before projection.")
+    : { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, activation.scope) })] };
+  if (initializer === undefined) return bound;
+  if (selected.context === "callee") return selected.subjects.has(term.subject)
+    ? unresolved("An initialized input requires completed actual input transport, not an unresolved formal.") : bound;
+  if (bound === undefined) return unresolved("An initialized input requires its exact completed actual value binding.");
+  if (bound.kind === "expand") return bound;
+  const fallback = transport.subjectFor(initializer);
+  if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
+  const defaultValue = sourceStorageReference(fallback, activation.scope);
+  return { kind: "project", inputs: bound.terms, select: value => {
+    if (!budget.step()) return undefined;
+    if (value.kind === "empty") return [value.absence === undefined ? value : defaultValue];
+    const file = source.ast.getSourceFile(value.subject.node);
+    const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);
+    if (type === undefined || file === undefined || value.subject === term.subject) return unresolved(
+      "An initialized input requires exact checked presence or absence of its actual value.").terms;
+    const types = source.semantics.forFile(file).types;
+    if (types.isNullish(type) || types.isVoidLike(type)) return [defaultValue];
+    const present = types.nonNullableType(type);
+    return !types.isAny(type) && !types.isUnknown(type) && present !== undefined && types.isIdentical(type, present)
+      ? [value] : unresolved("An initialized input has unresolved actual absence correspondence.").terms;
+  } };
 }

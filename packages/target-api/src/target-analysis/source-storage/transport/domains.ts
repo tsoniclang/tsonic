@@ -190,7 +190,7 @@ export function createSourceStorageDomains(
         const indexes = context.types.indexInfos(present);
         for (const component of sourceStorageComponents(present, context)) {
           if (!budget.step()) return;
-          const element = sourceStorageComponentType(present, component, context);
+          const element = sourceStorageComponentType(present, component, context, ast);
           if (element === undefined) continue;
           const originals = component.kind === "array-element" ? sourceStorageComponents(type, ownerContext)
             : [ownerContext.types.isTuple(type) ? component : { kind: "array-element" as const }];

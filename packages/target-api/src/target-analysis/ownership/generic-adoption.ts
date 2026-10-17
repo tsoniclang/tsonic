@@ -185,10 +185,13 @@ export function analyzeSourceGenericAdoption(input: {
       } else markType(sensitivity.operation, actual, semantics, sensitivity.unresolved);
     }
   };
-  const receiverInstances = (site: Node, type: Type, active = new Set<Type>()): void => {
-    if (!step(site) || active.has(type)) return;
-    active.add(type);
+  const receiverInstances = (site: Node, originalType: Type, active = new Set<Type>()): void => {
+    if (!step(site)) return;
     const semantics = source.semantics.forNode(site);
+    const type = semantics.types.apparentType(originalType);
+    if (type === undefined) { refuse(site, "Generic receiver adoption requires its exact checked apparent receiver."); return; }
+    if (active.has(type)) return;
+    active.add(type);
     if (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) {
       for (const part of semantics.types.unionOrIntersectionTypes(type)) receiverInstances(site, part, active);
       return;
