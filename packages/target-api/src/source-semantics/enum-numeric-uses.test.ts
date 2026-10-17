@@ -36,6 +36,11 @@ const numericUses = [
   ["inferred complement comparison", "export function use(value: Value): boolean { const result = ~value; return result === 0; }"],
   ["inferred complement arithmetic", "export function use(value: Value): number { const result = ~value; return result + 1; }"],
   ["unwritten inferred binding", "export function use(value: Value): number { let result = ~value; return result; }"],
+  ["discarded arithmetic", "export function use(value: Value): void { value + 1; }"],
+  ["discarded numeric assertion", "export function use(value: Value): void { (value as number); }"],
+  ["void numeric assertion", "export function use(value: Value): void { void (value as number); }"],
+  ["comma-discarded numeric assertion", "export function use(value: Value): void { (value as number, 0); }"],
+  ["discarded numeric call", "function consume(value: number): number { return value; } export function use(value: Value): void { consume(value); }"],
 ] as const;
 
 for (const [label, body] of numericUses) {
@@ -114,6 +119,8 @@ export function convert(value: Value): number { const result = value as number; 
 `);
   assert.equal(source.semantics.enumConstants.issues.length, 1, "C-0124 refuses explicit numeric projection before either target implements M5");
   assert.equal(source.semantics.enumConstants.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED", "the conversion has the same precise shared refusal");
+  assert.equal(source.ast.is.IsAsExpression(source.semantics.enumConstants.issues[0]?.sourceNode), true,
+    "the actual projection owns the refusal; a downstream numeric read is not a second enum use");
 });
 
 const compositionRefusals = [
@@ -190,6 +197,8 @@ const extraNumericRefusals = [
   ["number index signature", "export function use(values: { [index: number]: number }, key: Value): number { return values[key]; }", 1],
   ["angle numeric assertion", "export function use(value: Value): number { return <number>value; }", 1],
   ["numeric branch assertions", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? left as number : right as number; return result; }", 2],
+  ["copied numeric assertion", "export function use(value: Value): number { const projected = value as number; const copied = projected; return copied; }", 1],
+  ["copied numeric angle assertion", "export function use(value: Value): number { const projected = <number>value; const copied = projected; return copied; }", 1],
   ["inferred object field escape", "export function use(): number { const object = { value: ~Value.First }; return object.value + 1; }", 1],
   ["inferred collection escape", "export function use(): number { const values = [~Value.First]; return values[0] + 1; }", 1],
   ["generic call numeric escape", "function identity<T>(value: T): T { return value; } export function use(value: Value): number { const result = identity(~value); return result; }", 1],
@@ -247,6 +256,7 @@ const extraPreservations = [
   ["fixed tuple enum index", "export function use(values: [number, number]): number { return values[Value.First]; }"],
   ["exact named enum field", "export function use(): number { const object = { [Value.First]: 7 }; return object[Value.First]; }"],
   ["unannotated object default", "export function use(): Value { const { value = 1 } = { value: Value.First }; return value; }"],
+  ["unannotated const object default", "export function use(): Value { const { value = 1 } = { value: Value.First } as const; return value; }"],
   ["unannotated array default", "export function use(): Value { const [value = 1] = [Value.First]; return value; }"],
   ["genuine enum destination", "export function use(value: Value): Value { const result: Value = ~value; return result; }"],
   ["ordinary numeric assertion", "export function use(value: number): number { return value as number; }"],
@@ -346,6 +356,11 @@ for (const [label, body] of closedUseRefusals) {
 
 const closedUseTwins = [
   ["written same-enum local", "export function use(value: Value): Value { let result: Value = ~value; result = value; return result; }"],
+  ["discarded same-enum read", "export function use(value: Value): Value { value; return value; }"],
+  ["wrapped same-enum assignment result", "export function use(value: Value): Value { let result: Value = value; (result = value); return result; }"],
+  ["comma-discarded same-enum assignment results", "export function use(value: Value): Value { let result: Value = value; (result = value, result = value); return result; }"],
+  ["void same-enum read", "export function use(value: Value): Value { void value; return value; }"],
+  ["discarded same-enum for incrementor", "export function use(value: Value): Value { for (let index = 0; index < 1; value = value) { index++; } return value; }"],
   ["same-enum class field", "export class Holder { value: Value = Value.First; }"],
   ["same-enum parameter default", "export function use(value: Value = Value.First): Value { return value; }"],
   ["same-enum assertion", "export function use(value: Value): Value { return value as Value; }"],
