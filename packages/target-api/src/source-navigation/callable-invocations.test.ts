@@ -94,8 +94,8 @@ test("enclosing callable navigation accepts finite deep ancestry and terminates 
   const nodes = Array.from({ length: 4096 }, () => ({} as Node));
   const indexes = new Map(nodes.map((value, index) => [value, index]));
   const deep = { parent: (value: Node) => nodes[indexes.get(value)! + 1],
-    kindName: (value: Node) => value === nodes.at(-1) ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], deep) === nodes.at(-1), true,
+    kindName: (value: Node) => value === nodes[nodes.length - 1] ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
+  assert.equal(sourceEnclosingCallable(nodes[0], deep) === nodes[nodes.length - 1], true,
     "finite lexical ancestry reaches its actual callable beyond an arbitrary depth");
   assert.equal(sourceEnclosingCallable(undefined, deep) === undefined, true, "an absent source has no callable");
   const cyclic = { parent: (value: Node) => nodes[(indexes.get(value)! + 1) % nodes.length],
