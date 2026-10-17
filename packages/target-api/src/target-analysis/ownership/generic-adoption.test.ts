@@ -73,6 +73,9 @@ const declarations = [
   ["member resolver", `function helper<T>(value: T) { return new Promise<T>(resolve => {
     const cell = { done: resolve }; const alias = cell.done; alias(value);
   }); }`, "helper"],
+  ["typed returned executor", `type Executor<T> = (resolve: (value: T | PromiseLike<T>) => void) => void;
+    function make<T>(value: T): Executor<T> { return resolve => resolve(value); }
+    function helper<T>(value: T) { return new Promise<T>(make(value)); }`, "helper"],
   ["generic callable body unknown", `function unknown<Value>(callback: <T>(value: T) => Promise<T>, value: Value): void {
     void callback(value);
   }\nfunction unknownRoot<Value>(value: Value): void { unknown(identity, value); }\n${identity}`, "unknownRoot"],
@@ -118,6 +121,10 @@ for (const [name, extra, receiver, expression] of [
   ["finite-union", "", "Holder<number> | Holder<Promise<number>>", "holder.get()"],
   ["inherited", "class Derived<U> extends Holder<U> {}", "Derived<Promise<number>>", "holder.get()"],
   ["fixed-inherited", "class Derived extends Holder<Promise<number>> {}", "Derived", "holder.get()"],
+  ["indexed-inherited", "class Derived<Parts extends unknown[]> extends Holder<Parts[0]> {}", "Derived<[Promise<number>]>", "holder.get()"],
+  ["wrapped-inherited", "class Derived<Part> extends Holder<Promise<Part>> {}", "Derived<number>", "holder.get()"],
+  ["conditional-inherited", "class Derived<Part> extends Holder<Part extends number ? number : Promise<number>> {}", "Derived<string>", "holder.get()"],
+  ["parenthesized-call", "", "Holder<Promise<number>>", "(holder.get)()"],
   ["getter", "", "Holder<Promise<number>>", "holder.task"],
   ["method-value", "", "Holder<Promise<number>>", "holder.get"],
 ] as const) {
@@ -147,10 +154,25 @@ test("a receiver forwards sensitivity through the exact outer function binder", 
     "the owning checked call supplies the actual binding, not a guessed member spelling");
 });
 
+test("a synchronous class-binder result is native pass-through, not an invented async completion", () => {
+  const current = fixture(`interface Method<Value> { read(): Value; }
+    interface Property<Value> { read: () => Value; }
+    abstract class Abstract<Value> { abstract read(): Value; }
+    export function use(method: Method<Promise<number>>, property: Property<Promise<number>>,
+      abstract: Abstract<Promise<number>>) {
+      void method.read(); void property.read(); void abstract.read();
+    }`);
+  const selected = current.query();
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "no source await or async result adopts the class's native payload");
+});
+
 for (const [name, declaration] of [
   ["interface", "interface Contract<Value> { read(): Promise<Value>; }"],
   ["abstract", "abstract class Contract<Value> { abstract read(): Promise<Value>; }"],
   ["callable-property", "interface Contract<Value> { read: () => Promise<Value>; }"],
+  ["class-callable-property", `class Contract<Value> { read: () => Promise<Value>;
+    constructor(read: () => Promise<Value>) { this.read = read; } }`],
 ] as const) {
   test(`unknown ${name} receiver completion keeps its exact class binding fail-closed`, () => {
     const current = fixture(`${declaration}
@@ -172,6 +194,84 @@ test("an ordinary helper does not become a resolver merely because its callback 
   const selected = current.query();
   assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
     selected.kind === "unresolved" ? selected.reason : "resolver provenance is actual storage identity, not callback type");
+});
+
+for (const recursive of [false, true]) {
+  test(`resolver qualification preserves the whole ${recursive ? "recursive" : "direct"} callback/value row`, () => {
+    const helper = recursive ? `function deliver<V>(callback: (value: V) => void, value: V, count: number): void {
+      if (count > 0) bounce(callback, value, count - 1); else callback(value);
+    } function bounce<U>(callback: (value: U) => void, value: U, count: number): void {
+      if (count > 0) deliver(callback, value, count - 1); else callback(value);
+    }` : "function deliver<V>(callback: (value: V) => void, value: V, count: number): void { callback(value); }";
+    for (const reversed of [false, true]) {
+      const calls = ["deliver(resolve, 7, 2);", "deliver(item => { void item; }, value, 2);"];
+      const current = fixture(`${helper}
+        function wrap<T>(value: T) { return new Promise<number>(resolve => {
+          ${(reversed ? calls.slice().reverse() : calls).join("\n")}
+        }); }
+        void wrap(7); void wrap(Promise.resolve(7));`);
+      const selected = current.query();
+      assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+        selected.kind === "unresolved" ? selected.reason : "only 7 reaches the resolver in either activation order");
+    }
+  });
+  test(`a genuinely adopting ${recursive ? "recursive" : "direct"} resolver row retains its actual outer binder`, () => {
+    const helper = recursive ? `function deliver<V>(callback: (value: V) => void, value: V, count: number): void {
+      if (count > 0) bounce(callback, value, count - 1); else callback(value);
+    } function bounce<U>(callback: (value: U) => void, value: U, count: number): void {
+      if (count > 0) deliver(callback, value, count - 1); else callback(value);
+    }` : "function deliver<V>(callback: (value: V) => void, value: V, count: number): void { callback(value); }";
+    const current = fixture(`${helper}
+      function wrap<T>(value: T) { return new Promise<T>(resolve => deliver(resolve, value, 2)); }
+      const promised = Promise.resolve(7); void wrap(7); void wrap(promised);`);
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "same resolver activation");
+    if (selected.kind !== "resolved") return;
+    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(promised)"],
+      "the matching value reaches the resolver through the exact finite helper executions");
+  });
+}
+
+test("an opaque resolver result is unresolved, never an empty safe source summary", () => {
+  const current = fixture(`declare function opaque<T>(value: T): T;
+    function wrap<T>(value: T) { return new Promise<T>(resolve => { const done = opaque(resolve); done(value); }); }
+    void wrap(Promise.resolve(7));`);
+  const selected = current.query();
+  assert.equal(selected.kind, "unresolved", "an open opaque result is not a closed nonresolver");
+  if (selected.kind !== "unresolved") return;
+  assert.equal(current.textFor(selected.at), "done(value)", "the exact unresolved operation is preserved");
+});
+
+test("an opaque resolver relation does not refuse a proven ordinary actual", () => {
+  const current = fixture(`type Alias<Value> = (resolve: (value: Value) => void) => (value: Value) => void;
+    function wrap<T>(value: T, alias: Alias<T>) { return new Promise<T>(resolve => {
+      const done = alias(resolve); done(value);
+    }); }
+    void wrap<number>(7, resolve => resolve);`);
+  const selected = current.query();
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "the actual number is proven non-adopting without inventing an alias body");
+});
+
+test("a canonical Promise wrapper is adopting even when its payload still has an outer binder", () => {
+  const current = fixture(`${identity}
+    function wrap<Value>(value: Value) { return identity(Promise.resolve(value)); }
+    void wrap(7);`);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "canonical Awaited wrapper");
+  if (selected.kind !== "resolved") return;
+  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["identity(Promise.resolve(value))"],
+    "Awaited(actual) differs from the actual outer Promise regardless of the inner free parameter");
+});
+
+test("an open direct binder and a native payload container propagate without becoming Promise wrappers", () => {
+  const current = fixture(`${identity}
+    function forward<Value>(value: Value) { return identity(value); }
+    function container<Value>(value: Value) { return identity([Promise.resolve(value)]); }
+    void forward(7); void container(7);`);
+  const selected = current.query();
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "the native array is identical to its canonical Awaited type");
 });
 
 test("generic adoption provenance has one canonical Unicode/CRLF span and project-relative format", () => {

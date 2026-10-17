@@ -175,3 +175,118 @@ test("activation selection preserves every independent source-storage resource l
     assert.equal(storage.failureReason() !== undefined, true, limit);
   }
 });
+
+for (const recursive of [false, true]) {
+  test(`explicit callback entry keeps complete ${recursive ? "recursive" : "direct"} callback/value activations correlated`, async () => {
+    const helper = recursive ? `function deliver<Value>(callback: (value: Value) => void, value: Value, count: number): void {
+      if (count > 0) bounce(callback, value, count - 1); else callback(value);
+    } function bounce<Value>(callback: (value: Value) => void, value: Value, count: number): void {
+      if (count > 0) deliver(callback, value, count - 1); else callback(value);
+    }` : "function deliver<Value>(callback: (value: Value) => void, value: Value, count: number): void { callback(value); }";
+    const current = await fixture(`source-entry-${recursive ? "recursive" : "direct"}-pairs`, `${helper}
+      export function create<Value>(value: Value) {
+        return (resolve: (value: number) => void): void => {
+          deliver(resolve, 7, 2); deliver((item: Value) => { void item; }, value, 2);
+        };
+      }`);
+    const { ast, nodes, storage, declaration, subject } = current;
+    const entryNode = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parameters(node).some(parameter =>
+      ast.text(ast.name(parameter)) === "resolve"));
+    const creation = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const original = resolved(storage.subjectFor(entryNode)).subject;
+    const domain = storage.storageProducersFor(original, creation);
+    assert.notEqual(domain.kind, "unresolved", domain.kind === "unresolved" ? domain.reason : "exact callback creation");
+    const producer = domain.producers.find(value => value.subject === original);
+    assert.equal(producer !== undefined, true, "the actual source callback has its retained creation bindings");
+    const resolver = subject(ast.parameters(entryNode)[0], "input");
+    for (const owner of recursive ? [declaration("deliver"), declaration("bounce")] : [declaration("deliver")]) {
+      const callee = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback" &&
+        storage.enclosingRegionFor(node) === ast.body(owner));
+      const operand = resolved(storage.subjectFor(ast.as.AsCallExpression(callee).Expression)).subject;
+      const value = resolved(storage.subjectFor(ast.arguments(callee)[0])).subject;
+      const expected = new Set(["number", "generic"]);
+      for (let pass = 0; pass < 2; pass += 1) {
+        const selected = resolved(storage.contributingActivationsFor(operand, owner, producer));
+        assert.equal(selected.activations.length > 0, true, "the explicitly entered callback reaches the real helper execution");
+        const observed = new Set();
+        for (const activation of pass === 0 ? selected.activations : selected.activations.slice().reverse()) {
+          assert.equal(activation.kind, "invocation", "the helper is invoked, never an invented declaration boundary");
+          const callbacks = storage.storageProducersFor(operand, activation.bindings);
+          assert.notEqual(callbacks.kind, "unresolved", callbacks.kind === "unresolved" ? callbacks.reason : "bound callback");
+          const actuals = resolved(storage.boundOriginsFor(value, activation.bindings));
+          assert.equal(actuals.subjects.length, 1, "one correlated value per helper activation");
+          const isResolver = callbacks.producers.some(candidate => candidate.subject === resolver);
+          const typed = storage.typeFor(actuals.subjects[0]);
+          assert.equal(typed.kind, "resolved", "the same activation supplies the checked value type");
+          const semantics = current.source.semantics.forFile(typed.sourceFile);
+          const symbol = semantics.declarations.typeSymbol(typed.type);
+          const isParameter = symbol !== undefined && semantics.declarations.symbolDeclarations(symbol)
+            .some(candidate => ast.is.IsTypeParameterDeclaration(candidate));
+          assert.equal(isResolver ? semantics.types.isNumberLike(typed.type) : isParameter, true,
+            "a resolver/number row never acquires the ordinary callback's generic argument");
+          observed.add(isResolver ? "number" : "generic");
+          assert.equal(Object.isFrozen(activation) && Object.isFrozen(activation.bindings), true,
+            "contributing execution facts are immutable");
+        }
+        assert.deepEqual(observed, expected, "both actual rows survive either query order");
+      }
+    }
+    assert.equal(storage.failureReason(), undefined, "the existing finite equation budget is unchanged");
+  });
+}
+
+test("explicit callback entry preserves an annotated returned executor's real creation activation", async () => {
+  const { ast, nodes, storage, declaration } = await fixture("source-entry-returned-executor", `
+    type Executor<Value> = (resolve: (value: Value) => void) => void;
+    function make<Value>(value: Value): Executor<Value> { return resolve => resolve(value); }
+    const first = make(7); const second = make("second");
+  `);
+  const arrow = nodes.find(node => ast.is.IsArrowFunction(node));
+  const invoked = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "resolve");
+  const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(invoked).Expression)).subject;
+  const argument = resolved(storage.subjectFor(ast.arguments(invoked)[0])).subject;
+  const creations = nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "make");
+  const selectedBindings = [];
+  for (const creation of creations) {
+    const subject = resolved(storage.subjectFor(creation)).subject;
+    const producers = storage.storageProducersFor(subject);
+    assert.equal(producers.kind, "complete", "the exact returned arrow, not its signature-only alias, is created");
+    assert.equal(producers.producers.length, 1, "one actual retained executor implementation");
+    const producer = producers.producers[0];
+    assert.equal(producer.subject.node === arrow, true, "the implementation is the checked returned arrow");
+    const active = resolved(storage.contributingActivationsFor(callee, arrow, producer));
+    assert.equal(active.activations.length, 1, "one explicit entry into this actual executor creation");
+    assert.equal(active.activations[0].kind, "declaration", "a native callback entry is not a fabricated source invocation");
+    const actual = resolved(storage.boundOriginsFor(argument, active.activations[0].bindings));
+    assert.equal(actual.subjects.length === 1 && actual.subjects[0].node === ast.arguments(creation)[0], true,
+      "the executor retains its own factory call's actual argument");
+    selectedBindings.push(active.activations[0].bindings);
+    const factory = resolved(storage.boundActivationsFor(declaration("make"), producer.bindings));
+    assert.equal(factory.activations.length === 1 && factory.activations[0].kind === "invocation" &&
+      factory.activations[0].invocation === creation, true, "the real factory activation is preserved");
+  }
+  assert.equal(new Set(selectedBindings).size, 2, "the two executor creations are never merged by their arrow AST");
+});
+
+test("explicit callback entry rejects foreign or fabricated evidence and does not invent unreachable bodies", async () => {
+  const text = "function other(callback: () => void): void { callback(); } export function create() { return () => {}; }";
+  const current = await fixture("source-entry-owned", text);
+  const foreign = await fixture("source-entry-foreign", text);
+  const { ast, nodes, storage, declaration } = current;
+  const arrow = nodes.find(node => ast.is.IsArrowFunction(node));
+  const entry = { subject: resolved(storage.subjectFor(arrow)).subject,
+    bindings: resolved(storage.bindingsForDeclaration(declaration("create"))).bindings };
+  const use = nodes.find(node => ast.is.IsCallExpression(node));
+  const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+  const selected = resolved(storage.contributingActivationsFor(callee, declaration("other"), entry));
+  assert.equal(selected.activations.length, 0, "an explicit empty callback cannot fabricate an unrelated helper invocation");
+  const forged = Object.defineProperty({}, "subject", { get: () => assert.fail("forged entry getter executed") });
+  for (const invalid of [undefined, null, {}, forged, { ...entry, bindings: foreign.storage.emptyBindings },
+    { ...entry, subject: foreign.subject(foreign.declaration("create")) }]) {
+    assert.equal(storage.contributingActivationsFor(callee, declaration("other"), invalid).kind, "unresolved",
+      "every execution entry needs the identical source graph and retained binding identity");
+  }
+  assert.equal(storage.contributingActivationsFor(callee, foreign.declaration("other"), entry).kind, "unresolved",
+    "a demanded owner from another source is not accepted");
+  assert.equal(storage.failureReason(), undefined, "rejected forged evidence does not poison valid owned selection");
+});

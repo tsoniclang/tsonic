@@ -65,6 +65,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
   };
   const reaching = (target: Node, direction: "callers" | "callees"): ReadonlySet<Node> | undefined => {
     if (!budget.step()) return undefined;
+    target = transport.regions.enclosing(target) ?? target;
     const cached = selections[direction].get(target);
     if (cached !== undefined) return cached;
     const graph = initialize();

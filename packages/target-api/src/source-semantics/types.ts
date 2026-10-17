@@ -74,6 +74,7 @@ export interface SourceFinalTypeQueries {
   writeSymbolType(symbol: Symbol | undefined): Type | undefined;
   effectiveTypeArguments(type: Type): readonly Type[] | undefined;
   typeArgumentBindings(type: Type): readonly import("./type-arguments.js").SourceTypeArgumentBinding[] | undefined;
+  instantiatedBaseTypes(type: Type): readonly Type[] | undefined;
   instantiateAlias(declaration: Node, arguments_: readonly Type[]): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
   aliasApplication(type: Type): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
   typeArguments(type: Type): readonly Type[];

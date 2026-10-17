@@ -3,11 +3,12 @@ import { isAbsolute, relative } from "node:path";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import { isTsonicSourceProfileDeclarationPath } from "../../source-profile.js";
 import { sourceCallableDefinitionIsDiscarded, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
-  sourceNodesOutsideErasedSubtrees } from "../../source-navigation/index.js";
+  sourceNodesOutsideErasedSubtrees, sourceTransparentExpressionOperand } from "../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceDiagnosticSpanReader } from "../../source-semantics/diagnostic-spans.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
-import type { SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer,
+  SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
 
@@ -29,12 +30,19 @@ interface Parameter {
   readonly owner: Node;
   readonly neighbours: Set<Node>;
   operation: Node | undefined;
+  unresolved: SourceOwnershipUnresolved | undefined;
+}
+
+interface Sensitivity {
+  readonly operation: Node;
+  readonly unresolved?: SourceOwnershipUnresolved;
 }
 
 interface Instantiation {
   readonly site: Node;
   readonly parameter: Node;
   readonly actual: Type;
+  readonly sensitivity?: Sensitivity;
 }
 
 export function analyzeSourceGenericAdoption(input: {
@@ -95,7 +103,7 @@ export function analyzeSourceGenericAdoption(input: {
       break;
     }
     if (!rows.add(2)) { refuse(node, budget.failure()!); break; }
-    parameters.set(node, { declaration: node, owner, type, neighbours: new Set(), operation: undefined });
+    parameters.set(node, { declaration: node, owner, type, neighbours: new Set(), operation: undefined, unresolved: undefined });
   }
   if (failure !== undefined) { rows.release(); return failure; }
   if (parameters.size === 0) { rows.release(); return Object.freeze({ kind: "resolved", issues: Object.freeze([]) }); }
@@ -131,10 +139,13 @@ export function analyzeSourceGenericAdoption(input: {
     visit(type);
     return failure === undefined ? found : undefined;
   };
-  const markType = (operation: Node, type: Type, semantics: SourceFileSemantics): void => {
+  const markType = (operation: Node, type: Type, semantics: SourceFileSemantics,
+    unresolved?: SourceOwnershipUnresolved, exceptOwner?: Node): void => {
     for (const parameter of topLevelParameters(type, semantics) ?? []) {
       const selected = parameters.get(parameter)!;
-      selected.operation ??= operation;
+      if (selected.owner === exceptOwner) continue;
+      if (unresolved === undefined) selected.operation ??= operation;
+      else selected.unresolved ??= unresolved;
     }
   };
   const mark = (operation: Node, expression: Node): void => {
@@ -147,20 +158,31 @@ export function analyzeSourceGenericAdoption(input: {
     const symbol = semantics.declarations.typeSymbol(type);
     return symbol === undefined ? undefined : semantics.declarations.symbolDeclarations(symbol).find(node => parameters.has(node));
   };
-  const addInstance = (site: Node, parameter: Node, actual: Type): void => {
-    if (!parameters.has(parameter) || sites.get(site)?.get(parameter)?.has(actual)) return;
+  const markContractResult = (operation: Node, type: Type, semantics: SourceFileSemantics): void => {
+    if (sourceParameter(type, semantics) !== undefined) return;
+    const awaited = semantics.types.awaitedType(type);
+    if (awaited === undefined) {
+      refuse(operation, "A generic receiver completion contract requires its checked Awaited type.");
+      return;
+    }
+    if (!semantics.types.isIdentical(awaited, type)) markType(operation, type, semantics);
+  };
+  const addInstance = (site: Node, parameter: Node, actual: Type, sensitivity?: Sensitivity): void => {
+    if (!parameters.has(parameter) || sensitivity === undefined && sites.get(site)?.get(parameter)?.has(actual)) return;
     if (!rows.add(1)) { refuse(site, budget.failure()!); return; }
     const selected = sites.get(site) ?? new Map<Node, Set<Type>>();
     const actuals = selected.get(parameter) ?? new Set<Type>();
     actuals.add(actual);
     selected.set(parameter, actuals);
     sites.set(site, selected);
-    instances.push(Object.freeze({ site, parameter, actual }));
+    instances.push(Object.freeze({ site, parameter, actual, ...(sensitivity === undefined ? {} : { sensitivity }) }));
     const semantics = source.semantics.forNode(site);
     for (const forwarded of topLevelParameters(actual, semantics) ?? []) {
       const origin = parameters.get(forwarded)!;
-      if (!origin.neighbours.has(parameter) && !rows.add(1)) { refuse(site, budget.failure()!); return; }
-      origin.neighbours.add(parameter);
+      if (sensitivity === undefined) {
+        if (!origin.neighbours.has(parameter) && !rows.add(1)) { refuse(site, budget.failure()!); return; }
+        origin.neighbours.add(parameter);
+      } else markType(sensitivity.operation, actual, semantics, sensitivity.unresolved);
     }
   };
   const receiverInstances = (site: Node, type: Type, active = new Set<Type>()): void => {
@@ -171,19 +193,21 @@ export function analyzeSourceGenericAdoption(input: {
       for (const part of semantics.types.unionOrIntersectionTypes(type)) receiverInstances(site, part, active);
       return;
     }
-    for (const binding of semantics.types.typeArgumentBindings(type) ?? [])
-      addInstance(site, binding.declaration, binding.argumentType);
+    const bindings = semantics.types.typeArgumentBindings(type);
     const symbol = semantics.declarations.typeSymbol(type);
-    for (const declaration of symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol)) {
-      if (!source.navigation.isProjectDeclaration(declaration) ||
-        !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) &&
-        !ast.is.IsInterfaceDeclaration(declaration)) continue;
-      for (const heritage of ast.extendsHeritageElements(declaration)) {
-        const inherited = source.semantics.forNode(heritage).types.authoredType(heritage);
-        if (inherited === undefined) { refuse(heritage, "Generic receiver adoption requires its exact checked heritage type."); return; }
-        receiverInstances(site, inherited, active);
-      }
+    const declarations = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol);
+    if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
+      refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");
+      return;
     }
+    for (const binding of bindings ?? [])
+      addInstance(site, binding.declaration, binding.argumentType);
+    if (!declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) return;
+    const bases = semantics.types.instantiatedBaseTypes(type);
+    if (bases === undefined) { refuse(site, "Generic receiver adoption requires its exact checked instantiated base types."); return; }
+    for (const inherited of bases) receiverInstances(site, inherited, active);
   };
   const canonicalPromiseMember = (declaration: Node): string | undefined => {
     const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
@@ -201,7 +225,8 @@ export function analyzeSourceGenericAdoption(input: {
     return ast.is.IsConstructSignatureDeclaration(declaration) ? "construct" : ast.text(ast.name(declaration));
   };
   const reactionBodies = new Set<Node>();
-  const resolvers = new Set<SourceStorageSubject>();
+  const entries: { readonly producer: SourceStorageProducer; readonly declaration: Node;
+    readonly resolver: SourceStorageSubject; readonly bindings: SourceStorageBindings }[] = [];
   const calls: { readonly node: Node; readonly selected: ResolvedSourceCallInfo; readonly declaration: Node }[] = [];
   for (const node of nodes) {
     if (!step(node)) break;
@@ -219,18 +244,40 @@ export function analyzeSourceGenericAdoption(input: {
     } else if (member === "construct") {
       const executor = ast.arguments(node)[0];
       if (executor !== undefined) {
-        const type = semantics.types.expressionType(executor);
-        if (type === undefined) { refuse(executor, "A Promise executor requires its actual checked callable signature."); continue; }
-        for (const signature of semantics.types.signatureInfos(type, "call")) {
-          const declaration = semantics.declarations.signatureDeclaration(signature.signature);
-          if (declaration === undefined) continue;
-          const implementation = source.navigation.callableImplementation(declaration);
-          const owner = implementation.kind === "resolved" ? implementation.implementation.declaration : declaration;
+        const lexical = input.storage.bindingsForLexicalOwner(node);
+        const subject = input.storage.subjectFor(executor);
+        const producers = lexical.kind === "unresolved" ? lexical : subject.kind === "unresolved" ? subject
+          : input.storage.storageProducersFor(subject.subject, lexical.bindings);
+        const generic = (topLevelParameters(selected.sourceResultType, semantics)?.size ?? 0) !== 0;
+        if (producers.kind === "complete" && producers.producers.length === 0 && generic)
+          markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,
+            reason: "A generic Promise executor requires its nonempty actual source producer domain." }));
+        if (producers.kind !== "complete") {
+          const reason = producers.kind === "unresolved" ? producers.reason
+            : "A generic Promise executor requires its complete actual source producer domain.";
+          if (input.storage.failureReason() !== undefined) refuse(executor, input.storage.failureReason()!);
+          else if (generic) markType(executor, selected.sourceResultType, semantics,
+            Object.freeze({ kind: "unresolved", at: executor, reason }));
+          if (producers.kind === "unresolved") continue;
+        }
+        for (const producer of producers.producers) {
+          const implementation = source.navigation.callableImplementation(producer.subject.node);
+          if (implementation.kind !== "resolved") {
+            if (generic) markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,
+              reason: "A generic Promise executor requires its actual source implementation, not a type-only signature." }));
+            continue;
+          }
+          const owner = implementation.implementation.declaration;
           const resolve = ast.parameters(owner)[0];
           if (resolve !== undefined) {
             const selected = input.storage.subject(resolve, "input");
             if (selected.kind === "unresolved") refuse(resolve, selected.reason);
-            else resolvers.add(selected.subject);
+            else {
+              const activation = input.storage.bindingsForDeclaration(owner, producer.bindings);
+              if (activation.kind === "unresolved") { refuse(executor, activation.reason); continue; }
+              if (!rows.add(1)) { refuse(executor, budget.failure()!); continue; }
+              entries.push(Object.freeze({ producer, declaration: owner, resolver: selected.subject, bindings: activation.bindings }));
+            }
           }
         }
       }
@@ -247,22 +294,28 @@ export function analyzeSourceGenericAdoption(input: {
   for (const node of nodes) {
     if (!step(node)) break;
     if ((ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node) ||
-      ast.is.IsGetAccessorDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node)) &&
+      ast.is.IsGetAccessorDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsPropertyDeclaration(node)) &&
       source.navigation.isProjectDeclaration(node) &&
-      (ast.is.IsPropertySignatureDeclaration(node) || ast.body(node) === undefined)) {
+      (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsPropertyDeclaration(node) || ast.body(node) === undefined)) {
       const semantics = source.semantics.forNode(node);
       const callable = semantics.types.declarationSignatureInfo(node);
-      if (callable?.returnType !== undefined) markType(node, callable.returnType, semantics);
-      else if (ast.is.IsPropertySignatureDeclaration(node)) {
+      if (callable?.returnType !== undefined) markContractResult(node, callable.returnType, semantics);
+      else if (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsPropertyDeclaration(node)) {
         const value = semantics.declarations.declaredValueType(node);
         if (value !== undefined) for (const signature of semantics.types.signatureInfos(value, "call"))
-          if (signature.returnType !== undefined) markType(node, signature.returnType, semantics);
+          if (signature.returnType !== undefined) markContractResult(node, signature.returnType, semantics);
       }
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-      const parent = ast.parent(node);
+      let operand = node;
+      let parent = ast.parent(operand);
+      while (parent !== undefined && sourceTransparentExpressionOperand(ast, parent) === operand) {
+        if (!step(parent)) break;
+        operand = parent;
+        parent = ast.parent(operand);
+      }
       if (parent !== undefined && ast.is.IsCallExpression(parent) &&
-        ast.as.AsCallExpression(parent)?.Expression === node) continue;
+        ast.as.AsCallExpression(parent)?.Expression === operand) continue;
       const semantics = source.semantics.forNode(node);
       const access = ast.is.IsPropertyAccessExpression(node) ? semantics.operations.propertyAccess(node)
         : semantics.operations.elementAccess(node);
@@ -282,24 +335,103 @@ export function analyzeSourceGenericAdoption(input: {
         mark(body, body);
     }
   }
+  const resolverFor = (producer: Pick<SourceStorageProducer, "subject" | "bindings">): boolean | SourceOwnershipUnresolved => {
+    let unknown: SourceOwnershipUnresolved | undefined;
+    for (const entry of entries) {
+      if (!step(producer.subject.node)) return Object.freeze({ kind: "unresolved", at: producer.subject.node, reason: budget.failure()! });
+      if (producer.subject !== entry.resolver) continue;
+      const selected = input.storage.boundActivationsFor(entry.declaration, producer.bindings);
+      if (selected.kind === "resolved" && selected.activations.some(activation => activation.bindings === entry.bindings)) return true;
+      unknown ??= Object.freeze({ kind: "unresolved", at: producer.subject.node, reason: selected.kind === "unresolved"
+        ? selected.reason : "A resolver input requires its identical native callback entry activation." });
+    }
+    if (unknown !== undefined) return unknown;
+    const declaration = producer.subject.node;
+    if (producer.subject.kind === "value" && producer.subject.projection.length === 0 &&
+      (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
+        ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration))) return false;
+    return Object.freeze({ kind: "unresolved", at: declaration,
+      reason: "A generic resolving call requires its exact source callable or canonical native resolver identity." });
+  };
+  const qualify = (operation: Node, argument: Node, activation: SourceStorageBoundActivation,
+    unresolved?: SourceOwnershipUnresolved): void => {
+    const sensitivity: Sensitivity = Object.freeze({ operation, ...(unresolved === undefined ? {} : { unresolved }) });
+    const selected = input.storage.subjectFor(argument);
+    const origins = selected.kind === "unresolved" ? selected : input.storage.boundOriginsFor(selected.subject, activation.bindings);
+    if (origins.kind === "unresolved") {
+      if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
+      const semantics = source.semantics.forNode(argument);
+      const type = semantics.types.expressionType(argument);
+      if (type === undefined) { refuse(operation, "A qualified resolver requires its exact checked argument type."); return; }
+      markType(operation, type, semantics, unresolved ?? Object.freeze({ kind: "unresolved", at: operation, reason: origins.reason }),
+        activation.kind === "invocation" ? activation.declaration : undefined);
+    } else for (const origin of origins.subjects) {
+      const type = input.storage.typeFor(origin);
+      if (type.kind === "unresolved") { refuse(operation, type.reason); return; }
+      markType(operation, type.type, source.semantics.forFile(type.sourceFile), unresolved,
+        activation.kind === "invocation" ? activation.declaration : undefined);
+    }
+    if (activation.kind !== "invocation") return;
+    const semantics = source.semantics.forNode(activation.invocation);
+    const call = semantics.operations.call(activation.invocation);
+    const declaration = call?.sourceSelectedSignatureKind === "resolved"
+      ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
+    const implementation = declaration === undefined ? undefined : source.navigation.callableImplementation(declaration);
+    const type = source.semantics.forNode(argument).types.expressionType(argument);
+    if (declaration === undefined || implementation?.kind !== "resolved" ||
+      implementation.implementation.declaration !== activation.declaration || type === undefined) {
+      refuse(operation, "A qualified resolver requires its exact checked argument and invocation implementation."); return;
+    }
+    const affected = topLevelParameters(type, source.semantics.forNode(argument));
+    const qualified = new Set<Node>();
+    for (const actual of call?.sourceSelectedMethodTypeArguments ?? []) {
+      const formal = sourceParameter(actual.typeParameter, semantics);
+      const index = formal === undefined ? -1 : ast.typeParameters(declaration).indexOf(formal);
+      const target = index < 0 ? undefined : ast.typeParameters(activation.declaration)[index];
+      if (target === undefined || affected?.has(target) !== true) continue;
+      qualified.add(target);
+      addInstance(activation.invocation, target, actual.selectedType, sensitivity);
+    }
+    if ([...(affected ?? [])].some(parameter => parameters.get(parameter)?.owner === activation.declaration && !qualified.has(parameter)))
+      refuse(operation, "A qualified generic resolver requires every affected parameter's exact checked invocation binding.");
+  };
   for (const { node, selected, declaration } of calls) {
     if (!step(node)) break;
     const semantics = source.semantics.forNode(node);
     const callee = selected.sourceCallee.expression;
-    let resolver = false;
-    if (resolvers.size !== 0 && canonicalPromiseMember(declaration) === undefined) {
+    const argument = ast.arguments(node)[0];
+    const owner = sourceEnclosingCallable(node, ast);
+    if (entries.length !== 0 && argument !== undefined && owner !== undefined && canonicalPromiseMember(declaration) === undefined) {
       const subject = input.storage.subjectFor(callee);
-      const origins = subject.kind === "unresolved" ? subject : input.storage.closedOriginsFor(subject.subject);
-      if (origins.kind === "unresolved") {
-        const argument = ast.arguments(node)[0];
-        const type = argument === undefined ? undefined : semantics.types.expressionType(argument);
-        if (source.navigation.isProjectDeclaration(declaration) && type !== undefined &&
-          (topLevelParameters(type, semantics)?.size ?? 0) !== 0) refuse(node, origins.reason);
-      } else resolver = origins.origins.some(origin => resolvers.has(origin.subject));
-    }
-    if (resolver) {
-      const argument = ast.arguments(node)[0];
-      if (argument !== undefined) mark(node, argument);
+      if (subject.kind === "unresolved") { refuse(node, subject.reason); break; }
+      for (const entry of entries) {
+        const activations = input.storage.contributingActivationsFor(subject.subject, owner, entry.producer);
+        if (activations.kind === "unresolved") {
+          refuse(node, activations.reason);
+          continue;
+        }
+        for (const activation of activations.activations) {
+          const origins = input.storage.storageProducersFor(subject.subject, activation.bindings);
+          if (origins.kind === "unresolved") {
+            if (input.storage.failureReason() !== undefined) refuse(node, input.storage.failureReason()!);
+            else qualify(node, argument, activation, Object.freeze({ kind: "unresolved", at: node, reason: origins.reason }));
+            continue;
+          }
+          const resolvers: SourceStorageProducer[] = [];
+          let unknown: SourceOwnershipUnresolved | undefined;
+          for (const producer of origins.producers) {
+            const selected = resolverFor(producer);
+            if (selected === true) resolvers.push(producer);
+            else if (selected !== false) unknown ??= selected;
+          }
+          if (resolvers.length !== 0) qualify(node, argument, activation);
+          if (origins.kind === "open" && origins.boundaries.some(boundary => boundary.kind !== "external-input" ||
+            !resolvers.some(producer => producer.subject === boundary.subject))) unknown ??= Object.freeze({ kind: "unresolved", at: node,
+            reason: "A generic resolving call requires its complete same-activation callable provenance." });
+          if (unknown !== undefined) qualify(node, argument, activation,
+            Object.freeze({ kind: "unresolved", at: node, reason: unknown.reason }));
+        }
+      }
     }
     for (const argument of selected.sourceSelectedMethodTypeArguments ?? []) {
       const parameter = sourceParameter(argument.typeParameter, semantics);
@@ -322,16 +454,22 @@ export function analyzeSourceGenericAdoption(input: {
       }
     }
   }
-  const sensitive = createTargetGraphComponentQuery<Node, Node | undefined, Node | null>(parameter => {
+  const sensitive = createTargetGraphComponentQuery<Node, Sensitivity | null, Sensitivity | null>(parameter => {
     const selected = parameters.get(parameter);
     if (selected === undefined || !step(parameter)) return undefined;
     const owner = selected.owner;
     const implementation = source.navigation.callableImplementation(owner);
     const bodyOwner = implementation.kind === "resolved" ? implementation.implementation.declaration : owner;
-    const known = ast.body(bodyOwner) !== undefined || ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner);
-    return { data: selected.operation ?? (known ? undefined : owner), neighbours: selected.neighbours };
-  }, members => members.find(member => member.data !== undefined)?.data ??
-    members.flatMap(member => member.successors).find(operation => operation !== null) ?? null, budget);
+    const known = ast.body(bodyOwner) !== undefined || ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) ||
+      ast.is.IsInterfaceDeclaration(owner);
+    const operation = selected.operation ?? (known ? undefined : owner);
+    return { data: operation !== undefined ? Object.freeze({ operation }) : selected.unresolved === undefined ? null
+      : Object.freeze({ operation: selected.unresolved.at, unresolved: selected.unresolved }), neighbours: selected.neighbours };
+  }, members => {
+    const selections = members.flatMap(member => [member.data, ...member.successors]);
+    return selections.find(selection => selection !== null && selection.unresolved === undefined) ??
+      selections.find(selection => selection !== null) ?? null;
+  }, budget);
   const readSpan = createSourceDiagnosticSpanReader(ast);
   const sourceSpanFor = (node: Node): TargetDiagnosticSourceSpan | undefined => {
     const file = ast.getSourceFile(node);
@@ -358,16 +496,18 @@ export function analyzeSourceGenericAdoption(input: {
     const semantics = source.semantics.forNode(instance.site);
     if (semantics.types.isAny(instance.actual) || semantics.types.isUnknown(instance.actual)) continue;
     if (semantics.types.isUnion(instance.actual) || semantics.types.isIntersection(instance.actual)) {
-      for (const part of semantics.types.unionOrIntersectionTypes(instance.actual)) addInstance(instance.site, instance.parameter, part);
+      for (const part of semantics.types.unionOrIntersectionTypes(instance.actual)) addInstance(instance.site, instance.parameter, part, instance.sensitivity);
       continue;
     }
     if (sourceParameter(instance.actual, semantics) !== undefined) continue;
     const awaited = semantics.types.awaitedType(instance.actual);
     if (awaited === undefined) { refuse(instance.site, "Generic instantiation requires its completed native Awaited selection."); break; }
     if (semantics.types.isIdentical(awaited, instance.actual)) continue;
-    const operation = sensitive(instance.parameter);
-    if (operation === undefined) { refuse(instance.site, budget.failure() ?? "The bounded generic adoption summary is incomplete."); break; }
-    if (operation === null || issues.some(issue => issue.site === instance.site)) continue;
+    const sensitivity = instance.sensitivity ?? sensitive(instance.parameter);
+    if (sensitivity === undefined) { refuse(instance.site, budget.failure() ?? "The bounded generic adoption summary is incomplete."); break; }
+    if (sensitivity === null || issues.some(issue => issue.site === instance.site)) continue;
+    if (sensitivity.unresolved !== undefined) { failure = sensitivity.unresolved; break; }
+    const operation = sensitivity.operation;
     const declaration = parameters.get(instance.parameter)!.owner;
     const formatted = formatDiagnostic(instance.site, declaration, operation);
     if (formatted === undefined) { refuse(instance.site, "Generic adoption diagnostics require their exact checked source spans."); break; }

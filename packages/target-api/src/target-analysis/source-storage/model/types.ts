@@ -194,6 +194,8 @@ export interface SourceStorageQueries {
     { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
   boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;
+  contributingActivationsFor(subject: SourceStorageSubject, declaration: Node,
+    entry: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageActivationsSelection;
   boundValueFrontierFor(subject: SourceStorageSubject, bindings: SourceStorageBindings,
     boundaries: readonly SourceStorageSubject[], position?: "value" | "input"): SourceStorageValueFrontierSelection;
   invocationArgumentsFor(invocation: Node): SourceStorageNodesSelection;
