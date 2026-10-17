@@ -1998,6 +1998,91 @@ test("QRC-14: physical package names, URL targets and finite-pattern proof stay 
   assert.equal(unresolved.findings.some(finding => finding.file === "package.json" && finding.reason.includes("unproved finite package module pattern")), true, "bounded pattern limitation is an explicit refusal, not a source waiver");
 });
 
+test("QRC-14: bare packages and package-import aliases preserve the same physical main and URL export identity", () => {
+  for (const [metadata, target] of [
+    [{ main: "./src/ordinary.d.ts#literal" }, "src/ordinary.d.ts#literal"],
+    [{ main: "./src/ordinary.d.ts?literal" }, "src/ordinary.d.ts?literal"],
+    [{ main: "./src/ordinary.d.ts%23literal" }, "src/ordinary.d.ts%23literal"],
+    [{ main: "./src/ordinary*name.d.ts" }, "src/ordinary*name.d.ts"],
+    [{ exports: { ".": "./src/ordinary.d.ts%23literal" } }, "src/ordinary.d.ts#literal"],
+    [{ exports: { ".": "./src/ordinary.d.ts%3Fliteral" } }, "src/ordinary.d.ts?literal"],
+  ]) {
+    for (const specifier of ["@control/ordinary", "#entry"]) {
+      for (const source of [`require(${JSON.stringify(specifier)});`, `await import(${JSON.stringify(specifier)});`]) {
+        const inputs = nativeBoundaryInputs();
+        inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/ordinary", ...metadata,
+          imports: { "#entry": "@control/ordinary" } })));
+        inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+        inputs.get("tsonic-rust").set(target, safetyFile("const ordinary = 2;"));
+        const harmless = boundarySafety(inputs);
+        assert.equal(harmless.findings.length, 0, `${source}: physical package identity is unchanged`);
+        assert.equal(harmless.nativeAllocationBoundary.builtModuleInputs.some(entry => entry.path === `tsonic-rust/${target}`), true,
+          `${source}: canonical metadata and ordinary module edges bind the identical bytes`);
+        inputs.get("tsonic-rust").set(target, safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+        assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${source}: actual writer reachability remains rejected`);
+        inputs.get("tsonic-rust").delete(target);
+        assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${source}: missing native bytes never imply harmlessness`);
+      }
+    }
+  }
+});
+
+test("QRC-14: private import patterns materialize every finite consumer and captured native byte without admitting open exports", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/ordinary", imports: { "#safe/*": "./src/*.d.cts" } })));
+  inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#safe/ordinary";'));
+  inputs.get("tsonic-rust").set("src/ordinary.d.cts", safetyFile("const ordinary: number = 2;"));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/ordinary.d.cts"), true, "literal private consumer materializes its exact native target");
+  assert.equal(boundarySafety(inputs).findings.length, 0, "the retained C114-F4 finite wildcard positive is still supported");
+  inputs.get("tsonic-rust").set("src/hidden.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/hidden.d.cts"), true, "captured pattern bytes cannot hide behind declaration identity");
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "one harmless match never waives a second captured harmful target");
+  inputs.get("tsonic-rust").delete("src/hidden.d.cts");
+  inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#safe/ordinary"; import "#safe/second";'));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/second.d.cts"), true, "every literal consumer requires its exact missing bytes too");
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "one captured harmless target never proves another consumer's missing target");
+  inputs.get("tsonic-rust").set("src/second.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "all concrete consumer instances are checked, not just the first");
+  inputs.get("tsonic-rust").set("src/second.d.cts", safetyFile("const second: number = 3;"));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "all finite harmless instances remain admitted");
+  inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile('await import("#safe/" + selected);'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "computed private uses cannot turn a finite target into a namespace proof");
+  inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "@control/ordinary/ordinary";'));
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/ordinary", exports: { "./*": "./src/*.d.cts" } })));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "one captured public export consumer never proves an ignored physical namespace");
+  const precedence = nativeBoundaryInputs();
+  precedence.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ imports: {
+    "#safe/*": "./src/*.d.cts", "#safe/specific/*": "./exact/*.d.cts", "#safe/exact": "./exact/ordinary.d.cts",
+  } })));
+  precedence.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#safe/ordinary"; import "#safe/specific/ordinary"; import "#safe/exact";'));
+  precedence.get("tsonic-rust").set("src/ordinary.d.cts", safetyFile("const ordinary: number = 2;"));
+  precedence.get("tsonic-rust").set("exact/ordinary.d.cts", safetyFile("const exact: number = 2;"));
+  precedence.get("tsonic-rust").set("src/exact.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  precedence.get("tsonic-rust").set("src/specific/ordinary.d.cts", safetyFile('require("../../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(boundarySafety(precedence).findings.length, 0, "exact and most-specific native mappings exclude shadowed broad targets, independently of declaration order");
+  precedence.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#safe/ordinary"; import "#safe/specific/ordinary"; import "#safe/exact"; import "#safe/other";'));
+  precedence.get("tsonic-rust").set("src/other.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(boundarySafety(precedence).nativeAllocationBoundary === undefined, true, "precedence proof does not exempt a genuine broad-pattern writer target");
+});
+
+test("QRC-14: bound createRequire package imports use the proven factory origin instead of the caller's package scope", () => {
+  for (const root of ["../../rust-js/src/factory.mjs", "../../rust-js/src/"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ imports: { "#route/ordinary": "./src/caller.d.cts" } })));
+    inputs.get("tsonic-rust").set("src/caller.d.cts", safetyFile("const caller: number = 1;"));
+    inputs.get("rust-js").set("package.json", safetyFile(JSON.stringify({ imports: { "#route/*": "./src/*.d.cts" } })));
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(`import { createRequire } from "node:module";
+      const load = createRequire(new URL(${JSON.stringify(root)}, import.meta.url)); load("#route/ordinary");`));
+    inputs.get("rust-js").set("src/ordinary.d.cts", safetyFile("const ordinary: number = 2;"));
+    assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("rust-js/src/ordinary.d.cts"), true, "actual factory-root private scope drives finite byte capture");
+    assert.equal(boundarySafety(inputs).findings.length, 0, "the proven foreign first-party factory root remains an ordinary harmless native module edge");
+    inputs.get("rust-js").set("src/ordinary.d.cts", safetyFile('require("../../tsonic-rust/test/helpers/native-ownership-cost.mjs");'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "the caller's harmless mapping cannot hide a writer in the actual factory package");
+    inputs.get("rust-js").delete("src/ordinary.d.cts");
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "missing factory-package bytes never fall back to the caller's supplied bytes");
+  }
+});
+
 test("QRC-05: unrelated scoped URL names do not invalidate native constructor or literal-member evidence", () => {
   for (const source of [
     'function local(URL) { return URL; } await import(new URL("./ordinary.mjs", import.meta.url));',

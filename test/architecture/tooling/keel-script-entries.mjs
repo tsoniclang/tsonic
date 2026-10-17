@@ -301,6 +301,7 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
         if (!binding.valid || binding.root === undefined) {
           references.push({ unresolved: true, unresolvedReason: "unresolved first-party createRequire origin" }); continue;
         }
+        address.moduleOrigin = binding.directory ? `${binding.root}/package.json` : binding.root;
         if (address.specifier?.startsWith(".")) {
           address.path = posix.normalize(posix.join(binding.directory ? binding.root : posix.dirname(binding.root), address.specifier));
         }
