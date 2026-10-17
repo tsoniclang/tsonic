@@ -36,6 +36,11 @@ const numericUses = [
   ["inferred complement comparison", "export function use(value: Value): boolean { const result = ~value; return result === 0; }"],
   ["inferred complement arithmetic", "export function use(value: Value): number { const result = ~value; return result + 1; }"],
   ["unwritten inferred binding", "export function use(value: Value): number { let result = ~value; return result; }"],
+  ["discarded arithmetic", "export function use(value: Value): void { value + 1; }"],
+  ["discarded numeric assertion", "export function use(value: Value): void { (value as number); }"],
+  ["void numeric assertion", "export function use(value: Value): void { void (value as number); }"],
+  ["comma-discarded numeric assertion", "export function use(value: Value): void { (value as number, 0); }"],
+  ["discarded numeric call", "function consume(value: number): number { return value; } export function use(value: Value): void { consume(value); }"],
 ] as const;
 
 for (const [label, body] of numericUses) {
@@ -346,6 +351,11 @@ for (const [label, body] of closedUseRefusals) {
 
 const closedUseTwins = [
   ["written same-enum local", "export function use(value: Value): Value { let result: Value = ~value; result = value; return result; }"],
+  ["discarded same-enum read", "export function use(value: Value): Value { value; return value; }"],
+  ["wrapped same-enum assignment result", "export function use(value: Value): Value { let result: Value = value; (result = value); return result; }"],
+  ["comma-discarded same-enum assignment results", "export function use(value: Value): Value { let result: Value = value; (result = value, result = value); return result; }"],
+  ["void same-enum read", "export function use(value: Value): Value { void value; return value; }"],
+  ["discarded same-enum for incrementor", "export function use(value: Value): Value { for (let index = 0; index < 1; value = value) { index++; } return value; }"],
   ["same-enum class field", "export class Holder { value: Value = Value.First; }"],
   ["same-enum parameter default", "export function use(value: Value = Value.First): Value { return value; }"],
   ["same-enum assertion", "export function use(value: Value): Value { return value as Value; }"],
