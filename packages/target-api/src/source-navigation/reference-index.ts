@@ -114,6 +114,7 @@ function buildSourceDeclarationReferenceIndex(
   const record = (
     referenceNode: Node,
     selected: SourceDeclarationReference,
+    checker: TypeCheckerQueries,
   ): void => {
     if (byReference.has(referenceNode)) {
       throw new Error(
@@ -155,7 +156,9 @@ function buildSourceDeclarationReferenceIndex(
     }
     byReference.set(referenceNode, canonical);
 
-    if (ast.name(canonical.declaration) === referenceNode) {
+    const owner = ast.parent(referenceNode);
+    if (owner !== undefined && ast.name(owner) === referenceNode &&
+      canonical.symbol !== undefined && checker.getSymbolDeclarations(canonical.symbol).includes(owner)) {
       return;
     }
     reverseEdges = reserveCount(
@@ -211,7 +214,7 @@ function buildSourceDeclarationReferenceIndex(
         );
         const selected = selectReference(checker, node);
         if (selected !== undefined) {
-          record(node, selected);
+          record(node, selected, checker);
         }
       }
       const children = ast.children(node);
