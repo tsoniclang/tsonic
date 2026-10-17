@@ -2243,7 +2243,7 @@ test("QRC-15: physical execution requires its actual native source role, never a
     /Missing AC12 canonical package-import resolution/u, "the superseded parser signature is rejected");
 });
 
-test("QRC-15: actual native Node resolves package builtin aliases and factory origins without caller-scope substitution", () => {
+test("QRC-15: actual native Node resolves package builtin aliases and factory origins without caller-scope substitution", context => {
   const temporary = new URL("../../.temp/", import.meta.url);
   mkdirSync(temporary, { recursive: true });
   const root = mkdtempSync(fileURLToPath(new URL("q109-native-package-identities-", temporary)));
@@ -2265,6 +2265,8 @@ test("QRC-15: actual native Node resolves package builtin aliases and factory or
       `process.stdout.write(JSON.stringify([${modules.map((_module, index) => `actual${index} === alias${index}`).join(",")}, load("#reader").readFileSync === actual1.readFileSync]));\n`;
     writeFileSync(join(directory, "entry.mjs"), entry);
     const child = spawnSync(process.execPath, [join(directory, "entry.mjs")], { encoding: "utf8" });
+    context.diagnostic(JSON.stringify({ nativeNode: process.version, spelling, status: child.status,
+      stdout: child.stdout, stderr: child.stderr }));
     if (spelling === "native-invalid") {
       assert.equal(child.status, 1, "native Node refuses node:-prefixed package-import targets before execution");
       assert.match(child.stderr, /ERR_INVALID_PACKAGE_TARGET/u, "native target refusal is not an alias capability or fallback");
@@ -2274,6 +2276,95 @@ test("QRC-15: actual native Node resolves package builtin aliases and factory or
     assert.deepEqual(JSON.parse(child.stdout), Array.from({ length: modules.length + 1 }, () => true),
       `${spelling}: all native identities and the foreign factory's exact private scope agree`);
   }
+});
+
+for (const [role, launches] of [
+  ["package-script", [
+    { path: "src/entry.ts", command: "node src/entry.ts" },
+    { path: "src/entry.ts", command: "node --max-old-space-size=32 -- src/entry.ts" },
+    { path: "src/native entry.ts", command: "node 'src/native entry.ts'" },
+  ]],
+  ["node-shebang", [
+    { path: "src/entry.ts", shebang: "#!/usr/bin/env node" },
+    { path: "src/entry.ts", shebang: "#!/usr/bin/node" },
+    { path: "src/entry", shebang: "#!/usr/bin/env -S node --max-old-space-size=32" },
+  ]],
+]) test(`QRC-16: ${role} launches share exact native root closure`, () => {
+  const bodies = [
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("./worker-entry.js", import.meta.url));',
+    'import { fork } from "node:child_process"; fork(new URL("./worker-entry.js", import.meta.url));',
+    'import { spawn } from "node:child_process"; import { fileURLToPath } from "node:url"; const entry = fileURLToPath(new URL("./worker-entry.js", import.meta.url)); spawn(process.execPath, [entry]);',
+    'import { createRequire } from "node:module"; const load = createRequire(import.meta.url); load("./worker-entry.js");',
+  ];
+  for (const launch of launches) for (const body of bodies) {
+    const inputs = nativeBoundaryInputs();
+    const text = launch.shebang === undefined ? body : `${launch.shebang}\n${body}`;
+    inputs.get("tsonic-rust").set(launch.path, Object.freeze({ ...safetyFile(text), mode: launch.shebang === undefined ? "100644" : "100755" }));
+    if (launch.command !== undefined) inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ type: "module", scripts: { start: launch.command } })));
+    inputs.get("tsonic-rust").set("src/worker-entry.ts", safetyFile("export const ordinary: number = 1;"));
+    const label = `${launch.command ?? launch.shebang}: ${body}`;
+    const entries = keelSafetyBuiltModuleEntries(inputs);
+    assert.equal(entries.includes(`tsonic-rust/${launch.path}`), true, `${label}: the same producer identifies the actual native root`);
+    assert.equal(entries.includes("tsonic-rust/src/worker-entry.js"), true, `${label}: physical native bytes are requested without a filename projection`);
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${label}: missing bytes refuse despite a harmless authored TS sibling`);
+    inputs.get("tsonic-rust").set("src/worker-entry.js", safetyFile("export const ordinary = 1;", false));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${label}: provided exact harmless physical bytes pass`);
+    inputs.get("tsonic-rust").set("src/worker-entry.js", safetyFile('import "../test/helpers/native-ownership-cost.mjs";', false));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${label}: a native bridge to the writer refuses`);
+  }
+  const authored = nativeBoundaryInputs();
+  authored.get("tsonic-rust").set("src/entry.ts", safetyFile(`#!/usr/bin/env node\n${bodies[0]}`));
+  assert.equal(keelSafetyBuiltModuleEntries(authored).includes("tsonic-rust/src/worker-entry.js"), false,
+    "a nonexecutable authored typed shebang is not by itself a native OS entry");
+  assert.equal(boundarySafety(authored).findings.length, 0, "authored-only typed sources retain their original positive");
+});
+
+test("QRC-16: unproved declared native launch spelling refuses without a shell or code evaluator", () => {
+  for (const command of [
+    "node $ENTRY", "node src/entry.ts && node src/second.ts", "node src/entry.ts\nnode src/second.ts",
+    "node --unknown-root-flag src/entry.ts", "node --env-file environment.env src/entry.ts",
+    "node --eval 'globalThis.execute()'", "node -", "node", "node --require ./src/preload.mjs", "node --test 'src/*.ts'", null,
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { start: command } })));
+    inputs.get("tsonic-rust").set("src/entry.ts", safetyFile("export const ordinary: number = 1;"));
+    inputs.get("tsonic-rust").set("src/preload.mjs", safetyFile("export const ordinary = 1;"));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, `${command}: unsupported native execution cannot certify a missing root`);
+    assert.equal(result.findings.some(finding => finding.reason.includes("unproved") && finding.file === "package.json"), true,
+      `${command}: refusal belongs to the actual metadata entry boundary`);
+  }
+  for (const header of ["#!/usr/bin/env node --import preload.mjs", "#!/usr/bin/env -S node --unknown-root-flag"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/entry", Object.freeze({ ...safetyFile(`${header}\nexport const ordinary = 1;`), mode: "100755" }));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${header}: unproved interpreter options cannot hide a native root`);
+  }
+});
+
+test("QRC-16: Node launch entry paths remain physical while URL entries and preloads keep their native address rules", () => {
+  for (const [command, path] of [
+    ["node 'src/entry#literal.ts'", "src/entry#literal.ts"],
+    ["node 'src/entry%23literal.ts'", "src/entry%23literal.ts"],
+    ["node --entry-url file:///keel/tsonic-rust/src/entry%23literal.ts", "src/entry#literal.ts"],
+    ["node --require ./src/preload.cts src/entry.ts", "src/preload.cts"],
+    ["node --import ./src/preload.mts src/entry.ts", "src/preload.mts"],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { start: command } })));
+    inputs.get("tsonic-rust").set("src/entry.ts", safetyFile("export const ordinary: number = 1;"));
+    inputs.get("tsonic-rust").set(path, safetyFile('import "../test/helpers/native-ownership-cost.mjs";'));
+    assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(`tsonic-rust/${path}`), true, `${command}: exact native address is captured`);
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${command}: native entry or preload cannot promote the writer`);
+    inputs.get("tsonic-rust").set(path, safetyFile("export const ordinary = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${command}: harmless bytes at the same exact address pass`);
+  }
+  const inputs = nativeBoundaryInputs();
+  const file = "test/entry.ts";
+  inputs.get("tsonic-rust").set(file, safetyFile('import test from "node:test"; import { nativeOwnershipCostSupport } from "./helpers/native-ownership-cost.mjs"; test("native", () => { void nativeOwnershipCostSupport; });'));
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: `node --test ${file}` } })));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "an actual direct Node test entry remains test-only under its real execution launch");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ main: `./${file}`, scripts: { test: `node --test ${file}` } })));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a native test launch cannot waive a second real product/module promotion");
 });
 
 test("QRC-05: unrelated scoped URL names do not invalidate native constructor or literal-member evidence", () => {

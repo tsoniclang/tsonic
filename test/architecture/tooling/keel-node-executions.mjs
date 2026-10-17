@@ -57,6 +57,136 @@ const nativeOptionFields = {
   foreignProcess: new Set(["shell"]),
 };
 
+export function readKeelNodeArguments(elements, { value, spread, codeEntry, moduleEntry, unknownEntry,
+  unresolvedArguments, environment, optionMode }, optionsOnly = false) {
+  let script = optionsOnly;
+  let code = false;
+  let interactive = false;
+  const nonStdinModes = new Set();
+  let afterFlags = false;
+  let unresolvedScript = false;
+  for (let index = 0; index < elements.length; index++) {
+    const argument = elements[index];
+    const flag = value(argument);
+    if (!afterFlags && flag === "--") { afterFlags = true; continue; }
+    if (!afterFlags && flag?.startsWith("-") && flag !== "-") {
+      const short = nodeOptionAliases.has(flag.split("=")[0]) ? null : /^-(pe|[eprC])(.+)$/su.exec(flag);
+      const spelling = short === null ? flag.split("=")[0] : `-${short[1]}`;
+      const option = nodeOptionAliases.get(spelling) ?? spelling;
+      const joined = short?.[2] ?? (flag.includes("=") ? flag.slice(flag.indexOf("=") + 1) : undefined);
+      const inlineCode = ["--eval", "--print"].includes(option);
+      const module = nodeModuleOptions.has(option);
+      const opaque = nodeOpaqueEntryOptions.has(option);
+      if (inlineCode || module || opaque || nodeValueOptions.has(option)) {
+        if (option === "--print" && joined === undefined &&
+          (elements[index + 1] === undefined || value(elements[index + 1])?.startsWith("-"))) {
+          codeEntry(undefined); continue;
+        }
+        if (option === "--print" && joined === undefined && value(elements[index + 1]) === undefined) {
+          codeEntry(elements[index + 1]);
+          unresolvedArguments(elements.slice(index + 1));
+          return true;
+        }
+        const operand = joined === undefined ? elements[++index] : undefined;
+        if (joined === undefined && (operand === undefined || spread(operand))) {
+          unknownEntry(); return true;
+        }
+        if (inlineCode) {
+          code = true;
+          codeEntry(operand, joined);
+        } else if (module) moduleEntry(operand, joined, option);
+        else if (opaque) unknownEntry();
+      } else if (!nodeBooleanOptions.has(option) && !(option.startsWith("--no-") && nodeBooleanOptions.has(`--${option.slice(5)}`)) &&
+        option !== "--experimental-default-config-file" && option !== "--trace-events-enabled") {
+        unknownEntry(); return true;
+      } else if (option === "--experimental-default-config-file") unknownEntry();
+      else {
+        const enabled = !option.startsWith("--no-");
+        const booleanOption = enabled ? option : `--${option.slice(5)}`;
+        optionMode(booleanOption, enabled);
+        if (booleanOption === "--interactive") interactive = enabled;
+        if (nodeNonStdinModes.has(booleanOption)) {
+          if (enabled) nonStdinModes.add(booleanOption);
+          else nonStdinModes.delete(booleanOption);
+        }
+      }
+      continue;
+    }
+    if (optionsOnly) {
+      unresolvedArguments(elements.slice(index));
+      break;
+    }
+    if (!script && !code) {
+      if (flag === "-") {
+        environment("node-stdin");
+        unresolvedScript = true; break;
+      }
+      if (!moduleEntry(argument)) {
+        unresolvedScript = true;
+        unresolvedArguments(elements.slice(index + 1));
+        break;
+      }
+      script = true;
+    }
+    break;
+  }
+  if (!script && !code && !unresolvedScript && !elements.some(element =>
+    /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(value(element) ?? ""))) {
+    environment("node-arguments");
+  }
+  return nonStdinModes.size === 0 && !script && (interactive || !code);
+}
+
+export function keelLiteralNodeCommand(command, shebang = false) {
+  if (typeof command !== "string" || /[\r\n\u0000]/u.test(command)) return { unresolvedReason: "unproved native execution command" };
+  const words = [];
+  let remaining = command.replace(/^[ \t]+|[ \t]+$/gu, "");
+  while (remaining !== "") {
+    const word = /^(?:'([^'\r\n]*)'|"([^"\\$`\r\n]*)"|([^ \t\r\n"'\\$`;&|<>()*?\[\]{}~]+))(?=[ \t]|$)/u.exec(remaining);
+    if (word === null) return { unresolvedReason: "unproved literal native execution command" };
+    words.push(word[1] ?? word[2] ?? word[3]);
+    remaining = remaining.slice(word[0].length).replace(/^[ \t]+/u, "");
+  }
+  const executable = words.shift();
+  if (shebang && /(?:^|\/)env$/u.test(executable ?? "")) {
+    if (words[0] === "-S") words.shift();
+    else if (words.length !== 1) return { unresolvedReason: "unproved native interpreter arguments" };
+    const interpreter = words.shift();
+    if (interpreter !== "node") return { external: true, environment: "external-interpreter" };
+  } else if (executable !== "node" && !(executable?.startsWith("/") && executable.endsWith("/node"))) {
+    return { external: true, environment: shebang ? "external-interpreter" : "package-shell-command" };
+  }
+  return { arguments: words };
+}
+
+export function keelLiteralNodeEntries(arguments_, resolveModule) {
+  const entries = [];
+  const modes = { entryUrl: false, test: false };
+  const unknownEntry = reason => entries.push({ unresolvedReason: reason ?? "unproved native Node execution entry or option" });
+  const readsInput = readKeelNodeArguments(arguments_, {
+    value: argument => argument,
+    spread: () => false,
+    codeEntry: () => unknownEntry("unproved native Node inline-code execution entry"),
+    moduleEntry: (argument, joined, option) => {
+      const value = joined ?? argument;
+      if (typeof value !== "string") { unknownEntry(); return false; }
+      if (option !== "--test-reporter" || !nodeBuiltinReporters.has(value)) {
+        entries.push({ value, ...resolveModule(value, option, modes), executionRoot: option === undefined });
+      }
+      return true;
+    },
+    unknownEntry,
+    unresolvedArguments: () => unknownEntry(),
+    environment: environment => unknownEntry(`unproved native Node ${environment}`),
+    optionMode: (option, enabled) => {
+      if (option === "--entry-url") modes.entryUrl = enabled;
+      if (option === "--test") modes.test = enabled;
+    },
+  });
+  if (readsInput) unknownEntry("unproved native Node stdin or interactive execution entry");
+  return entries;
+}
+
 export function createKeelNodeExecutions({ ast, importedApi, memberAccess, literal, transparent, sourceAddress,
   fragmentAddress, literalAddress, firstPartyFragment, referencesCanonicalSource, computedModuleEntry, references }) {
   return { codeEntry, nodeExecution, nodeModuleExecution, executionEnvironment };
@@ -102,87 +232,20 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       else references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
       return true;
     }
-    const elements = ast.elements(values);
-    let script = optionsOnly;
-    let code = false;
-    let interactive = false;
-    const nonStdinModes = new Set();
-    let afterFlags = false;
-    let unresolvedScript = false;
-    for (let index = 0; index < elements.length; index++) {
-      const argument = elements[index];
-      const flag = literal(argument) ? ast.text(argument) : undefined;
-      if (!afterFlags && flag === "--") { afterFlags = true; continue; }
-      if (!afterFlags && flag?.startsWith("-") && flag !== "-") {
-        const short = nodeOptionAliases.has(flag.split("=")[0]) ? null : /^-(pe|[eprC])(.+)$/su.exec(flag);
-        const spelling = short === null ? flag.split("=")[0] : `-${short[1]}`;
-        const option = nodeOptionAliases.get(spelling) ?? spelling;
-        const joined = short?.[2] ?? (flag.includes("=") ? flag.slice(flag.indexOf("=") + 1) : undefined);
-        const inlineCode = ["--eval", "--print"].includes(option);
-        const module = nodeModuleOptions.has(option);
-        const opaque = nodeOpaqueEntryOptions.has(option);
-        if (inlineCode || module || opaque || nodeValueOptions.has(option)) {
-          if (option === "--print" && joined === undefined &&
-            (elements[index + 1] === undefined || literal(elements[index + 1]) && ast.text(elements[index + 1]).startsWith("-"))) {
-            codeEntry(undefined, node); continue;
-          }
-          if (option === "--print" && joined === undefined && !literal(elements[index + 1])) {
-            codeEntry(elements[index + 1], node);
-            unresolvedArguments(elements.slice(index + 1), node);
-            return true;
-          }
-          const value = joined === undefined ? elements[++index] : undefined;
-          if (joined === undefined && (value === undefined || ast.kindName(value) === "KindSpreadElement")) {
-            computedModuleEntry(node); return true;
-          }
-          if (inlineCode) {
-            code = true;
-            codeEntry(value, node, joined);
-          } else if (module) {
-            const address = joined === undefined ? sourceAddress(value) : literalAddress(joined);
-            if (option !== "--test-reporter" || !nodeBuiltinReporters.has(address.specifier)) executionAddress(address, node, option === "--require");
-          } else if (opaque) {
-            computedModuleEntry(node);
-          }
-        } else if (!nodeBooleanOptions.has(option) && !(option.startsWith("--no-") && nodeBooleanOptions.has(`--${option.slice(5)}`)) &&
-          option !== "--experimental-default-config-file" && option !== "--trace-events-enabled") {
-          computedModuleEntry(node); return true;
-        } else if (option === "--experimental-default-config-file") computedModuleEntry(node);
-        else {
-          const enabled = !option.startsWith("--no-");
-          const booleanOption = enabled ? option : `--${option.slice(5)}`;
-          if (booleanOption === "--interactive") interactive = enabled;
-          if (nodeNonStdinModes.has(booleanOption)) {
-            if (enabled) nonStdinModes.add(booleanOption);
-            else nonStdinModes.delete(booleanOption);
-          }
-        }
-        continue;
-      }
-      if (optionsOnly) {
-        unresolvedArguments(elements.slice(index), node);
-        break;
-      }
-      if (!script && !code) {
-        if (flag === "-") {
-          references.push({ external: true, environment: "node-stdin", offset: ast.pos(node) });
-          unresolvedScript = true; break;
-        }
-        const address = sourceAddress(argument);
-        executionAddress(address, node);
-        if (address.path === undefined && address.specifier === undefined && !address.firstParty && address.suffix === undefined) {
-          unresolvedScript = true;
-          unresolvedArguments(elements.slice(index + 1), node);
-          break;
-        }
-        script = true;
-      }
-      break;
-    }
-    if (!script && !code && !unresolvedScript && !elements.some(element => literal(element) && /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(ast.text(element)))) {
-      references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
-    }
-    return nonStdinModes.size === 0 && !script && (interactive || !code);
+    return readKeelNodeArguments(ast.elements(values), {
+      value: argument => literal(argument) ? ast.text(argument) : undefined,
+      spread: argument => ast.kindName(argument) === "KindSpreadElement",
+      codeEntry: (argument, text) => codeEntry(argument, node, text),
+      moduleEntry: (argument, text, option) => {
+        const address = text === undefined ? sourceAddress(argument) : literalAddress(text);
+        if (option !== "--test-reporter" || !nodeBuiltinReporters.has(address.specifier)) executionAddress(address, node, option === "--require");
+        return address.path !== undefined || address.specifier !== undefined || address.firstParty || address.suffix !== undefined;
+      },
+      unknownEntry: () => computedModuleEntry(node),
+      unresolvedArguments: arguments_ => unresolvedArguments(arguments_, node),
+      environment: environment => references.push({ external: true, environment, offset: ast.pos(node) }),
+      optionMode: () => {},
+    }, optionsOnly);
   }
 
   function unresolvedArguments(arguments_, node) {

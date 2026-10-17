@@ -3,6 +3,7 @@ import { keelFinding, keelWorkspaceRepositories, sortKeelFindings, validLiteralF
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { scriptSourceReferences, staticFileAddress } from "./keel-script-entries.mjs";
+import { keelLiteralNodeCommand, keelLiteralNodeEntries } from "./keel-node-executions.mjs";
 
 export const canonicalNativeAllocationBoundary = Object.freeze({
   approvalId: "C-0067/Q-109", boundaryId: "TEST-ALLOCATOR", repo: "rust-runtime",
@@ -40,7 +41,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         !["file", "symlink", "gitlink"].includes(input.kind)) throw new Error("Invalid complete AC12 file input.");
       if (input.kind === "file" && (!/^[a-f0-9]{64}$/u.test(input.sha256) || !["100644", "100755"].includes(input.mode) ||
         input.text !== undefined && (typeof input.text !== "string" || keelDigest(input.text) !== input.sha256) ||
-        /\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) && typeof input.text !== "string")) {
+        (/\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) || input.mode === "100755") && typeof input.text !== "string")) {
         throw new Error(`Incomplete or inconsistent AC12 bytes: ${repo}/${file}.`);
       }
       if (input.kind === "symlink" && (input.mode !== "120000" || typeof input.target !== "string") ||
@@ -180,7 +181,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (entry.external || entry.unresolvedReason !== undefined) continue;
       const target = resolveAlias(entry.path, entry.source);
       if (target === undefined) continue;
-      const format = nativeNodeModuleFormat(target);
+      const format = entry.executionRoot ? "script" : nativeNodeModuleFormat(target);
       if (format === "data") continue;
       if (format === "binary") { reject(entry.source, "unproved first-party native package binary entry"); continue; }
       const input = files.get(target);
@@ -218,7 +219,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
           if (nativeEntry) reject(path, "uncaptured first-party native module entry");
           continue;
         }
-        const format = nativeNodeModuleFormat(target);
+        const format = reference.executionEntry ? "script" : nativeNodeModuleFormat(target);
         if (format === "data") continue;
         if (format === "binary") { reject(path, "unproved first-party native binary module entry"); continue; }
         if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
@@ -276,7 +277,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   for (const { path, entry, form, moduleEntry } of metadataEntries) {
     if (moduleEntry !== undefined) {
       if (moduleEntry.unresolvedReason !== undefined) reject(path, `${form}: ${moduleEntry.unresolvedReason}`);
-      else if (!moduleEntry.external && touchesRestricted(moduleEntry.path, path)) reject(path, `${form}: ${entry}`);
+      else if (!moduleEntry.external && touchesRestricted(moduleEntry.path, path) &&
+        !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry)) reject(path, `${form}: ${entry}`);
       continue;
     }
     const raw = `${posix.dirname(path)}/${entry}`;
@@ -319,7 +321,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   const builtModuleInputs = new Map();
   const pendingModules = [...scripts].filter(([path]) => nativeScripts.has(path)).flatMap(([_path, script]) => script.finiteModuleTargets);
   pendingModules.push(...packageEntries.filter(entry => !entry.external && entry.unresolvedReason === undefined &&
-    nativeNodeModuleFormat(entry.path) === "script").map(entry => entry.path));
+    (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")).map(entry => entry.path));
   while (pendingModules.length > 0) {
     const target = resolveAlias(pendingModules.pop());
     if (target === undefined || builtModuleInputs.has(target)) continue;
@@ -507,7 +509,7 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
   const targets = new Set();
   const nativeSources = new Set([...scripts].filter(([_path, script]) => script.nativeJavaScript || script.nativeEntry).map(([path]) => path));
   for (const entry of packageModuleEntries(packages, scripts, files)) {
-    if (!entry.external && entry.unresolvedReason === undefined && nativeNodeModuleFormat(entry.path) === "script") {
+    if (!entry.external && entry.unresolvedReason === undefined && (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")) {
       targets.add(entry.path);
       nativeSources.add(entry.path);
     }
@@ -517,7 +519,7 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
     for (const target of script.finiteModuleTargets) targets.add(target);
     for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
       for (const target of moduleReferencePaths(packages, files, path, reference)) {
-        if (nativeNodeModuleFormat(target) === "script") targets.add(target);
+        if (reference.executionEntry || nativeNodeModuleFormat(target) === "script") targets.add(target);
       }
     }
   }
@@ -556,6 +558,32 @@ function stringLeaves(value) {
 
 function packageModuleEntries(packages, scripts, files) {
   const entries = [];
+  const nodeLaunch = (source, command, program) => {
+    const launch = keelLiteralNodeCommand(command, program !== undefined);
+    if (launch.unresolvedReason !== undefined) {
+      entries.push({ source, value: command, unresolvedReason: launch.unresolvedReason }); return;
+    }
+    if (launch.external) {
+      entries.push({ source, value: command, unresolvedReason: "unproved package script or interpreter execution root" }); return;
+    }
+    const arguments_ = program === undefined ? launch.arguments : [...launch.arguments, posix.basename(program)];
+    for (const entry of keelLiteralNodeEntries(arguments_, (value, option, modes) => {
+      if (option === undefined) {
+        if (modes.test && /[*?\[]/u.test(value)) return { unresolvedReason: "unproved finite native Node test-entry pattern" };
+        const path = modes.entryUrl ? staticFileAddress(source, value).path : packageTargetPath(posix.dirname(source), value, true);
+        return path === undefined ? { unresolvedReason: "unrooted physical native Node executable entry" } : { path };
+      }
+      const targets = moduleReferencePaths(packages, files, source, { module: true, specifier: value, nativeRequire: option === "--require" });
+      if (targets.length > 0) return { paths: targets };
+      return value.startsWith(".") || value.startsWith("#") || value.startsWith("file:") || isAbsolute(value)
+        ? { unresolvedReason: "unresolved first-party native Node preload entry" } : { external: true };
+    })) {
+      if (entry.paths !== undefined) {
+        const { paths, ...details } = entry;
+        for (const path of paths) entries.push({ ...details, path, source });
+      } else entries.push({ ...entry, source, value: entry.value ?? command });
+    }
+  };
   const requests = [...scripts].flatMap(([sourcePath, script]) => script.references.filter(reference =>
     reference.module && !reference.external && !reference.unresolved && reference.specifier !== undefined)
     .map(reference => ({ sourcePath: reference.moduleOrigin ?? sourcePath, specifier: reference.specifier })));
@@ -579,6 +607,11 @@ function packageModuleEntries(packages, scripts, files) {
       } else entries.push({ source, value, path });
     };
     for (const value of [metadata.main, metadata.bin].flatMap(stringLeaves)) add(value, true, false);
+    if (metadata.scripts !== undefined) {
+      if (metadata.scripts === null || typeof metadata.scripts !== "object" || Array.isArray(metadata.scripts)) {
+        entries.push({ source, value: "scripts", unresolvedReason: "unproved native package-script declarations" });
+      } else for (const command of Object.values(metadata.scripts)) nodeLaunch(source, command);
+    }
     const moduleTargets = (value, key, imports) => {
       if (typeof value === "string") {
         if (!key?.includes("*") || !value.includes("*")) { add(value, false, imports); return; }
@@ -614,6 +647,11 @@ function packageModuleEntries(packages, scripts, files) {
     };
     moduleTargets(metadata.exports, ".", false);
     moduleTargets(metadata.imports, undefined, true);
+  }
+  for (const [path, input] of files) {
+    if (input.kind === "file" && input.mode === "100755" && input.text?.startsWith("#!")) {
+      nodeLaunch(path, input.text.slice(2).split(/\r?\n/u)[0], path);
+    }
   }
   return entries;
 }

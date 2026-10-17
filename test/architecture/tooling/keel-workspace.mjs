@@ -246,7 +246,7 @@ function readKeelSafetyWorkspaceInputs(workspace) {
         const bytes = readFileSync(path);
         entries.set(file, Object.freeze({ kind: "file", tracked, mode: status.mode & 0o111 ? "100755" : "100644",
           sha256: keelDigest(bytes),
-          ...(/\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) ? { text: bytes.toString("utf8") } : {}),
+          ...(/\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) || status.mode & 0o111 ? { text: bytes.toString("utf8") } : {}),
         }));
       } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
     }
