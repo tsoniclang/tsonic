@@ -25,7 +25,7 @@ export function staticFileAddress(sourcePath, specifier) {
 }
 
 export function scriptSourceReferences(path, text, boundary, entryRole, moduleSpecifierTargets) {
-  if (!["authored", "native-entry"].includes(entryRole)) throw new Error("Invalid AC12 executable source role.");
+  if (!["authored", "native-entry", "native-test-entry"].includes(entryRole)) throw new Error("Invalid AC12 executable source role.");
   if (typeof moduleSpecifierTargets !== "function") throw new Error("Missing AC12 canonical package-import resolution.");
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
@@ -34,11 +34,11 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
   const declarationFile = source.IsDeclarationFile === true;
-  const nativeEntry = entryRole === "native-entry";
-  if (declarationFile && !nativeEntry) return { references: [], testEntry: false, nativeJavaScript: false, declarationFile, nativeEntry,
+  const nativeEntry = entryRole !== "authored";
+  if (declarationFile && !nativeEntry) return { references: [], testEntry: false, nativeJavaScript: false, declarationFile, nativeEntry, entryRole,
     literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0 || (SourceFile_JSDiagnostics(source)?.length ?? 0) > 0) {
-    return { references: [{ unresolved: true }], testEntry: false, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry,
+    return { references: [{ unresolved: true }], testEntry: false, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry, entryRole,
       literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   }
   const references = [];
@@ -109,8 +109,6 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
       valueDeclarations.set(name, [...valueDeclarations.get(name) ?? [], node]);
     }
   }
-  const testEntry = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
-    path.endsWith(".test.mjs") && references.some(reference => reference.specifier === "node:test");
   for (;;) {
     const previous = moduleBindings.size + patternIdentities.size;
     collectFactoryBindings(false);
@@ -349,7 +347,10 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
       } else if (module) references.push({ external: true, offset: ast.pos(node) });
     }
   }
-  return { references, testEntry, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry, literalUrlLoaders: Object.freeze(literalUrlLoaders),
+  const ownedTest = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
+    references.some(reference => reference.module && reference.specifier === "node:test");
+  const testEntry = ownedTest && (path.endsWith(".test.mjs") ? "discovery" : entryRole === "native-test-entry" ? "native-launch" : false);
+  return { references, testEntry, nativeJavaScript: kind === ScriptKindJS, declarationFile, nativeEntry, entryRole, literalUrlLoaders: Object.freeze(literalUrlLoaders),
     finiteModuleTargets: Object.freeze([...new Set([...moduleBindings.values()].flatMap(binding => binding.finiteTargets ?? []))]) };
 
   function initializer(declaration) {

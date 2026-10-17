@@ -173,6 +173,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   const nativeScripts = new Set([...scripts].filter(([path, script]) => script.nativeJavaScript || files.get(path)?.builtModule).map(([path]) => path));
+  const nativeTestScripts = new Set();
   const pendingScripts = [...scripts.keys()];
   const processedScripts = new Map();
   const enqueuePackageEntries = () => {
@@ -186,11 +187,13 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (format === "binary") { reject(entry.source, "unproved first-party native package binary entry"); continue; }
       const input = files.get(target);
       if (input?.kind !== "file" || typeof input.text !== "string") { reject(entry.source, "uncaptured first-party native package module bytes"); continue; }
-      if (!scripts.has(target)) {
-        scripts.set(target, scriptSourceReferences(target, input.text, boundary, "native-entry", moduleSpecifierTargets));
-        pendingScripts.push(target);
-      } else if (!nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
       nativeScripts.add(target);
+      if (entry.nativeTestEntry) nativeTestScripts.add(target);
+      if (!scripts.has(target)) {
+        scripts.set(target, scriptSourceReferences(target, input.text, boundary,
+          nativeTestScripts.has(target) ? "native-test-entry" : "native-entry", moduleSpecifierTargets));
+        pendingScripts.push(target);
+      } else if (processedScripts.has(target) && processedScripts.get(target) < (nativeTestScripts.has(target) ? 2 : 1)) pendingScripts.push(target);
     }
   };
   enqueuePackageEntries();
@@ -200,12 +203,14 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (index === pendingScripts.length) break;
     }
     const path = pendingScripts[index];
-    const nativeScript = nativeScripts.has(path);
-    if (processedScripts.has(path) && (processedScripts.get(path) || !nativeScript)) continue;
-    processedScripts.set(path, nativeScript);
+    const role = nativeTestScripts.has(path) ? 2 : nativeScripts.has(path) ? 1 : 0;
+    const nativeScript = role > 0;
+    if (processedScripts.has(path) && processedScripts.get(path) >= role) continue;
+    processedScripts.set(path, role);
     let script = scripts.get(path);
-    if (nativeScript && script.declarationFile && !script.nativeEntry) {
-      script = scriptSourceReferences(path, files.get(path).text, boundary, "native-entry", moduleSpecifierTargets);
+    if (role === 2 && script.entryRole !== "native-test-entry" || nativeScript && script.declarationFile && !script.nativeEntry) {
+      script = scriptSourceReferences(path, files.get(path).text, boundary,
+        role === 2 ? "native-test-entry" : "native-entry", moduleSpecifierTargets);
       scripts.set(path, script);
     }
     for (const reference of script.references) {
@@ -223,11 +228,15 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         if (format === "data") continue;
         if (format === "binary") { reject(path, "unproved first-party native binary module entry"); continue; }
         if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
-        if (nativeEntry) nativeScripts.add(target);
+        if (nativeEntry) {
+          nativeScripts.add(target);
+          if (reference.nativeTestEntry) nativeTestScripts.add(target);
+        }
         if (!scripts.has(target)) {
-          scripts.set(target, scriptSourceReferences(target, input.text, boundary, nativeEntry ? "native-entry" : "authored", moduleSpecifierTargets));
+          scripts.set(target, scriptSourceReferences(target, input.text, boundary,
+            nativeTestScripts.has(target) ? "native-test-entry" : nativeEntry ? "native-entry" : "authored", moduleSpecifierTargets));
           pendingScripts.push(target);
-        } else if (nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
+        } else if (processedScripts.has(target) && processedScripts.get(target) < (nativeTestScripts.has(target) ? 2 : nativeScripts.has(target) ? 1 : 0)) pendingScripts.push(target);
       }
     }
   }
@@ -272,7 +281,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   const productRoots = new Set([...nativeScripts].filter(path => !scripts.get(path)?.testEntry && path !== writerPath));
   for (const path of metadataEntries.flatMap(({ path, entry, moduleEntry }) => {
     if (moduleEntry !== undefined) return moduleEntry.path !== undefined &&
-      !moduleEntry.external && !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry) &&
+      !moduleEntry.external && !declaredTestExecution(moduleEntry) &&
       (moduleEntry.executionRoot || nativeNodeModuleFormat(moduleEntry.path) !== "data") ? [moduleEntry.path] : [];
     const target = resolveAlias(`${posix.dirname(path)}/${entry}`, path);
     return target === undefined ? [] : [target];
@@ -304,7 +313,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (moduleEntry.openBoundary) continue;
       if (moduleEntry.unresolvedReason !== undefined) reject(path, `${form}: ${moduleEntry.unresolvedReason}; command ${JSON.stringify(moduleEntry.command ?? moduleEntry.value)}`);
       else if (!moduleEntry.external && touchesRestricted(moduleEntry.path, path) &&
-        !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry)) reject(path, `${form}: ${entry}`);
+        !declaredTestExecution(moduleEntry)) reject(path, `${form}: ${entry}`);
       continue;
     }
     const raw = `${posix.dirname(path)}/${entry}`;
@@ -339,7 +348,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         }
         continue;
       }
-      const allowed = !transcriptData.has(targets[0]) && (script.testEntry || path === writerPath &&
+      const allowed = !transcriptData.has(targets[0]) && (Boolean(script.testEntry) || path === writerPath &&
         reference.fileRead && targets.length === 1 && targets[0] === canonicalPath);
       if (!allowed) reject(path, `${reference.module ? "module" : "observer file"} inclusion: ${reference.specifier ?? "unresolved first-party root"}`);
     }
@@ -373,6 +382,11 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   function reject(path, reason) {
     const separator = path.indexOf("/");
     fail(path.slice(0, separator), path.slice(separator + 1), `The canonical test-only cut rejects ${reason}.`);
+  }
+
+  function declaredTestExecution(entry) {
+    const role = scripts.get(entry.path)?.testEntry;
+    return entry.executionRoot && (role === "discovery" || role === "native-launch" && entry.nativeTestEntry === true);
   }
 
   function resolveAlias(path, ownerPath = path, pattern = false) {

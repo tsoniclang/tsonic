@@ -10,6 +10,7 @@ import {
 } from "./tooling/keel-certification-checks.mjs";
 import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./tooling/keel-native-allocation-boundary.mjs";
 import { scriptSourceReferences } from "./tooling/keel-script-entries.mjs";
+import { readKeelNodeArguments } from "./tooling/keel-node-executions.mjs";
 import { keelCheckIds, keelFinding, keelWorkspaceRepositories, validLiteralFilePath, validPath } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./tooling/keel-native-tokens.mjs";
@@ -1346,8 +1347,11 @@ test("QRC-02: complete known Node operand classes preserve entry position and fa
     assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${flag}: never guess unknown arity`);
   }
   for (const flag of ["--import", "--require", "-r", "--loader", "--experimental-loader", "--test-global-setup", "--test-reporter"]) {
-    for (const args of [[flag, writer, "-e", "0"], [`${flag}=${writer}`, "-e", "0"]]) {
+    const testPlugin = ["--test-global-setup", "--test-reporter"].includes(flag);
+    const launch = testPlugin ? ["--test", "test/ordinary.test.mjs"] : ["-e", "0"];
+    for (const args of [[flag, writer, ...launch], [`${flag}=${writer}`, ...launch]]) {
       const inputs = nativeBoundaryInputs();
+      if (testPlugin) inputs.get("tsonic-rust").set("test/ordinary.test.mjs", safetyFile('import test from "node:test"; test("ordinary", () => {});'));
       inputs.get("tsonic-rust").set("src/launch.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${JSON.stringify(args)});`));
       assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${flag}: native module-entry option`);
     }
@@ -2518,6 +2522,136 @@ test("QRC-16: Node launch entry paths remain physical while URL entries and prel
   assert.equal(boundarySafety(inputs).findings.length, 0, "an actual direct Node test entry remains test-only under its real execution launch");
   inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ main: `./${file}`, scripts: { test: `node --test ${file}` } })));
   assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a native test launch cannot waive a second real product/module promotion");
+});
+
+test("QRC-18: effective native execution modes distinguish positionals, code and every module-option family", () => {
+  const writer = "test/helpers/native-ownership-cost.mjs";
+  for (const mode of ["--help", "-h", "--version", "-v", "--check", "-c", "--v8-options", "--completion-bash", "--prof-process"]) {
+    for (const path of [writer, "missing-entry.mjs"]) {
+      const inputs = nativeBoundaryInputs();
+      inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: `node ${mode} ${path}` } })));
+      assert.equal(boundarySafety(inputs).findings.length, 0, `${mode}/${path}: no executable positional is manufactured`);
+      inputs.get("tsonic-rust").delete("package.json");
+      inputs.get("tsonic-rust").set("src/inspect.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${JSON.stringify([mode, "../" + path])});`));
+      assert.equal(boundarySafety(inputs).findings.length, 0, `${mode}/${path}: the AST adapter reads the same effective positional role`);
+    }
+  }
+  const families = ["--require", "--import", "--experimental-loader", "--test-reporter", "--test-global-setup"];
+  for (const [mode, active] of [["normal", families.slice(0, 3)], ["--help", ["--require"]], ["--version", []],
+    ["--check", ["--require", "--import"]], ["--v8-options", []], ["--completion-bash", []], ["--prof-process", []], ["--test", families]]) {
+    for (const option of families) for (const joined of [false, true]) {
+      const inputs = nativeBoundaryInputs();
+      const path = "test/ordinary.test.mjs";
+      inputs.get("tsonic-rust").set(path, safetyFile('import test from "node:test"; test("ordinary", () => {});'));
+      const prefix = mode === "normal" ? [] : [mode];
+      const operand = "./" + writer;
+      const args = [...prefix, ...(joined ? [`${option}=${operand}`] : [option, operand]), path];
+      inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: "node " + args.join(" ") } })));
+      assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, active.includes(option), `${mode}/${option}/${joined}: actual native metadata module role`);
+      inputs.get("tsonic-rust").delete("package.json");
+      const astArgs = [...prefix, ...(joined ? [`${option}=../${writer}`] : [option, "../" + writer]), "../" + path];
+      inputs.get("tsonic-rust").set("src/inspect.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${JSON.stringify(astArgs)});`));
+      assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, active.includes(option), `${mode}/${option}/${joined}: actual native AST module role`);
+    }
+  }
+  for (const prefix of [["--help", "--require", "./test/benign.cjs"], ["--check", "--import", "./test/benign.mjs"],
+    ["--require", "./test/benign.cjs", "--prof-process"]]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("test/benign.cjs", safetyFile('void import("./benign.mjs");'));
+    inputs.get("tsonic-rust").set("test/benign.mjs", safetyFile("export const ordinary = 1;"));
+    inputs.get("tsonic-rust").set("test/ordinary.mjs", safetyFile("export const ordinary = 1;"));
+    const args = prefix.at(-1) === "--prof-process"
+      ? [...prefix.slice(0, -1), "--experimental-loader", "./" + writer, "--prof-process", "profile.log"]
+      : [...prefix, "--experimental-loader", "./" + writer, "test/ordinary.mjs"];
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: "node " + args.join(" ") } })));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${prefix.join(" ")}: an active preload may initialize the selected loader; its authority is not hidden by the main mode`);
+  }
+  for (const prefix of [["--help", "--no-help"], ["--version", "--no-version"], ["--test", "--no-test"]]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { run: `node ${prefix.join(" ")} ${writer}` } })));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${prefix.join(" ")}: reenabled ordinary execution retains its writer inverse`);
+  }
+  for (const arguments_ of ['["--help", flag, "../test/helpers/native-ownership-cost.mjs"]',
+    '["--help", ...flags, "../test/helpers/native-ownership-cost.mjs"]']) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/unknown.mjs", safetyFile(`import { spawnSync } from "node:child_process"; function inspect(flag, flags) { spawnSync(process.execPath, ${arguments_}); }`));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${arguments_}: an unresolved argument may disable help and expose the real entry`);
+  }
+  for (const prefix of [["--help", "--eval"], ["--eval", "0", "--help"]]) {
+    const inputs = nativeBoundaryInputs();
+    const args = prefix.at(-1) === "--eval" ? [...prefix, `import("../${writer}")`] : prefix;
+    inputs.get("tsonic-rust").set("src/inspect.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${JSON.stringify(args)});`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, "help suppresses inline code, not its genuinely executed CJS preload");
+  }
+  assert.throws(() => readKeelNodeArguments([], {}), /Missing AC12 native argument role contract/u,
+    "the superseded callback contract is rejected instead of retaining a second mode reader");
+});
+
+test("QRC-18: explicit captured native tests keep their own authority without promoting authored or product entries", () => {
+  const bodies = [
+    ["test/entry.ts", 'import test from "node:test"; import { nativeOwnershipCostSupport } from "./helpers/native-ownership-cost.mjs"; const label: string = "native"; test(label, () => { void nativeOwnershipCostSupport; });'],
+    ["test/entry.cts", 'const test = require("node:test"); const { nativeOwnershipCostSupport } = require("./helpers/native-ownership-cost.mjs"); test("native", () => { void nativeOwnershipCostSupport; });'],
+  ];
+  for (const [path, text] of bodies) {
+    const make = () => {
+      const inputs = nativeBoundaryInputs();
+      inputs.get("tsonic-rust").set(path, safetyFile(text));
+      inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: `node --test ${path}` } })));
+      return inputs;
+    };
+    assert.equal(boundarySafety(make()).findings.length, 0, `${path}: real native test authority, node:test and physical bytes are all present`);
+    const globbed = make();
+    const pattern = path.endsWith(".cts") ? "test/*.cts" : "test/*.ts";
+    const matches = [{ path: "tsonic-rust/" + path, sha256: globbed.get("tsonic-rust").get(path).sha256 }];
+    globbed.get("tsonic-rust").set("package.json", Object.freeze({
+      ...safetyFile(JSON.stringify({ scripts: { test: `node --test '${pattern}'` } })),
+      nodeTestGlobs: [{ prefix: "tsonic-rust/test", pattern: "tsonic-rust/" + pattern,
+        matches, sha256: keelDigest(JSON.stringify(matches)) }],
+    }));
+    assert.equal(boundarySafety(globbed).findings.length, 0, `${path}: complete native glob membership preserves the same explicit test role`);
+    for (const promotion of ["main", "bin", "ordinary-script", "import", "reexport", "alias", "missing-bytes", "missing-node-test", "authored-only", "nonowned-root"]) {
+      const inputs = make();
+      if (["main", "bin"].includes(promotion)) inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({
+        [promotion]: "./" + path, scripts: { test: `node --test ${path}` },
+      })));
+      if (promotion === "ordinary-script") inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: `node --test ${path}`, start: `node ${path}` } })));
+      if (["import", "reexport"].includes(promotion)) inputs.get("tsonic-rust").set("src/product.mjs", safetyFile(
+        promotion === "import" ? `import "../${path}";` : `export * from "../${path}";`));
+      if (promotion === "alias") inputs.get("tsonic-rust").set("src/alias", Object.freeze({ kind: "symlink", tracked: true, mode: "120000", target: "../" + path }));
+      if (promotion === "missing-bytes") inputs.get("tsonic-rust").delete(path);
+      if (promotion === "missing-node-test") inputs.get("tsonic-rust").set(path, safetyFile('import { nativeOwnershipCostSupport } from "./helpers/native-ownership-cost.mjs"; void nativeOwnershipCostSupport;'));
+      if (promotion === "authored-only") inputs.get("tsonic-rust").delete("package.json");
+      if (promotion === "nonowned-root") {
+        inputs.get("tsonic-rust").delete(path);
+        inputs.get("tsonic-rust").set("src/entry.ts", safetyFile(text.replaceAll("./helpers/", "../test/helpers/")));
+        inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: "node --test src/entry.ts" } })));
+      }
+      assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${path}/${promotion}: test authority is not a filename or product waiver`);
+    }
+  }
+});
+
+test("QRC-18: default test discovery is explicitly unproved cwd, never supplied stdin execution", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("src/discovery.mjs", safetyFile('import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ["--test"], { input: \'import("../test/helpers/native-ownership-cost.mjs")\' });'));
+  const actual = boundarySafety(inputs);
+  assert.equal(actual.findings.length, 0, "the retained stdin positive does not become an invented code or file entry");
+  assert.equal(actual.nativeAllocationBoundary.externalDynamicEntries.some(row => row.environment === "node-test-discovery"), true,
+    "unknown cwd/default discovery is disclosed as unproved, not certified absent");
+  const rooted = nativeBoundaryInputs();
+  rooted.get("tsonic-rust").set("src/discovery.mjs", safetyFile('import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ["--test"], { cwd: new URL("../test", import.meta.url) });'));
+  assert.equal(boundarySafety(rooted).nativeAllocationBoundary === undefined, true,
+    "an explicit default-discovery working directory requires its own unsupported source-boundary refusal, not a guessed empty target set");
+  const ordinary = nativeBoundaryInputs();
+  ordinary.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+  ordinary.get("tsonic-rust").set("src/launch.mjs", safetyFile('import { spawnSync } from "node:child_process"; const run = cwd => spawnSync(process.execPath, [new URL("./ordinary.mjs", import.meta.url).href], { cwd });'));
+  assert.equal(boundarySafety(ordinary).findings.length, 0, "ordinary cwd data is not a fabricated default-discovery root or a new option-shape refusal");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: "node --test" } })));
+  const declared = boundarySafety(inputs);
+  assert.equal(declared.nativeAllocationBoundary === undefined, true, "literal metadata needs captured explicit roots, not unknown default discovery");
+  assert.equal(declared.findings.some(row => row.file === "package.json" && row.reason.includes("default test-discovery root")), true,
+    "the actual unsupported declaration has a precise boundary explanation");
 });
 
 test("QRC-05: unrelated scoped URL names do not invalidate native constructor or literal-member evidence", () => {
