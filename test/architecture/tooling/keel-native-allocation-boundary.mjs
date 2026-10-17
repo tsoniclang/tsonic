@@ -215,7 +215,12 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       const targets = destinations(path, reference);
       const hits = targets.some(target => touchesRestricted(target, path));
       const ambiguous = ambiguousEntry(path, reference);
-      if (!hits && !ambiguous) continue;
+      if (!hits && !ambiguous) {
+        if (reference.module && targets.length === 0 && reference.specifier === undefined && !reference.firstParty) {
+          externalDynamicEntries.push(Object.freeze({ path, offset: reference.offset }));
+        }
+        continue;
+      }
       const allowed = !transcriptData.has(targets[0]) && (script.testEntry || path === writerPath &&
         reference.fileRead && targets.length === 1 && targets[0] === canonicalPath);
       if (!allowed) reject(path, `${reference.module ? "module" : "observer file"} inclusion: ${reference.specifier ?? "unresolved first-party root"}`);

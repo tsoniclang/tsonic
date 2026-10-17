@@ -322,6 +322,9 @@ test("only actual source and observer-read effects cross the cut, with known API
     ["aliased root", 'import { readFileSync as read } from "node:fs"; import { fileURLToPath } from "node:url"; const target = fileURLToPath(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url)); const alias = target; read(alias);'],
     ["obfuscated first-party import", 'const encoded = process.env.ENTRY; const target = new URL(encoded, import.meta.url); const alias = target; await import(alias.href);'],
     ["obfuscated actual observer reader", 'import { readFileSync } from "node:fs"; const encoded = process.env.ENTRY; readFileSync(new URL("../../rust-runtime/tests/helpers/" + encoded, import.meta.url));'],
+    ["literal observer through URL base", 'import { readFileSync } from "node:fs"; const root = new URL("../../rust-runtime/tests/helpers/", import.meta.url); readFileSync(new URL("allocation_counts.rs", root));'],
+    ["unknown observer through URL base", 'import { readFileSync } from "node:fs"; const root = new URL("../../rust-runtime/tests/helpers/", import.meta.url); readFileSync(new URL(process.env.ENTRY, root));'],
+    ["literal observer copy through URL base", 'import { copyFileSync } from "node:fs"; const root = new URL("../../rust-runtime/tests/helpers/", import.meta.url); copyFileSync(new URL("allocation_counts.rs", root), process.env.DESTINATION);'],
   ]) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
@@ -334,13 +337,22 @@ test("only actual source and observer-read effects cross the cut, with known API
   data.get("tsonic-rust").set("package.json", safetyFile('{"exports":{".":"./test/scripts/proof-scenarios.mjs"}}'));
   data.get("tsonic-rust").set("src/fluent.mjs", safetyFile('export const values = [1, 2].map(value => value + 1).filter(value => value > 1);'));
   data.get("tsonic-rust").set("src/byte-reader.mjs", safetyFile('import { readFileSync } from "node:fs"; export function readData(path) { return readFileSync(new URL(path, import.meta.url)); }'));
+  data.get("tsonic-rust").set("src/base-data.mjs", safetyFile('import { readFileSync } from "node:fs"; const root = new URL("../packages/", import.meta.url); readFileSync(new URL(process.env.JSON, root));'));
   const ordinary = boundarySafety(data);
   assert.equal(ordinary.findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
   assert.equal(ordinary.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/scripts/tooling.mjs"), true,
     "an unknown external filesystem root is recorded outside the static guarantee, not proved harmless");
   data.get("tsonic-rust").set("test/cost.test.mjs", safetyFile('import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs";'));
-  data.get("tsonic-rust").set("src/promote.mjs", safetyFile('import { pathToFileURL } from "node:url"; import { resolve } from "node:path"; import(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")).href);'));
-  assert.equal(boundarySafety(data).nativeAllocationBoundary === undefined, true, "actual protected source evidence still denies an unproved external root");
+  for (const expression of [
+    'import(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")).href)',
+    'import(resolve(process.env.HOST, "test/cost.test.mjs"))',
+    'new Worker(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")))',
+    'fork(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")))',
+    'register(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")))',
+  ]) {
+    data.get("tsonic-rust").set("src/promote.mjs", safetyFile(`import { pathToFileURL } from "node:url"; import { resolve } from "node:path"; import { Worker } from "node:worker_threads"; import { fork } from "node:child_process"; import { register } from "node:module"; ${expression};`));
+    assert.equal(boundarySafety(data).nativeAllocationBoundary === undefined, true, `actual protected source evidence denies an unproved external root: ${expression}`);
+  }
 });
 
 test("literal URL loaders publish ordinary targets only after a complete private binding proof", () => {

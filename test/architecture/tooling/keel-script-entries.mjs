@@ -234,11 +234,11 @@ export function scriptSourceReferences(path, text, boundary) {
       if (address.unresolved) { references.push(address); continue; }
       if (module && address.literalBaseLoader) {
         references.push({ unresolved: true, unresolvedReason: "unresolved first-party literal URL loader: unsupported whole body or binding" });
-      } else if (address.path !== undefined || address.specifier !== undefined || address.firstParty) {
-        if (executionEntry && address.path === undefined && !address.firstParty) {
+      } else if (address.path !== undefined || address.specifier !== undefined || address.firstParty || module && address.suffix !== undefined) {
+        if (executionEntry && address.path === undefined && !address.firstParty && address.suffix === undefined) {
           references.push({ external: true, offset: ast.pos(node) }); continue;
         }
-        references.push({ ...address, module, fileRead, nativeRequire: require });
+        references.push({ ...address, module, fileRead, nativeRequire: require, offset: ast.pos(node) });
       } else if (module) references.push({ external: true, offset: ast.pos(node) });
     }
   }
@@ -552,8 +552,12 @@ export function scriptSourceReferences(path, text, boundary) {
           return { unresolved: true, firstParty: true, unresolvedReason: "unresolved first-party URL constructor write, shadow or escape" };
         }
         const base = arguments_[1];
-        if (ast.kindName(base) === "KindIdentifier" && urlBaseDeclaration(base)) return { firstParty: true, literalBaseLoader: true };
         const value = sourceAddress(arguments_[0], seen);
+        if (ast.kindName(base) === "KindIdentifier" && urlBaseDeclaration(base)) {
+          const root = sourceAddress(ast.arguments(initializer(urlBaseDeclaration(base)))[0], seen);
+          return { firstParty: true, literalBaseLoader: true, suffix: value.suffix,
+            observerEvidence: value.observerEvidence || root.observerEvidence };
+        }
         if (!importMetaUrl(base)) return value.firstParty ? { unresolved: true, firstParty: true, unresolvedReason: "unresolved first-party native URL base" } : {};
         if (value.unresolved) return value;
         if (value.specifier !== undefined) return staticFileAddress(path, value.specifier);
