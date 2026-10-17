@@ -22,6 +22,7 @@ export {
 export type {
   TargetContractEvaluation,
   TargetContractEvaluationContext,
+  TargetContractFailure,
   TargetContractFixedPointRequest,
   TargetContractFixedPointResult,
   TargetContractProgram,

@@ -1,44 +1,16 @@
 import type { Node } from "@tsonic/tsts";
 import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer, sourceClassFieldIsTypeOnly } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
+import type { SourceStorageUnresolved } from "./types.js";
+import type { SourceStorageSubject } from "./subjects.js";
 
-export function sourceStorageConstructedClass(
-  invocation: Node,
-  source: TargetSourceProgram,
-  step: () => boolean,
-): Node | undefined {
-  const { ast } = source;
-  if (!ast.is.IsNewExpression(invocation)) return undefined;
-  return sourceStorageClassValue(Node_Expression(ast, invocation), source, step);
+export function sourceStorageConstructionExpression(invocation: Node, source: TargetSourceProgram,
+  step: () => boolean): Node | undefined {
+  return source.ast.is.IsNewExpression(invocation) ? Node_Expression(source.ast, invocation)
+    : sourceStorageSuperConstructor(invocation, source, step)?.callee;
 }
 
-export function sourceStorageClassValue(
-  expression: Node | undefined,
-  source: TargetSourceProgram,
-  step: () => boolean,
-): Node | undefined {
-  const { ast, navigation } = source;
-  const visited = new Set<Node>();
-  let current = expression;
-  while (current !== undefined && !visited.has(current) && step()) {
-    visited.add(current);
-    if (ast.is.IsClassExpression(current)) return navigation.isProjectDeclaration(current) ? current : undefined;
-    if (ast.is.IsParenthesizedExpression(current) || ast.is.IsAsExpression(current) ||
-      ast.is.IsSatisfiesExpression(current) || ast.is.IsNonNullExpression(current) || ast.is.IsTypeAssertion(current)) {
-      current = Node_Expression(ast, current);
-      continue;
-    }
-    const declaration = navigation.sourceReferenceFor(current)?.declaration;
-    if (declaration === undefined) return undefined;
-    if (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))
-      return navigation.isProjectDeclaration(declaration) ? declaration : undefined;
-    if (!ast.is.IsVariableDeclaration(declaration)) return undefined;
-    const uses = navigation.declarationUseSummary(declaration);
-    if (uses.bindingWritten || uses.exported && ast.variableDeclarationKind(declaration) !== "const") return undefined;
-    current = Node_Initializer(ast, declaration);
-  }
-  return undefined;
-}
 
 export function sourceStorageSuperConstructor(
   invocation: Node,
@@ -60,10 +32,6 @@ export function sourceStorageSuperConstructor(
   return undefined;
 }
 
-export function sourceStorageInvokedClass(invocation: Node, source: TargetSourceProgram, step: () => boolean): Node | undefined {
-  return source.ast.is.IsNewExpression(invocation) ? sourceStorageConstructedClass(invocation, source, step)
-    : sourceStorageClassValue(sourceStorageSuperConstructor(invocation, source, step)?.callee, source, step);
-}
 
 export function sourceStorageInstanceInitializers(declaration: Node, source: TargetSourceProgram,
   step: () => boolean): readonly Node[] {
@@ -76,4 +44,37 @@ export function sourceStorageInstanceInitializers(declaration: Node, source: Tar
     if (initializer !== undefined) initializers.push(initializer);
   }
   return initializers;
+}
+
+export function sourceStorageAllocations<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+  invocation: Node, bindings: Bindings,
+  receiverOriginsFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
+    readonly { readonly subject: SourceStorageSubject; readonly bindings: Bindings }[]): SourceStorageUnresolved |
+  { readonly kind: "resolved"; readonly allocations: readonly { readonly call: Node; readonly callerBindings: Bindings }[] } {
+  return budget.withRows(temporary => {
+    if (source.ast.is.IsNewExpression(invocation)) return Object.freeze({ kind: "resolved",
+      allocations: Object.freeze([Object.freeze({ call: invocation, callerBindings: bindings })]) });
+    const base = sourceStorageSuperConstructor(invocation, source, budget.step);
+    if (base === undefined) return Object.freeze({ kind: "unresolved",
+      reason: "Constructor execution requires its actual checked allocation receiver, not guessed heritage order." });
+    const selected = receiverOriginsFor(base.owner, bindings);
+    if ("kind" in selected) return selected;
+    const allocations: { readonly call: Node; readonly callerBindings: Bindings }[] = [];
+    const seen = new Map<Node, Set<Bindings>>();
+    for (const origin of selected) {
+      if (!budget.step()) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
+      if (origin.subject.kind !== "value" || origin.subject.projection.length !== 0 || !source.ast.is.IsNewExpression(origin.subject.node))
+        return Object.freeze({ kind: "unresolved", reason: "Constructor execution requires every actual receiver origin to identify its checked allocation." });
+      const previous = seen.get(origin.subject.node);
+      if (previous?.has(origin.bindings)) continue;
+      if (!temporary.add(previous === undefined ? 3 : 2)) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
+      const contexts = previous ?? new Set<Bindings>();
+      contexts.add(origin.bindings);
+      seen.set(origin.subject.node, contexts);
+      allocations.push(Object.freeze({ call: origin.subject.node, callerBindings: origin.bindings }));
+    }
+    return allocations.length === 0 ? Object.freeze({ kind: "unresolved",
+      reason: "Constructor execution has no completed actual allocation receiver." })
+      : Object.freeze({ kind: "resolved", allocations: Object.freeze(allocations) });
+  });
 }

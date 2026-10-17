@@ -12662,14 +12662,37 @@ export function Checker_resolveClassOrInterfaceMembers(receiver, t) {
  * }
  */
 export function Checker_resolveTypeReferenceMembers(receiver, t) {
-    const source = Type_Target(t);
-    const typeParameters = Type_AsInterfaceType(source).allTypeParameters;
-    const typeArguments = Checker_getTypeArguments(receiver, t);
-    let paddedTypeArguments = typeArguments;
-    if (typeArguments.length === typeParameters.length - 1) {
-        paddedTypeArguments = [...typeArguments, t];
-    }
+    const [source, typeParameters, paddedTypeArguments] = referenceMemberArguments(receiver, t);
     Checker_resolveObjectTypeMembers(receiver, t, source, typeParameters, paddedTypeArguments);
+}
+function referenceMemberArguments(receiver, type) {
+    const source = Type_Target(type);
+    const parameters = Type_AsInterfaceType(source).allTypeParameters;
+    const arguments_ = Checker_getTypeArguments(receiver, type);
+    return [source, parameters, arguments_.length === parameters.length - 1 ? [...arguments_, type] : arguments_];
+}
+function objectMemberMapper(parameters, arguments_) {
+    return parameters.length === arguments_.length && parameters.every((parameter, index) => parameter === arguments_[index])
+        ? undefined : newTypeMapper(parameters, arguments_);
+}
+function instantiateObjectBaseType(receiver, base, mapper, arguments_) {
+    const thisArgument = LastOrNil(arguments_);
+    return thisArgument === undefined ? base
+        : Checker_getTypeWithThisArgument(receiver, Checker_instantiateType(receiver, base, mapper), thisArgument, false);
+}
+export function Checker_getInstantiatedBaseTypes(receiver, type) {
+    if (receiver === undefined || type === undefined || (type.flags & TypeFlagsObject) === 0)
+        return undefined;
+    const source = (type.objectFlags & ObjectFlagsReference) !== 0 ? Type_Target(type) : type;
+    if (source === undefined || (source.objectFlags & ObjectFlagsClassOrInterface) === 0)
+        return undefined;
+    let target = source;
+    let parameters = [];
+    let arguments_ = [];
+    if ((type.objectFlags & ObjectFlagsReference) !== 0)
+        [target, parameters, arguments_] = referenceMemberArguments(receiver, type);
+    const mapper = objectMemberMapper(parameters, arguments_);
+    return Checker_getBaseTypes(receiver, target).map(base => instantiateObjectBaseType(receiver, base, mapper, arguments_));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveObjectTypeMembers","kind":"method","status":"implemented","sigHash":"e295384186d7b85ac1b326e2459c86f58c814740c1039d61d603883cce5f62aa","bodyHash":"39e69dc06f5f662afc7b58d6bef95adc28144304768dd09944dba3ce3b201cc1"}
@@ -12728,23 +12751,19 @@ export function Checker_resolveTypeReferenceMembers(receiver, t) {
  * }
  */
 export function Checker_resolveObjectTypeMembers(receiver, t, source, typeParameters, typeArguments) {
-    let mapper;
     let members;
     let callSignatures;
     let constructSignatures;
     let indexInfos = [];
-    let instantiated = false;
     const resolved = Checker_resolveDeclaredMembers(receiver, source);
-    const sameTypeArguments = typeParameters.length === typeArguments.length && typeParameters.every((typeParameter, index) => typeParameter === typeArguments[index]);
-    if (sameTypeArguments) {
+    const mapper = objectMemberMapper(typeParameters, typeArguments);
+    if (mapper === undefined) {
         members = resolved.declaredMembers;
         callSignatures = resolved.declaredCallSignatures ?? [];
         constructSignatures = resolved.declaredConstructSignatures ?? [];
         indexInfos = resolved.declaredIndexInfos ?? [];
     }
     else {
-        instantiated = true;
-        mapper = newTypeMapper(typeParameters, typeArguments);
         members = Checker_instantiateSymbolTable(receiver, resolved.declaredMembers, mapper, typeParameters.length === 1);
         callSignatures = Checker_instantiateSignatures(receiver, resolved.declaredCallSignatures ?? [], mapper);
         constructSignatures = Checker_instantiateSignatures(receiver, resolved.declaredConstructSignatures ?? [], mapper);
@@ -12752,17 +12771,13 @@ export function Checker_resolveObjectTypeMembers(receiver, t, source, typeParame
     }
     const baseTypes = Checker_getBaseTypes(receiver, source);
     if (baseTypes.length !== 0) {
-        if (!instantiated) {
+        if (mapper === undefined) {
             members = MapClone(members) ?? new globalThis.Map();
         }
         Checker_setStructuredTypeMembers(receiver, t, members, callSignatures, constructSignatures, indexInfos);
-        const thisArgument = LastOrNil(typeArguments);
         t.objectFlags |= ObjectFlagsUnresolvedMembers;
         for (const baseType of baseTypes) {
-            let instantiatedBaseType = baseType;
-            if (thisArgument !== undefined) {
-                instantiatedBaseType = Checker_getTypeWithThisArgument(receiver, Checker_instantiateType(receiver, baseType, mapper), thisArgument, false);
-            }
+            const instantiatedBaseType = instantiateObjectBaseType(receiver, baseType, mapper, typeArguments);
             members = Checker_addInheritedMembers(receiver, members, Checker_getPropertiesOfType(receiver, instantiatedBaseType));
             callSignatures = [...callSignatures, ...Checker_getSignaturesOfType(receiver, instantiatedBaseType, SignatureKindCall)];
             constructSignatures = [...constructSignatures, ...Checker_getSignaturesOfType(receiver, instantiatedBaseType, SignatureKindConstruct)];

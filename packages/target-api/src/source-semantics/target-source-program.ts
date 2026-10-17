@@ -24,7 +24,8 @@ import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
-import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
+import { analyzeSourcePropertyNames } from "./property-names.js";
+import { analyzeSourceEnumConstants } from "./enum-constants.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 import type {
   ResolvedSourceCallInfo,
@@ -75,6 +76,7 @@ export function createTargetSourceProgram(
   const sourceFileSet = new Set(sourceFiles);
   const documents = createSourceProgramDocuments(source.ast, sourceFiles);
   const navigation = createSourceProgramNavigation(source);
+  const enumConstants = analyzeSourceEnumConstants(source, navigation);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
   const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
   const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
@@ -98,6 +100,7 @@ export function createTargetSourceProgram(
     const flowConditions = new WeakMap<Node, import("@tsonic/tsts").ResolvedSourceFlowConditionInfo | null>();
     const operations = Object.freeze({
       call: queries.checker.getResolvedCallInfo,
+      propertyName: queries.checker.getEffectivePropertyName,
       propertyAccess(node: Node) {
         const selected = queries.checker.getResolvedPropertyAccessInfo(node);
         return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
@@ -128,16 +131,16 @@ export function createTargetSourceProgram(
         return selectSourceCallParameterSlots(call, queries.typeShape);
       },
     });
-    const declarationSymbol = createSourceDeclarationSymbolQuery(source.ast, queries.checker, navigation);
     const declarations = Object.freeze({
+      isDefaultLibraryDeclaration: queries.checker.isDefaultLibraryDeclaration,
       declaredValueType(declaration: Node) {
         if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
-        return queries.checker.getTypeOfSymbol(declarationSymbol(declaration));
+        return queries.checker.getTypeOfSymbol(navigation.declarationSymbol(declaration, sourceFile));
       },
       declaredType(declaration: Node) {
         const symbol = source.ast.is.IsClassExpression(declaration)
           ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
-          : declarationSymbol(declaration);
+          : navigation.declarationSymbol(declaration, sourceFile);
         return queries.checker.getDeclaredTypeOfSymbol(symbol);
       },
       typeSymbol: queries.checker.getTypeSymbol,
@@ -183,6 +186,7 @@ export function createTargetSourceProgram(
     });
     const types: SourceFinalTypeQueries = Object.freeze({
       expressionType: queries.checker.getTypeAtLocation,
+      awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType: queries.checker.getContextualType,
       typeOfSymbol: queries.checker.getTypeOfSymbol,
@@ -194,6 +198,7 @@ export function createTargetSourceProgram(
       typeArgumentBindings(type: Type) {
         return getSourceTypeArgumentBindings(source.ast, queries, type);
       },
+      instantiatedBaseTypes: queries.typeShape.getInstantiatedBaseTypes,
       instantiateAlias: queries.typeShape.instantiateTypeAlias,
       aliasApplication: queries.typeShape.getTypeAliasApplication,
       typeArguments(type: Type) {
@@ -264,7 +269,6 @@ export function createTargetSourceProgram(
       },
       contextualValueSelection(node: Node) {
         return selectSourceContextualValueType(
-          source.ast,
           queries.typeShape,
           queries.checker,
           node,
@@ -311,6 +315,19 @@ export function createTargetSourceProgram(
     });
     const semantics: SourceFileSemantics = Object.freeze({
       sourceFile,
+      propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, {
+        operations: {
+          propertyName: queries.checker.getEffectivePropertyName,
+          objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
+          propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
+          elementAccess: queries.checker.getResolvedElementAccessInfo,
+          wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
+          call: queries.checker.getResolvedCallInfo,
+          callResult: operations.callResult,
+        },
+        types,
+        declarations,
+      }, navigation, enumConstants),
       operations,
       types,
       declarations,
@@ -362,6 +379,7 @@ export function createTargetSourceProgram(
   };
 
   const semantics: SourceProgramSemantics = Object.freeze({
+    enumConstants,
     includes(sourceFile: SourceFile) {
       return sourceFileSet.has(sourceFile);
     },

@@ -9,7 +9,7 @@ export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcom
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
-export type { ResolvedSourceCallInfo, ResolvedSourceCallableCompletionInfo, ResolvedSourceElementAccessInfo, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo, ResolvedSourceIterationInfo, ResolvedSourceGeneratorInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourceObjectLiteralElementKind, ResolvedSourcePropertyAccessInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, TypeCheckerQueries, } from "./services/type-checker.js";
+export type { ResolvedSourceCallInfo, ResolvedSourceCallableCompletionInfo, ResolvedSourceElementAccessInfo, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo, ResolvedSourceIterationInfo, ResolvedSourceGeneratorInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourceObjectLiteralElementKind, ResolvedSourcePropertyAccessInfo, ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, TypeCheckerQueries, } from "./services/type-checker.js";
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export type { BundledLibrarySource, CompilerFileSystem, CompilerHostOptions, CompilerTraceCallback, InMemoryFileSystemOptions } from "./services/embedding-host.js";
 export type { AstAuthoredRange, AstModifierKind, AstReader, AstRegularExpressionLiteralSyntax, AstVariableDeclarationKind, } from "./services/ast-reader.js";
@@ -21,4 +21,5 @@ export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedA
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Symbol } from "./internal/ast/symbol.js";
 export type { ContextFlags, Signature, Type } from "./internal/checker/types.js";
+export { ContextFlagsSkipBindingPatterns } from "./internal/checker/types.js";
 //# sourceMappingURL=index.d.ts.map

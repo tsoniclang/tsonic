@@ -1,6 +1,7 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/types.js";
+import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
 import type { SourceStorageBudget } from "../source-storage/model/resource-budget.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings } from "../source-storage/model/types.js";
@@ -16,6 +17,10 @@ export interface SourceOwnershipContractEvidence {
   readonly checkedType: Type;
 }
 
+export type SourceFormalBorrowRegion =
+  | { readonly kind: "type-argument"; readonly binding: SourceTypeArgumentBinding; readonly declaration: Node }
+  | { readonly kind: "input-duration"; readonly parameter: Node };
+
 export type SourceRetentionPremise = SourceOwnershipContractEvidence & (
   | { readonly kind: "retained"; readonly value: SourceStorageSubject;
       readonly reason: "owned-value" | "module-owner" }
@@ -24,6 +29,8 @@ export type SourceRetentionPremise = SourceOwnershipContractEvidence & (
   | { readonly kind: "transferred"; readonly value: SourceStorageSubject; readonly operation: Node }
   | { readonly kind: "scoped-borrowed"; readonly value: SourceStorageSubject;
       readonly owner: SourceStorageSubject; readonly region: Node; readonly mode: "shared" | "mutable" }
+  | { readonly kind: "formal-borrowed"; readonly value: SourceStorageSubject;
+      readonly executionOwner: Node; readonly region: SourceFormalBorrowRegion; readonly mode: "shared" | "mutable" }
 );
 
 export type SourceRetentionSelection =
@@ -64,7 +71,7 @@ export interface SourceContinuationDependency {
 
 export type SourceAsyncResultDisposition =
   | (Extract<SourceExpressionResultDisposition, { readonly kind: "awaited-in-scope" }> & { readonly region: Node })
-  | { readonly kind: "discarded" | "stored" | "returned"; readonly use: Node };
+  | Exclude<SourceExpressionResultDisposition, { readonly kind: "awaited-in-scope" }>;
 
 export interface SourceAsyncOwnershipDiagnostic {
   readonly code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED" | "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES";

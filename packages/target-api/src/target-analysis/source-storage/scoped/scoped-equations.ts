@@ -1,16 +1,19 @@
 import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
+import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageEquation, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopedRecursion } from "./scoped-recursion.js";
 
-export function createSourceStorageEquations(budget: SourceStorageBudget,
+export function createSourceStorageEquations(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, recursion: SourceStorageScopedRecursion,
   keyFor: (term: Extract<SourceStorageTerm, { readonly kind: "application" }>) => string | undefined) {
   const rows = budget.createRows();
-  const equations = new Map<string, SourceStorageEquation>();
+  const equations = new Map<Node, Map<string, SourceStorageEquation>>();
+  let nextIdentity = 0;
   const scopeFor = (candidate: Node, invocation: Node, caller: SourceStorageScope,
     captured: SourceStorageScope, term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStorageScope | undefined => {
     if (!budget.step()) return undefined;
@@ -19,16 +22,22 @@ export function createSourceStorageEquations(budget: SourceStorageBudget,
     if (component === undefined) return scopes.frameFor(candidate, invocation, caller, captured);
     const previous = scopes.family(caller);
     const owner = recursion.ownerFor(invocation);
-    if (previous?.component === component && owner !== undefined && component.has(owner))
-      return scopes.variable(previous, candidate);
+    if (previous?.component === component && owner !== undefined && component.has(owner)) {
+      const parent = sourceStorageSuperConstructor(invocation, source, budget.step) === undefined
+        ? scopes.variable(previous, owner) : caller;
+      return parent === undefined ? undefined : scopes.frameFor(candidate, invocation, parent, captured, previous);
+    }
     const key = keyFor(term);
     if (key === undefined) return undefined;
-    let equation = equations.get(key);
+    const entries = equations.get(candidate);
+    let equation = entries?.get(key);
     if (equation === undefined) {
       const initial = scopes.frameFor(candidate, invocation, caller, captured);
-      if (initial === undefined || !rows.add(1)) return undefined;
-      equation = Object.freeze({ identity: equations.size, component, entry: candidate, initial });
-      equations.set(key, equation);
+      if (initial === undefined || !rows.add(entries === undefined ? 2 : 1)) return undefined;
+      equation = Object.freeze({ identity: nextIdentity++, component, entry: candidate, initial });
+      const selected = entries ?? new Map<string, SourceStorageEquation>();
+      selected.set(key, equation);
+      equations.set(candidate, selected);
     }
     return scopes.frameFor(candidate, invocation, caller, captured, equation);
   };

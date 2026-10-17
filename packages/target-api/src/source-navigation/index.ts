@@ -1,4 +1,5 @@
 export * from "./navigation.js";
+export { sourceDeclarationHasOnlyTypeUses } from "./declaration-use-summary.js";
 export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
@@ -14,7 +15,9 @@ export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
 export { sourceBindingCapturedBeforeInitialization } from "./deferred-captures.js";
 export { sourceLexicalFunctionValueCreation, sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 export type { SourceLexicalValueCreation } from "./lexical-value-creation.js";
-export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused } from "./callable-invocations.js";
+export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
+  sourceNodesOutsideErasedSubtrees } from "./callable-invocations.js";
+export type { SourceSubtreeParticipation } from "./callable-invocations.js";
 export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";

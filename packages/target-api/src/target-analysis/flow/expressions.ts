@@ -155,7 +155,7 @@ function chain(build: SourceFlowConstruction, node: Node, next: number, skipped:
     : ast.is.IsCallExpression(node) ? ast.as.AsCallExpression(node) : undefined;
   if (access?.Expression === undefined) return build.expression(node, next, context);
   const completion = ast.is.IsCallExpression(node) && ast.kindName(access.Expression) === "KindSuperKeyword"
-    ? sourceFlowSequence(build.superInitializers, next, context, build.expression) : next;
+    ? build.initializeSuper(next, context) : next;
   let entry = build.emit(node, { kind: "evaluate" }, completion, context, true);
   if (ast.is.IsCallExpression(node)) entry = sourceFlowSequence(ast.arguments(node), entry, context, build.expression);
   if (ast.is.IsElementAccessExpression(node)) {

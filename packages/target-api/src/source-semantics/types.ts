@@ -10,6 +10,7 @@ import type {
   ResolvedSourceIterationInfo,
   ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyAccessInfo,
+  ResolvedSourcePropertyNameInfo,
   ResolvedSourceResourceManagementInfo,
   ResolvedSourceStorageInfo,
   ResolvedSourceWellKnownSymbolInfo,
@@ -47,6 +48,7 @@ import type {
 
 export interface SourceOperationEvidenceQueries {
   call(node: Node): ResolvedSourceCallInfo | undefined;
+  propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
   propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
   flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
   elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;
@@ -64,6 +66,7 @@ export interface SourceOperationEvidenceQueries {
 
 export interface SourceFinalTypeQueries {
   expressionType(node: Node): Type | undefined;
+  awaitedType(type: Type): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): Type | undefined;
   typeOfSymbol(symbol: Symbol | undefined): Type | undefined;
@@ -71,6 +74,7 @@ export interface SourceFinalTypeQueries {
   writeSymbolType(symbol: Symbol | undefined): Type | undefined;
   effectiveTypeArguments(type: Type): readonly Type[] | undefined;
   typeArgumentBindings(type: Type): readonly import("./type-arguments.js").SourceTypeArgumentBinding[] | undefined;
+  instantiatedBaseTypes(type: Type): readonly Type[] | undefined;
   instantiateAlias(declaration: Node, arguments_: readonly Type[]): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
   aliasApplication(type: Type): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
   typeArguments(type: Type): readonly Type[];
@@ -139,6 +143,7 @@ export interface SourceFinalTypeQueries {
 }
 
 export interface SourceSelectedDeclarationQueries {
+  isDefaultLibraryDeclaration(node: Node): boolean;
   declaredValueType(declaration: Node): Type | undefined;
   declaredType(declaration: Node): Type | undefined;
   typeSymbol(type: Type): Symbol | undefined;
@@ -163,6 +168,7 @@ export interface SourceFactSubjectQueries {
 
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
+  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
   readonly operations: SourceOperationEvidenceQueries;
   readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
@@ -229,6 +235,7 @@ export type SourceValueTypeRefinementSelection =
     };
 
 export interface SourceProgramSemantics {
+  readonly enumConstants: import("./enum-constants.js").SourceEnumConstantIndex;
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;

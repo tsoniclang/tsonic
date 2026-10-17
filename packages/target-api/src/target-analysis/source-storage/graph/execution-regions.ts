@@ -1,12 +1,17 @@
 import type { Node, Type } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourceStorageConstructedClass, sourceStorageInstanceInitializers } from "../model/construction.js";
+import { sourceStorageInstanceInitializers } from "../model/construction.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
+import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageInstanceRegion } from "../model/types.js";
 
-export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget) {
-  const { ast, semantics, navigation } = source;
+export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
+  constructionLineages: (invocation: Node) => readonly {
+    readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
+  }[] | undefined) {
+  const { ast, semantics } = source;
   const step = budget.step;
   const lexical = createSourceStorageLexicalSelections(ast, budget);
   const invocations = new Map<Node, Set<Node>>();
@@ -42,25 +47,19 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     }
     return regions;
   };
-  const instance = (invocation: Node): readonly { readonly owner: Node; readonly node: Node }[] => {
-    const declaration = sourceStorageConstructedClass(invocation, source, step);
-    if (declaration === undefined || !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) return [];
-    const classes = [declaration];
+  const instance = (invocation: Node): { readonly regions: readonly SourceStorageInstanceRegion[]; readonly exact: boolean } | undefined => {
+    const lineages = constructionLineages(invocation);
+    if (lineages === undefined) return undefined;
     const checked = new Set<Node>();
-    const regions: { readonly owner: Node; readonly node: Node }[] = [];
-    while (classes.length !== 0) {
-      const selected = classes.pop()!;
-      if (checked.has(selected)) continue;
-      checked.add(selected);
-      if (!step()) break;
-      if (!ast.is.IsClassDeclaration(selected) && !ast.is.IsClassExpression(selected)) continue;
-      for (const initializer of sourceStorageInstanceInitializers(selected, source, step)) regions.push({ owner: selected, node: initializer });
-      const heritage = navigation.declaredHeritage(selected);
-      if (heritage.kind === "resolved") {
-        for (const edge of heritage.edges) if (edge.kind === "extends") classes.push(edge.target.declaration);
-      }
+    const regions: SourceStorageInstanceRegion[] = [];
+    for (const lineage of lineages) for (const selected of lineage.classes) {
+      if (!step()) return undefined;
+      const owner = selected.subject.node;
+      if (checked.has(owner)) continue;
+      checked.add(owner);
+      for (const initializer of sourceStorageInstanceInitializers(owner, source, step)) regions.push(Object.freeze({ owner, node: initializer }));
     }
-    return regions;
+    return Object.freeze({ regions: Object.freeze(regions), exact: lineages.length !== 0 && lineages.every(lineage => lineage.complete) });
   };
   return Object.freeze({ callable, instance, ...lexical,
     recordInvocation(invocation: Node): void {

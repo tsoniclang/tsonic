@@ -7,6 +7,9 @@ export { createSourceSuspensionQuery } from "./suspension.js";
 export type { SourceSuspensionQueries } from "./suspension.js";
 export { resolveSourceAsyncResultDisposition } from "./result-use.js";
 export { decideSourceAsyncResultUse } from "./result-decision.js";
+export { analyzeSourceGenericAdoption, sourceGenericAdoptionDiagnosticCode,
+  sourceGenericAdoptionDiagnosticMessage } from "./generic-adoption.js";
+export type { SourceGenericAdoptionIssue } from "./generic-adoption.js";
 export { createSourceOwnershipQuery } from "./query.js";
 export type { SourceOwnershipQueries } from "./query.js";
 export { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";

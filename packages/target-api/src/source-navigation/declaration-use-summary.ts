@@ -17,6 +17,13 @@ const escapeOrder: readonly SourceValueEscapeKind[] = Object.freeze([
   "yield",
 ]);
 
+export function sourceDeclarationHasOnlyTypeUses(summary: SourceDeclarationUseSummary): boolean {
+  return !summary.exported && !summary.bindingWritten && !summary.memberWritten &&
+    !summary.captured && summary.escapeKinds.length === 0 && summary.uses.length !== 0 &&
+    summary.uses.every(use => use.kind === "type-only" && use.role === "type-only" &&
+      !use.captured && !use.throughMember);
+}
+
 export function sourceDeclarationUseSummary(
   ast: AstReader,
   declaration: Node,

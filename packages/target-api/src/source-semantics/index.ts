@@ -1,4 +1,9 @@
 export * from "./target-source-program.js";
+export { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
+export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "./enum-constants.js";
+export type { SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue } from "./enum-constants.js";
+export { analyzeSourcePropertyNames } from "./property-names.js";
+export type { SourcePropertyNameIndex, SourcePropertyNameSelection, SourcePropertyNameConstant } from "./property-names.js";
 export { sourceExpressionSequence } from "./expression-sequence.js";
 export { sourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
 export type { SourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
@@ -9,7 +14,7 @@ export { analyzeSourceLiteralValues } from "./literal-values.js";
 export type { SourceLiteralForm, SourceLiteralIndex, SourceLiteralValue, SourceTextLiteralValue,
   SourceArrayLiteralValue, SourceScalarLiteralValue, SourceNumericLiteralValue,
   SourceNumericLiteralEvidence, SourceNumericLiteralToken } from "./literal-values-model.js";
-export { compareSourceNumericLiteralMagnitude } from "./literal-token.js";
+export { compareSourceNumericLiteralMagnitude, sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "./literal-token.js";
 export { parseBigIntLiteral, parseFiniteNumberLiteral } from "./literal-text.js";
 export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelection } from "./provider-signature.js";
 export { sourceBoundTypeRelationship } from "./bound-type-relationship.js";

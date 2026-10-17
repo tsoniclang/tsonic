@@ -3,8 +3,9 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/transport/invocation-results.js";
 
 const classes = `
   class Base {
@@ -94,10 +95,10 @@ test("checked constructor flow agrees with Node's base-field, parameter, super a
 test("field initializers carry class activations while defaults and bodies carry constructor activations", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
   const graph = flow(current, current.constructor("Derived"), current.construct("Derived"));
-  const field = marked(current, graph, "derived-field").source;
-  const parameter = marked(current, graph, "derived-parameter").source;
-  const fieldContext = graph.executionRegions.get(field);
-  const parameterContext = graph.executionRegions.get(parameter);
+  const field = marked(current, graph, "derived-field");
+  const parameter = marked(current, graph, "derived-parameter");
+  const fieldContext = graph.executionRegions.get(field.id);
+  const parameterContext = graph.executionRegions.get(parameter.id);
   assert.equal(fieldContext.owner === current.named("Derived"), true);
   assert.equal(parameterContext.owner === current.constructor("Derived"), true);
   assert.equal(fieldContext.selection.kind === "resolved" && parameterContext.selection.kind === "resolved", true);
@@ -130,7 +131,7 @@ test("implicit base constructors execute their actual instance regions without a
   const field = marked(current, graph, "implicit-field");
   assert.equal(graph.declaration === current.named("Implicit"), true);
   assert.equal(reachable(graph, graph.entry, field.id) && reachable(graph, field.id, graph.exit), true);
-  assert.equal(graph.executionRegions.get(field.source).owner === current.named("Implicit"), true);
+  assert.equal(graph.executionRegions.get(field.id).owner === current.named("Implicit"), true);
 });
 
 test("computed field names execute at class evaluation and never again in construction", () => {
@@ -193,7 +194,7 @@ test("implicit inherited constructor order agrees with Node without replaying ar
   assert.equal(graph.sourcePoints.has(key), false, "the real class-definition key does not become a constructor read");
   for (const [name, owner] of [["base-field", current.named("Base")], ["default", current.constructor("Base")],
     ["middle-field", current.named("Middle")], ["derived-field", current.named("Derived")]]) {
-    assert.equal(graph.executionRegions.get(marked(current, graph, name).source).owner === owner, true);
+    assert.equal(graph.executionRegions.get(marked(current, graph, name).id).owner === owner, true);
   }
 });
 
@@ -223,18 +224,48 @@ test("an actual super call into an implicit source middle keeps the original cal
     current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
   const caller = current.storage.bindingsForInvocation(current.constructor("Derived"), current.construct("Derived"));
   assert.equal(caller.kind, "resolved");
-  const checked = current.storage.constructionFor(superCall.source, caller.bindings);
-  assert.equal(checked.kind === "resolved" && checked.root === current.named("Middle") &&
-    checked.allocation === current.construct("Derived") && checked.implementation.declaration === current.constructor("Base"), true);
+  const selected = current.storage.constructionFor(superCall.source, caller.bindings);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true);
+  const checked = selected.alternatives[0];
+  assert.equal(checked.root === current.named("Middle") && checked.allocation === current.construct("Derived") &&
+    checked.implementation.declaration === current.constructor("Base"), true);
   const graph = flow(current, current.constructor("Base"), superCall.source, caller.bindings);
   assert.equal(reachable(graph, marked(current, graph, "base-body").id, marked(current, graph, "middle-field").id), true);
   assert.equal([...graph.executionRegions.values()].some(region => region.owner === current.named("Derived")), false,
     "the caller's fields are not replayed by the inherited implementation");
-  const field = graph.executionRegions.get(marked(current, graph, "middle-field").source);
+  const field = graph.executionRegions.get(marked(current, graph, "middle-field").id);
   const activation = current.storage.boundActivationsFor(field.owner, field.selection.bindings);
   assert.equal(activation.kind === "resolved" && activation.activations.length === 1 &&
     activation.activations[0].kind === "invocation" && activation.activations[0].invocation === current.construct("Derived"), true);
   assert.equal(reachable(outer, superCall.id, marked(current, outer, "derived-field").id), true);
+});
+
+test("each finite class alternative has its own CFG and forged or ambiguous alternatives are refused", () => {
+  const current = fixture(`declare const flag: boolean;
+    class First { field = mark("first-only"); } class Second { field = mark("second-only"); }
+    const Copy = First; const Choice = flag ? Copy : Second; const instance = new Choice();`);
+  const call = current.construct("Choice");
+  const selected = current.storage.constructionFor(call);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 2, true,
+    "The checked conditional constructor contains both finite source alternatives.");
+  for (const construction of selected.alternatives) {
+    const result = createSourceControlFlow(current.source, construction.root, {
+      invocation: { storage: current.storage, call, construction },
+    });
+    assert.equal(result.kind, "resolved", "The selected cache-owned alternative defines exactly one execution.");
+    const expected = current.ast.text(current.ast.name(construction.root)) === "First" ? "first-only" : "second-only";
+    const other = expected === "first-only" ? "second-only" : "first-only";
+    const field = marked(current, result.graph, expected);
+    assert.equal(reachable(result.graph, result.graph.entry, field.id) && reachable(result.graph, field.id, result.graph.exit), true);
+    assert.equal(result.graph.points.some(point => point.source !== undefined && current.ast.is.IsCallExpression(point.source) &&
+      current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
+        current.ast.text(argument).includes(other))), false, "Alternative initializers are never linearized into the same graph.");
+    const forged = createSourceControlFlow(current.source, construction.root, {
+      invocation: { storage: current.storage, call, construction: { ...construction } },
+    });
+    assert.equal(forged.kind === "unresolved" && forged.reason.includes("cached construction alternative"), true,
+      "Copied alternative data is not the construction owner's actual evidence.");
+  }
 });
 
 test("normal constructor returns finish inherited fields after finally while abrupt completion bypasses them", () => {
@@ -299,3 +330,88 @@ test("generic constructor graphs retain fields and checked constructor budgets r
     assert.match(selected.reason, /finite/u);
   }
 });
+
+for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
+  test(`repeated class AST retains every actual factory activation in construction and flow: depth=${depth}, capturesFirst=${capturesFirst}`, () => {
+    const layers = Array.from({ length: depth }, (_, index) =>
+      `const Layer${index} = layer(${index === 0 ? "Root" : `Layer${index - 1}`}, ${index + 1});`).join("\n");
+    const current = fixture(`
+      type Factory = new () => { root: number };
+      class Root { root = 0; }
+      function layer(Parent: Factory, value: number) { return class Layer extends Parent { field = value; }; }
+      ${layers}
+      const instance = new Layer${depth - 1}();
+      const read = instance.field;
+    `);
+    const { source, storage, ast } = current;
+    const call = current.construct(`Layer${depth - 1}`);
+    const operand = storage.subjectFor(ast.as.AsNewExpression(call).Expression);
+    assert.equal(operand.kind, "resolved", "The constructor operand is an actual checked value.");
+    const values = storage.storageProducersFor(operand.subject);
+    assert.equal(values.kind === "complete" && values.producers.length === 1, true, "One actual outer class activation is selected.");
+    const lineages = sourceStorageClassLineages(source, createSourceStorageBudget(defaultSourceStorageLimits),
+      new Set(values.producers), {
+        subjectFor(node) {
+          const selected = node === undefined ? undefined : storage.subjectFor(node);
+          assert.equal(selected?.kind, "resolved", "Every actual heritage operand has checked identity.");
+          return selected.subject;
+        },
+        valuesFor(subject, bindings) {
+          const selected = storage.storageProducersFor(subject, bindings);
+          assert.equal(selected.kind, "complete", "Every actual inherited factory capture is complete.");
+          return new Set(selected.producers);
+        },
+      });
+    assert.equal(lineages?.length === 1 && lineages[0].complete && lineages[0].classes.length === depth + 1, true,
+      "The finite lineage preserves each repeated declaration with its own capture bindings.");
+    const captures = lineages[0].classes.slice(0, depth);
+    assert.equal(captures.every(captured => captured.subject === captures[0].subject), true, "The exact same original class AST repeats.");
+    assert.equal(new Set(captures.map(captured => captured.bindings)).size, depth, "Actual factory activations stay distinct.");
+    const selectCaptures = () => {
+      for (const captured of [...captures].reverse()) {
+        const selected = storage.bindingsForInvocation(captured.subject.node, call, storage.emptyBindings, captured);
+        assert.equal(selected.kind === "resolved", true,
+          selected.kind === "unresolved" ? selected.reason : "The requested ancestor capture is selected by actual identity, not first AST match.");
+      }
+    };
+    if (capturesFirst) selectCaptures();
+    const selected = storage.constructionFor(call);
+    assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true,
+      selected.kind === "unresolved" ? selected.reason : "One complete actual construction is published.");
+    if (!capturesFirst) selectCaptures();
+    const construction = selected.alternatives[0];
+    const graphSelection = createSourceControlFlow(source, construction.root, {
+      invocation: { storage, call, construction },
+    });
+    assert.equal(graphSelection.kind === "resolved", true,
+      graphSelection.kind === "unresolved" ? graphSelection.reason : "One checked CFG contains all actual initializer occurrences.");
+    const graph = graphSelection.graph;
+    const reads = graph.points.filter(point => point.operation.kind === "read" && point.source !== undefined && ast.text(point.source) === "value");
+    assert.equal(reads.length, depth, "The repeated field initializer executes once for each actual layer.");
+    assert.equal(reads.every(point => point.source === reads[0].source), true, "Original syntax is retained, not cloned to invent identities.");
+    const expected = Array.from({ length: depth }, (_, index) => index + 1);
+    const byValue = new Map();
+    for (const point of reads) {
+      const context = graph.executionRegions.get(point.id);
+      assert.equal(context?.owner === captures[0].subject.node && context.selection.kind === "resolved", true,
+        "The original class owner carries the actual point's execution bindings.");
+      const subject = storage.subjectFor(point.source);
+      assert.equal(subject.kind, "resolved", "The original initializer read has exact storage identity.");
+      const producers = storage.storageProducersFor(subject.subject, context.selection.bindings);
+      assert.equal(producers.kind === "complete" && producers.producers.length === 1, true,
+        "Each repeated initializer reads only its own actual factory argument.");
+      const value = Number(ast.text(producers.producers[0].subject.node));
+      assert.equal(expected.includes(value) && !byValue.has(value), true, "No actual activation is dropped or overwritten by another layer.");
+      byValue.set(value, point);
+    }
+    assert.equal(new Set(reads.map(point => graph.executionRegions.get(point.id).selection.bindings)).size, depth,
+      "Per-point contexts never collapse distinct factory activations into a node-keyed entry.");
+    for (let index = 1; index < expected.length; index += 1) {
+      const before = byValue.get(expected[index - 1]);
+      const after = byValue.get(expected[index]);
+      assert.equal(reachable(graph, before.id, after.id) && !reachable(graph, after.id, before.id), true,
+        "Base layers initialize before their actual derived layers.");
+    }
+    assert.equal(storage.failureReason() === undefined, true, "The finite activation model needs no increased budget.");
+  });
+}

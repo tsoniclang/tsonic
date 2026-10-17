@@ -16,6 +16,11 @@ export interface CreateTypeCheckerQueriesOptions {
     readonly context?: Context;
 }
 export type ResolvedSourceCallInfo = ResolvedCallEvidence;
+export interface ResolvedSourcePropertyNameInfo {
+    readonly kind: "string" | "numeric" | "unique-symbol";
+    readonly name: string;
+    readonly type: Type;
+}
 export interface ResolvedSourceReceiverValueEvidence {
     readonly valueSymbol?: Symbol;
     readonly valueDeclaration?: Node;
@@ -54,9 +59,13 @@ export interface ResolvedSourceStorageInfo {
     readonly writable: boolean;
 }
 export interface TypeCheckerQueries {
+    readonly getGlobalValueSymbol: (name: string) => GoPtr<Symbol>;
+    readonly isDefaultLibraryDeclaration: (node: GoPtr<Node>) => boolean;
+    readonly getAwaitedType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;
+    readonly getEffectivePropertyName: (node: GoPtr<Node>) => GoPtr<ResolvedSourcePropertyNameInfo>;
     readonly getSymbolAtLocation: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getLexicallyResolvedSymbol: (identifier: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbol: (node: GoPtr<Node>) => GoPtr<Symbol>;

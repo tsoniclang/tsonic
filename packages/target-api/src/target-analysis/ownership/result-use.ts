@@ -26,31 +26,28 @@ export function resolveSourceAsyncResultDisposition(source: TargetSourceProgram,
         : Object.freeze({ ...selected, region });
     }
     if (selected.kind === "discarded" || selected.kind === "stored" || selected.kind === "returned") return selected;
-    if (selected.kind === "consumed") {
-      return unresolved(selected.use, "The selected async result has no proven await, storage, return or discarded disposition.");
-    }
+    if (selected.kind === "consumed") return selected;
     const transports = storage.argumentTransportsFor(selected.invocation);
     const implementations = storage.invocationImplementationsFor(selected.invocation, bindings);
     if (transports.kind === "unresolved" || implementations.kind === "unresolved") {
-      return unresolved(selected.use, transports.kind === "unresolved" ? transports.reason
-        : implementations.kind === "unresolved" ? implementations.reason : "Missing async consumer transport.");
+      return budget.failure() === undefined ? selected : unresolved(selected.use, budget.failure()!);
     }
     const argument = storage.subjectFor(selected.argument);
     if (argument.kind === "unresolved") return unresolved(selected.argument, argument.reason);
     const parameters = transports.arguments.filter(transport => transport.actual === argument.subject)
       .map(argument => argument.selectedParameterDeclaration);
     if (!implementations.exact || implementations.nodes.length !== 1 || parameters.length !== 1) {
-      return unresolved(selected.use, "A passed async value requires one exact selected consumer and parameter transport.");
+      return selected;
     }
     const parameter = parameters[0]!;
     const uses = source.navigation.declarationUses(parameter).filter(use => use.kind !== "type-only");
     if (uses.length !== 1 || uses[0]!.captured || uses[0]!.throughMember) {
-      return unresolved(selected.use, "A passed async value has no unique, non-capturing checked consumer disposition.");
+      return selected;
     }
     const use = sourceExpressionResultDisposition(source.ast, uses[0]!.reference);
     if (use.kind === "stored") return Object.freeze({ kind: "stored", use: use.use });
     if (use.kind !== "returned" || source.ast.hasModifierKind(implementations.nodes[0]!, "async")) {
-      return unresolved(selected.use, "A passed async value requires a proven source-scoped consumer; an inner await is not caller lifetime evidence.");
+      return selected;
     }
     current = selected.invocation;
   }

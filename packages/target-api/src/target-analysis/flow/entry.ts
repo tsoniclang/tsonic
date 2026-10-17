@@ -9,11 +9,16 @@ interface SourceFlowEntry {
   readonly body: Node | undefined;
   readonly parameters: readonly (Node | undefined)[];
   readonly parameterInitializers: ReadonlySet<Node> | undefined;
-  readonly executionRegions: ReadonlyMap<Node, SourceFlowExecutionRegion>;
-  readonly entryInitializers: readonly Node[];
-  readonly superInitializers: readonly Node[];
-  readonly completionInitializers: readonly Node[];
+  readonly bodyExecution: SourceFlowExecutionRegion | undefined;
+  readonly entryInitializers: readonly SourceFlowInitializer[];
+  readonly superInitializers: readonly SourceFlowInitializer[];
+  readonly completionInitializers: readonly SourceFlowInitializer[];
   readonly syntaxRoots: readonly Node[];
+}
+
+export interface SourceFlowInitializer {
+  readonly node: Node;
+  readonly execution: SourceFlowExecutionRegion | undefined;
 }
 
 export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
@@ -21,11 +26,11 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
   const { ast } = source;
   const body = ast.body(declaration);
   const classRoot = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
-  const executionRegions = new Map<Node, SourceFlowExecutionRegion>();
+  let bodyExecution: SourceFlowExecutionRegion | undefined;
   let parameterInitializers: ReadonlySet<Node> | undefined;
   if (invocation !== undefined) {
     if (invocation === null || typeof invocation !== "object" ||
-      Object.keys(invocation).some(key => key !== "storage" && key !== "call" && key !== "callerBindings")) {
+      Object.keys(invocation).some(key => key !== "storage" && key !== "call" && key !== "callerBindings" && key !== "construction")) {
       throw new SourceFlowFailure("Source flow invocation entry requires checked storage and its actual call, not a region list.", declaration);
     }
     const { storage, call } = invocation;
@@ -33,29 +38,34 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
       throw new SourceFlowFailure("Source flow invocation entry requires storage from the identical checked source program.", call);
     }
     if (classRoot || ast.is.IsConstructorDeclaration(declaration)) {
-      const construction = storage.constructionFor(call, invocation.callerBindings);
-      if (construction.kind === "unresolved") throw new SourceFlowFailure(construction.reason, call);
+      const selected = storage.constructionFor(call, invocation.callerBindings);
+      if (selected.kind === "unresolved") throw new SourceFlowFailure(selected.reason, call);
+      const matches = selected.alternatives.filter(entry => declaration === entry.implementation?.declaration ||
+        declaration === entry.root && (entry.implementation === undefined || invocation.construction !== undefined));
+      const construction = invocation.construction ?? (matches.length === 1 ? matches[0] : undefined);
+      if (construction === undefined || !matches.includes(construction))
+        throw new SourceFlowFailure("Constructor flow requires its actual checked construction implementation and one actual cached construction alternative, not a merged or forged class execution.", call);
       const implementation = construction.implementation;
-      if (declaration !== (implementation?.declaration ?? construction.root)) {
-        throw new SourceFlowFailure("Constructor flow requires the actual checked construction implementation.", call);
-      }
-      for (const selected of construction.classes) for (const region of selected.regions) {
-        step(region.node);
-        executionRegions.set(region.node, Object.freeze({ owner: selected.owner, selection: region.selection }));
-      }
+      const regionsFor = (selected: typeof construction.classes[number]): readonly SourceFlowInitializer[] =>
+        selected.regions.map(region => {
+          step(region.node);
+          return Object.freeze({ node: region.node,
+            execution: Object.freeze({ owner: selected.owner, selection: region.selection }) });
+        });
       if (implementation !== undefined) for (const region of implementation.regions) {
         step(region);
-        executionRegions.set(region, Object.freeze({ owner: implementation.declaration, selection: implementation.selection }));
       }
+      bodyExecution = implementation === undefined ? undefined
+        : Object.freeze({ owner: implementation.declaration, selection: implementation.selection });
       const terminal = construction.classes[construction.classes.length - 1]!;
       const heritage = source.navigation.declaredHeritage(terminal.owner);
       if (heritage.kind === "unresolved") throw new SourceFlowFailure(heritage.reason, terminal.owner);
       const derived = heritage.edges.some(edge => edge.kind === "extends");
-      const fields = terminal.regions.map(region => region.node);
+      const fields = regionsFor(terminal);
       return { body: implementation?.body, parameters: implementation === undefined ? [] : ast.parameters(implementation.declaration),
-        parameterInitializers: new Set(implementation?.regions ?? []), executionRegions,
+        parameterInitializers: new Set(implementation?.regions ?? []), bodyExecution,
         entryInitializers: derived ? [] : fields, superInitializers: derived ? fields : [],
-        completionInitializers: construction.classes.slice(0, -1).reverse().flatMap(selected => selected.regions.map(region => region.node)),
+        completionInitializers: construction.classes.slice(0, -1).reverse().flatMap(regionsFor),
         syntaxRoots: construction.classes.flatMap(selected => selected.regions.map(region => region.node)) };
     }
     const callerBindings = invocation.callerBindings ?? storage.emptyBindings;
@@ -79,8 +89,8 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
     for (const region of regions.nodes) {
       step(region);
       if (!allowed.has(region)) throw new SourceFlowFailure("Source flow invocation entry contains a foreign body or initializer region.", region);
-      executionRegions.set(region, Object.freeze({ owner: declaration, selection: bound }));
     }
+    bodyExecution = Object.freeze({ owner: declaration, selection: bound });
     parameterInitializers = new Set(regions.nodes);
   }
   if (body === undefined || classRoot) throw new SourceFlowFailure("Source flow requires an implemented checked callable body.", declaration);
@@ -89,6 +99,7 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
   const heritage = owner === undefined ? undefined : source.navigation.declaredHeritage(owner);
   if (heritage?.kind === "unresolved") throw new SourceFlowFailure(heritage.reason, owner);
   const derived = heritage?.edges.some(edge => edge.kind === "extends") ?? false;
-  return { body, parameters: ast.parameters(declaration), parameterInitializers, executionRegions,
-    entryInitializers: derived ? [] : fields, superInitializers: derived ? fields : [], completionInitializers: [], syntaxRoots: fields };
+  const initializers = fields.map(node => Object.freeze({ node, execution: undefined }));
+  return { body, parameters: ast.parameters(declaration), parameterInitializers, bodyExecution,
+    entryInitializers: derived ? [] : initializers, superInitializers: derived ? initializers : [], completionInitializers: [], syntaxRoots: fields };
 }

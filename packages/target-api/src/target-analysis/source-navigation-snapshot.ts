@@ -76,6 +76,7 @@ export function snapshotTargetPlanningSourceNavigation(
     );
   };
   const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsBindingElement(node)) rememberDeclaration(node);
     if (isReferenceQueryCandidate(source.ast, node)) {
       const sourceReference = source.navigation.sourceReferenceFor(node);
       if (sourceReference !== undefined) {

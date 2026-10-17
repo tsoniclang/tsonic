@@ -16,6 +16,7 @@ export interface SourceFileQueries {
 }
 export interface SourceProgramQueries {
     readonly ast: AstReader;
+    readonly containsSourceFile: (sourceFile: GoPtr<SourceFile>) => boolean;
     readonly getSourceFiles: () => readonly GoPtr<SourceFile>[];
     readonly getSourceFile: (fileName: string) => GoPtr<SourceFile>;
     readonly getSourceFileQueries: (sourceFile: GoPtr<SourceFile>) => SourceFileQueries;

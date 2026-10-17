@@ -1,7 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageSubjectType } from "./model/components.js";
-import { sourceStorageConstructedClass } from "./model/construction.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
 import { createSourceStorageDomains } from "./transport/domains.js";
@@ -152,8 +151,13 @@ export function createSourceStorageQuery(
     if (!checkedNode(candidate) || !checkedInvocation(invocation)) return false;
     if (transport.invocationImplementations(invocation).has(candidate)) return true;
     if (transport.invocationDeclarations.get(invocation) === candidate) return true;
-    if (sourceStorageConstructedClass(invocation, source, budget.step) === candidate) return true;
-    return source.ast.is.IsNewExpression(invocation) && transport.regions.instance(invocation).some(region => region.owner === candidate);
+    if (source.ast.is.IsNewExpression(invocation) &&
+      (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) &&
+      [...transport.invocationImplementations(invocation)].some(implementation =>
+        source.ast.is.IsConstructorDeclaration(implementation) && source.ast.parent(implementation) === candidate)) return true;
+    const mode = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? "heritage" : undefined;
+    return transport.constructionLineagesFor(invocation, undefined, mode)?.some(lineage =>
+      lineage.classes.some(value => value.subject.node === candidate)) === true;
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
     const reason = ancestryReason(subject);
@@ -333,6 +337,23 @@ export function createSourceStorageQuery(
       const states = bindings === undefined ? undefined : bindingStates.get(bindings);
       if (bindings !== undefined && states === undefined)
         return unresolved("Invocation substitutions belong to a different source storage query.");
+      const expression = source.ast.is.IsCallExpression(invocation) ? source.ast.as.AsCallExpression(invocation)?.Expression : undefined;
+      if (expression !== undefined && source.ast.kindName(expression) !== "KindSuperKeyword") {
+        const target = transport.invocationTargets.get(invocation);
+        if (target === undefined) return unresolved("A scoped invocation requires its exact checked callable operand.");
+        const selected = selectDomain(target, bindings ?? emptyBindings, "storage-producers");
+        if (selected.kind === "unresolved") return selected;
+        const nodes = new Set<Node>();
+        let exact = selected.kind === "complete";
+        for (const origin of selected.origins) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          if (!sourceStorageHasOriginalCallableValue(origin.subject, source.ast)) { exact = false; continue; }
+          const implementation = source.navigation.callableImplementation(origin.subject.node);
+          if (implementation.kind !== "resolved") { exact = false; continue; }
+          nodes.add(implementation.implementation.declaration);
+        }
+        return Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact });
+      }
       const nodes = new Set<Node>();
       let exact = true;
       for (const state of states ?? [undefined]) {
@@ -359,24 +380,59 @@ export function createSourceStorageQuery(
     },
     bindingsForDeclaration: declarationBindings,
     bindingsForLexicalOwner,
-    bindingsForInvocation(candidate, invocation, parent = emptyBindings) {
+    bindingsForInvocation(candidate, invocation, parent = emptyBindings, capture) {
       const states = bindingStates.get(parent);
       if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (!checkedCandidate(candidate, invocation))
+      if (!checkedDeclaration(candidate) || !checkedInvocation(invocation) ||
+        transport.accessorTargets.has(invocation) && !checkedCandidate(candidate, invocation))
         return unresolved(budget.failure() ?? "Invocation substitution requires its exact selected implementation.");
       const transportReason = transport.unresolvedInvocations.get(invocation);
       if (transportReason !== undefined) return unresolved(transportReason);
+      const captureStates = capture === undefined ? undefined : bindingStates.get(capture.bindings);
+      if (capture !== undefined) {
+        const reason = subjectReason(capture.subject);
+        if (reason !== undefined) return unresolved(reason);
+        if (captureStates?.length !== 1) return unresolved("An exact invocation capture requires one owned producer activation.");
+      }
       const selected = new Set<SourceStorageSubstitutions>();
-      for (const state of states) for (const binding of transport.invocationResults.forInvocation(candidate, invocation, state)) {
+      const captured = capture === undefined ? undefined : { subject: capture.subject, bindings: captureStates![0]! };
+      for (const state of states) for (const binding of transport.invocationResults.forInvocation(candidate, invocation, state, captured)) {
         if (!budget.step()) return unresolved(budget.failure()!);
         selected.add(binding);
       }
+      if (selected.size === 0 && budget.failure() === undefined)
+        return unresolved("Invocation substitution has no exact completed implementation and capture activation.");
       const view = budget.failure() === undefined ? bindingView(selected) : undefined;
       return view === undefined || budget.failure() !== undefined
         ? unresolved(budget.failure() ?? "Invocation substitution exceeds its finite context budget.")
         : Object.freeze({ kind: "resolved", bindings: view });
     },
     boundOriginsFor: boundOrigins,
+    invocationContextKeyFor(invocation, bindings) {
+      const states = bindingStates.get(bindings);
+      if (states === undefined) return unresolved("Invocation context keys belong to a different source storage query.");
+      if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "An invocation context key requires its exact checked source call or accessor.");
+      const key = transport.substitutions.invocationContextKeyFor(invocation, states);
+      return key === undefined || budget.failure() !== undefined
+        ? unresolved(budget.failure() ?? "The exact source invocation context could not be encoded.")
+        : Object.freeze({ kind: "resolved", key });
+    },
+    contextKeyFor(subjects, bindings) {
+      const states = bindingStates.get(bindings);
+      if (states === undefined) return unresolved("Context keys belong to a different source storage query.");
+      if (!Array.isArray(subjects)) return unresolved("Context keys require exact checked source subjects.");
+      for (let index = 0; index < subjects.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(subjects, String(index));
+        const subject = descriptor === undefined || !("value" in descriptor) ? undefined
+          : descriptor.value as SourceStorageSubject | undefined;
+        const reason = subject === undefined ? "Context keys require a dense data-only subject selection." : subjectReason(subject);
+        if (reason !== undefined) return unresolved(reason);
+      }
+      const key = transport.substitutions.contextKeyFor(subjects, states);
+      return key === undefined || budget.failure() !== undefined
+        ? unresolved(budget.failure() ?? "The exact source context could not be encoded.")
+        : Object.freeze({ kind: "resolved", key });
+    },
     boundActivationsFor(declaration, bindings) {
       return budget.withRows(rows => {
         const states = bindingStates.get(bindings);
@@ -399,6 +455,55 @@ export function createSourceStorageQuery(
             if (caller === undefined) return unresolved(budget.failure() ?? "An invocation activation requires exact caller bindings.");
             activations.push(Object.freeze({ kind: "invocation", declaration, invocation: selected.invocation,
               bindings: owned, callerBindings: caller }));
+          }
+        }
+        return budget.failure() !== undefined ? unresolved(budget.failure()!)
+          : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
+      });
+    },
+    contributingActivationsFor(subject, declaration, entry) {
+      return budget.withRows(rows => {
+        if (entry === null || typeof entry !== "object") return unresolved("A source callback entry requires owned data-only producer evidence.");
+        const subjectDescriptor = Object.getOwnPropertyDescriptor(entry, "subject");
+        const bindingsDescriptor = Object.getOwnPropertyDescriptor(entry, "bindings");
+        const callback = subjectDescriptor !== undefined && "value" in subjectDescriptor
+          ? subjectDescriptor.value as SourceStorageSubject | undefined : undefined;
+        const creation = bindingsDescriptor !== undefined && "value" in bindingsDescriptor
+          ? bindingsDescriptor.value as SourceStorageBindings | undefined : undefined;
+        if (callback === undefined || creation === undefined)
+          return unresolved("A source callback entry requires owned data-only producer evidence.");
+        const reason = subjectReason(subject) ?? subjectReason(callback);
+        if (reason !== undefined) return unresolved(reason);
+        const states = bindingStates.get(creation);
+        if (states?.length !== 1) return unresolved("A source callback entry requires one owned creation activation.");
+        if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
+          !sourceStorageHasOriginalCallableValue(callback, source.ast))
+          return unresolved(budget.failure() ?? "A source callback entry requires its actual checked implementation and demanded owner.");
+        const region = transport.regions.enclosing(subject.node);
+        if (region === undefined || sourceStorageRegionOwner(source.ast, region) !== declaration ||
+          subject.kind !== "value" || subject.projection.length !== 0 || transport.subjectFor(subject.node) !== subject)
+          return unresolved(budget.failure() ?? "A source execution demand requires an identical unprojected value use in its checked owner.");
+        const selected = transport.substitutions.contributingExecutions(subject, callback.node, states[0]!);
+        if (selected === undefined || selected.reason !== undefined)
+          return unresolved(selected?.reason ?? budget.failure() ?? "Source callback execution has no completed correlated activation selection.");
+        const seen = new Set<SourceStorageSubstitutions>();
+        const activations: SourceStorageBoundActivation[] = [];
+        for (const current of selected.subjects) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          const activation = transport.substitutions.boundActivation(current.bindings, declaration);
+          if (activation === undefined) return unresolved(budget.failure() ?? "A contributing execution lost its actual owning activation.");
+          if (seen.has(activation.scope)) continue;
+          if (!rows.add(2)) return unresolved(budget.failure()!);
+          seen.add(activation.scope);
+          const bindings = bindingView([activation.scope]);
+          if (bindings === undefined) return unresolved(budget.failure() ?? "A contributing execution lost its same-frame bindings.");
+          if (activation.invocation === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings }));
+          else {
+            const callerBindings = activation.caller === undefined ? undefined : bindingView([activation.caller]);
+            if (callerBindings === undefined)
+              return unresolved(budget.failure() ?? "A contributing execution lost its actual caller bindings.");
+            activations.push(Object.freeze({ kind: "invocation", declaration, invocation: activation.invocation,
+              bindings, callerBindings }));
           }
         }
         return budget.failure() !== undefined ? unresolved(budget.failure()!)
@@ -466,8 +571,12 @@ export function createSourceStorageQuery(
     executionRegionsFor(candidate, invocation, callerBindings = emptyBindings) {
       if (!bindingStates.has(callerBindings))
         return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (!checkedDeclaration(candidate) || invocation !== undefined && !checkedCandidate(candidate, invocation))
+      if (!checkedDeclaration(candidate))
         return unresolved(budget.failure() ?? "An execution region requires exact checked callable ownership.");
+      if (invocation !== undefined) {
+        const selected = query.bindingsForInvocation(candidate, invocation, callerBindings);
+        if (selected.kind === "unresolved") return selected;
+      }
       let failure: string | undefined;
       const nodes = transport.regions.callable(candidate, invocation, expression => {
         const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;
@@ -486,9 +595,14 @@ export function createSourceStorageQuery(
     instanceRegionsFor(invocation) {
       if (!checkedInvocation(invocation) || !source.ast.is.IsNewExpression(invocation))
         return unresolved(budget.failure() ?? "Instance execution requires its exact checked constructor invocation.");
-      const regions = transport.regions.instance(invocation).map(region => Object.freeze(region));
-      return budget.failure() !== undefined ? unresolved(budget.failure()!)
-        : Object.freeze({ kind: "resolved", regions: Object.freeze(regions) });
+      const selected = construction(invocation, emptyBindings);
+      if (selected.kind === "unresolved") return selected;
+      const regions = new Map<Node, { readonly owner: Node; readonly node: Node }>();
+      for (const alternative of selected.alternatives) for (const entry of alternative.classes) for (const region of entry.regions) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        if (!regions.has(region.node)) regions.set(region.node, Object.freeze({ owner: entry.owner, node: region.node }));
+      }
+      return Object.freeze({ kind: "resolved", regions: Object.freeze([...regions.values()]) });
     },
     constructionFor(invocation, callerBindings = emptyBindings) {
       if (!bindingStates.has(callerBindings)) return unresolved("Invocation substitutions belong to a different source storage query.");

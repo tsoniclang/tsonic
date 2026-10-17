@@ -687,6 +687,35 @@ test("source-core finalizes struct and default owner facts with static field nam
   assert.deepEqual(facts.getStructFact(variableDeclaration(session, sourceFile, "Shape"))?.fields?.map((field) => field.name), ["display-name", "2"]);
 });
 
+test("source-core struct validation consumes finalized computed field names without a syntax evaluator", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { field, struct } from "@tsonic/core/lang.js";
+    import type { int32 } from "@tsonic/core/types.js";
+    const key = "constant";
+    const Shape = struct({ ["literal"]: field<int32>(), [key]: field<int32>(), [-0]: field<int32>() });
+  `);
+  const facts = sourceCoreFacts(session);
+  const fields = facts.getStructFact(callExpression(session, sourceFile, "struct"))?.fields;
+  assert.deepEqual(fields?.map(field => field.name), ["literal", "constant", "0"]);
+  for (const [position, name] of ["literal", "constant", "0"].entries()) {
+    assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", position))?.name, name,
+      `field ${position} is validated by its already-finalized checked name`);
+  }
+});
+
+test("source-core computed property syntax cannot bypass the struct field marker requirement", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { struct } from "@tsonic/core/lang.js";
+    const Shape = struct({ ["bad"]: 1 });
+  `);
+  session.ensureBound();
+  const diagnostics = checkSource(session).extensionDiagnostics;
+  assert.equal(diagnostics.length, 1, "one existing invalid struct member diagnostic");
+  assert.equal(diagnostics[0]?.numericCode, 9901109, "the existing field fact admission is preserved");
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.length, 0,
+    "a static name alone never creates a field type fact");
+});
+
 test("source-core validates non-field struct shape members", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { field, struct } from "@tsonic/core/lang.js";
