@@ -7,7 +7,7 @@ import {
   createKeelViolationInventory, evaluateKeelViolationInventory, validateKeelViolationInventory,
 } from "./keel-certification-checks.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
-import { keelRoles, keelTargetNames, keelWorkspaceRepositories, validPath } from "./keel-contract.mjs";
+import { keelRoles, keelTargetNames, keelWorkspaceRepositories, validLiteralFilePath } from "./keel-contract.mjs";
 
 export const keelViolationInventoryPath = "test/architecture/keel-violations.json";
 const toolingPath = "test/architecture/tooling";
@@ -38,7 +38,7 @@ export function validateKeelWorkspaceInventory(inventory) {
     throw new Error("The committed Keel inventory needs its complete immutable source, declaration and rule provenance; it is not certification.");
   }
   for (const entries of Object.values(inventory.origin.roleObligations)) {
-    if (!Array.isArray(entries) || entries.some(entry => !validPath(entry.file) ||
+    if (!Array.isArray(entries) || entries.some(entry => !validLiteralFilePath(entry.file) ||
       typeof entry.symbol !== "string" || entry.symbol.length === 0 || !keelRoles.includes(entry.role) || !isDigest(entry.bodySha256))) {
       throw new Error("The Keel origin must retain exact reviewed semantic-role obligations.");
     }

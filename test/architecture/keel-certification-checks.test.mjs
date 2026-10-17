@@ -7,7 +7,7 @@ import {
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
 } from "./tooling/keel-certification-checks.mjs";
 import { keelSafetyBuiltModuleEntries } from "./tooling/keel-native-allocation-boundary.mjs";
-import { keelCheckIds, keelFinding, keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
+import { keelCheckIds, keelFinding, keelWorkspaceRepositories, validLiteralFilePath, validPath } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./tooling/keel-native-tokens.mjs";
 import { keelFixtureGeneration, keelFixtureGuard, keelFixtureHas, keelFixtureModel } from "./tooling/keel-test-fixtures.mjs";
@@ -763,13 +763,13 @@ test("C119-R1-R4: loader values never cross parameters, loops or unproven member
 });
 
 test("C119-R6: dynamic builtin-module routes are refused in products and explicit computed test entries", () => {
-  for (const body of [
-    'const { createRequire } = await import("node:module"); const load = createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
-    'const load = (await import("node:module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
-    'const load = process.getBuiltinModule("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
-    'process.getBuiltinModule("node:module")._load("/workspace/tsonic-rust/test/helpers/native-ownership-cost.mjs");',
-    'import { getBuiltinModule as get } from "node:process"; const load = get("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
-    'const load = (await import("module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+  for (const [body, consumerKind] of [
+    ['const { createRequire } = await import("node:module"); const load = createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");', "Node test writer consumer"],
+    ['const load = (await import("node:module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");', "Node test computed source entry"],
+    ['const load = process.getBuiltinModule("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");', "Node test computed source entry"],
+    ['process.getBuiltinModule("node:module")._load("/workspace/tsonic-rust/test/helpers/native-ownership-cost.mjs");', "Node test computed source entry"],
+    ['import { getBuiltinModule as get } from "node:process"; const load = get("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");', "Node test computed source entry"],
+    ['const load = (await import("module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");', "Node test computed source entry"],
   ]) {
     const product = nativeBoundaryInputs();
     product.get("tsonic-rust").set("src/resolve.mjs", safetyFile(body));
@@ -779,7 +779,7 @@ test("C119-R6: dynamic builtin-module routes are refused in products and explici
     testInputs.get("tsonic-rust").set(path, safetyFile(`import test from "node:test"; ${body}`));
     const accepted = boundarySafety(testInputs);
     assert.equal(accepted.findings.length, 0, body);
-    assert.equal(accepted.nativeAllocationBoundary.consumers.some(consumer => consumer.path === `tsonic-rust/${path}` && consumer.kind === "Node test computed source entry"), true, body);
+    assert.equal(accepted.nativeAllocationBoundary.consumers.some(consumer => consumer.path === `tsonic-rust/${path}` && consumer.kind === consumerKind), true, body);
   }
 });
 
@@ -869,7 +869,6 @@ test("QFINAL: static non-reader selections and ordinary data uses retain native 
   for (const body of [
     'const { mkdtemp, writeFile: writeFileAsync, rm } = await import("node:fs/promises"); await writeFileAsync("data.txt", "data");',
     'const { existsSync, mkdirSync, writeFileSync } = await import("fs"); writeFileSync("data.txt", "data");',
-    'const { execFileSync } = await import("child_process"); execFileSync("ordinary-program");',
     'const { mkdtemp, writeFile, rm } = require("fs/promises");',
     'import fs from "node:fs/promises"; const { writeFile: write } = fs; write("data", "bytes");',
     'import { readFileSync as read } from "fs"; const value = read(new URL("./data.json", import.meta.url));',
@@ -909,8 +908,21 @@ test("QFINAL: static non-reader selections and ordinary data uses retain native 
     const result = boundarySafety(inputs);
     assert.equal(result.findings.length, 0, body);
     assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/src/data.ts"), false,
-      "a proven non-reader selection is not relabelled as an unproved external entry");
+      `${body}: a proven non-reader selection is not relabelled as an unproved external entry`);
   }
+  const external = nativeBoundaryInputs();
+  external.get("tsonic-rust").set("src/external.ts", safetyFile(
+    'const { execFileSync } = await import("child_process"); execFileSync("ordinary-program");'));
+  const externalResult = boundarySafety(external);
+  assert.equal(externalResult.findings.length, 0, "foreign process has no proven first-party source entry");
+  assert.equal(externalResult.nativeAllocationBoundary.externalDynamicEntries.some(entry =>
+    entry.path === "tsonic-rust/src/external.ts" && entry.environment === "external-process"), true,
+  "foreign executable remains explicitly outside the source proof");
+  const nativeNode = nativeBoundaryInputs();
+  nativeNode.get("tsonic-rust").set("src/launch.ts", safetyFile(
+    'const { execFileSync } = await import("child_process"); execFileSync(process.execPath, ["../test/helpers/native-ownership-cost.mjs"]);'));
+  assert.equal(boundarySafety(nativeNode).nativeAllocationBoundary === undefined, true,
+    "the same native API with a known Node writer entry is not foreign process data");
 });
 
 test("C135-Q3: the complete 97 pinned root-use, entry and ordinary-native forms have explicit dispositions", () => {
@@ -1140,14 +1152,17 @@ test("C135-Q3: shell text is an unproved source entry, never an inferred non-Nod
 });
 
 test("QRC-01: every Function parameter and body is nonliteral code evidence, not a module filename", () => {
+  const imported = 'import("../test/helpers/native-ownership-cost.mjs")';
+  const firstDefault = JSON.stringify(`x = ${imported}`);
+  const secondDefault = JSON.stringify(`y = ${imported}`);
   for (const body of [
-    'new Function("x = import(\"../test/helpers/native-ownership-cost.mjs\")", "")();',
-    'Function("x = import(\"../test/helpers/native-ownership-cost.mjs\")", "")();',
-    'new Function("x", "y = import(\"../test/helpers/native-ownership-cost.mjs\")", "")();',
-    'new Function("x", "return import(\"../test/helpers/native-ownership-cost.mjs\")")();',
-    'globalThis.Function("x = import(\"../test/helpers/native-ownership-cost.mjs\")", "")();',
-    'eval("import(\"../test/helpers/native-ownership-cost.mjs\")");',
-    'import vm from "node:vm"; vm.runInThisContext("import(\"../test/helpers/native-ownership-cost.mjs\")");',
+    `new Function(${firstDefault}, "")();`,
+    `Function(${firstDefault}, "")();`,
+    `new Function("x", ${secondDefault}, "")();`,
+    `new Function("x", ${JSON.stringify(`return ${imported}`)})();`,
+    `globalThis.Function(${firstDefault}, "")();`,
+    `eval(${JSON.stringify(imported)});`,
+    `import vm from "node:vm"; vm.runInThisContext(${JSON.stringify(imported)});`,
   ]) {
     const product = nativeBoundaryInputs();
     product.get("tsonic-rust").set("src/code.mjs", safetyFile(body));
@@ -1159,6 +1174,14 @@ test("QRC-01: every Function parameter and body is nonliteral code evidence, not
     assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === "tsonic-rust/test/code.test.mjs" &&
       consumer.kind === "Node test computed source entry"), true, `${body}: no string evaluation or guessed module path`);
   }
+  const malformed = nativeBoundaryInputs();
+  malformed.get("tsonic-rust").set("test/code.test.mjs", safetyFile(
+    'import test from "node:test"; new Function("x = import("../test/helpers/native-ownership-cost.mjs")", "")();'));
+  const malformedResult = boundarySafety(malformed);
+  assert.equal(malformedResult.nativeAllocationBoundary === undefined, true,
+    "unquoted nested code is still malformed even in a genuine test entry");
+  assert.equal(malformedResult.findings.some(finding => finding.reason.includes("unresolved executable source syntax")), true,
+    "malformed syntax retains its explicit refusal");
   for (const body of ['new Function("value", "return value");', 'const make = (names, entry) => new Function(...names, entry.body);',
     'eval(code);', 'import vm from "node:vm"; vm.runInThisContext(code);']) {
     const inputs = nativeBoundaryInputs();
@@ -1312,18 +1335,18 @@ test("QRC-02: explicit execution options, Node environment and shell code share 
 test("QRC-02: complete overload, unknown-prefix and explicit environment-spread evidence is never discarded", () => {
   const writer = 'new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href';
   const cases = [
-    `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ NODE_OPTIONS: "--import " + ${writer} } } });`,
-    `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ ...{ NODE_OPTIONS: "--import " + ${writer} } } } });`,
-    'import { spawnSync } from "node:child_process"; function launch(flag) { return spawnSync(process.execPath, [flag, "../test/helpers/native-ownership-cost.mjs"]); } launch("--enable-source-maps");',
-    'import { spawnSync } from "node:child_process"; function launch(prefix) { return spawnSync(process.execPath, [...prefix, "../test/helpers/native-ownership-cost.mjs"]); } launch([]);',
-    `import { Worker } from "node:worker_threads"; function launch(prefix) { return new Worker(new URL("./ordinary.mjs", import.meta.url), { execArgv: [...prefix, "--import", ${writer}] }); } launch([]);`,
-    `import { fork } from "node:child_process"; function launch(prefix) { return fork(new URL("./ordinary.mjs", import.meta.url), [], { execArgv: [prefix, "--import", ${writer}] }); } launch("--enable-source-maps");`,
-    `import { spawnSync } from "node:child_process"; function launch(args) { return spawnSync(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`,
-    `import { execFile } from "node:child_process"; function launch(args) { return execFile(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`,
-    `import { fork } from "node:child_process"; function launch(args) { return fork(new URL("./ordinary.mjs", import.meta.url), args, { execArgv: ["--import", ${writer}] }); } launch([]);`,
-    `import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url), null, { execArgv: ["--import", ${writer}] });`,
+    [`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ NODE_OPTIONS: "--import " + ${writer} } } });`, "Node test computed source entry"],
+    [`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ ...{ NODE_OPTIONS: "--import " + ${writer} } } } });`, "Node test computed source entry"],
+    ['import { spawnSync } from "node:child_process"; function launch(flag) { return spawnSync(process.execPath, [flag, "../test/helpers/native-ownership-cost.mjs"]); } launch("--enable-source-maps");', "Node test computed source entry"],
+    ['import { spawnSync } from "node:child_process"; function launch(prefix) { return spawnSync(process.execPath, [...prefix, "../test/helpers/native-ownership-cost.mjs"]); } launch([]);', "Node test computed source entry"],
+    [`import { Worker } from "node:worker_threads"; function launch(prefix) { return new Worker(new URL("./ordinary.mjs", import.meta.url), { execArgv: [...prefix, "--import", ${writer}] }); } launch([]);`, "Node test computed source entry"],
+    [`import { fork } from "node:child_process"; function launch(prefix) { return fork(new URL("./ordinary.mjs", import.meta.url), [], { execArgv: [prefix, "--import", ${writer}] }); } launch("--enable-source-maps");`, "Node test computed source entry"],
+    [`import { spawnSync } from "node:child_process"; function launch(args) { return spawnSync(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`, "Node test computed source entry"],
+    [`import { execFile } from "node:child_process"; function launch(args) { return execFile(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`, "Node test computed source entry"],
+    [`import { fork } from "node:child_process"; function launch(args) { return fork(new URL("./ordinary.mjs", import.meta.url), args, { execArgv: ["--import", ${writer}] }); } launch([]);`, "Node test writer consumer"],
+    [`import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url), null, { execArgv: ["--import", ${writer}] });`, "Node test writer consumer"],
   ];
-  for (const body of cases) {
+  for (const [body, consumerKind] of cases) {
     const product = nativeBoundaryInputs();
     product.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
     product.get("tsonic-rust").set("src/launch.mjs", safetyFile(body));
@@ -1334,7 +1357,7 @@ test("QRC-02: complete overload, unknown-prefix and explicit environment-spread 
     const result = boundarySafety(contained);
     assert.equal(result.findings.length, 0, `${body}: genuine test containment`);
     assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === "tsonic-rust/test/launch.test.mjs" &&
-      consumer.kind === "Node test computed source entry"), true, `${body}: computed evidence is recorded, not waived`);
+      consumer.kind === consumerKind), true, `${body}: the exact executable evidence is recorded, not waived`);
   }
   for (const body of [
     'import { Worker } from "node:worker_threads"; new Worker(new URL("./ordinary.mjs", import.meta.url), { shell: true, execArgv: [] });',
@@ -1588,9 +1611,101 @@ test("QRC-03/04: type erasure and raw import-equals filenames preserve native re
       `import ordinary = require(${JSON.stringify(`../test/helpers/${name}`)}); void ordinary;`]) {
       const inputs = nativeBoundaryInputs();
       inputs.get("tsonic-rust").set("src/runtime.cts", safetyFile(source));
-      inputs.get("tsonic-rust").set(`test/helpers/${name}`, safetyFile("module.exports = {};"));
+      inputs.get("tsonic-rust").set(`test/helpers/${name}`, safetyFile(
+        name.endsWith(".mjs") ? "export const ordinary = true;" : "module.exports = {};"));
       assert.equal(boundarySafety(inputs).findings.length, 0, source);
     }
+  }
+});
+
+test("QRC-11: literal source-file identities remain distinct from glob-free metadata scopes", () => {
+  for (const [path, scope] of [
+    ["test/helpers/native-ownership-cost.mjs#literal", true],
+    ["test/helpers/native-ownership-cost.mjs?literal", false],
+    ["test/helpers/%6eative-ownership-cost.mjs", true],
+    ["test/helpers/literal*name.mjs", false],
+    ["test/helpers/literal[name].mjs", false],
+    ["test/helpers/literal{name}.mjs", false],
+  ]) {
+    assert.equal(validLiteralFilePath(path), true, `${path}: a normalized physical filename is literal`);
+    assert.equal(validPath(path), scope, `${path}: scope restrictions do not change`);
+  }
+  for (const path of ["", "/absolute.mjs", "./current.mjs", "../parent.mjs", "test/../parent.mjs",
+    "test//empty.mjs", "test/./current.mjs", "test\\other.mjs", "test/zero\0.mjs", undefined, null]) {
+    assert.equal(validLiteralFilePath(path), false, "literal file identities require normalized relative non-NUL paths");
+    assert.equal(validPath(path), false, "scope validation retains every structural path restriction");
+  }
+});
+
+test("QRC-11: actual raw module entries preserve harmless filenames and trace transitive writer execution", () => {
+  for (const name of ["native-ownership-cost.mjs#literal", "native-ownership-cost.mjs?literal", "%6eative-ownership-cost.mjs"]) {
+    const target = `test/helpers/${name}`;
+    const ordinary = name.endsWith(".mjs") ? "export const ordinary = true;" : "module.exports = {};";
+    const forwarding = name.endsWith(".mjs") ? 'import "./native-ownership-cost.mjs"; export const ordinary = true;'
+      : 'module.exports = require("./native-ownership-cost.mjs");';
+    for (const source of [`require(${JSON.stringify(`../${target}`)});`,
+      `import ordinary = require(${JSON.stringify(`../${target}`)}); void ordinary;`]) {
+      const harmless = nativeBoundaryInputs();
+      harmless.get("tsonic-rust").set("src/runtime.cts", safetyFile(source));
+      harmless.get("tsonic-rust").set(target, safetyFile(ordinary));
+      assert.equal(boundarySafety(harmless).findings.length, 0, `${source}: raw physical filename is not a URL`);
+      assert.equal(keelSafetyBuiltModuleEntries(harmless).includes(`tsonic-rust/${target}`), !name.endsWith(".mjs"),
+        `${source}: unknown-suffix executable bytes are requested through the existing input closure`);
+      const harmful = nativeBoundaryInputs();
+      harmful.get("tsonic-rust").set("src/runtime.cts", safetyFile(source));
+      harmful.get("tsonic-rust").set(target, safetyFile(forwarding));
+      const result = boundarySafety(harmful);
+      assert.equal(result.nativeAllocationBoundary === undefined, true, `${source}: actual forwarded writer prevents approval`);
+      assert.equal(result.findings.some(finding => finding.repo === "tsonic-rust" && finding.file === "src/runtime.cts"), true,
+        `${source}: the incoming product edge is restricted transitively`);
+    }
+    const url = nativeBoundaryInputs();
+    url.get("tsonic-rust").set("src/runtime.mjs", safetyFile(`await import(${JSON.stringify(`../${target}`)});`));
+    url.get("tsonic-rust").set(target, safetyFile(ordinary));
+    assert.equal(boundarySafety(url).nativeAllocationBoundary === undefined, true,
+      `${name}: native ESM URL interpretation still reaches the canonical writer`);
+  }
+});
+
+test("QRC-11: actual entry formats distinguish JSON data, JavaScript bytes and unproved native code", () => {
+  const json = nativeBoundaryInputs();
+  json.get("tsonic-rust").set("src/runtime.cts", safetyFile('require("../test/helpers/data.json");'));
+  json.get("tsonic-rust").set("test/helpers/data.json", safetyFile(JSON.stringify({ source: 'require("./native-ownership-cost.mjs")' })));
+  assert.equal(boundarySafety(json).findings.length, 0, "native JSON is data, not executable script text");
+  for (const [name, source] of [
+    ["ordinary.blob", 'module.exports = require("./native-ownership-cost.mjs");'],
+    ["ordinary.blob", "const value: number = 2; module.exports = { value };"],
+    ["ordinary.blob", "interface Value {} module.exports = {};"],
+    ["ordinary.blob", 'import type { Value } from "./ordinary.js"; module.exports = {};'],
+    ["ordinary.blob", "const value = 2 as const; module.exports = { value };"],
+    ["ordinary.node", "unproved native image bytes"],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/runtime.cts", safetyFile(`require(${JSON.stringify(`../test/helpers/${name}`)});`));
+    inputs.get("tsonic-rust").set(`test/helpers/${name}`, safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${name}: actual script, malformed JavaScript and opaque native code never inherit a suffix-based waiver`);
+  }
+  const missingBytes = nativeBoundaryInputs();
+  missingBytes.get("tsonic-rust").set("src/runtime.cts", safetyFile('require("../test/helpers/ordinary.blob");'));
+  const bytes = safetyFile("module.exports = {};");
+  missingBytes.get("tsonic-rust").set("test/helpers/ordinary.blob", Object.freeze({ ...bytes, text: undefined }));
+  assert.equal(boundarySafety(missingBytes).nativeAllocationBoundary === undefined, true,
+    "a captured hash without the actual executable source bytes cannot close the boundary");
+});
+
+test("QRC-11: literal native path components do not acquire metadata pattern semantics", () => {
+  for (const directory of ["literal*directory", "literal[directory]", "literal{directory}"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("src/ordinary.rs", safetyFile(
+      `#[path = "../tests/helpers/${directory}/../ordinary.rs"] mod ordinary;`));
+    inputs.get("rust-runtime").set(`tests/helpers/${directory}/present.rs`, safetyFile("pub fn present() {}"));
+    inputs.get("rust-runtime").set("tests/helpers/ordinary.rs", safetyFile("pub fn ordinary() {}"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${directory}: physical native traversal is not a glob`);
+    inputs.get("rust-runtime").set("tests/helpers/ordinary.rs", safetyFile(
+      '#[path = "allocation_counts.rs"] mod allocation_counts;'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${directory}: the same actual source path still promotes an observer consumer`);
   }
 });
 

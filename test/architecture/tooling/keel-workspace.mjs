@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import { collectFiles, readSourceInventory } from "./file-inventory.mjs";
 import { evaluateNodeProviderContract } from "./node-provider-contract.mjs";
 import { analyzeKeelTypeScript, keelDigest } from "./keel-source-analysis.mjs";
-import { keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validLiteralFilePath, validPath } from "./keel-contract.mjs";
 import { evaluateKeelLayers } from "./keel-layer-checks.mjs";
 import {
   evaluateKeelCoreDomains, evaluateKeelNodeModules, evaluateKeelRuntimeFamilies,
@@ -170,7 +170,7 @@ export function readKeelDeterminism(packetPath) {
   });
 
   function ownedPath(path) {
-    if (!validPath(path)) throw new Error("Determinism evidence paths must be artifact-root-relative.");
+    if (!validLiteralFilePath(path)) throw new Error("Determinism evidence paths must be artifact-root-relative.");
     const absolute = realpathSync(resolve(root, path));
     const inside = relative(root, absolute);
     if (inside === ".." || inside.startsWith("../") || isAbsolute(inside)) throw new Error("Determinism evidence escapes its owned artifact root.");
@@ -179,7 +179,7 @@ export function readKeelDeterminism(packetPath) {
 
   function artifactSet(directory, files) {
     const absolute = ownedPath(directory);
-    if (!Array.isArray(files) || files.some(file => !validPath(file))) throw new Error("Invalid deterministic artifact scope.");
+    if (!Array.isArray(files) || files.some(file => !validLiteralFilePath(file))) throw new Error("Invalid deterministic artifact scope.");
     const actual = collectFiles(absolute);
     if (JSON.stringify([...new Set(files)].sort()) !== JSON.stringify(actual)) {
       throw new Error("Declared determinism artifacts must exactly cover each complete output tree.");
@@ -222,13 +222,13 @@ function readKeelSafetyWorkspaceInputs(workspace) {
     const entries = new Map();
     for (const row of git(root, ["ls-files", "--stage", "-z"]).split("\0").filter(Boolean)) {
       const match = /^([0-7]{6}) ([a-f0-9]{40}) ([0-3])\t(.+)$/su.exec(row);
-      if (match === null || match[3] !== "0" || !validPath(match[4])) throw new Error(`Unresolved AC12 index entry: ${repo}.`);
+      if (match === null || match[3] !== "0" || !validLiteralFilePath(match[4])) throw new Error(`Unresolved AC12 index entry: ${repo}.`);
       const [, mode, object, , file] = match;
       if (mode === "160000") entries.set(file, Object.freeze({ kind: "gitlink", tracked: true, mode, object }));
       else read(file, true);
     }
     for (const file of git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) {
-      if (validPath(file) && /\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file)) read(file, false);
+      if (validLiteralFilePath(file) && /\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file)) read(file, false);
     }
     inputs.set(repo, Object.freeze(entries));
 
@@ -258,7 +258,7 @@ function readKeelSafetyWorkspaceInputs(workspace) {
     });
     if (pending.length === 0) break;
     for (const path of pending) {
-      if (!validPath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
+      if (!validLiteralFilePath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
       const separator = path.indexOf("/");
       const repo = path.slice(0, separator);
       const file = path.slice(separator + 1);
@@ -270,12 +270,14 @@ function readKeelSafetyWorkspaceInputs(workspace) {
         throw new Error(`Unresolved AC12 built module source identity: ${path}.`);
       }
       const bytes = readFileSync(absolute);
+      const text = bytes.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(bytes)) throw new Error(`Unresolved AC12 executable module encoding: ${path}.`);
       const previous = inputs.get(repo).get(file);
       if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== keelDigest(bytes))) {
         throw new Error(`Changed AC12 built module input: ${path}.`);
       }
       inputs.get(repo).set(file, Object.freeze({ kind: "file", tracked: previous?.tracked ?? false,
-        mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text: bytes.toString("utf8"), builtModule: true }));
+        mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text, builtModule: true }));
     }
   }
   return Object.freeze(inputs);
@@ -287,7 +289,7 @@ function safety(root, repo, tracked, base, workspaceInputs) {
   const currentSources = new Map();
   const baseSources = new Map();
   for (const file of changed) {
-    if (!validPath(file) || ![...sourceExtensions, ".rs", ".cs"].some(extension => file.endsWith(extension))) continue;
+    if (!validLiteralFilePath(file) || ![...sourceExtensions, ".rs", ".cs"].some(extension => file.endsWith(extension))) continue;
     if (existsSync(resolve(root, file))) currentSources.set(file, readFileSync(resolve(root, file), "utf8"));
     const present = git(root, ["ls-tree", "--name-only", base, "--", file]).trim();
     if (present !== "") baseSources.set(file, git(root, ["show", `${base}:${file}`]));

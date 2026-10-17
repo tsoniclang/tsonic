@@ -1,4 +1,4 @@
-import { keelCheckIds, keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelCheckIds, keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validLiteralFilePath, validPath } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { isAbsolute } from "node:path";
@@ -50,7 +50,7 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
       fail("Double generation requires independent outputs and distinct guarded runs, not one receipt reused twice.");
     }
     for (const [file, bytes] of sample.first) {
-      if (!validPath(file) || !Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) throw new Error("Invalid generated artifact bytes or path.");
+      if (!validLiteralFilePath(file) || !Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) throw new Error("Invalid generated artifact bytes or path.");
       const second = sample.second.get(file);
       if (second === undefined || !Buffer.from(bytes).equals(Buffer.from(second))) {
         fail("The two generated artifact sets differ.", { file });
@@ -82,7 +82,7 @@ export function guardSucceeded(receipt, expectedExitCode = 0) {
     !Number.isSafeInteger(receipt.oomBefore) || receipt.oomBefore < 0 || receipt.oomBefore !== receipt.oomAfter) return false;
   return ["memoryMiB", "tasksMax", "timeoutSeconds", "logMaxBytes"].every(key =>
     Number.isSafeInteger(receipt[key]) && receipt[key] > 0) &&
-    typeof receipt.log === "string" && (validPath(receipt.log) || isAbsolute(receipt.log) && validPath(receipt.log.slice(1))) &&
+    typeof receipt.log === "string" && (validLiteralFilePath(receipt.log) || isAbsolute(receipt.log) && validLiteralFilePath(receipt.log.slice(1))) &&
     receipt.budget !== undefined && Number.isSafeInteger(receipt.budget.workers) && receipt.budget.workers > 0 &&
     Number.isSafeInteger(receipt.budget.childJobs) && receipt.budget.childJobs > 0 &&
     Number.isSafeInteger(receipt.budget.cpuBudget) && receipt.budget.cpuBudget > 0 &&
@@ -239,7 +239,7 @@ export function validateKeelViolationInventory(inventory) {
   }
   const seen = new Set();
   for (const entry of inventory.violations) {
-    if (!keelCheckIds.includes(entry.check) || !validPath(entry.repo) || !validPath(entry.file) ||
+    if (!keelCheckIds.includes(entry.check) || !validPath(entry.repo) || !validLiteralFilePath(entry.file) ||
       typeof entry.subject !== "string" || entry.subject.length === 0 ||
       typeof entry.reason !== "string" || entry.reason.length === 0 || entry.evidence === null || Array.isArray(entry.evidence) ||
       typeof entry.evidence !== "object" || seen.has(entry.id)) throw new Error("Invalid or duplicate Keel baseline violation.");

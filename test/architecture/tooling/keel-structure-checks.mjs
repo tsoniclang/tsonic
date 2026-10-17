@@ -1,7 +1,7 @@
 import {
   keelFinding, keelNativeContentDifferences, keelNativeDifferences, keelRemovedResponsibilities,
   keelRootFamilies, keelSkeletonFamilies,
-  keelStorageStages, sortKeelFindings, validateKeelDifferences, validPath,
+  keelStorageStages, sortKeelFindings, validateKeelDifferences, validLiteralFilePath,
 } from "./keel-contract.mjs";
 import { keelNativeNodeDomains } from "./keel-native-tokens.mjs";
 import { stronglyConnectedComponents } from "./strongly-connected-components.mjs";
@@ -175,7 +175,7 @@ export function evaluateKeelRuntimeFamilies(runtimeSources, register = []) {
     const targets = new Set();
     const tiers = new Set();
     for (const owner of entry.owners) {
-      if (!runtimeSources.has(owner.repo) || !validPath(owner.path)) throw new Error("Runtime family needs exact source ownership.");
+      if (!runtimeSources.has(owner.repo) || !validLiteralFilePath(owner.path)) throw new Error("Runtime family needs exact source ownership.");
       const root = keelRuntimeRoots[owner.repo];
       if (root === undefined || !owner.path.startsWith(`${root}/`)) throw new Error("A runtime family cannot claim an entire package or an unrelated root.");
       const id = `${owner.repo}:${owner.path}`;
@@ -256,7 +256,7 @@ export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], modu
     }
     const seen = new Set();
     for (const row of rows) {
-      if (!validPath(row.file) || typeof row.module !== "string" || !row.module.startsWith("node:") ||
+      if (!validLiteralFilePath(row.file) || typeof row.module !== "string" || !row.module.startsWith("node:") ||
         typeof row.exposed !== "boolean" || seen.has(row.module)) throw new Error("Invalid or duplicate Node module row.");
       seen.add(row.module);
       if (row.exposed && (model === undefined || !actualModules.has(row.module) || !reachable.has(row.file) ||

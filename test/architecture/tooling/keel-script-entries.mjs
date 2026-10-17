@@ -1,11 +1,11 @@
 import { isAbsolute, posix } from "node:path";
-import { keelWorkspaceRepositories, validPath } from "./keel-contract.mjs";
+import { keelWorkspaceRepositories, validLiteralFilePath } from "./keel-contract.mjs";
 import { guardedBuiltins, nodeProcessMembers, createKeelScriptBindings } from "./keel-script-bindings.mjs";
 import { createKeelNodeExecutions } from "./keel-node-executions.mjs";
 import { ParseSourceFile } from "../../../packages/tsts/dist/src/internal/parser/parser/statements-declarations.js";
 import { createAstReader } from "../../../packages/tsts/dist/src/services/ast-reader.js";
 import { ScriptKindJS, ScriptKindJSX, ScriptKindTS, ScriptKindTSX } from "../../../packages/tsts/dist/src/internal/core/scriptkind.js";
-import { Node_QuestionDotToken, SourceFile_Diagnostics } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
+import { Node_QuestionDotToken, SourceFile_Diagnostics, SourceFile_JSDiagnostics } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
 import { NodeDefault_AsNode } from "../../../packages/tsts/dist/src/internal/ast/spine.js";
 import { AsBindingElement, AsMetaProperty } from "../../../packages/tsts/dist/src/internal/ast/generated/casts.js";
 import { KindImportKeyword } from "../../../packages/tsts/dist/src/internal/ast/generated/kinds.js";
@@ -19,7 +19,7 @@ export function staticFileAddress(sourcePath, specifier) {
     const path = decodeURIComponent(value.pathname);
     if (!path.startsWith("/keel/")) return { specifier: path, firstParty: true, urlAddress: true };
     const relative = path.slice(6);
-    if (!validPath(relative.replace(/\/$/u, "")) || !keelWorkspaceRepositories.includes(relative.split("/")[0])) return { unresolved: true, firstParty: true };
+    if (!validLiteralFilePath(relative.replace(/\/$/u, "")) || !keelWorkspaceRepositories.includes(relative.split("/")[0])) return { unresolved: true, firstParty: true };
     return { path: relative, firstParty: true, urlAddress: true, directory: relative.endsWith("/") };
   } catch { return { unresolved: true, firstParty: true }; }
 }
@@ -27,12 +27,14 @@ export function staticFileAddress(sourcePath, specifier) {
 export function scriptSourceReferences(path, text, boundary) {
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
-    : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;
+    : /\.[cm]?ts$/u.test(path) ? ScriptKindTS : ScriptKindJS;
   const sourcePath = `/keel/${path}`;
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
   if (source.IsDeclarationFile) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
-  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return { references: [{ unresolved: true }], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0 || (SourceFile_JSDiagnostics(source)?.length ?? 0) > 0) {
+    return { references: [{ unresolved: true }], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+  }
   const references = [];
   const nodes = [];
   const imports = new Map();
@@ -246,7 +248,7 @@ export function scriptSourceReferences(path, text, boundary) {
         if ([baseUrl, ...targets].some((url, index) => {
           const relative = decodeURIComponent(url.pathname.slice(6));
           return url.protocol !== "file:" || url.hostname !== "" || !url.pathname.startsWith("/keel/") || /%2f|%5c/iu.test(url.pathname) ||
-            !keelWorkspaceRepositories.includes(relative.split("/")[0]) || !validPath(index === 0 ? relative.replace(/\/$/u, "") : relative);
+            !keelWorkspaceRepositories.includes(relative.split("/")[0]) || !validLiteralFilePath(index === 0 ? relative.replace(/\/$/u, "") : relative);
         })) throw new Error("Unrooted URL");
       } catch {
         rejectLoader("the actual URL base or a literal target leaves the tracked first-party root"); continue;
@@ -431,7 +433,7 @@ export function scriptSourceReferences(path, text, boundary) {
         if (ast.kindName(property) !== "KindPropertyAssignment" || fieldName === undefined || !literal(fieldValue) || fields.has(fieldName)) return undefined;
         fields.set(fieldName, ast.text(fieldValue));
       }
-      if (!validPath(fields.get("file")) || typeof fields.get("export") !== "string") return undefined;
+      if (!validLiteralFilePath(fields.get("file")) || typeof fields.get("export") !== "string") return undefined;
       targets.push(`${key}/${fields.get("file")}`);
     }
     if (targets.length === 0) return undefined;

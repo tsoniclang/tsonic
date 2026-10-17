@@ -91,8 +91,12 @@ export function validateKeelDifferences(differences) {
   }
 }
 
-export function validPath(path) {
+export function validLiteralFilePath(path) {
   return typeof path === "string" && path.length > 0 && !path.startsWith("/") &&
-    !path.includes("\\") && !path.split("/").some(part =>
-      part === ".." || part === "." || part.length === 0 || /[*?\[\]{}]/u.test(part));
+    !path.includes("\\") && !path.includes("\0") && !path.split("/").some(part =>
+      part === ".." || part === "." || part.length === 0);
+}
+
+export function validPath(path) {
+  return validLiteralFilePath(path) && !/[*?\[\]{}]/u.test(path);
 }

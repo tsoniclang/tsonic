@@ -1,5 +1,5 @@
 import { isAbsolute, posix } from "node:path";
-import { keelFinding, keelWorkspaceRepositories, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelFinding, keelWorkspaceRepositories, sortKeelFindings, validLiteralFilePath, validPath } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { scriptSourceReferences, staticFileAddress } from "./keel-script-entries.mjs";
@@ -36,7 +36,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   const files = new Map();
   for (const [repo, entries] of workspaceInputs) {
     for (const [file, input] of entries) {
-      if (!validPath(file) || input === null || typeof input !== "object" || typeof input.tracked !== "boolean" ||
+      if (!validLiteralFilePath(file) || input === null || typeof input !== "object" || typeof input.tracked !== "boolean" ||
         !["file", "symlink", "gitlink"].includes(input.kind)) throw new Error("Invalid complete AC12 file input.");
       if (input.kind === "file" && (!/^[a-f0-9]{64}$/u.test(input.sha256) || !["100644", "100755"].includes(input.mode) ||
         input.text !== undefined && (typeof input.text !== "string" || keelDigest(input.text) !== input.sha256) ||
@@ -155,6 +155,36 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       scripts.set(path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary));
     }
   }
+  const incomingEntries = new Map();
+  const recordIncoming = (sourcePath, target) => {
+    if (target === undefined) return;
+    if (!incomingEntries.has(target)) incomingEntries.set(target, new Set());
+    incomingEntries.get(target).add(sourcePath);
+  };
+  for (const [path, references] of nativeReferences) {
+    for (const reference of references) {
+      if (!reference.testOnly && !reference.unresolved) recordIncoming(path, reference.destination);
+    }
+  }
+  for (const [path, script] of scripts) {
+    for (const reference of script.references) {
+      if (!reference.module || reference.external || reference.unresolved) continue;
+      for (const target of destinations(path, reference)) {
+        recordIncoming(path, target);
+        if (scripts.has(target)) continue;
+        const input = files.get(target);
+        if (input?.kind !== "file") {
+          if (reference.nativeRequire && !/\.[cm]?[jt]sx?$/u.test(target)) reject(path, "uncaptured first-party native module entry");
+          continue;
+        }
+        const format = nativeNodeModuleFormat(target);
+        if (format === "data") continue;
+        if (format === "binary") { reject(path, "unproved first-party native binary module entry"); continue; }
+        if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
+        scripts.set(target, scriptSourceReferences(target, input.text, boundary));
+      }
+    }
+  }
   const restricted = new Set([canonicalPath, writerPath, ...transcriptData]);
   const consumers = [];
   const nativeParents = new Map();
@@ -184,23 +214,6 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     if (!script.testEntry) reject(path, "observer reader is not a direct Node test entry");
     consumers.push(Object.freeze({ path, kind: usesWriter ? "Node test writer consumer" : readsObserver ? "Node test source witness" : "Node test computed source entry" }));
   }
-  const incomingEntries = new Map();
-  const recordIncoming = (sourcePath, target) => {
-    if (target === undefined) return;
-    if (!incomingEntries.has(target)) incomingEntries.set(target, new Set());
-    incomingEntries.get(target).add(sourcePath);
-  };
-  for (const [path, references] of nativeReferences) {
-    for (const reference of references) {
-      if (!reference.testOnly && !reference.unresolved) recordIncoming(path, reference.destination);
-    }
-  }
-  for (const [path, script] of scripts) {
-    for (const reference of script.references) {
-      if (!reference.module || reference.external || reference.unresolved) continue;
-      for (const target of destinations(path, reference)) recordIncoming(path, target);
-    }
-  }
   const pendingRestricted = [...restricted];
   for (let index = 0; index < pendingRestricted.length; index += 1) {
     for (const sourcePath of incomingEntries.get(pendingRestricted[index]) ?? []) {
@@ -216,7 +229,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
   for (const { path, entry, form } of metadataEntries) {
     const raw = `${posix.dirname(path)}/${entry}`;
-    if (touchesRestricted(raw, path) || form === "package entry" && touchesRestricted(staticFileAddress(path, entry).path, path)) reject(path, `${form}: ${entry}`);
+    if (touchesRestricted(raw, path, false, true) || form === "package entry" && touchesRestricted(staticFileAddress(path, entry).path, path, false, true)) reject(path, `${form}: ${entry}`);
   }
   for (const [path, references] of nativeReferences) {
     for (const reference of references) {
@@ -288,7 +301,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       const segment = pending.shift();
       if (segment === "" || segment === ".") continue;
       if (segment === "..") {
-        if (segments.some(part => part.includes("*"))) { reject(ownerPath, "unresolved source pattern parent traversal"); return undefined; }
+        if (pattern && segments.some(part => part.includes("*"))) { reject(ownerPath, "unresolved source pattern parent traversal"); return undefined; }
         if (segments.length === 0) { reject(ownerPath, `${links.size > 0 ? "source symlink" : "source path"} leaves the snapshot`); return undefined; }
         segments.pop(); continue;
       }
@@ -303,7 +316,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       pending.unshift(...target.split("/"));
     }
     const resolved = segments.join("/");
-    if (!validPath(pattern ? resolved.replaceAll("*", "entry") : resolved) || !keelWorkspaceRepositories.includes(segments[0])) {
+    if (!(pattern ? validPath(resolved.replaceAll("*", "entry")) : validLiteralFilePath(resolved)) || !keelWorkspaceRepositories.includes(segments[0])) {
       reject(ownerPath, `${links.size > 0 ? "source symlink" : "source path"} leaves the snapshot`); return undefined;
     }
     if (links.size > 0 && !files.has(resolved) && ![...files.keys()].some(file => file.startsWith(`${resolved}/`))) {
@@ -312,9 +325,9 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     return resolved;
   }
 
-  function touchesRestricted(path, ownerPath = path, directory = false) {
+  function touchesRestricted(path, ownerPath = path, directory = false, pattern = false) {
     if (path === undefined) return false;
-    if (path.includes("*")) {
+    if (pattern && path.includes("*")) {
       const resolved = resolveAlias(path, ownerPath, true);
       return resolved === undefined || [...restricted, ...aliases.keys()].some(entry => new RegExp(
         `^${resolved.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
@@ -411,21 +424,26 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
   const targets = new Set();
   for (const [repo, files] of workspaceInputs) {
     for (const [file, input] of files) {
-      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file)) continue;
+      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file) && !input.builtModule) continue;
       const path = `${repo}/${file}`;
       const script = scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary);
       for (const target of script.finiteModuleTargets) targets.add(target);
-      if (input.builtModule) {
-        for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
-          const address = reference.path !== undefined && !reference.nativeRequire && !reference.urlAddress
-            ? staticFileAddress("", `./${reference.path}`) : reference;
-          for (const target of address.path !== undefined ? [address.path]
-            : reference.specifier !== undefined ? moduleEntryTargets(packages, path, reference.specifier, reference.nativeRequire) : []) targets.add(target);
+      for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
+        const address = reference.path !== undefined && !reference.nativeRequire && !reference.urlAddress
+          ? staticFileAddress("", `./${reference.path}`) : reference;
+        for (const target of address.path !== undefined ? [address.path]
+          : reference.specifier !== undefined ? moduleEntryTargets(packages, path, reference.specifier, reference.nativeRequire) : []) {
+          if (nativeNodeModuleFormat(target) !== "script") continue;
+          if (input.builtModule || reference.nativeRequire && !/\.[cm]?[jt]sx?$/u.test(target)) targets.add(target);
         }
       }
     }
   }
   return Object.freeze([...targets].sort());
+}
+
+function nativeNodeModuleFormat(path) {
+  return posix.extname(path) === ".json" ? "data" : posix.extname(path) === ".node" ? "binary" : "script";
 }
 
 function declaredTranscriptData(files) {
@@ -438,7 +456,7 @@ function declaredTranscriptData(files) {
   const entries = JSON.parse(manifest.text);
   if (!Array.isArray(entries)) throw new Error("Invalid declared TS-Go transcript data.");
   return new Set(entries.map(entry => {
-    if (![entry.corpus, entry.suite, entry.artifact].every(validPath) || !Array.isArray(entry.sections)) {
+    if (!validPath(entry.corpus) || !validPath(entry.suite) || !validLiteralFilePath(entry.artifact) || !Array.isArray(entry.sections)) {
       throw new Error("Invalid declared TS-Go transcript data entry.");
     }
     const path = `${root}/tsgo-accepted/${entry.corpus}/${entry.suite}/${entry.artifact}`;

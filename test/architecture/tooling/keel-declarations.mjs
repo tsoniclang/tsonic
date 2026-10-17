@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readSourceInventory } from "./file-inventory.mjs";
-import { validPath } from "./keel-contract.mjs";
+import { validLiteralFilePath, validPath } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 
 export function readKeelDeclarations(workspace) {
@@ -30,7 +30,7 @@ export function readKeelDeclarations(workspace) {
     for (const [subpath, entry] of Object.entries(exports)) {
       if (typeof entry !== "object" || typeof entry.types !== "string") continue;
       const declared = entry.types.replace(/^\.\//u, "");
-      if (!validPath(declared) || !declared.endsWith(".d.ts")) throw new Error("Public architecture inputs need exact declaration exports.");
+      if (!validLiteralFilePath(declared) || !declared.endsWith(".d.ts")) throw new Error("Public architecture inputs need exact declaration exports.");
       let input = declared;
       if (representation === "authored") {
         if (!declared.startsWith(`${outputRoot}/`)) throw new Error("Public declaration export lies outside its compiler output root.");

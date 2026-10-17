@@ -1,7 +1,7 @@
 import { evaluateModuleLayerDependencies } from "./architecture-rules.mjs";
 import { classifyFiles } from "./layer-classification.mjs";
 import { canonicalTargetLayerPolicies, createTargetLayerRules } from "./target-layer-contract.mjs";
-import { keelFinding, keelLayer, keelRoles, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelFinding, keelLayer, keelRoles, sortKeelFindings, validLiteralFilePath } from "./keel-contract.mjs";
 import { keelSymbolIdentity } from "./keel-source-analysis.mjs";
 
 export function evaluateKeelLayers(repo, model, census = {}, roleObligations = []) {
@@ -315,7 +315,7 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
 }
 
 function requireReference(reference) {
-  if (!validPath(reference.file) || typeof reference.symbol !== "string" || reference.symbol.length === 0 ||
+  if (!validLiteralFilePath(reference.file) || typeof reference.symbol !== "string" || reference.symbol.length === 0 ||
     /[*?\[\]{}]/u.test(reference.symbol)) throw new Error("Keel references must identify exact authored declarations.");
 }
 
