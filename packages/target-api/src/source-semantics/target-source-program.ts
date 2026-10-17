@@ -266,7 +266,6 @@ export function createTargetSourceProgram(
       },
       contextualValueSelection(node: Node) {
         return selectSourceContextualValueType(
-          source.ast,
           queries.typeShape,
           queries.checker,
           node,
