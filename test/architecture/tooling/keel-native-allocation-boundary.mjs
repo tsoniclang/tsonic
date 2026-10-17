@@ -1,4 +1,4 @@
-import { isAbsolute, posix } from "node:path";
+import { isAbsolute, matchesGlob, posix } from "node:path";
 import { keelFinding, keelWorkspaceRepositories, sortKeelFindings, validLiteralFilePath, validPath } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
@@ -178,7 +178,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   const enqueuePackageEntries = () => {
     packageEntries = packageModuleEntries(packages, scripts, files);
     for (const entry of packageEntries) {
-      if (entry.external || entry.unresolvedReason !== undefined) continue;
+      if (entry.openBoundary || entry.external || entry.unresolvedReason !== undefined) continue;
       const target = resolveAlias(entry.path, entry.source);
       if (target === undefined) continue;
       const format = entry.executionRoot ? "script" : nativeNodeModuleFormat(target);
@@ -269,6 +269,30 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       pendingRestricted.push(sourcePath);
     }
   }
+  const productRoots = new Set(metadataEntries.flatMap(({ path, entry, moduleEntry }) => {
+    if (moduleEntry !== undefined) return moduleEntry.path !== undefined &&
+      !moduleEntry.external && !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry) &&
+      (moduleEntry.executionRoot || nativeNodeModuleFormat(moduleEntry.path) !== "data") ? [moduleEntry.path] : [];
+    const target = resolveAlias(`${posix.dirname(path)}/${entry}`, path);
+    return target === undefined ? [] : [target];
+  }));
+  const openNativeExecutionBoundaries = packageEntries.filter(entry => entry.openBoundary).map(entry => {
+    const pending = entry.executable === undefined ? [] : [entry.executable];
+    const seen = new Set(pending);
+    for (let index = 0; index < pending.length; index += 1) {
+      for (const parent of incomingEntries.get(pending[index]) ?? []) {
+        if (!seen.has(parent)) { seen.add(parent); pending.push(parent); }
+      }
+    }
+    const inIncomingCut = pending.some(path => productRoots.has(path)) || packageEntries.some(candidate =>
+      candidate.dependencySource === entry.source && candidate.packageScript === entry.scriptName);
+    if (inIncomingCut) reject(entry.source,
+      `unsupported TEST-ALLOCATOR no-product-reachability boundary: ${JSON.stringify(entry.command)}`);
+    return Object.freeze({ package: entry.package, path: entry.source, command: entry.command,
+      ...(entry.scriptName === undefined ? {} : { scriptName: entry.scriptName }),
+      inIncomingCut, owner: entry.source.split("/")[0], status: "OPEN_BOUNDARY",
+      qualification: "Opaque shell/interpreter execution is outside the declared Node proof, never claimed closed." });
+  });
   for (const [path, destination] of aliases) {
     if ([...restricted].some(entry => entry === destination || entry.startsWith(`${destination}/`))) {
       reject(path, "source symlink aliases the observer, writer or one of their test entries");
@@ -276,7 +300,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
   for (const { path, entry, form, moduleEntry } of metadataEntries) {
     if (moduleEntry !== undefined) {
-      if (moduleEntry.unresolvedReason !== undefined) reject(path, `${form}: ${moduleEntry.unresolvedReason}`);
+      if (moduleEntry.openBoundary) continue;
+      if (moduleEntry.unresolvedReason !== undefined) reject(path, `${form}: ${moduleEntry.unresolvedReason}; command ${JSON.stringify(moduleEntry.command ?? moduleEntry.value)}`);
       else if (!moduleEntry.external && touchesRestricted(moduleEntry.path, path) &&
         !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry)) reject(path, `${form}: ${entry}`);
       continue;
@@ -320,7 +345,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
   const builtModuleInputs = new Map();
   const pendingModules = [...scripts].filter(([path]) => nativeScripts.has(path)).flatMap(([_path, script]) => script.finiteModuleTargets);
-  pendingModules.push(...packageEntries.filter(entry => !entry.external && entry.unresolvedReason === undefined &&
+  pendingModules.push(...packageEntries.filter(entry => !entry.openBoundary && !entry.external && entry.unresolvedReason === undefined &&
     (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")).map(entry => entry.path));
   while (pendingModules.length > 0) {
     const target = resolveAlias(pendingModules.pop());
@@ -340,7 +365,9 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     builtModuleInputs: Object.freeze([...builtModuleInputs.values()].sort((left, right) => left.path.localeCompare(right.path))),
     transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
-      .sort(([left], [right]) => left.localeCompare(right)))) });
+      .sort(([left], [right]) => left.localeCompare(right)))),
+    openNativeExecutionBoundaries: Object.freeze(openNativeExecutionBoundaries),
+    unsupportedNativeExecutionBoundaryCount: openNativeExecutionBoundaries.filter(entry => entry.inIncomingCut).length });
 
   function reject(path, reason) {
     const separator = path.indexOf("/");
@@ -509,7 +536,7 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
   const targets = new Set();
   const nativeSources = new Set([...scripts].filter(([_path, script]) => script.nativeJavaScript || script.nativeEntry).map(([path]) => path));
   for (const entry of packageModuleEntries(packages, scripts, files)) {
-    if (!entry.external && entry.unresolvedReason === undefined && (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")) {
+    if (!entry.openBoundary && !entry.external && entry.unresolvedReason === undefined && (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")) {
       targets.add(entry.path);
       nativeSources.add(entry.path);
     }
@@ -524,6 +551,19 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
     }
   }
   return Object.freeze([...targets].sort());
+}
+
+export function keelSafetyNativeTestGlobs(workspaceInputs) {
+  const files = new Map([...workspaceInputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
+  const packages = [...files].filter(([path, input]) => input.kind === "file" && posix.basename(path) === "package.json")
+    .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
+  const globs = new Map();
+  for (const entry of nativeNodeEntries(packages, files)) {
+    if (entry.testGlob !== undefined) globs.set(`${entry.source}\0${entry.testGlob.pattern}`,
+      Object.freeze({ source: entry.source, ...entry.testGlob }));
+  }
+  return Object.freeze([...globs.values()].sort((left, right) =>
+    left.source.localeCompare(right.source) || left.pattern.localeCompare(right.pattern)));
 }
 
 function nativeNodeModuleFormat(path) {
@@ -556,34 +596,90 @@ function stringLeaves(value) {
   return value !== null && typeof value === "object" ? Object.values(value).flatMap(stringLeaves) : [];
 }
 
-function packageModuleEntries(packages, scripts, files) {
+function nativeNodeEntries(packages, files) {
   const entries = [];
-  const nodeLaunch = (source, command, program) => {
+  const nodeLaunch = (source, command, program, packageName, scriptName) => {
+    const details = { source, command, package: typeof packageName === "string" ? packageName : posix.dirname(source), scriptName };
     const launch = keelLiteralNodeCommand(command, program !== undefined);
     if (launch.unresolvedReason !== undefined) {
-      entries.push({ source, value: command, unresolvedReason: launch.unresolvedReason }); return;
+      entries.push({ ...details, value: command, unresolvedReason: launch.unresolvedReason }); return;
     }
-    if (launch.external) {
-      entries.push({ source, value: command, unresolvedReason: "unproved package script or interpreter execution root" }); return;
+    if (launch.external || launch.outsideProof) {
+      entries.push({ ...details, openBoundary: true, executable: program }); return;
     }
     const arguments_ = program === undefined ? launch.arguments : [...launch.arguments, posix.basename(program)];
     for (const entry of keelLiteralNodeEntries(arguments_, (value, option, modes) => {
       if (option === undefined) {
-        if (modes.test && /[*?\[]/u.test(value)) return { unresolvedReason: "unproved finite native Node test-entry pattern" };
+        if (program !== undefined) return { path: program };
+        if (modes.test && /[*?\[\]{}()]/u.test(value)) {
+          const parts = value.split("/");
+          const first = parts.findIndex(part => /[*?\[\]{}()]/u.test(part));
+          if (isAbsolute(value) || parts.slice(first).includes("..") || value.includes("\0") || value.includes("\\") || modes.entryUrl) {
+            return { unresolvedReason: "unrooted native Node test-entry pattern" };
+          }
+          const prefix = packageTargetPath(posix.dirname(source), parts.slice(0, first).join("/") || ".", true);
+          const pattern = packageTargetPath(posix.dirname(source), value, true);
+          return prefix === undefined || pattern === undefined ? { unresolvedReason: "unrooted native Node test-entry pattern" }
+            : { testGlob: { prefix, pattern } };
+        }
         const path = modes.entryUrl ? staticFileAddress(source, value).path : packageTargetPath(posix.dirname(source), value, true);
         return path === undefined ? { unresolvedReason: "unrooted physical native Node executable entry" } : { path };
+      }
+      if (program !== undefined && (value.startsWith(".") || value.startsWith("#") || !isAbsolute(value) && !value.startsWith("file:"))) {
+        return { unresolvedReason: "unproved current directory for a native interpreter preload" };
       }
       const targets = moduleReferencePaths(packages, files, source, { module: true, specifier: value, nativeRequire: option === "--require" });
       if (targets.length > 0) return { paths: targets };
       return value.startsWith(".") || value.startsWith("#") || value.startsWith("file:") || isAbsolute(value)
         ? { unresolvedReason: "unresolved first-party native Node preload entry" } : { external: true };
     })) {
-      if (entry.paths !== undefined) {
-        const { paths, ...details } = entry;
-        for (const path of paths) entries.push({ ...details, path, source });
-      } else entries.push({ ...entry, source, value: entry.value ?? command });
+      if (entry.packageScript !== undefined) {
+        const owner = program === undefined ? packageOwner(packages, source) : undefined;
+        const dependencySource = owner === undefined ? undefined : `${owner.root}/package.json`;
+        const command = owner?.metadata.scripts?.[entry.packageScript];
+        entries.push({ ...entry, ...details, dependencySource,
+          unresolvedReason: `${entry.unresolvedReason}: ${JSON.stringify(entry.packageScript)} requires ${JSON.stringify(command)}; no shell proof` });
+      } else if (entry.paths !== undefined) {
+        const { paths, ...selection } = entry;
+        for (const path of paths) entries.push({ ...selection, path, ...details });
+      } else entries.push({ ...entry, ...details, value: entry.value ?? command });
     }
   };
+  for (const { root, metadata } of packages) {
+    if (metadata.scripts === undefined) continue;
+    const source = `${root}/package.json`;
+    if (metadata.scripts === null || typeof metadata.scripts !== "object" || Array.isArray(metadata.scripts)) {
+      entries.push({ source, value: "scripts", unresolvedReason: "unproved native package-script declarations" });
+    } else for (const [name, command] of Object.entries(metadata.scripts)) nodeLaunch(source, command, undefined, metadata.name, name);
+  }
+  for (const [path, input] of files) {
+    if (input.kind === "file" && input.mode === "100755" && input.text?.startsWith("#!")) {
+      nodeLaunch(path, input.text.slice(2).split(/\r?\n/u)[0], path);
+    }
+  }
+  return entries;
+}
+
+function packageModuleEntries(packages, scripts, files) {
+  const entries = nativeNodeEntries(packages, files).flatMap(entry => {
+    if (entry.testGlob === undefined) return [entry];
+    const { prefix, pattern } = entry.testGlob;
+    const captures = files.get(entry.source)?.nodeTestGlobs;
+    const matching = Array.isArray(captures) ? captures.filter(row => row !== null && typeof row === "object" && row.pattern === pattern) : [];
+    const capture = matching.length === 1 ? matching[0] : undefined;
+    const present = [...files].filter(([path, input]) => input.kind === "file" && path.startsWith(`${prefix}/`) &&
+      !path.slice(posix.dirname(entry.source).length + 1).split("/").includes("node_modules") && matchesGlob(path, pattern))
+      .map(([path]) => path).sort((left, right) => left.localeCompare(right));
+    if (!capture || capture.prefix !== prefix || !Array.isArray(capture.matches) ||
+      capture.sha256 !== keelDigest(JSON.stringify(capture.matches)) ||
+      !capture.matches.every((row, index) => row !== null && typeof row === "object" && typeof row.path === "string" && row.path.startsWith(`${prefix}/`) &&
+        matchesGlob(row.path, pattern) && files.get(row.path)?.kind === "file" &&
+        files.get(row.path).sha256 === row.sha256 && (index === 0 || capture.matches[index - 1].path.localeCompare(row.path) < 0)) ||
+      JSON.stringify(capture.matches.map(row => row.path)) !== JSON.stringify(present)) {
+      return [{ ...entry, unresolvedReason: "unproved complete native Node test-glob snapshot" }];
+    }
+    return capture.matches.map(({ path }) => ({ ...entry, path }));
+  });
   const requests = [...scripts].flatMap(([sourcePath, script]) => script.references.filter(reference =>
     reference.module && !reference.external && !reference.unresolved && reference.specifier !== undefined)
     .map(reference => ({ sourcePath: reference.moduleOrigin ?? sourcePath, specifier: reference.specifier })));
@@ -607,11 +703,6 @@ function packageModuleEntries(packages, scripts, files) {
       } else entries.push({ source, value, path });
     };
     for (const value of [metadata.main, metadata.bin].flatMap(stringLeaves)) add(value, true, false);
-    if (metadata.scripts !== undefined) {
-      if (metadata.scripts === null || typeof metadata.scripts !== "object" || Array.isArray(metadata.scripts)) {
-        entries.push({ source, value: "scripts", unresolvedReason: "unproved native package-script declarations" });
-      } else for (const command of Object.values(metadata.scripts)) nodeLaunch(source, command);
-    }
     const moduleTargets = (value, key, imports) => {
       if (typeof value === "string") {
         if (!key?.includes("*") || !value.includes("*")) { add(value, false, imports); return; }
@@ -647,11 +738,6 @@ function packageModuleEntries(packages, scripts, files) {
     };
     moduleTargets(metadata.exports, ".", false);
     moduleTargets(metadata.imports, undefined, true);
-  }
-  for (const [path, input] of files) {
-    if (input.kind === "file" && input.mode === "100755" && input.text?.startsWith("#!")) {
-      nodeLaunch(path, input.text.slice(2).split(/\r?\n/u)[0], path);
-    }
   }
   return entries;
 }

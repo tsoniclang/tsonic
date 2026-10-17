@@ -95,7 +95,7 @@ export function readKeelNodeArguments(elements, { value, spread, codeEntry, modu
           code = true;
           codeEntry(operand, joined);
         } else if (module) moduleEntry(operand, joined, option);
-        else if (opaque) unknownEntry();
+        else if (opaque) unknownEntry(joined === undefined ? value(operand) : joined, option);
       } else if (!nodeBooleanOptions.has(option) && !(option.startsWith("--no-") && nodeBooleanOptions.has(`--${option.slice(5)}`)) &&
         option !== "--experimental-default-config-file" && option !== "--trace-events-enabled") {
         unknownEntry(); return true;
@@ -116,8 +116,9 @@ export function readKeelNodeArguments(elements, { value, spread, codeEntry, modu
       unresolvedArguments(elements.slice(index));
       break;
     }
-    if (!script && !code) {
-      if (flag === "-") {
+    if (!script && !code || nonStdinModes.has("--test")) {
+      if (nonStdinModes.has("--check") && !nonStdinModes.has("--test") && flag !== undefined) { script = true; break; }
+      if (flag === "-" && !nonStdinModes.has("--test")) {
         environment("node-stdin");
         unresolvedScript = true; break;
       }
@@ -127,30 +128,33 @@ export function readKeelNodeArguments(elements, { value, spread, codeEntry, modu
         break;
       }
       script = true;
+      if (nonStdinModes.has("--test")) { afterFlags = true; continue; }
     }
     break;
   }
-  if (!script && !code && !unresolvedScript && !elements.some(element =>
-    /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(value(element) ?? ""))) {
-    environment("node-arguments");
+  if (!script && !code && !unresolvedScript) {
+    if (nonStdinModes.has("--test")) unknownEntry(undefined, "--test");
+    else if (nonStdinModes.size === 0 && !elements.some(element =>
+      /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(value(element) ?? ""))) environment("node-arguments");
   }
   return nonStdinModes.size === 0 && !script && (interactive || !code);
 }
 
 export function keelLiteralNodeCommand(command, shebang = false) {
-  if (typeof command !== "string" || /[\r\n\u0000]/u.test(command)) return { unresolvedReason: "unproved native execution command" };
+  if (typeof command !== "string" || command.includes("\u0000")) return { unresolvedReason: "invalid native execution command" };
+  if (/[\r\n]/u.test(command)) return { outsideProof: true };
   const words = [];
   let remaining = command.replace(/^[ \t]+|[ \t]+$/gu, "");
   while (remaining !== "") {
     const word = /^(?:'([^'\r\n]*)'|"([^"\\$`\r\n]*)"|([^ \t\r\n"'\\$`;&|<>()*?\[\]{}~]+))(?=[ \t]|$)/u.exec(remaining);
-    if (word === null) return { unresolvedReason: "unproved literal native execution command" };
+    if (word === null) return { outsideProof: true };
     words.push(word[1] ?? word[2] ?? word[3]);
     remaining = remaining.slice(word[0].length).replace(/^[ \t]+/u, "");
   }
   const executable = words.shift();
   if (shebang && /(?:^|\/)env$/u.test(executable ?? "")) {
     if (words[0] === "-S") words.shift();
-    else if (words.length !== 1) return { unresolvedReason: "unproved native interpreter arguments" };
+    else if (words.length !== 1) return { outsideProof: true };
     const interpreter = words.shift();
     if (interpreter !== "node") return { external: true, environment: "external-interpreter" };
   } else if (executable !== "node" && !(executable?.startsWith("/") && executable.endsWith("/node"))) {
@@ -175,7 +179,11 @@ export function keelLiteralNodeEntries(arguments_, resolveModule) {
       }
       return true;
     },
-    unknownEntry,
+    unknownEntry: (value, option) => {
+      if (option === "--run" && typeof value === "string") entries.push({ packageScript: value,
+        unresolvedReason: "unsupported native Node package-script execution entry" });
+      else unknownEntry();
+    },
     unresolvedArguments: () => unknownEntry(),
     environment: environment => unknownEntry(`unproved native Node ${environment}`),
     optionMode: (option, enabled) => {

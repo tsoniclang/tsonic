@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createKeelViolationInventory, evaluateKeelDeterminism, evaluateKeelSafety,
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
 } from "./tooling/keel-certification-checks.mjs";
-import { keelSafetyBuiltModuleEntries } from "./tooling/keel-native-allocation-boundary.mjs";
+import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./tooling/keel-native-allocation-boundary.mjs";
 import { scriptSourceReferences } from "./tooling/keel-script-entries.mjs";
 import { keelCheckIds, keelFinding, keelWorkspaceRepositories, validLiteralFilePath, validPath } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
@@ -2248,33 +2248,44 @@ test("QRC-15: actual native Node resolves package builtin aliases and factory or
   mkdirSync(temporary, { recursive: true });
   const root = mkdtempSync(fileURLToPath(new URL("q109-native-package-identities-", temporary)));
   const modules = ["module", "fs", "fs/promises", "url", "path", "process", "worker_threads", "child_process", "vm"];
+  const observations = [];
   for (const spelling of ["bare", "conditional", "native-invalid"]) {
     const directory = join(root, spelling);
     mkdirSync(directory);
     const imports = Object.fromEntries(modules.map((module, index) => [`#native${index}`,
       spelling === "bare" ? module : spelling === "native-invalid" ? `node:${module}` : { node: module, default: module }]));
-    imports["#reader"] = "path";
+    imports["#reader"] = "./reader.cjs";
     writeFileSync(join(directory, "package.json"), JSON.stringify({ type: "module", imports }));
+    writeFileSync(join(directory, "reader.cjs"), 'module.exports = require("node:path");');
     const foreign = join(directory, "foreign");
     mkdirSync(foreign);
-    writeFileSync(join(foreign, "package.json"), '{"type":"module","imports":{"#reader":"fs"}}');
+    writeFileSync(join(foreign, "package.json"), '{"type":"module","imports":{"#reader":"./reader.cjs","#native-reader":"fs"}}');
+    writeFileSync(join(foreign, "reader.cjs"), 'module.exports = require("node:fs");');
     const entry = modules.map((module, index) =>
       `import * as actual${index} from ${JSON.stringify(`node:${module}`)}; import * as alias${index} from ${JSON.stringify(`#native${index}`)};`).join("\n") +
       '\nimport { createRequire } from "node:module";\n' +
       'const load = createRequire(new URL("./foreign/entry.mjs", import.meta.url));\n' +
-      `process.stdout.write(JSON.stringify([${modules.map((_module, index) => `actual${index} === alias${index}`).join(",")}, load("#reader").readFileSync === actual1.readFileSync]));\n`;
+      'let nativeRequireRefusal; try { load("#native-reader"); } catch (error) { nativeRequireRefusal = error.code; }\n' +
+      `process.stdout.write(JSON.stringify({ identities: [${modules.map((_module, index) => `actual${index} === alias${index}`).join(",")}, load("#reader").readFileSync === actual1.readFileSync], nativeRequireRefusal }));\n`;
     writeFileSync(join(directory, "entry.mjs"), entry);
     const child = spawnSync(process.execPath, [join(directory, "entry.mjs")], { encoding: "utf8" });
     context.diagnostic(JSON.stringify({ nativeNode: process.version, spelling, status: child.status,
       stdout: child.stdout, stderr: child.stderr }));
+    observations.push({ spelling, ...child });
+  }
+  for (const child of observations) {
+    const { spelling } = child;
     if (spelling === "native-invalid") {
       assert.equal(child.status, 1, "native Node refuses node:-prefixed package-import targets before execution");
       assert.match(child.stderr, /ERR_INVALID_PACKAGE_TARGET/u, "native target refusal is not an alias capability or fallback");
       continue;
     }
     assert.equal(child.status, 0, `${spelling}: ${child.stderr}`);
-    assert.deepEqual(JSON.parse(child.stdout), Array.from({ length: modules.length + 1 }, () => true),
+    const actual = JSON.parse(child.stdout);
+    assert.deepEqual(actual.identities, Array.from({ length: modules.length + 1 }, () => true),
       `${spelling}: all native identities and the foreign factory's exact private scope agree`);
+    assert.equal(actual.nativeRequireRefusal, "ERR_INVALID_URL_SCHEME",
+      `${spelling}: current native CJS builtin-alias refusal is never claimed as a supported reader path`);
   }
 });
 
@@ -2321,7 +2332,6 @@ for (const [role, launches] of [
 
 test("QRC-16: unproved declared native launch spelling refuses without a shell or code evaluator", () => {
   for (const command of [
-    "node $ENTRY", "node src/entry.ts && node src/second.ts", "node src/entry.ts\nnode src/second.ts",
     "node --unknown-root-flag src/entry.ts", "node --env-file environment.env src/entry.ts",
     "node --eval 'globalThis.execute()'", "node -", "node", "node --require ./src/preload.mjs", "node --test 'src/*.ts'", null,
   ]) {
@@ -2331,13 +2341,156 @@ test("QRC-16: unproved declared native launch spelling refuses without a shell o
     inputs.get("tsonic-rust").set("src/preload.mjs", safetyFile("export const ordinary = 1;"));
     const result = boundarySafety(inputs);
     assert.equal(result.nativeAllocationBoundary === undefined, true, `${command}: unsupported native execution cannot certify a missing root`);
-    assert.equal(result.findings.some(finding => finding.reason.includes("unproved") && finding.file === "package.json"), true,
+    assert.equal(result.findings.some(finding => /unproved|unsupported|invalid/u.test(finding.reason) && finding.file === "package.json"), true,
       `${command}: refusal belongs to the actual metadata entry boundary`);
   }
-  for (const header of ["#!/usr/bin/env node --import preload.mjs", "#!/usr/bin/env -S node --unknown-root-flag"]) {
+  for (const header of ["#!/usr/bin/env -S node --unknown-root-flag", "#!/usr/bin/env -S node --require ./preload.cjs"]) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/entry", Object.freeze({ ...safetyFile(`${header}\nexport const ordinary = 1;`), mode: "100755" }));
     assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${header}: unproved interpreter options cannot hide a native root`);
+  }
+});
+
+test("QRC-17: opaque commands remain individually open, and actual incoming product boundaries refuse by exact command", () => {
+  const commands = ["node $ENTRY", "node src/entry.ts && node src/second.ts", "node src/entry.ts\nnode src/second.ts",
+    "npm run test", "bash scripts/build.sh"];
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "native-control",
+    scripts: Object.fromEntries(commands.map((command, index) => ["command" + index, command])) })));
+  inputs.get("tsonic-rust").set("bin/opaque", Object.freeze({ ...safetyFile("#!/usr/bin/env bash\nexport const value = 1;"), mode: "100755" }));
+  inputs.get("tsonic-rust").set("bin/ambiguous-env", Object.freeze({ ...safetyFile("#!/usr/bin/env node --import preload.mjs\nexport const value = 1;"), mode: "100755" }));
+  const positive = boundarySafety(inputs);
+  assert.equal(positive.findings.length, 0, "opaque commands outside the native incoming cut are listed, never blanket-refused or certified closed");
+  assert.equal(positive.openNativeExecutionBoundaries.length, commands.length + 2, "every opaque declaration has an individual open-boundary record");
+  assert.deepEqual(positive.openNativeExecutionBoundaries.filter(row => row.path.endsWith("/package.json")).map(row => row.command), commands,
+    "exact package command text is preserved without a shell interpreter");
+  assert.equal(positive.openNativeExecutionBoundaries.every(row => row.status === "OPEN_BOUNDARY" && !row.inIncomingCut && row.owner === "tsonic-rust"), true,
+    "each outside-proof command has an explicit owner and no invented closure claim");
+  assert.equal(positive.unsupportedNativeExecutionBoundaryCount, 0, "no unsupported command enters this actual incoming product cut");
+  for (const command of ["node --help", "node --version", "node --check test/helpers/native-ownership-cost.mjs"]) {
+    const current = nativeBoundaryInputs();
+    current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: command } })));
+    assert.equal(boundarySafety(current).findings.length, 0, `${command}: the existing nonexecuting native modes do not manufacture a source-execution root`);
+  }
+  for (const bridge of [false, true]) {
+    const current = nativeBoundaryInputs();
+    current.get("tsonic-rust").set("bin/opaque", inputs.get("tsonic-rust").get("bin/opaque"));
+    current.get("tsonic-rust").set("src/bridge.mjs", safetyFile('import "../bin/opaque"; export const ordinary = 1;'));
+    current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ bin: bridge ? "./src/bridge.mjs" : "./bin/opaque" })));
+    const negative = boundarySafety(current);
+    assert.equal(negative.nativeAllocationBoundary === undefined, true, "direct or transitive product promotion cannot certify an opaque interpreter boundary");
+    assert.equal(negative.unsupportedNativeExecutionBoundaryCount, 1, "the one actual incoming command is counted exactly once");
+    assert.equal(negative.findings.some(row => row.reason.includes("TEST-ALLOCATOR no-product-reachability") && row.reason.includes("/usr/bin/env bash")), true,
+      "unsupported guarantee refusal names the exact real command, not an invented blanket rule");
+  }
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { start: "node --run opaque", opaque: commands[4] } })));
+  const delegated = boundarySafety(inputs);
+  assert.equal(delegated.nativeAllocationBoundary === undefined, true, "a literal native --run cannot silently close its opaque command dependency");
+  assert.equal(delegated.openNativeExecutionBoundaries.some(row => row.command === commands[4] && row.inIncomingCut), true,
+    "the existing literal metadata table names the actual dependent shell command without executing it");
+});
+
+test("QRC-17: bounded native test globs require their complete exact snapshot and every positional execution root", () => {
+  const inputs = nativeBoundaryInputs();
+  const packagePath = "tsonic-rust/package.json";
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: {
+    test: "node --test 'src/**/*.test.ts' 'other/*.test.ts'",
+  } })));
+  const paths = ["src/one.test.ts", "src/nested/two.test.ts", "other/three.test.ts"];
+  for (const path of paths) inputs.get("tsonic-rust").set(path, safetyFile("export const ordinary: number = 1;"));
+  const globs = keelSafetyNativeTestGlobs(inputs);
+  assert.equal(globs.length, 2, "the same argv owner retains both Node test positional patterns");
+  assert.equal(globs.every(row => row.source === packagePath && row.pattern.startsWith(row.prefix + "/")), true,
+    "each literal pattern stays below its snapshot-contained static prefix");
+  const matches = globs.map(({ source, ...glob }) => {
+    const rows = paths.filter(path => `${glob.prefix}/` === `tsonic-rust/${path.split("/")[0]}/`)
+      .map(path => ({ path: `tsonic-rust/${path}`, sha256: inputs.get("tsonic-rust").get(path).sha256 }))
+      .sort((left, right) => left.path.localeCompare(right.path));
+    return Object.freeze({ ...glob, matches: Object.freeze(rows), sha256: keelDigest(JSON.stringify(rows)) });
+  });
+  const packageInput = inputs.get("tsonic-rust").get("package.json");
+  inputs.get("tsonic-rust").set("package.json", Object.freeze({ ...packageInput, nodeTestGlobs: Object.freeze(matches) }));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "the complete harmless snapshot remains admitted");
+  assert.equal(paths.every(path => keelSafetyBuiltModuleEntries(inputs).includes(`tsonic-rust/${path}`)), true,
+    "every matched typed filename becomes its actual native execution root without a JS-to-TS projection");
+  const empty = nativeBoundaryInputs();
+  const emptyMatches = [];
+  empty.get("tsonic-rust").set("package.json", Object.freeze({ ...safetyFile(JSON.stringify({ scripts: { test: "node --test 'src/*.test.mjs'" } })),
+    nodeTestGlobs: [{ prefix: "tsonic-rust/src", pattern: "tsonic-rust/src/*.test.mjs", matches: emptyMatches, sha256: keelDigest(JSON.stringify(emptyMatches)) }],
+  }));
+  assert.equal(boundarySafety(empty).findings.length, 0, "an actually captured empty magic-pattern set is distinct from missing snapshot evidence");
+  for (const mutation of ["absent", "wrong-hash", "missing-member", "duplicate-member", "outside-prefix", "missing-physical", "changed-bytes", "duplicate-capture"]) {
+    const current = new Map([...inputs].map(([repo, files]) => [repo, new Map(files)]));
+    let changed = matches.map(row => ({ ...row, matches: [...row.matches] }));
+    if (mutation === "wrong-hash") changed[0].sha256 = "0".repeat(64);
+    if (mutation === "missing-member") changed[1].matches.pop();
+    if (mutation === "duplicate-member") changed[1].matches.push(changed[1].matches[0]);
+    if (mutation === "outside-prefix") changed[1].matches[0] = { path: "tsonic-rust/other/three.test.ts", sha256: inputs.get("tsonic-rust").get(paths[2]).sha256 };
+    if (mutation === "missing-physical") current.get("tsonic-rust").delete(paths[0]);
+    if (mutation === "changed-bytes") current.get("tsonic-rust").set(paths[0], safetyFile("export const changed: number = 2;"));
+    if (!["absent", "wrong-hash"].includes(mutation)) changed = changed.map(row => ({ ...row, sha256: keelDigest(JSON.stringify(row.matches)) }));
+    if (mutation === "duplicate-capture") changed.push(changed[0]);
+    current.get("tsonic-rust").set("package.json", Object.freeze({ ...packageInput,
+      ...(mutation === "absent" ? {} : { nodeTestGlobs: changed }) }));
+    assert.equal(boundarySafety(current).nativeAllocationBoundary === undefined, true, `${mutation}: incomplete or forged membership cannot close the native boundary`);
+  }
+  for (const pattern of ["src/*/../*.test.ts", "/outside/*.test.ts", "src/\\*.test.ts"]) {
+    const current = nativeBoundaryInputs();
+    current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { test: `node --test '${pattern}'` } })));
+    assert.equal(boundarySafety(current).nativeAllocationBoundary === undefined, true, `${pattern}: no unresolved prefix traversal or alternate separator can claim a finite native snapshot`);
+  }
+  const nested = new Map([...inputs].map(([repo, files]) => [repo, new Map(files)]));
+  nested.get("tsonic-rust").delete("package.json");
+  nested.get("tsonic-rust").set("nested/package.json", Object.freeze({
+    ...safetyFile(JSON.stringify({ scripts: { test: "node --test '../src/**/*.test.ts'" } })), nodeTestGlobs: [matches[1]],
+  }));
+  assert.equal(boundarySafety(nested).findings.length, 0, "literal parent segments before the first wildcard retain their exact snapshot-contained prefix");
+  inputs.get("tsonic-rust").set(paths[2], safetyFile('import "../test/helpers/native-ownership-cost.mjs";'));
+  const updated = matches.map(row => ({ ...row, matches: row.matches.map(member => ({ ...member,
+    sha256: inputs.get("tsonic-rust").get(member.path.slice("tsonic-rust/".length)).sha256 })) }));
+  inputs.get("tsonic-rust").set("package.json", Object.freeze({ ...packageInput,
+    nodeTestGlobs: updated.map(row => ({ ...row, sha256: keelDigest(JSON.stringify(row.matches)) })) }));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "the second pattern cannot hide a real writer bridge behind the first harmless test root");
+});
+
+test("QRC-17: actual native Node test-glob membership matches the complete hashed runtime snapshot", context => {
+  const temporary = new URL("../../.temp/", import.meta.url);
+  mkdirSync(temporary, { recursive: true });
+  const root = mkdtempSync(fileURLToPath(new URL("q109-native-test-globs-", temporary)));
+  const paths = ["src/one.test.mjs", "src/nested/two.test.mjs", "other/three.test.mjs"];
+  for (const [index, path] of paths.entries()) {
+    const absolute = join(root, path);
+    mkdirSync(posix.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, `import test from "node:test"; test("native-glob-${index}", () => {});\n`);
+  }
+  const excluded = join(root, "src/node_modules/hidden.test.mjs");
+  mkdirSync(posix.dirname(excluded), { recursive: true });
+  writeFileSync(excluded, 'throw new Error("native glob never traverses node_modules");');
+  const patterns = ["src/**/*.test.mjs", "other/*.test.mjs"];
+  const snapshot = () => globSync(patterns, { cwd: root, exclude: name => name === "node_modules" }).sort()
+    .map(path => ({ path, sha256: keelDigest(readFileSync(join(root, path))) }));
+  const before = snapshot();
+  const arguments_ = ["--test", "--test-reporter=tap", "--test-concurrency=1", ...patterns];
+  const child = spawnSync(process.execPath, arguments_, { cwd: root, encoding: "utf8" });
+  const after = snapshot();
+  context.diagnostic(JSON.stringify({ nativeNode: process.version, command: [process.execPath, ...arguments_],
+    root, before, beforeSha256: keelDigest(JSON.stringify(before)), after, afterSha256: keelDigest(JSON.stringify(after)),
+    status: child.status, stdout: child.stdout, stderr: child.stderr }));
+  assert.equal(child.status, 0, `the actual native Node test runner succeeds: ${child.stderr}`);
+  assert.deepEqual(before.map(row => row.path), [...paths].sort(), "the native glob set includes every supplied pattern and no excluded directory");
+  assert.deepEqual(before, after, "complete native matched sets and every member's exact bytes are immutable before and after execution");
+  for (const index of paths.keys()) assert.match(child.stdout, new RegExp(`^ok \\d+ - native-glob-${index}$`, "mu"),
+    `the actual native runner executes every declared member: ${index}`);
+  const inert = join(root, "must-not-execute.mjs");
+  writeFileSync(inert, 'throw new Error("a native nonexecuting mode must not load this program");');
+  for (const option of ["--help", "--version", "--check"]) {
+    const control = spawnSync(process.execPath, [option, inert], { cwd: root, encoding: "utf8" });
+    writeFileSync(join(root, option.slice(2) + ".stdout.log"), control.stdout);
+    writeFileSync(join(root, option.slice(2) + ".stderr.log"), control.stderr);
+    context.diagnostic(JSON.stringify({ nativeNode: process.version, command: [process.execPath, option, inert],
+      status: control.status, stdoutPath: join(root, option.slice(2) + ".stdout.log"), stderrPath: join(root, option.slice(2) + ".stderr.log"),
+      stdoutSha256: keelDigest(control.stdout), stderrSha256: keelDigest(control.stderr) }));
+    assert.equal(control.status, 0, `${option}: the actual native mode never executes the valid throwing source`);
   }
 });
 

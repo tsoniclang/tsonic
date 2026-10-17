@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, globSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import { isAbsolute, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { collectFiles, readSourceInventory } from "./file-inventory.mjs";
@@ -13,7 +13,7 @@ import {
   evaluateKeelSkeleton, evaluateKeelStorageStages, evaluateKeelTestSkeleton, keelRuntimeRoots,
 } from "./keel-structure-checks.mjs";
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
-import { keelSafetyBuiltModuleEntries } from "./keel-native-allocation-boundary.mjs";
+import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./keel-native-allocation-boundary.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
@@ -59,6 +59,8 @@ export function evaluateKeelWorkspace(workspace, manifest, {
   const pins = {};
   const sourceDigests = {};
   let nativeAllocationBoundary;
+  let openNativeExecutionBoundaries = Object.freeze([]);
+  let unsupportedNativeExecutionBoundaryCount = 0;
   let totalFunctions = 0;
   for (const repo of keelWorkspaceRepositories) {
     const root = resolve(workspace, repo);
@@ -100,6 +102,10 @@ export function evaluateKeelWorkspace(workspace, manifest, {
     }
     const safetyResult = safety(root, repo, tracked, manifest.basePins[repo], safetyInputs);
     findings.push(...safetyResult.findings);
+    if (repo === "rust-runtime") {
+      openNativeExecutionBoundaries = safetyResult.openNativeExecutionBoundaries;
+      unsupportedNativeExecutionBoundaryCount = safetyResult.unsupportedNativeExecutionBoundaryCount;
+    }
     if (safetyResult.nativeAllocationBoundary !== undefined) nativeAllocationBoundary = safetyResult.nativeAllocationBoundary;
   }
   findings.push(...evaluateKeelSkeleton(targetSources, manifest.nativeDifferences));
@@ -141,6 +147,7 @@ export function evaluateKeelWorkspace(workspace, manifest, {
   }
   return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps), pins, sourceDigests, totalFunctions,
     declarationsSha256: declarations.inputDigest, nativeAllocationBoundary,
+    openNativeExecutionBoundaries, unsupportedNativeExecutionBoundaryCount,
     determinismExecuted: final || determinism.length > 0 });
 }
 
@@ -251,6 +258,37 @@ function readKeelSafetyWorkspaceInputs(workspace) {
       } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
     }
   }
+  for (const { source, pattern, prefix } of keelSafetyNativeTestGlobs(inputs)) {
+    const repo = prefix.split("/")[0];
+    const absoluteRoot = resolve(workspace, repo);
+    const absolutePrefix = resolve(workspace, prefix);
+    if (!keelWorkspaceRepositories.includes(repo) || absolutePrefix !== absoluteRoot && !absolutePrefix.startsWith(`${absoluteRoot}/`)) {
+      throw new Error(`Unrooted AC12 native Node test glob: ${source}: ${pattern}.`);
+    }
+    let directory = absoluteRoot;
+    for (const part of prefix.split("/").slice(1)) {
+      directory = resolve(directory, part);
+      const status = lstatSync(directory, { throwIfNoEntry: false });
+      if (status !== undefined && (status.isSymbolicLink() || realpathSync(directory) !== directory || !status.isDirectory())) {
+        throw new Error(`Unresolved AC12 native Node test-glob prefix: ${source}: ${prefix}.`);
+      }
+    }
+    const origin = source.slice(0, source.lastIndexOf("/"));
+    const matches = globSync(posix.relative(origin, pattern), { cwd: resolve(workspace, origin), exclude: name => name === "node_modules" })
+      .map(file => posix.normalize(`${origin}/${file}`)).sort((left, right) => left.localeCompare(right)).map(path => {
+        if (!path.startsWith(`${prefix}/`)) throw new Error(`AC12 native Node test glob leaves its static prefix: ${source}: ${path}.`);
+        if (!readBuiltModule(path)) throw new Error(`Missing AC12 native Node test-glob member: ${source}: ${path}.`);
+        const separator = path.indexOf("/");
+        const input = inputs.get(path.slice(0, separator)).get(path.slice(separator + 1));
+        return Object.freeze({ path, sha256: input.sha256 });
+      });
+    const separator = source.indexOf("/");
+    const entries = inputs.get(source.slice(0, separator));
+    const file = source.slice(separator + 1);
+    const previous = entries.get(file);
+    entries.set(file, Object.freeze({ ...previous, nodeTestGlobs: Object.freeze([...(previous.nodeTestGlobs ?? []),
+      Object.freeze({ prefix, pattern, matches: Object.freeze(matches), sha256: keelDigest(JSON.stringify(matches)) })]) }));
+  }
   const requestedModules = new Set();
   for (;;) {
     const pending = keelSafetyBuiltModuleEntries(inputs).filter(path => {
@@ -260,30 +298,35 @@ function readKeelSafetyWorkspaceInputs(workspace) {
     if (pending.length === 0) break;
     for (const path of pending) {
       requestedModules.add(path);
-      if (!validLiteralFilePath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
-      const separator = path.indexOf("/");
-      const repo = path.slice(0, separator);
-      const file = path.slice(separator + 1);
-      if (!inputs.has(repo)) throw new Error(`Unknown AC12 built module repository: ${path}.`);
-      const absolute = resolve(workspace, path);
-      if (!existsSync(absolute)) continue;
-      const root = realpathSync(resolve(workspace, repo));
-      const actual = realpathSync(absolute);
-      if (actual !== absolute || relative(root, actual).startsWith("..") || !lstatSync(absolute).isFile()) {
-        throw new Error(`Unresolved AC12 built module source identity: ${path}.`);
-      }
-      const bytes = readFileSync(absolute);
-      const text = bytes.toString("utf8");
-      if (!Buffer.from(text, "utf8").equals(bytes)) throw new Error(`Unresolved AC12 executable module encoding: ${path}.`);
-      const previous = inputs.get(repo).get(file);
-      if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== keelDigest(bytes))) {
-        throw new Error(`Changed AC12 built module input: ${path}.`);
-      }
-      inputs.get(repo).set(file, Object.freeze({ kind: "file", tracked: previous?.tracked ?? false,
-        mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text, builtModule: true }));
+      readBuiltModule(path);
     }
   }
   return Object.freeze(inputs);
+
+  function readBuiltModule(path) {
+    if (!validLiteralFilePath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
+    const separator = path.indexOf("/");
+    const repo = path.slice(0, separator);
+    const file = path.slice(separator + 1);
+    if (!inputs.has(repo)) throw new Error(`Unknown AC12 built module repository: ${path}.`);
+    const absolute = resolve(workspace, path);
+    if (!existsSync(absolute)) return false;
+    const root = realpathSync(resolve(workspace, repo));
+    const actual = realpathSync(absolute);
+    if (actual !== absolute || relative(root, actual).startsWith("..") || !lstatSync(absolute).isFile()) {
+      throw new Error(`Unresolved AC12 built module source identity: ${path}.`);
+    }
+    const bytes = readFileSync(absolute);
+    const text = bytes.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(bytes)) throw new Error(`Unresolved AC12 executable module encoding: ${path}.`);
+    const previous = inputs.get(repo).get(file);
+    if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== keelDigest(bytes))) {
+      throw new Error(`Changed AC12 built module input: ${path}.`);
+    }
+    inputs.get(repo).set(file, Object.freeze({ ...previous, kind: "file", tracked: previous?.tracked ?? false,
+      mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text, builtModule: true }));
+    return true;
+  }
 }
 
 function safety(root, repo, tracked, base, workspaceInputs) {
