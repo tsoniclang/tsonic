@@ -15,7 +15,7 @@ interface MemberIndex {
 
 const noMembers: MemberIndex = Object.freeze({ members: Object.freeze([]), declarations: new Map() });
 
-interface SpreadMember {
+export interface SourceStorageSpreadMember {
   readonly property: TypePropertyInfo;
   readonly declarations: readonly Node[];
   readonly alwaysPresent: boolean;
@@ -127,7 +127,7 @@ export function createSourceStorageMemberFlow(
     }
     return declarations;
   };
-  const spreadMembersFor = (expression: Node): readonly SpreadMember[] | undefined => {
+  const spreadMembersFor = (expression: Node): readonly SourceStorageSpreadMember[] | undefined => {
     const file = source.ast.getSourceFile(expression);
     if (file === undefined || !source.semantics.includes(file)) return undefined;
     const queries = source.semantics.forFile(file);
@@ -176,7 +176,7 @@ export function createSourceStorageMemberFlow(
     const queries = source.semantics.forFile(file);
     const inputs: { readonly expression: Node; readonly component: SourceStorageProjection; readonly evaluation: Node }[] = [];
     for (const element of [...source.ast.properties(owner.node)].reverse()) {
-      if (!budget.step()) return undefined;
+      if (!budget.step() || element === undefined) return undefined;
       if (!source.ast.is.IsSpreadAssignment(element)) {
         const name = source.ast.name(element);
         const checked = name === undefined ? undefined : queries.operations.propertyName(name);

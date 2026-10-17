@@ -1,4 +1,5 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import type { SourceStorageStoredProjection } from "../graph/store-projections.js";

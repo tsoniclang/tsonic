@@ -21,7 +21,6 @@ import { sourceStorageProjectComponents } from "../graph/component-projections.j
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations,
   sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
