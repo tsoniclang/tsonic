@@ -24,6 +24,16 @@ test("module import inventory separates actual JavaScript imports from fixture s
     ["wrapped-template.mjs", "export const value = 5;"],
     ["type-use.ts", 'export type Imported = typeof import("./typed-value.js");'],
     ["typed-value.ts", "export const value = 6;"],
+    ["wrapped-types.ts", `
+      void import("./asserted.mjs" as const);
+      void import("./assertion.mjs" satisfies string);
+      void import("./non-null.mjs"!);
+      void import(<const>"./satisfies.mjs");
+    `],
+    ["asserted.mjs", "export const value = 7;"],
+    ["assertion.mjs", "export const value = 8;"],
+    ["non-null.mjs", "export const value = 9;"],
+    ["satisfies.mjs", "export const value = 10;"],
   ]);
   const result = buildTypeScriptModuleAnalysis(source);
   assert.equal(result.modules.length, source.size);
@@ -36,5 +46,9 @@ test("module import inventory separates actual JavaScript imports from fixture s
     ["./wrapped-string.mjs", false],
     ["./wrapped-template.mjs", false],
     ["./typed-value.js", false],
+    ["./asserted.mjs", false],
+    ["./assertion.mjs", false],
+    ["./non-null.mjs", false],
+    ["./satisfies.mjs", false],
   ]);
 });

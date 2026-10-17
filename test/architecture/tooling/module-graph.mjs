@@ -1,4 +1,5 @@
 import { dirname, extname, posix } from "node:path";
+import { sourceTransparentExpressionOperand } from "../../../packages/target-api/dist/source-navigation/ast.js";
 import { readArchitectureTypeScript } from "./typescript-source.mjs";
 
 const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".cts"]);
@@ -113,10 +114,11 @@ function collectModuleSpecifiers(ast, sourceFile) {
 
 function literalModuleSpecifier(ast, node) {
   let literal = node;
-  while (ast.kindName(literal) === "KindParenthesizedExpression" || ast.kindName(literal) === "KindLiteralType") {
-    literal = ast.kindName(literal) === "KindParenthesizedExpression"
-      ? ast.as.AsParenthesizedExpression(literal).Expression
-      : ast.as.AsLiteralTypeNode(literal).Literal;
+  while (literal !== undefined) {
+    const operand = ast.is.IsLiteralTypeNode(literal) ? ast.as.AsLiteralTypeNode(literal).Literal
+      : sourceTransparentExpressionOperand(ast, literal);
+    if (operand === undefined) break;
+    literal = operand;
   }
   return ast.kindName(literal) === "KindStringLiteral" || ast.kindName(literal) === "KindNoSubstitutionTemplateLiteral"
     ? ast.text(literal) : undefined;
