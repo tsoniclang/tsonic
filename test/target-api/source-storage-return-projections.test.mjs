@@ -85,6 +85,10 @@ test("body return projection refuses unavailable or foreign signature evidence w
     "an unavailable checked completion is not replaced with its Promise or a guessed element type");
   assert.equal(returned(node, [], selected({ declarationSignatureInfo: () => undefined })) === undefined, true,
     "an absent original signature remains unavailable");
+  const original = semantics.types.declarationSignatureInfo(node);
+  assert.equal(original !== undefined, true, "the body has its genuine original checked signature");
+  assert.equal(returned(node, [], selected({ declarationSignatureInfo: () => ({ ...original, returnType: undefined }) })) === undefined,
+    true, "an unavailable checked return type is not passed to awaited-type selection");
   const foreign = semantics.types.declarationSignatureInfo(declaration("synchronous"));
   assert.equal(foreign !== undefined, true, "the foreign declaration has a genuine checked signature");
   assert.equal(returned(node, [], selected({ declarationSignatureInfo: () => foreign })) === undefined, true,

@@ -83,7 +83,7 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
   let selected: Type | undefined;
   if (value.kind === "return") {
     const signature = semantics.types.declarationSignatureInfo(value.node);
-    selected = signature !== undefined && semantics.declarations.signatureDeclaration(signature.signature) === value.node
+    selected = signature?.returnType !== undefined && semantics.declarations.signatureDeclaration(signature.signature) === value.node
       ? source.ast.hasModifierKind(value.node, "async")
         ? semantics.types.awaitedType(signature.returnType)
         : signature.returnType
