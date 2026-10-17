@@ -107,7 +107,7 @@ test("finite source participation closes inherited erasure independently of inpu
   const nodes = [root, erased, nested, included, leaf];
   for (const order of [nodes, [...nodes].reverse(), [nested, leaf, included, erased, root]]) {
     const selected: Node[] = [];
-    const current = sourceNodesOutsideErasedSubtrees({ parent: node => parents.get(node) }, order, node => {
+    const current = sourceNodesOutsideErasedSubtrees({ parent: node => node === undefined ? undefined : parents.get(node) }, order, node => {
       selected.push(node);
       return node === erased;
     });
@@ -130,7 +130,7 @@ test("finite source participation validates every parent before any classificati
   let selections = 0;
   const classify = (): boolean => { selections += 1; return false; };
   for (const [nodes, parent, reason] of [
-    [[first, second], (node: Node) => node === first ? second : first, "acyclic"],
+    [[first, second], (node: Node | undefined) => node === first ? second : node === second ? first : undefined, "acyclic"],
     [[first], () => second, "every checked parent"],
     [[first, first], () => undefined, "one occurrence"],
   ] as const) {
@@ -146,7 +146,10 @@ test("finite source participation has no arbitrary ancestor-depth limit or post-
   const parents = new Map(nodes.slice(1).map((node, index) => [node, nodes[index]!]));
   let reads = 0;
   let selections = 0;
-  const source = Proxy.revocable({ parent(node: Node) { reads += 1; return parents.get(node); } }, {});
+  const source = Proxy.revocable({ parent(node: Node | undefined) {
+    reads += 1;
+    return node === undefined ? undefined : parents.get(node);
+  } }, {});
   const current = sourceNodesOutsideErasedSubtrees(source.proxy, [...nodes].reverse(), () => { selections += 1; return false; });
   assert.equal(current.kind, "resolved", "a finite deeply nested checked tree closes");
   assert.equal(reads, nodes.length, "each checked parent is read once");
