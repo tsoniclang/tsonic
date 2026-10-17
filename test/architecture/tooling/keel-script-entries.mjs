@@ -190,8 +190,8 @@ export function scriptSourceReferences(path, text, boundary) {
       selected.startsWith("node:vm#") && selected !== "node:vm#*" ||
       selected.startsWith("node:child_process#") && nodeProcessMembers.has(selected.split("#")[1]);
     if (entryFunction && !nonValueName(node) && !importedName && !nonLoading &&
-      !(["KindCallExpression", "KindNewExpression"].includes(parentKind) && ast.children(parent)[0] === node &&
-        Node_QuestionDotToken(parent) === undefined && !mutated(node))) computedModuleEntry(node);
+      !((directCall || parentKind === "KindNewExpression" && ast.children(parent)[0] === node) &&
+        !mutated(node))) computedModuleEntry(node);
   }
   const literalUrlLoaders = [];
   const loaderImports = new Map();

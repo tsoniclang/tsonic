@@ -1170,6 +1170,44 @@ test("QRC-01: every Function parameter and body is nonliteral code evidence, not
   }
 });
 
+test("QRC-10: entry constructors preserve native accessor kinds and optional-call rejection", () => {
+  for (const [prefix, construction] of [
+    ["", "new Function"],
+    ["", "new globalThis.Function"],
+    ['import { Script as NativeScript } from "node:vm"; ', "new NativeScript"],
+    ['import * as vm from "node:vm"; ', "new vm.Script"],
+    ['import vm from "node:vm"; ', "new vm.Script"],
+  ]) {
+    const ordinary = nativeBoundaryInputs();
+    ordinary.get("tsonic-rust").set("src/constructor.mjs", safetyFile(`${prefix}${construction}("value");`));
+    const ordinaryResult = boundarySafety(ordinary);
+    assert.equal(ordinaryResult.findings.length, 0, `${construction}: ordinary code does not query a call-only token`);
+    assert.equal(ordinaryResult.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "code-string"), true,
+      `${construction}: code remains explicitly unproved`);
+    const source = `${prefix}${construction}(${JSON.stringify("import('../test/helpers/native-ownership-cost.mjs')")});`;
+    const product = nativeBoundaryInputs();
+    product.get("tsonic-rust").set("src/constructor.mjs", safetyFile(source));
+    assert.equal(boundarySafety(product).nativeAllocationBoundary === undefined, true, `${construction}: product promotion denied`);
+    const contained = nativeBoundaryInputs();
+    contained.get("tsonic-rust").set("test/constructor.test.mjs", safetyFile(`import test from "node:test"; ${source}`));
+    const containedResult = boundarySafety(contained);
+    assert.equal(containedResult.findings.length, 0, `${construction}: genuine test entry contains computed code`);
+    assert.equal(containedResult.nativeAllocationBoundary.consumers.some(consumer =>
+      consumer.path === "tsonic-rust/test/constructor.test.mjs" && consumer.kind === "Node test computed source entry"), true,
+      `${construction}: containment is not a guessed code filename`);
+  }
+  for (const source of [
+    'Function?.("value");',
+    'globalThis.Function?.("value");',
+    'import { Script as NativeScript } from "node:vm"; NativeScript?.("value");',
+    'import * as vm from "node:vm"; vm.Script?.("value");',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/optional.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${source}: optional callee remains unproved`);
+  }
+});
+
 test("QRC-02: complete known Node operand classes preserve entry position and fail closed on unknown grammar", () => {
   const writer = "../test/helpers/native-ownership-cost.mjs";
   const valueOptions = ["--conditions", "-C", "--title", "--input-type", "--inspect-port", "--debug-port", "--report-directory",
