@@ -7,7 +7,7 @@ import { keelSourceRejectionIdentity } from "./keel-source-rejection.mjs";
 import { ParseSourceFile } from "../../../packages/tsts/dist/src/internal/parser/parser/statements-declarations.js";
 import { createAstReader } from "../../../packages/tsts/dist/src/services/ast-reader.js";
 import { ScriptKindJS, ScriptKindJSX, ScriptKindTS, ScriptKindTSX } from "../../../packages/tsts/dist/src/internal/core/scriptkind.js";
-import { SourceFile_Diagnostics } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
+import { Node_QuestionDotToken, SourceFile_Diagnostics } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
 import { NodeDefault_AsNode } from "../../../packages/tsts/dist/src/internal/ast/spine.js";
 
 const canonicalNativeAllocationBoundary = Object.freeze({
@@ -185,6 +185,7 @@ export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSou
     staticEntryCut: "Current canonical consumers and their incoming static source, package and Cargo entries; arbitrary external dynamic IO is not proven. This is not arbitrary dynamic IO soundness.",
     consumers: boundary.consumers,
     transcriptData: boundary.transcriptData,
+    literalUrlLoaders: boundary.literalUrlLoaders,
     externalDynamicEntries: boundary.externalDynamicEntries,
   }) });
 }
@@ -320,7 +321,7 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   for (const [path, script] of scripts) {
     for (const reference of script.references) {
       if (reference.external) { externalDynamicEntries.push(Object.freeze({ path, offset: reference.offset })); continue; }
-      if (reference.unresolved) { reject(path, "unresolved executable source syntax"); continue; }
+      if (reference.unresolved) { reject(path, reference.unresolvedReason ?? "unresolved executable source syntax"); continue; }
       const targets = destinations(path, reference);
       const hits = targets.some(touchesRestricted);
       const ambiguous = ambiguousEntry(path, reference);
@@ -331,6 +332,8 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   return Object.freeze({ findings: sortKeelFindings(findings), consumers: Object.freeze(consumers),
+    literalUrlLoaders: Object.freeze([...scripts].flatMap(([path, script]) => script.literalUrlLoaders
+      .map(loader => Object.freeze({ path, ...loader })))),
     transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
       .sort(([left], [right]) => left.localeCompare(right)))) });
@@ -498,21 +501,26 @@ function nativeSourceReferences(text, path) {
 }
 
 function scriptSourceReferences(path, text) {
-  if (!/\b(?:import|export|require|URL|readFile|copyFile)\b/u.test(text)) return { references: [], testEntry: false };
+  if (!/\b(?:import|export|require|URL|readFile|copyFile)\b/u.test(text)) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]) };
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;
   const sourcePath = `/keel/${path}`;
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
-  if (source.IsDeclarationFile) return { references: [], testEntry: false };
-  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return { references: [{ unresolved: true }], testEntry: false };
+  if (source.IsDeclarationFile) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]) };
+  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return { references: [{ unresolved: true }], testEntry: false, literalUrlLoaders: Object.freeze([]) };
   const references = [];
   const nodes = [];
   const imports = new Map();
-  const initializers = new Map();
+  const variables = new Map();
+  const identifiers = new Map();
   const visit = node => {
     nodes.push(node);
+    if (ast.kindName(node) === "KindIdentifier") {
+      const name = ast.text(node);
+      identifiers.set(name, [...identifiers.get(name) ?? [], node]);
+    }
     ast.forEachChild(node, visit);
   };
   visit(NodeDefault_AsNode(source));
@@ -534,12 +542,69 @@ function scriptSourceReferences(path, text) {
         ast.forEachChild(child, collect);
       };
       collect(node);
-    } else if (kindName === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindIdentifier" &&
-      ast.variableDeclarationKind(node) === "const") {
+    } else if (kindName === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindIdentifier") {
       const name = ast.text(ast.name(node));
-      const children = ast.children(node);
-      const initializer = children.at(-1) === ast.name(node) ? undefined : children.at(-1);
-      initializers.set(name, initializers.has(name) ? undefined : initializer);
+      variables.set(name, [...variables.get(name) ?? [], node]);
+    }
+  }
+  const literalUrlLoaders = [];
+  const loaderImports = new Map();
+  for (const declarations of variables.values()) {
+    for (const declaration of declarations) {
+      const arrow = initializer(declaration);
+      if (ast.kindName(arrow) !== "KindArrowFunction") continue;
+      const body = ast.body(arrow);
+      if (ast.kindName(body) !== "KindCallExpression" || ast.kindName(ast.children(body)[0]) !== "KindImportKeyword") continue;
+      const address = ast.arguments(body)[0];
+      if (ast.kindName(address) !== "KindPropertyAccessExpression" || ast.text(ast.name(address)) !== "href") continue;
+      const construction = ast.children(address)[0];
+      if (ast.kindName(construction) !== "KindNewExpression") continue;
+      const base = ast.arguments(construction)[1];
+      if (ast.kindName(base) !== "KindIdentifier" || !urlBaseDeclaration(base)) continue;
+      const rejectLoader = reason => loaderImports.set(body, [{ unresolved: true,
+        unresolvedReason: `unresolved first-party literal URL loader: ${reason}` }]);
+      const baseDeclaration = urlBaseDeclaration(base);
+      const baseConstruction = initializer(baseDeclaration);
+      const baseArguments = ast.arguments(baseConstruction);
+      const parameters = ast.parameters(arrow);
+      const loaderName = ast.text(ast.name(declaration));
+      const uses = identifiers.get(loaderName);
+      const baseUses = identifiers.get(ast.text(base));
+      const referencesToLoader = uses.filter(use => use !== ast.name(declaration));
+      const calls = referencesToLoader.map(use => ast.parent(use));
+      if (!privateConstant(declaration) || declarations.length !== 1 || ast.hasModifierKind(arrow, "async") ||
+        parameters.length !== 1 || ast.kindName(ast.name(parameters[0])) !== "KindIdentifier" ||
+        ast.children(parameters[0]).length !== 1 || ast.typeParameters(arrow).length !== 0 ||
+        ast.arguments(body).length !== 1 || ast.arguments(construction).length !== 2 ||
+        ast.kindName(ast.arguments(construction)[0]) !== "KindIdentifier" ||
+        ast.text(ast.arguments(construction)[0]) !== ast.text(ast.name(parameters[0])) ||
+        !nativeUrlConstructor(ast.children(construction)[0])) {
+        rejectLoader("the private immutable binding and exact whole loader body are not proven"); continue;
+      }
+      if (!privateConstant(baseDeclaration) || variables.get(ast.text(base)).length !== 1 ||
+        baseUses.length !== 2 || !baseUses.includes(ast.name(baseDeclaration)) || !baseUses.includes(base) ||
+        baseArguments.length !== 2 || !literal(baseArguments[0]) || !importMetaUrl(baseArguments[1]) ||
+        !nativeUrlConstructor(ast.children(baseConstruction)[0])) {
+        rejectLoader("the literal URL base is ambiguous, escaping, mutable, shadowed or unrooted"); continue;
+      }
+      if (calls.length === 0 || calls.some((call, index) => ast.kindName(call) !== "KindCallExpression" ||
+        ast.children(call)[0] !== referencesToLoader[index] || Node_QuestionDotToken(call) !== undefined ||
+        ast.arguments(call).length !== 1 || !literal(ast.arguments(call)[0]) || ast.typeArguments(call).length !== 0)) {
+        rejectLoader("every reference must be its declaration or a direct one-literal-argument call"); continue;
+      }
+      let baseUrl;
+      let targets;
+      try {
+        baseUrl = new URL(ast.text(baseArguments[0]), new URL(path.split("/").map(encodeURIComponent).join("/"), "file:///keel/"));
+        targets = calls.map(call => new URL(ast.text(ast.arguments(call)[0]), baseUrl));
+        if ([baseUrl, ...targets].some(url => url.protocol !== "file:" || url.hostname !== "" ||
+          !url.pathname.startsWith("/keel/") || /%2f|%5c/iu.test(url.pathname) || !validPath(decodeURIComponent(url.pathname.slice(6))))) throw new Error("Unrooted URL");
+      } catch {
+        rejectLoader("the actual URL base or a literal target leaves the tracked first-party root"); continue;
+      }
+      const resolved = targets.map(url => decodeURIComponent(url.pathname.slice(6)));
+      loaderImports.set(body, resolved.map(target => ({ module: true, path: target, firstParty: true })));
+      literalUrlLoaders.push(Object.freeze({ name: loaderName, base: baseUrl.href, targets: Object.freeze(resolved) }));
     }
   }
   const testEntry = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
@@ -550,18 +615,60 @@ function scriptSourceReferences(path, text) {
       const module = api(callee) === "require" || ast.kindName(callee) === "KindImportKeyword";
       const fileRead = /^node:fs(?:\/promises)?#(?:readFile(?:Sync)?|copyFile(?:Sync)?)$/u.test(api(callee));
       if (!module && !fileRead) continue;
+      if (loaderImports.has(node)) { references.push(...loaderImports.get(node)); continue; }
       const address = sourceAddress(ast.arguments(node)[0]);
-      if (address.path !== undefined || address.specifier !== undefined || address.firstParty) {
+      if (module && address.literalBaseLoader) {
+        references.push({ unresolved: true, unresolvedReason: "unresolved first-party literal URL loader: unsupported whole body or binding" });
+      } else if (address.path !== undefined || address.specifier !== undefined || address.firstParty) {
         references.push({ ...address, module, fileRead });
       } else if (module) references.push({ external: true, offset: ast.pos(node) });
     }
   }
-  return { references, testEntry };
+  return { references, testEntry, literalUrlLoaders: Object.freeze(literalUrlLoaders) };
+
+  function literal(node) {
+    return ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(node));
+  }
+
+  function initializer(declaration) {
+    const children = ast.children(declaration);
+    return children.at(-1) === ast.name(declaration) ? undefined : children.at(-1);
+  }
+
+  function privateConstant(declaration) {
+    const statement = ast.parent(ast.parent(declaration));
+    return ast.variableDeclarationKind(declaration) === "const" && ast.kindName(statement) === "KindVariableStatement" &&
+      ast.kindName(ast.parent(statement)) === "KindSourceFile" && !ast.hasModifierKind(statement, "export");
+  }
+
+  function importMetaUrl(node) {
+    return ast.kindName(node) === "KindPropertyAccessExpression" && ast.text(ast.name(node)) === "url" &&
+      ast.kindName(ast.children(node)[0]) === "KindMetaProperty";
+  }
+
+  function urlBaseDeclaration(node) {
+    return variables.get(ast.text(node))?.find(declaration => {
+      const construction = initializer(declaration);
+      const constructor = ast.children(construction)[0];
+      return ast.kindName(construction) === "KindNewExpression" &&
+        (ast.kindName(constructor) === "KindIdentifier" && ast.text(constructor) === "URL" || api(constructor) === "node:url#URL");
+    });
+  }
+
+  function nativeUrlConstructor(node) {
+    if (ast.kindName(node) !== "KindIdentifier") return false;
+    if (!["URL", "node:url#URL"].includes(api(node))) return false;
+    const name = ast.text(node);
+    return !(identifiers.get(name) ?? []).some(use => {
+      const parent = ast.parent(use);
+      return ast.name(parent) === use && !["KindImportSpecifier", "KindImportClause", "KindNamespaceImport"].includes(ast.kindName(parent));
+    });
+  }
 
   function api(node) {
     if (ast.kindName(node) === "KindIdentifier") {
       const name = ast.text(node);
-      return imports.get(name) ?? (!initializers.has(name) && ["URL", "require"].includes(name) ? name : "");
+      return imports.get(name) ?? (!variables.has(name) && ["URL", "require"].includes(name) ? name : "");
     }
     if (ast.kindName(node) === "KindPropertyAccessExpression") {
       const receiver = ast.children(node)[0];
@@ -581,7 +688,9 @@ function scriptSourceReferences(path, text) {
     if (kindName === "KindIdentifier") {
       const name = ast.text(node);
       if (seen.has(name)) return { firstParty: true };
-      return initializers.has(name) ? sourceAddress(initializers.get(name), new Set([...seen, name])) : {};
+      const declarations = variables.get(name);
+      return declarations?.length === 1 && ast.variableDeclarationKind(declarations[0]) === "const"
+        ? sourceAddress(initializer(declarations[0]), new Set([...seen, name])) : {};
     }
     if (kindName === "KindParenthesizedExpression" || kindName === "KindPropertyAccessExpression" && ast.text(ast.name(node)) === "href") {
       return sourceAddress(ast.children(node)[0], seen);
@@ -594,8 +703,8 @@ function scriptSourceReferences(path, text) {
       if (["node:url#pathToFileURL", "node:url#fileURLToPath"].includes(name)) return sourceAddress(arguments_[0], seen);
       if (["URL", "node:url#URL"].includes(name)) {
         const base = arguments_[1];
-        const rooted = ast.kindName(base) === "KindPropertyAccessExpression" && ast.text(ast.name(base)) === "url" &&
-          ast.kindName(ast.children(base)[0]) === "KindMetaProperty";
+        if (ast.kindName(base) === "KindIdentifier" && urlBaseDeclaration(base)) return { firstParty: true, literalBaseLoader: true };
+        const rooted = importMetaUrl(base);
         if (!rooted) return {};
         const value = sourceAddress(arguments_[0], seen);
         if (value.specifier !== undefined) {

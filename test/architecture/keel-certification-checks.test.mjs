@@ -334,6 +334,90 @@ test("only actual source and observer-read effects cross the cut, with known API
   assert.equal(boundarySafety(data).findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
 });
 
+test("literal URL loaders publish ordinary targets only after a complete private binding proof", () => {
+  for (const base of ["../test/helpers/", "../test/helpers/base.mjs"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(`
+const root = new URL(${JSON.stringify(base)}, import.meta.url);
+const load = (entry) => import(new URL(entry, root).href);
+load("unrelated.mjs");
+load("second.mjs?query=one#fragment");
+`));
+    inputs.get("tsonic-rust").set("test/helpers/unrelated.mjs", safetyFile("export const value = 1;"));
+    inputs.get("tsonic-rust").set("test/helpers/second.mjs", safetyFile("export const value = 2;"));
+    const result = boundarySafety(inputs);
+    assert.equal(result.findings.length, 0, base);
+    assert.equal(Array.isArray(result.nativeAllocationBoundary.literalUrlLoaders), true, "closed loaders publish their proof");
+    assert.equal(result.nativeAllocationBoundary.literalUrlLoaders.length, 1, base);
+    const loader = result.nativeAllocationBoundary.literalUrlLoaders[0];
+    assert.equal(loader.name, "load");
+    assert.deepEqual(loader.targets, ["tsonic-rust/test/helpers/unrelated.mjs", "tsonic-rust/test/helpers/second.mjs"]);
+    assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length, 0, "first-party targets are not labelled external");
+    assert.equal(Object.isFrozen(loader) && Object.isFrozen(loader.targets), true);
+  }
+});
+
+test("literal URL loaders refuse every nonliteral, escape, mutation, shadow and unsupported body", () => {
+  const source = 'const root = new URL("../test/helpers/", import.meta.url); const load = (entry) => import(new URL(entry, root).href); load("unrelated.mjs");';
+  for (const [label, changed] of [
+    ["nonliteral", source.replace('load("unrelated.mjs")', "load(process.env.ENTRY)")],
+    ["one unsettled caller", `${source} load(process.env.ENTRY);`],
+    ["numeric caller", source.replace('load("unrelated.mjs")', "load(1)")],
+    ["missing argument", source.replace('load("unrelated.mjs")', "load()")],
+    ["extra argument", source.replace('load("unrelated.mjs")', 'load("unrelated.mjs", "extra")')],
+    ["spread", source.replace('load("unrelated.mjs")', 'load(...["unrelated.mjs"])')],
+    ["optional call", source.replace('load("unrelated.mjs")', 'load?.("unrelated.mjs")')],
+    ["exported loader", source.replace("const load", "export const load")],
+    ["exported loader reference", `${source} export { load };`],
+    ["escaping loader", `${source} const alias = load;`],
+    ["callback escape", `${source} accept(load);`],
+    ["shadowed loader", `${source} function shadow(load) { return load; }`],
+    ["mutable loader", source.replace("const load", "let load")],
+    ["mutable URL base", source.replace("const root", "let root")],
+    ["base URL mutation", `${source} root.pathname = "/keel/tsonic-rust/test/helpers/";`],
+    ["escaping URL base", `${source} const alias = root;`],
+    ["exported URL base", source.replace("const root", "export const root")],
+    ["shadowed URL base", `${source} function shadow(root) { return root; }`],
+    ["computed URL base", source.replace('"../test/helpers/"', "process.env.ROOT")],
+    ["unknown root", source.replace("import.meta.url", "process.env.BASE")],
+    ["wrong root", source.replace('"../test/helpers/"', '"file:///outside/"')],
+    ["wrong URL scheme", source.replace('"../test/helpers/"', '"https://example.invalid/"')],
+    ["shadowed URL constructor", `function URL(...values) { return values[0]; } ${source}`],
+    ["async loader", source.replace("(entry) =>", "async (entry) =>")],
+    ["extra body effect", source.replace("=> import", "=> (observe(), import").replace(".href);", ".href));")],
+    ["block body", source.replace("=> import", "=> { return import").replace(".href);", ".href); };")],
+    ["computed parameter", source.replace("new URL(entry, root)", 'new URL(entry + ".mjs", root)')],
+    ["malformed literal target", source.replace('load("unrelated.mjs")', 'load("%ZZ.mjs")')],
+    ["encoded separator", source.replace('load("unrelated.mjs")', 'load("nested%2Funrelated.mjs")')],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(changed));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, label);
+    assert.equal(keelFixtureHas(result.findings, "AC12", "literal URL loader"), true, label);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, label);
+  }
+});
+
+test("literal URL targets traverse canonical writer and bridge entries with native URL semantics", () => {
+  for (const target of ["native-ownership-cost.mjs", "%6eative-ownership-cost.mjs", "native-ownership-cost.mjs?unit=cost#entry"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(`const root = new URL("../test/helpers/base.mjs", import.meta.url); const load = (entry) => import(new URL(entry, root).href); load(${JSON.stringify(target)});`));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, target);
+  }
+  const bridge = nativeBoundaryInputs();
+  bridge.get("tsonic-rust").set("src/loader.mjs", safetyFile('const root = new URL("./", import.meta.url); const load = (entry) => import(new URL(entry, root).href); load("bridge.mjs");'));
+  bridge.get("tsonic-rust").set("src/bridge.mjs", safetyFile('export { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs";'));
+  const rejected = boundarySafety(bridge);
+  assert.equal(rejected.nativeAllocationBoundary === undefined, true, "the actual target's bridge to the writer is forbidden");
+  assert.equal(rejected.findings.some(finding => finding.file === "src/bridge.mjs" && finding.subject === "canonical native allocation boundary"), true);
+  const entry = nativeBoundaryInputs();
+  entry.get("tsonic-rust").set("test/cost.test.mjs", safetyFile('import test from "node:test"; const root = new URL("./helpers/", import.meta.url); const load = (entry) => import(new URL(entry, root).href); test("cost", () => load("native-ownership-cost.mjs"));'));
+  assert.equal(boundarySafety(entry).findings.length, 0, "the exact same proof may serve a genuine test entry");
+  entry.get("tsonic-rust").set("src/promote.mjs", safetyFile('import "../test/cost.test.mjs";'));
+  assert.equal(boundarySafety(entry).nativeAllocationBoundary === undefined, true, "test-only incoming promotion remains forbidden");
+});
+
 test("the actual transcript manifest declares data, not an executable-suffix waiver", () => {
   const inputs = nativeBoundaryInputs();
   const root = "packages/tsts/tools/tsgo-suite";
