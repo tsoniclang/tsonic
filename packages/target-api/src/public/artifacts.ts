@@ -18,6 +18,7 @@ export {
   rejectedTargetStage,
   resolvedTargetStage,
   runTargetCompilationStages,
+  targetDiagnosticFromExtension,
 } from "../artifacts.js";
 export {
   createTargetArtifactContractGraph,
