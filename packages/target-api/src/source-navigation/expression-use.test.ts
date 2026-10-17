@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@t
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse,
   sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "./ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -95,7 +95,7 @@ test("callable binding demand follows exact local aliases and retains every real
   const visit = (node: Node): void => {
     if (source.ast.is.IsVariableDeclaration(node)) {
       const name = source.ast.name(node);
-      const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+      const initializer = Node_Initializer(source.ast, node);
       if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
         const label = source.ast.text(name);
         const values = results.get(label) ?? [];
