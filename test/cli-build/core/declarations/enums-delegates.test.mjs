@@ -61,7 +61,7 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
   assert.match(generatedSource, /Up = 1,/);
   assert.match(generatedSource, /Down = 2,/);
   assert.match(generatedSource, /Left = 4,/);
-  assert.match(generatedSource, /Right = Left << 1/);
+  assert.match(generatedSource, /Right = 8,/u);
   assert.match(generatedSource, /public static Direction turn\(Direction direction\)/);
   assert.match(generatedSource, /return direction == Direction\.Up \? Direction\.Right : Direction\.Up;/);
   assert.match(generatedSource, /selected = global::Smoke\.Generated\.Index\.turn\(Direction\.Up\) == Direction\.Right \? "right" : "bad";/);
@@ -104,7 +104,8 @@ test("CLI rejects string enums until target enum-carrier facts are finalized", a
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# enum member initializers must be integer constants evaluated by TSTS/);
+  assert.match(build.stderr, /CSHARP_ENUM_CONSTANT_NOT_SUPPORTED/u);
+  assert.match(build.stderr, /A source-authored native enum requires exact integer constants; regular string enums have no admitted native runtime representation\./u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringEnums.csproj")), false);
 });
 
@@ -135,7 +136,8 @@ test("CLI rejects fractional numeric enum initializers before C# artifact genera
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# enum member initializers must be integer constants evaluated by TSTS/);
+  assert.match(build.stderr, /CSHARP_ENUM_CONSTANT_NOT_SUPPORTED/u);
+  assert.match(build.stderr, /An enum constant must be integral; fractional numeric literals are not representable\./u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedFractionalEnums.csproj")), false);
 });
 
