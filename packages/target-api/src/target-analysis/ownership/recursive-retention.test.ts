@@ -951,7 +951,6 @@ for (const depth of [2, 3]) for (const reverse of [false, true]) {
     assert.equal(call !== undefined, true, "One actual repeated-factory allocation is checked.");
     const bindings = storage.bindingsForLexicalOwner(call!);
     assert.equal(bindings.kind, "resolved", "The actual allocation caller is retained.");
-    if (bindings.kind === "unresolved") return;
     const closure = createSourceContinuationClosureQuery({ source, storage, premises: current.premises, budget: current.budget });
     const selected = closure.forInvocation(call!, bindings.bindings);
     assert.equal(selected.kind === "resolved", true,
@@ -967,7 +966,6 @@ for (const depth of [2, 3]) for (const reverse of [false, true]) {
     for (const read of reads) {
       const subject = storage.subjectFor(read.reference);
       assert.equal(subject.kind, "resolved", "The exact original capture subject is checked.");
-      if (subject.kind === "unresolved") return;
       const producers = storage.storageProducersFor(subject.subject, read.bindings);
       assert.equal(producers.kind === "complete" && producers.producers.length === 1, true,
         "Each point reads its own actual factory argument without a merged capture environment.");
