@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../../source-semantics/value-flow-conditions.js";
-import { sourceStorageClassValue, sourceStorageConstructedClass } from "../model/construction.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
@@ -25,7 +25,10 @@ type GuardCandidate =
   | { readonly kind: "absence" }
   | { readonly kind: "present"; readonly declaration?: Node };
 
-export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget) {
+export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget,
+  classValues: (expression: Node) => readonly {
+    readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
+  }[] | undefined) {
   const { ast, navigation } = source;
   const context = { ast, navigation, sourceFacts: source.sourceFacts,
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
@@ -60,8 +63,18 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       if (sourceStorageIsScalarType(type, semantics) || semantics.types.isNullish(type) ||
         semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
     }
-    const candidate = sourceStorageConstructedClass(owner.node, source, () => budget.step());
-    return candidate === undefined ? undefined : classMatches(candidate, target);
+    const expression = sourceStorageConstructionExpression(owner.node, source, budget.step);
+    const lineages = expression === undefined ? undefined : classValues(expression);
+    if (lineages === undefined || lineages.length === 0) return undefined;
+    let result: boolean | undefined;
+    for (const lineage of lineages) {
+      if (!budget.step()) return undefined;
+      const candidate = lineage.classes[0]?.subject.node;
+      const matches = candidate === undefined ? undefined : classMatches(candidate, target);
+      if (matches === undefined || result !== undefined && result !== matches) return undefined;
+      result = matches;
+    }
+    return result;
   };
   const absent = (owner: SourceStorageSubject): boolean | undefined => {
     const file = ast.getSourceFile(owner.node);
@@ -97,8 +110,10 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     if (guard?.kind === "absence") return { sourceOperand: guard.sourceOperand,
       predicate: { kind: "absence", negated: guard.negated } };
     if (guard?.kind !== "nominal") return undefined;
-    const target = sourceStorageClassValue(guard.sourceConstructor, source, () => budget.step());
-    return target === undefined ? undefined : { sourceOperand: guard.sourceOperand,
+    const lineages = classValues(guard.sourceConstructor);
+    if (lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete)) return undefined;
+    const target = lineages[0]?.classes[0]?.subject.node;
+    return target === undefined || lineages.some(lineage => lineage.classes[0]?.subject.node !== target) ? undefined : { sourceOperand: guard.sourceOperand,
       predicate: { kind: "nominal", declaration: target } };
   };
   const planFor = (reference: Node): GuardPlan | undefined => budget.withRows(rows => {

@@ -34,7 +34,7 @@ export function createSourceSuspensionQuery(input: {
       }
       const problem = sourceOwnershipContractProblem(source, value.node, selectedType.type, selected);
       if (problem !== undefined) return sourceOwnershipUnresolved(value.node, problem);
-    } else if (!immediateType(selectedType.type, source.semantics.forNode(value.node).types, budget)) {
+    } else if (!sourceOwnershipImmediateType(selectedType.type, source.semantics.forNode(value.node).types, budget)) {
       return sourceOwnershipUnresolved(value.node, budget.failure() ?? "The actual awaited value has no checked possibly-pending or non-suspending contract.");
     }
     if (!rows.add(4)) return sourceOwnershipUnresolved(value.node, budget.failure()!);
@@ -53,15 +53,25 @@ export function createSourceSuspensionQuery(input: {
     const missingContract = () => sourceOwnershipUnresolved(expression,
       "A no-body invocation requires its checked native continuation contract; a non-async result is not an empty-work proof.");
     if (existing !== undefined) return requireContract && !existing.declared ? missingContract() : existing.selection;
+    const types = source.semantics.forNode(expression).types;
+    const expressionType = types.expressionType(expression);
+    if (!requireContract && expressionType !== undefined && sourceOwnershipImmediateType(expressionType, types, budget)) {
+      if (!rows.add(2)) return sourceOwnershipUnresolved(operation, budget.failure()!);
+      const selection: SourcePendingSelection = Object.freeze({ kind: "never" });
+      const values = cache.get(operation) ?? new Map<SourceStorageBindings, PendingEntry>();
+      values.set(bindings, Object.freeze({ selection, declared: false }));
+      cache.set(operation, values);
+      return selection;
+    }
     const subject = storage.subjectFor(expression);
     if (subject.kind === "unresolved") return sourceOwnershipUnresolved(operation, subject.reason);
-    const bound = storage.boundOriginsFor(subject.subject, bindings);
+    const bound = storage.storageProducersFor(subject.subject, bindings);
     if (bound.kind === "unresolved") return sourceOwnershipUnresolved(operation, bound.reason);
-    if (bound.subjects.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
+    if (bound.producers.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
     const contracts: SourcePendingOperation["contracts"][number][] = [];
     let declared = true;
-    for (const actual of bound.subjects) {
-      const selection = forOrigin(actual, bindings);
+    for (const actual of bound.producers) {
+      const selection = forOrigin(actual.subject, actual.bindings);
       if (selection.kind === "unresolved") return selection;
       declared &&= selection.declared;
       if (requireContract && !selection.declared) return missingContract();
@@ -118,11 +128,11 @@ export function createSourceSuspensionQuery(input: {
   });
 }
 
-function immediateType(type: Type, types: SourceFinalTypeQueries, budget: SourceOwnershipBudget): boolean {
+export function sourceOwnershipImmediateType(type: Type, types: SourceFinalTypeQueries, budget: SourceOwnershipBudget): boolean {
   if (!budget.step() || types.isAny(type) || types.isUnknown(type) || types.isIntersection(type)) return false;
   if (types.isUnion(type)) {
     const members = types.unionOrIntersectionTypes(type);
-    return members.length > 0 && members.every(member => immediateType(member, types, budget));
+    return members.length > 0 && members.every(member => sourceOwnershipImmediateType(member, types, budget));
   }
   return types.isNever(type) || types.isNumberLike(type) || types.isBooleanLike(type) || types.isStringLike(type) ||
     types.isBigIntLike(type) || types.isSymbolLike(type) || types.isNullish(type) || types.isVoidLike(type);

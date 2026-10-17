@@ -87,13 +87,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (term.kind === "transition") {
         const condition = normalize(term.condition, witnesses, temporary, false);
         if (condition === undefined) return undefined;
-        term = Object.freeze({ ...term, condition });
-        if (condition.kind === "leaf") {
-          const selected = successors.reduce(term);
-          if (selected === undefined) return undefined;
-          if (selected.kind === "replace" && selected.terms.length === 0) return emptyTerm;
-          if (selected.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
-        }
+        return Object.freeze({ ...term, condition });
       }
       break;
     }
@@ -116,10 +110,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const value = normalize(term.value, witnesses, temporary, false);
       return value === undefined ? undefined : value.kind === "guarded" && value.reference === term.reference
         ? value : Object.freeze({ ...term, value });
-    }
-    if (term.kind === "transition") {
-      const value = normalize(term.value, witnesses, temporary, contributes);
-      return value === undefined ? undefined : Object.freeze({ ...term, value });
     }
     if (term.kind === "member") {
       const receiver = normalize(term.receiver, witnesses, temporary, false, true);
@@ -408,11 +398,67 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return Object.freeze(inputs);
   });
   return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, formals: scopes.formals,
+    invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
+      return withQuery(() => budget.withRows(temporary => {
+        const subject = transport.subject(invocation);
+        if (subject === undefined) return undefined;
+        const target = transport.invocationTargets.get(invocation);
+        const operation = transport.accessorTargets.has(invocation)
+          ? source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
+            : source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
+        const receiver = transport.subjectFor(operation?.receiver.expression);
+        const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
+        for (const scope of bindings) {
+          if (!budget.step() || !temporary.add(2)) return undefined;
+          let term: SourceStorageTerm;
+          if (target !== undefined) term = Object.freeze({ kind: "application", mode: "execution", demand: invocation,
+            invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) });
+          else if (receiver !== undefined) term = Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+            selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
+            scope, projection: Object.freeze([]) });
+          else {
+            budget.reject("An invocation context requires its exact checked callee or accessor receiver.");
+            return undefined;
+          }
+          states.push([{ subject, term }]);
+        }
+        return keys.context(states);
+      }));
+    },
+    contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: readonly SourceStorageScope[]): string | undefined {
+      return withQuery(() => budget.withRows(temporary => {
+        const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
+        for (const scope of bindings) {
+          const inputs: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[] = [];
+          for (const subject of subjects) {
+            if (!budget.step() || !temporary.add(1)) return undefined;
+            const selected = intern(sourceStorageReference(subject, scope));
+            if (selected === undefined) return undefined;
+            inputs.push({ subject, term: selected.term });
+          }
+          if (!temporary.add(1)) return undefined;
+          states.push(inputs);
+        }
+        return keys.context(states);
+      }));
+    },
     boundActivation: scopes.boundActivation,
     isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
       scopes.withTraversal(() => {
         const bound = scopes.lookup(origin, scope);
         return bound !== undefined && (bound.kind !== "replace" || !bound.terms.some(term => term.kind === "leaf" && scopes.isSymbolic(term)));
       }),
-    forDeclaration: scopes.declarationFor, forInvocation: scopes.frameFor, identityFor: scopes.identity });
+    forDeclaration: scopes.declarationFor,
+    forInvocation(candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
+      callee: SourceStorageSubject | undefined) {
+      if (transport.accessorTargets.has(invocation)) return scopes.frameFor(candidate, invocation, caller, captured);
+      if (callee === undefined || !transport.invocationTargets.has(invocation)) {
+        budget.reject("An invocation context requires its exact checked callee transport.");
+        return undefined;
+      }
+      return equations.scopeFor(candidate, invocation, caller, captured, Object.freeze({ kind: "application",
+        mode: "execution", demand: invocation, invocation, callee: Object.freeze({ kind: "leaf", subject: callee, scope: captured }),
+        scope: caller, projection: Object.freeze([]) }));
+    },
+    identityFor: scopes.identity });
 }

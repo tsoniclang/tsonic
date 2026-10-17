@@ -2,8 +2,17 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition,
-  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
+  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
+
+export function sourceAsyncResultUseIsRejected(
+  selection: SourceAsyncOwnershipSelection,
+  possibleRetention: SourceRetentionSelection,
+): boolean {
+  if (selection.kind === "resolved") return selection.decision === "rejected";
+  return selection.kind === "unresolved" && possibleRetention.kind === "resolved" &&
+    possibleRetention.premises.some(premise => premise.kind === "scoped-borrowed" || premise.kind === "formal-borrowed");
+}
 
 export function decideSourceAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
@@ -37,11 +46,13 @@ export function decideSourceAsyncResultUse(input: {
   if (continuation.kind === "unresolved") return continuation;
   for (const dependency of continuation.dependencies) {
     if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
-    if (dependency.retention.kind !== "scoped-borrowed") continue;
+    if (dependency.retention.kind !== "scoped-borrowed" && dependency.retention.kind !== "formal-borrowed") continue;
     if (disposition.kind === "awaited-in-scope") {
+      const region = dependency.retention.kind === "scoped-borrowed"
+        ? dependency.retention.region : dependency.retention.executionOwner;
       let current: Node | undefined = disposition.use;
       const visited = new Set<Node>();
-      while (current !== undefined && current !== dependency.retention.region) {
+      while (current !== undefined && current !== region) {
         if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
         if (visited.has(current)) return sourceOwnershipUnresolved(call, "The await's source scope has cyclic ancestry.");
         visited.add(current);

@@ -1,78 +1,238 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceStorageConstructedClass } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
+import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/transport/invocation-results.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
-function fixture() {
-  const selected = { kind: "class" };
-  const reference = { declaration: selected };
-  const alias = { kind: "variable", initializer: reference };
-  const aliased = { declaration: alias };
-  const invocation = { kind: "new", expression: aliased };
-  const source = {
-    ast: {
-      is: {
-        IsExpressionStatement: () => false, IsReturnStatement: () => false,
-        IsThrowStatement: () => false, IsIfStatement: () => false,
-        IsWhileStatement: () => false, IsDoStatement: () => false,
-        IsForOfStatement: () => false, IsForInStatement: () => false,
-        IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
-        IsCallExpression: () => false,
-        IsNewExpression: node => node.kind === "new",
-        IsClassDeclaration: node => node.kind === "class",
-        IsClassExpression: node => node.kind === "class-expression",
-        IsVariableDeclaration: node => node.kind === "variable",
-        IsParenthesizedExpression: node => node.kind === "parenthesized",
-        IsAsExpression: () => false, IsSatisfiesExpression: () => false,
-        IsNonNullExpression: () => false, IsTypeAssertion: () => false,
-      },
-      as: {
-        AsNewExpression: node => ({ Expression: node.expression }),
-        AsParenthesizedExpression: node => ({ Expression: node.expression }),
-        AsVariableDeclaration: node => ({ Initializer: node.initializer }),
-      },
-      variableDeclarationKind: node => node.declarationKind ?? "const",
-    },
-    navigation: {
-      sourceReferenceFor: node => node.declaration === undefined ? undefined : { declaration: node.declaration },
-      declarationUseSummary: node => ({ bindingWritten: node.mutable === true, exported: node.exported === true }),
-      isProjectDeclaration: node => node === selected,
-    },
-  };
-  return { selected, reference, alias, aliased, invocation, source };
+function fixture(limits = defaultSourceStorageLimits) {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    class Ready { ready = 1; }
+    class Child extends Ready {}
+    const Copy = Ready; const Parenthesized = (Copy); export const Published = Ready;
+    export let Changing: typeof Ready = Ready;
+    declare const Missing: typeof Ready;
+    function dynamic(Factory: typeof Ready) { return new Factory(); }
+    const copied = new Copy(); const parenthesized = new Parenthesized();
+    const published = new Published(); const changing = new Changing(); const missing = new Missing();
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "The controls are actual checked source, not synthetic result-type identities.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles, limits);
+  const variable = name => storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === name);
+  const invocation = name => source.ast.as.AsVariableDeclaration(variable(name)).Initializer;
+  return { source, storage, invocation };
 }
 
-test("construction storage follows exact immutable aliases without inferring identity from result types", () => {
-  const value = fixture();
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === value.selected, true);
-  value.alias.initializer = { kind: "parenthesized", expression: value.reference };
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === value.selected, true);
-  value.alias.mutable = true;
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true,
-    "a mutable constructor alias cannot select its initializer as its only origin");
+test("construction storage follows exact immutable and parenthesized copies through its canonical finite domain", () => {
+  const current = fixture();
+  const original = current.storage.nodes.find(node => current.source.ast.is.IsClassDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Ready");
+  for (const name of ["copied", "parenthesized", "published"]) {
+    const selected = current.storage.constructionFor(current.invocation(name));
+    assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1 &&
+      selected.alternatives[0].root === original, true, name);
+  }
+  assert.equal("sourceStorageConstructedClass" in construction, false, "The superseded syntax alias selector is removed.");
+  assert.equal("sourceStorageClassValue" in construction, false, "No competing singular class-value selector remains.");
+  assert.equal("sourceStorageInvokedClass" in construction, false, "Every constructor consumer uses finite actual source values.");
 });
 
-test("construction storage rejects foreign, cyclic, missing and budget-exhausted identities", () => {
-  const value = fixture();
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => false) === undefined, true);
-  value.alias.initializer = value.aliased;
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true, "cycle");
-  value.alias.initializer = { declaration: { kind: "class" } };
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true, "foreign class");
-  value.alias.initializer = undefined;
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true, "absent initializer");
-  value.alias.initializer = { declaration: { kind: "parameter" } };
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true,
-    "a constructor parameter's result type is not its runtime identity");
-  assert.equal(sourceStorageConstructedClass({ kind: "call" }, value.source, () => true) === undefined, true);
+test("construction storage rejects foreign, missing, formal, non-construction and budget-exhausted identities", () => {
+  const current = fixture();
+  const foreign = fixture();
+  assert.equal(current.storage.constructionFor(foreign.invocation("copied")).kind, "unresolved", "Foreign checked identity.");
+  assert.equal(current.storage.constructionFor(current.invocation("missing")).kind, "unresolved", "No actual initializer is invented.");
+  const dynamic = current.storage.invocations.find(node => current.source.ast.is.IsNewExpression(node) &&
+    current.source.ast.text(current.source.ast.as.AsNewExpression(node).Expression) === "Factory");
+  assert.equal(current.storage.constructionFor(dynamic).kind, "unresolved", "A formal constructor's result type is not its actual class identity.");
+  const nonConstruction = current.storage.nodes.find(node => current.source.ast.is.IsClassDeclaration(node));
+  assert.equal(current.storage.constructionFor(nonConstruction).kind, "unresolved", "A non-invocation cannot supply construction evidence.");
+  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
+    const bounded = fixture({ ...defaultSourceStorageLimits, ...limits });
+    assert.equal(bounded.storage.failureReason() !== undefined, true, "The original finite guard owns the failure.");
+    assert.equal(bounded.storage.constructionFor(current.invocation("copied")).kind, "unresolved", "No partial class inventory escapes.");
+  }
 });
 
-test("public mutable constructor aliases remain opaque without assuming a visible write", () => {
-  const value = fixture();
-  value.alias.exported = true;
-  value.alias.declarationKind = "let";
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true,
-    "external assignments are possible even when no project assignment is recorded");
-  value.alias.declarationKind = "const";
-  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === value.selected, true,
-    "publication alone does not make an immutable constructor binding writable");
+test("public mutable constructor aliases remain opaque while immutable publication keeps exact identity", () => {
+  const current = fixture();
+  assert.equal(current.storage.constructionFor(current.invocation("changing")).kind, "unresolved",
+    "External assignments remain possible without a recorded project write.");
+  const published = current.storage.constructionFor(current.invocation("published"));
+  assert.equal(published.kind === "resolved" && published.alternatives.length === 1, true,
+    "Publishing an immutable binding does not make its actual class identity mutable.");
+});
+
+test("the canonical class lineage refuses cyclic, foreign and missing actual heritage inputs", () => {
+  const current = fixture();
+  const child = current.storage.nodes.find(node => current.source.ast.is.IsClassDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Child");
+  const selected = current.storage.subjectFor(child);
+  assert.equal(selected.kind, "resolved", "The negative starts with a real checked source class.");
+  const value = { subject: selected.subject, bindings: current.storage.emptyBindings };
+  const values = new Set([value]);
+  const subjectFor = node => {
+    const selected = current.storage.subjectFor(node);
+    return selected.kind === "resolved" ? selected.subject : undefined;
+  };
+  const cyclic = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits), values,
+    { subjectFor, valuesFor: () => values });
+  assert.equal(cyclic !== undefined && cyclic.length === 1 && cyclic[0].complete === false, true,
+    "A repeated exact class/scope pair is unresolved, not a complete empty initializer inventory.");
+  const missing = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits), values,
+    { subjectFor, valuesFor: () => undefined });
+  assert.equal(missing === undefined, true, "Missing required heritage evidence cannot be treated as no base.");
+  const foreign = fixture();
+  const foreignClass = foreign.storage.nodes.find(node => foreign.source.ast.is.IsClassDeclaration(node));
+  const foreignSubject = foreign.storage.subjectFor(foreignClass);
+  assert.equal(foreignSubject.kind, "resolved");
+  const rejected = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits),
+    new Set([{ subject: foreignSubject.subject, bindings: foreign.storage.emptyBindings }]), { subjectFor, valuesFor: () => values });
+  assert.equal(rejected !== undefined && rejected.length === 1 && rejected[0].complete === false, true,
+    "A foreign class value never supplies a native or source-construction guarantee.");
+});
+
+for (const reverse of [false, true]) {
+  test(`contextual constructor closure preserves native, unknown, open and mixed alternatives, reverse=${reverse}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      interface Holder { readonly value: number; }
+      type Factory = new (value: number) => Holder;
+      class Ready { constructor(readonly value: number) {} }
+      declare class Native { readonly value: number; constructor(value: number); }
+      declare const Missing: Factory;
+      export let Changing: Factory = Ready;
+      function derived(Parent: Factory) { return class Derived extends Parent { extra = 1; }; }
+      function root(Unknown: Factory, flag: boolean) {
+        const Source = derived(Ready); const NativeOnly = derived(Native);
+        const Mixed = derived(flag ? Ready : Native); const Open = derived(Changing);
+        const Absent = derived(Missing); const Formal = derived(Unknown);
+        const source = new Source(1); const native = new NativeOnly(1);
+        const mixed = new Mixed(1); const open = new Open(1);
+        const absent = new Absent(1); const formal = new Formal(1);
+        return [source, native, mixed, open, absent, formal];
+      }
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "The negative controls are real checked construction programs.");
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const invocations = ["Source", "NativeOnly", "Mixed", "Open", "Absent", "Formal"];
+    for (const name of reverse ? [...invocations].reverse() : invocations) {
+      const invocation = storage.invocations.find(node => source.ast.is.IsNewExpression(node) &&
+        source.ast.text(source.ast.as.AsNewExpression(node).Expression) === name);
+      assert.equal(invocation !== undefined, true, `${name}: the original checked construction exists.`);
+      const caller = storage.bindingsForLexicalOwner(invocation);
+      assert.equal(caller.kind, "resolved", `${name}: its actual caller declaration context is explicit.`);
+      if (caller.kind !== "resolved") return;
+      const selected = storage.constructionFor(invocation, caller.bindings);
+      assert.equal(selected.kind, name === "Source" ? "resolved" : "unresolved",
+        `${name}: only the wholly source-owned, closed actual alternative permits contextual closure.`);
+    }
+    assert.equal(storage.failureReason() === undefined, true, "Unknown alternatives do not poison a later actual source query.");
+  });
+}
+
+for (const [name, declarations, result] of [
+  ["anonymous", "", "{ value(): number }"],
+  ["alias", "type Shape = { value(): number };", "Shape"],
+  ["interface", "interface Shape { value(): number }", "Shape"],
+  ["object-value", "const shape = { value(): number { return 0; } };", "typeof shape"],
+]) {
+  test(`constructed native methods retain exact ${name} structural correspondence`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      ${declarations}
+      class Counter { value(): number { return 1; } }
+      export function make(): ${result} { return new Counter(); }
+      export function read(): number { return make().value(); }
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, `${name}: the actual source contract is valid.`);
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const implementation = storage.nodes.find(node => source.ast.is.IsMethodDeclaration(node) &&
+      source.ast.is.IsClassDeclaration(source.ast.parent(node)));
+    const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+      source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
+    assert.equal(implementation !== undefined && call !== undefined, true, `${name}: original checked method and call.`);
+    const callee = storage.subjectFor(source.ast.as.AsCallExpression(call).Expression);
+    const caller = storage.bindingsForLexicalOwner(call);
+    assert.equal(callee.kind === "resolved" && caller.kind === "resolved", true, `${name}: the exact operand and source activation.`);
+    if (callee.kind !== "resolved" || caller.kind !== "resolved") return;
+    const selected = storage.storageProducersFor(callee.subject, caller.bindings);
+    assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
+      selected.producers[0].subject.node === implementation, true,
+    `${name}: the actual class method, not a structural signature or invented fallback.`);
+    const activation = storage.bindingsForInvocation(implementation, call, caller.bindings, selected.producers[0]);
+    assert.equal(activation.kind === "resolved", true, `${name}: the selected source method owns its exact execution activation.`);
+    for (const bindings of [undefined, caller.bindings]) {
+      const implementations = storage.invocationImplementationsFor(call, bindings);
+      assert.equal(implementations.kind === "resolved" && implementations.exact && implementations.nodes.length === 1 &&
+        implementations.nodes[0] === implementation, true,
+      `${name}: ${bindings === undefined ? "whole-program" : "activation"} discovery consumes that same actual producer.`);
+    }
+    assert.equal(storage.failureReason() === undefined, true, `${name}: source storage remains complete.`);
+  });
+}
+
+test("scoped callable implementations retain actual caller alternatives instead of merging equal signatures", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    function left(): number { return 1; }
+    function right(): number { return 2; }
+    function invoke(callback: () => number): number { return callback(); }
+    const first = invoke(left); const second = invoke(right);
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "Both actual native callback activations are checked.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const named = name => storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  const variable = name => storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  const callback = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "callback");
+  const all = storage.invocationImplementationsFor(callback);
+  assert.equal(all.kind === "resolved" && all.exact && all.nodes.length === 2 &&
+    all.nodes.includes(named("left")) && all.nodes.includes(named("right")), true,
+  "Whole-program discovery keeps every actual caller without an arbitrary first candidate.");
+  for (const [variableName, implementationName] of [["first", "left"], ["second", "right"]]) {
+    const outer = source.ast.as.AsVariableDeclaration(variable(variableName)).Initializer;
+    const activation = storage.bindingsForInvocation(named("invoke"), outer);
+    assert.equal(activation.kind === "resolved", true, `${variableName}: exact actual callback activation.`);
+    if (activation.kind !== "resolved") return;
+    const selected = storage.invocationImplementationsFor(callback, activation.bindings);
+    assert.equal(selected.kind === "resolved" && selected.exact && selected.nodes.length === 1 &&
+      selected.nodes[0] === named(implementationName), true, `${variableName}: only its own original implementation.`);
+  }
+});
+
+test("scoped callable implementations keep native, abstract, mutable and foreign domains open", () => {
+  const current = () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      function body(): number { return 1; }
+      export let changing: () => number = body;
+      declare function native(): number;
+      function abstract(callback: () => number): number { return callback(); }
+      const mutable = changing(); const external = native();
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "The open callable contracts are checked native-valid source.");
+    const source = createTargetSourceProgram(checked);
+    return { source, storage: createSourceStorageQuery(source, source.sourceFiles) };
+  };
+  const { source, storage } = current();
+  const calls = storage.invocations.filter(node => source.ast.is.IsCallExpression(node));
+  for (const call of calls) {
+    const bindings = storage.bindingsForLexicalOwner(call);
+    assert.equal(bindings.kind === "resolved", true, "Every actual call has its checked lexical activation.");
+    if (bindings.kind !== "resolved") return;
+    for (const caller of [undefined, bindings.bindings]) {
+      const selected = storage.invocationImplementationsFor(call, caller);
+      assert.equal(selected.kind === "unresolved" || !selected.exact, true,
+        `${source.ast.text(source.ast.as.AsCallExpression(call).Expression)}: ${caller === undefined ? "whole-program" : "activation"} open/native domain is not an exact source body.`);
+    }
+  }
+  const foreign = current();
+  assert.equal(storage.invocationImplementationsFor(foreign.storage.invocations[0], storage.emptyBindings).kind,
+    "unresolved", "A foreign checked call cannot supply an implementation.");
+  assert.equal(storage.invocationImplementationsFor(calls[0], foreign.storage.emptyBindings).kind,
+    "unresolved", "Foreign binding views never become actual native/source contracts.");
 });

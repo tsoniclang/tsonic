@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise,
   SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection } from "./model.js";
@@ -55,6 +56,45 @@ export function createSourceRetentionQuery(input: {
           if (source.ast.is.IsSourceFile(premise.region)) {
             return sourceOwnershipUnresolved(actual.node, "A program-duration owner requires a retained module-owner premise, not a source-scoped lease.");
           }
+        } else if (premise.kind === "formal-borrowed") {
+          if (sourceStorageFormalOwner(actual, source.ast) !== premise.executionOwner ||
+            source.ast.body(premise.executionOwner) === undefined) {
+            return sourceOwnershipUnresolved(actual.node, "A formal lease requires its actual input or receiver execution owner.");
+          }
+          const activations = storage.boundActivationsFor(premise.executionOwner, bindings);
+          if (activations.kind === "unresolved") return sourceOwnershipUnresolved(actual.node, activations.reason);
+          if (activations.activations.length === 0) {
+            return sourceOwnershipUnresolved(actual.node, "A formal lease requires a closed checked execution activation.");
+          }
+          if (premise.region.kind === "input-duration") {
+            if (actual.kind !== "input" || premise.region.parameter !== actual.node ||
+              !source.ast.parameters(premise.executionOwner).includes(premise.region.parameter)) {
+              return sourceOwnershipUnresolved(actual.node, "An input-duration lease must identify that exact native input.");
+            }
+          } else {
+            const region = premise.region;
+            const semantics = source.semantics.forNode(actual.node);
+            const arguments_ = semantics.types.typeArgumentBindings(type.type);
+            const selected = arguments_?.find(binding => binding.declaration === region.binding.declaration &&
+              semantics.types.isIdentical(binding.parameterType, region.binding.parameterType) &&
+              semantics.types.isIdentical(binding.argumentType, region.binding.argumentType));
+            const symbol = selected === undefined ? undefined : semantics.declarations.typeSymbol(selected.argumentType);
+            if (selected === undefined || !source.ast.is.IsTypeParameterDeclaration(region.declaration) ||
+              symbol === undefined || !semantics.declarations.symbolDeclarations(symbol).includes(region.declaration)) {
+              return sourceOwnershipUnresolved(actual.node, "A formal lease requires its exact checked native region argument and declaration.");
+            }
+            let owner: Node | undefined = premise.executionOwner;
+            const visited = new Set<Node>();
+            while (owner !== undefined && !source.ast.typeParameters(owner).includes(region.declaration)) {
+              if (!budget.step()) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
+              if (visited.has(owner)) return sourceOwnershipUnresolved(actual.node, "A formal lease's generic environment has cyclic ancestry.");
+              visited.add(owner);
+              owner = source.ast.parent(owner);
+            }
+            if (owner === undefined) {
+              return sourceOwnershipUnresolved(actual.node, "A formal lease's region must belong to its checked execution environment.");
+            }
+          }
         } else if (premise.kind === "transferred") {
           const file = source.ast.getSourceFile(premise.operation);
           if (file === undefined || !source.semantics.includes(file)) {
@@ -82,17 +122,17 @@ export function createSourceRetentionQuery(input: {
       if (existing !== undefined) return existing;
       const subject = storage.subjectFor(reference);
       if (subject.kind === "unresolved") return sourceOwnershipUnresolved(reference, subject.reason);
-      const origins = storage.boundOriginsFor(subject.subject, bindings);
+      const origins = storage.storageProducersFor(subject.subject, bindings);
       if (origins.kind === "unresolved") return sourceOwnershipUnresolved(reference, origins.reason);
-      if (origins.subjects.length === 0) {
+      if (origins.producers.length === 0) {
         return sourceOwnershipUnresolved(reference, "Retention requires a complete nonempty bound-origin selection.");
       }
       const rows = budget.createRows();
       let published = false;
       try {
         const retained: SourceRetentionPremise[] = [];
-        for (const actual of origins.subjects) {
-          const selection = forOrigin(actual, bindings);
+        for (const actual of origins.producers) {
+          const selection = forOrigin(actual.subject, actual.bindings);
           if (selection.kind === "unresolved") return selection;
           for (const premise of selection.premises) {
             if (!budget.step() || !rows.add(1)) return sourceOwnershipUnresolved(reference, budget.failure()!);

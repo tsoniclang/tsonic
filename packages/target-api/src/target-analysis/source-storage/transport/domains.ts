@@ -13,6 +13,9 @@ import type { SourceStorageDomainBoundary } from "../model/types.js";
 import { createSourceStorageDomainWitnesses } from "../graph/domain-witnesses.js";
 import { createSourceStorageDomainPublications, type SourceStoragePublication } from "../graph/domain-publications.js";
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
+import { sourceStorageClassLineages } from "./invocation-results.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
+import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -215,6 +218,21 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
+  const closedSourceConstruction = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
+    if (transport.unresolvedInvocations.has(invocation) ||
+      sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
+    const target = transport.invocationTargets.get(invocation);
+    const region = transport.regions.enclosing(invocation);
+    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+    const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
+      : transport.substitutions.boundActivation(bindings, owner)?.scope;
+    if (target === undefined || activation === undefined) return false;
+    const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
+      subjectFor: transport.subjectFor,
+      valuesFor: transport.substitutions.values,
+    });
+    return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete);
+  };
   const selectedMembers = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     const bound = transport.substitutions.selection(owner, bindings);
     if (bound === undefined) return undefined;
@@ -304,6 +322,8 @@ export function createSourceStorageDomains(
       const bound = transport.substitutions.isBound(current.subject, current.bindings);
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
+        if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write") &&
+          closedSourceConstruction(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;
           if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;

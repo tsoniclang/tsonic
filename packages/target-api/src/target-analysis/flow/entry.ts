@@ -25,7 +25,7 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
   let parameterInitializers: ReadonlySet<Node> | undefined;
   if (invocation !== undefined) {
     if (invocation === null || typeof invocation !== "object" ||
-      Object.keys(invocation).some(key => key !== "storage" && key !== "call" && key !== "callerBindings")) {
+      Object.keys(invocation).some(key => key !== "storage" && key !== "call" && key !== "callerBindings" && key !== "construction")) {
       throw new SourceFlowFailure("Source flow invocation entry requires checked storage and its actual call, not a region list.", declaration);
     }
     const { storage, call } = invocation;
@@ -33,12 +33,14 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
       throw new SourceFlowFailure("Source flow invocation entry requires storage from the identical checked source program.", call);
     }
     if (classRoot || ast.is.IsConstructorDeclaration(declaration)) {
-      const construction = storage.constructionFor(call, invocation.callerBindings);
-      if (construction.kind === "unresolved") throw new SourceFlowFailure(construction.reason, call);
+      const selected = storage.constructionFor(call, invocation.callerBindings);
+      if (selected.kind === "unresolved") throw new SourceFlowFailure(selected.reason, call);
+      const matches = selected.alternatives.filter(entry => declaration === entry.implementation?.declaration ||
+        declaration === entry.root && (entry.implementation === undefined || invocation.construction !== undefined));
+      const construction = invocation.construction ?? (matches.length === 1 ? matches[0] : undefined);
+      if (construction === undefined || !matches.includes(construction))
+        throw new SourceFlowFailure("Constructor flow requires its actual checked construction implementation and one actual cached construction alternative, not a merged or forged class execution.", call);
       const implementation = construction.implementation;
-      if (declaration !== (implementation?.declaration ?? construction.root)) {
-        throw new SourceFlowFailure("Constructor flow requires the actual checked construction implementation.", call);
-      }
       for (const selected of construction.classes) for (const region of selected.regions) {
         step(region.node);
         executionRegions.set(region.node, Object.freeze({ owner: selected.owner, selection: region.selection }));

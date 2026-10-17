@@ -192,11 +192,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const context = selected.mode === "execution"
           ? subject === undefined ? undefined : encodeScope(subject, selected.scope)
           : footprint === undefined ? undefined : footprint.locations.has(subject!) ? activationKey(selected.scope) : null;
-        return receiver === undefined || context === undefined ? undefined : [selected.kind, selected.mode,
+        const execution = selected.mode === "execution" ? activationKey(selected.scope) : null;
+        return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
           selected.mode === "execution" ? scopes.identity(selected.demand) : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
             : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
-          context, encodeProjection(selected.projection)];
+          selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;
@@ -315,6 +316,24 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     return selected === undefined ? undefined : String(selected.encoded.identity);
   };
   return Object.freeze({ encode: key,
+    context(inputs: readonly (readonly { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[])[]): string | undefined {
+      return budget.withRows(temporary => {
+        const states: Encoded[] = [];
+        for (const inputs_ of inputs) {
+          const values: Encoded[] = [];
+          for (const input of inputs_) {
+            if (!budget.step() || !temporary.add(1)) return undefined;
+            const selected = encode(input.term);
+            if (selected === undefined) return undefined;
+            values.push([scopes.identity(input.subject), selected.encoded]);
+          }
+          if (!temporary.add(1)) return undefined;
+          states.push({ kind: "set", values });
+        }
+        const selected = encoder.intern(["source-query-context", { kind: "set", values: states }]);
+        return selected === undefined ? undefined : String(selected.identity);
+      });
+    },
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
     birthKey: (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);

@@ -1,5 +1,5 @@
 import { Node_Expression } from "../../../source-navigation/index.js";
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
@@ -14,8 +14,12 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
+import { sourceStorageClassLineages, sourceStorageInstanceCaptures } from "../transport/invocation-results.js";
+import { sourceStorageAllocation, sourceStorageInstanceInitializers } from "../model/construction.js";
+import type { SourceStorageBoundSubject } from "./substitutions.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -73,6 +77,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
+  const classQueries = {
+    subjectFor: transport.subjectFor,
+    valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined {
+      const terms = readRelation(sourceStorageReference(subject, bindings));
+      if (terms === undefined) return undefined;
+      const values = new Set<SourceStorageBoundSubject>();
+      for (const term of terms) {
+        if (!budget.step()) return undefined;
+        if (term.kind === "unresolved") { budget.reject(term.reason); return undefined; }
+        if (term.kind === "leaf") values.add(Object.freeze({ subject: term.subject, bindings: term.scope }));
+      }
+      return values;
+    },
+  };
+  const classLineages = (value: SourceStorageReference, captureOwner?: Node | "heritage") =>
+    sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries, captureOwner);
+  const instanceCaptures = (candidate: Node, value: SourceStorageReference) => sourceStorageInstanceCaptures(
+    source, budget, candidate, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries);
   const application = (invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
     projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm =>
     Object.freeze({ kind: "application", invocation, callee: sourceStorageReference(target, scope), scope, projection, ...operation });
@@ -90,7 +112,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     return selected;
   };
-  const regionsFor = (candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node): readonly SourceStorageTerm[] | undefined => {
+  const regionsFor = (candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
+    construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageBoundSubject[] }): readonly SourceStorageTerm[] | undefined => {
     const terms: SourceStorageTerm[] = [];
     for (const region of transport.regions.callable(candidate, transport.accessorTargets.has(invocation) ? undefined : invocation)) {
       if (!budget.step()) return undefined;
@@ -98,16 +121,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (reaches === undefined) return undefined;
       if (reaches) terms.push(Object.freeze({ kind: "region", region, scope, demand }));
     }
-    if (ast.is.IsNewExpression(invocation)) for (const region of transport.regions.instance(invocation)) {
+    if (construction !== undefined) for (const captured of construction.classes) {
       if (!budget.step()) return undefined;
-      const reaches = reachability.region(region.node, demand);
-      if (reaches === undefined) return undefined;
-      if (!reaches) continue;
-      const caller = scope.kind === "frame" ? scope.caller ?? scope : scope;
-      const captured = scope.kind === "frame" ? scope.parents[0] ?? scope : scope;
-      const context = scopes.frameFor(region.owner, invocation, caller, captured);
-      if (context === undefined) return undefined;
-      terms.push(Object.freeze({ kind: "region", region: region.node, scope: context, demand }));
+      const owner = captured.subject.node;
+      for (const initializer of sourceStorageInstanceInitializers(owner, source, budget.step)) {
+        const reaches = reachability.region(initializer, demand);
+        if (reaches === undefined) return undefined;
+        if (!reaches) continue;
+        const allocation = sourceStorageAllocation(source, budget, invocation, construction.caller, (owner, bindings) => {
+          const selected = scopes.boundActivation(bindings, owner);
+          return selected?.invocation !== undefined && selected.caller !== undefined
+            ? { invocation: selected.invocation, callerBindings: selected.caller }
+            : { kind: "unresolved", reason: "Instance initialization requires its exact original allocation activation." };
+        });
+        if (allocation.kind === "unresolved") return undefined;
+        const context = scopes.frameFor(owner, allocation.call, allocation.callerBindings, captured.bindings);
+        if (context === undefined) return undefined;
+        terms.push(Object.freeze({ kind: "region", region: initializer, scope: context, demand }));
+      }
     }
     return Object.freeze(terms);
   };
@@ -184,6 +215,47 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     return { kind: "replace", terms };
   };
+  const physicalMembers = (receiver: SourceStorageReference, target: Node, receiverType: Type): readonly Node[] | undefined => {
+    const allocation = receiver.subject.node;
+    const sourceConstruction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
+      navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
+        ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
+    if (!sourceConstruction) return transport.memberFlow.declarationsFor(receiver.subject, target, receiverType);
+    const owner = sourceMemberOwner(ast, target);
+    const selected = semantics.forNode(target);
+    const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
+      : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
+    const operand = transport.invocationTargets.get(allocation);
+    if (contract === undefined || operand === undefined) return undefined;
+    const values = readRelation(sourceStorageReference(operand, receiver.scope));
+    if (values === undefined) return undefined;
+    const members = new Set<Node>();
+    for (const value of values) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "unresolved") { budget.reject(value.reason); return undefined; }
+      if (value.kind !== "leaf") continue;
+      const lineages = classLineages(value, "heritage");
+      if (lineages === undefined) return undefined;
+      for (const lineage of lineages) {
+        let found = false;
+        for (const captured of lineage.classes) {
+          if (!budget.step()) return undefined;
+          const declaration = captured.subject.node;
+          const instance = transport.subject(declaration, "receiver");
+          if (instance === undefined) return undefined;
+          const selected = transport.memberFlow.declarationsFor(instance, target, contract);
+          for (const member of selected ?? []) {
+            if (!budget.step()) return undefined;
+            if (sourceMemberOwner(ast, member) !== declaration || ast.hasModifierKind(member, "static")) continue;
+            members.add(member); found = true;
+          }
+          if (found) break;
+        }
+        if (!found) return undefined;
+      }
+    }
+    return Object.freeze([...members]);
+  };
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
     const access = term.selection.kind === "access" ? term.selection.node : undefined;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
@@ -208,7 +280,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (target === undefined) continue;
       const unbound = scopes.isSymbolic(term.receiver) || (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
-      const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, receiverType);
+      const members = unbound ? [target] : physicalMembers(term.receiver, target, receiverType);
       if (members === undefined) {
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind === "projection" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
@@ -273,7 +345,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           terms.push(sourceStorageReference(value, initialized));
           continue;
         }
-        const construction = store.kind === "initialization" && ast.is.IsNewExpression(term.receiver.subject.node)
+        const writtenReceiver = transport.bindingInputFor(receiver) ?? receiver;
+        const constructorWrite = store.kind === "mutation" && writtenReceiver.kind === "receiver" &&
+          ast.is.IsConstructorDeclaration(writtenReceiver.node);
+        const construction = (store.kind === "initialization" || constructorWrite) && ast.is.IsNewExpression(term.receiver.subject.node)
           ? term.receiver.subject.node : undefined;
         const target = construction === undefined ? undefined : transport.invocationTargets.get(construction);
         const execution = construction === undefined || target === undefined ? undefined
@@ -398,9 +473,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));
-      const selected = navigation.callableImplementation(term.condition.subject.node);
-      if (selected.kind !== "resolved" || selected.implementation.declaration !== term.capture.owner)
-        return { kind: "replace", terms: [] };
+      const node = term.condition.subject.node;
+      if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
+        const owner = ast.is.IsConstructorDeclaration(term.capture.owner) ? ast.parent(term.capture.owner) : term.capture.owner;
+        if (owner === undefined) return undefined;
+        const captures = instanceCaptures(term.capture.owner, term.condition);
+        if (captures === undefined) return undefined;
+        const terms: SourceStorageTerm[] = [];
+        for (const captured of captures) {
+          const value = scopes.applyTerm(term.value, new Map([[term.capture, captured.bindings]]));
+          if (value === undefined) return undefined;
+          terms.push(value);
+        }
+        return { kind: "replace", terms };
+      } else {
+        const selected = navigation.callableImplementation(node);
+        if (selected.kind !== "resolved" || selected.implementation.declaration !== term.capture.owner)
+          return { kind: "replace", terms: [] };
+      }
       const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
       return value === undefined ? undefined : { kind: "replace", terms: [value] };
     }
@@ -416,13 +506,19 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const node = term.callee.subject.node;
       const construction = ast.is.IsNewExpression(term.invocation) || ast.kindName(Node_Expression(ast, term.invocation)) === "KindSuperKeyword";
       if (construction && (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) {
-        const selected = transport.invocationImplementations(term.invocation);
+        const lineages = classLineages(term.callee);
+        if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
         const terms: SourceStorageTerm[] = [];
-        for (const candidate of selected.size === 0 ? [node] : selected) {
-          const scope = scopes.frameFor(candidate, term.invocation, term.scope, term.callee.scope);
+        for (const lineage of lineages) {
+          const captured = lineage.classes[lineage.classes.length - 1];
+          if (captured === undefined) return undefined;
+          const owner = captured.subject.node;
+          const candidate = lineage.implementation ?? owner;
+          const scope = equations.scopeFor(candidate, term.invocation, term.scope, captured.bindings,
+            Object.freeze({ ...term, callee: leaf(captured.subject, captured.bindings) }));
           if (scope === undefined) return undefined;
           if (term.mode === "execution") {
-            const regions = regionsFor(candidate, term.invocation, scope, term.demand);
+            const regions = regionsFor(candidate, term.invocation, scope, term.demand, { caller: term.scope, classes: lineage.classes });
             if (regions === undefined) return undefined;
             terms.push(...regions);
           } else {

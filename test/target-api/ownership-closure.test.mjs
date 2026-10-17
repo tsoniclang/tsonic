@@ -58,12 +58,18 @@ test("the complete shared query admits immediate await and marks an owned discar
     selected.kind === "unresolved" ? selected.reason : "owned discarded completion");
 });
 
-test("open native calls and recursive source bodies remain unresolved, never empty closures", () => {
-  for (const name of ["unknownRead", "recurse"]) {
-    const selected = fixture.query.continuationFor(fixture.call(name));
-    assert.equal(selected.kind, "unresolved", name);
-    assert.match(selected.reason, /contract|opaque|Recursive/u);
-  }
+test("an open native call without a contract remains unresolved, never an empty closure", () => {
+  const selected = fixture.query.continuationFor(fixture.call("unknownRead"));
+  assert.equal(selected.kind, "unresolved", "unknown native contract");
+  assert.match(selected.reason, /contract|opaque/u);
+});
+
+test("a recursive source component closes with its actual pending lease instead of an empty approximation", () => {
+  const selected = fixture.query.continuationFor(fixture.call("recurse"));
+  const held = borrowed(selected, "complete recursive component");
+  assert.equal(held.length > 0, true, "recursive convergence preserves pending borrowed reads");
+  assert.equal(held.every(dependency => dependency.actual === dependency.retention.value), true,
+    "each dependency retains its exact actual source origin");
 });
 
 test("foreign checked calls, copied bindings and exhausted closure budgets fail closed", () => {

@@ -223,9 +223,11 @@ test("an actual super call into an implicit source middle keeps the original cal
     current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
   const caller = current.storage.bindingsForInvocation(current.constructor("Derived"), current.construct("Derived"));
   assert.equal(caller.kind, "resolved");
-  const checked = current.storage.constructionFor(superCall.source, caller.bindings);
-  assert.equal(checked.kind === "resolved" && checked.root === current.named("Middle") &&
-    checked.allocation === current.construct("Derived") && checked.implementation.declaration === current.constructor("Base"), true);
+  const selected = current.storage.constructionFor(superCall.source, caller.bindings);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true);
+  const checked = selected.alternatives[0];
+  assert.equal(checked.root === current.named("Middle") && checked.allocation === current.construct("Derived") &&
+    checked.implementation.declaration === current.constructor("Base"), true);
   const graph = flow(current, current.constructor("Base"), superCall.source, caller.bindings);
   assert.equal(reachable(graph, marked(current, graph, "base-body").id, marked(current, graph, "middle-field").id), true);
   assert.equal([...graph.executionRegions.values()].some(region => region.owner === current.named("Derived")), false,
@@ -235,6 +237,34 @@ test("an actual super call into an implicit source middle keeps the original cal
   assert.equal(activation.kind === "resolved" && activation.activations.length === 1 &&
     activation.activations[0].kind === "invocation" && activation.activations[0].invocation === current.construct("Derived"), true);
   assert.equal(reachable(outer, superCall.id, marked(current, outer, "derived-field").id), true);
+});
+
+test("each finite class alternative has its own CFG and forged or ambiguous alternatives are refused", () => {
+  const current = fixture(`declare const flag: boolean;
+    class First { field = mark("first-only"); } class Second { field = mark("second-only"); }
+    const Copy = First; const Choice = flag ? Copy : Second; const instance = new Choice();`);
+  const call = current.construct("Choice");
+  const selected = current.storage.constructionFor(call);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 2, true,
+    "The checked conditional constructor contains both finite source alternatives.");
+  for (const construction of selected.alternatives) {
+    const result = createSourceControlFlow(current.source, construction.root, {
+      invocation: { storage: current.storage, call, construction },
+    });
+    assert.equal(result.kind, "resolved", "The selected cache-owned alternative defines exactly one execution.");
+    const expected = current.ast.text(current.ast.name(construction.root)) === "First" ? "first-only" : "second-only";
+    const other = expected === "first-only" ? "second-only" : "first-only";
+    const field = marked(current, result.graph, expected);
+    assert.equal(reachable(result.graph, result.graph.entry, field.id) && reachable(result.graph, field.id, result.graph.exit), true);
+    assert.equal(result.graph.points.some(point => point.source !== undefined && current.ast.is.IsCallExpression(point.source) &&
+      current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
+        current.ast.text(argument).includes(other))), false, "Alternative initializers are never linearized into the same graph.");
+    const forged = createSourceControlFlow(current.source, construction.root, {
+      invocation: { storage: current.storage, call, construction: { ...construction } },
+    });
+    assert.equal(forged.kind === "unresolved" && forged.reason.includes("cached construction alternative"), true,
+      "Copied alternative data is not the construction owner's actual evidence.");
+  }
 });
 
 test("normal constructor returns finish inherited fields after finally while abrupt completion bypasses them", () => {
