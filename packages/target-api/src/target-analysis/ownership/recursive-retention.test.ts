@@ -1114,3 +1114,70 @@ test("recursive construction writes do not borrow an unrelated allocation's leas
   selected.kind === "unresolved" ? selected.reason : "A separate earlier borrowed value cannot contaminate owned recursive field storage.");
   assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true, "The owned inverse closes without a compatibility fallback.");
 });
+
+for (const borrowed of [false, true]) for (const producersFirst of [false, true]) {
+  test(`same-constructor super captures keep actual loans and the owned inverse, borrowed=${borrowed}, producersFirst=${producersFirst}`, () => {
+    const current = fixture(false, "self", `
+      interface Holder { readonly value: Lease; }
+      type HolderConstructor = new (count: number) => Holder;
+      async function factoryUse(owner: { value: number }): Promise<number> {
+        function makeBase(lease: Lease): HolderConstructor {
+          return class Base {
+            readonly value: Lease;
+            constructor(count: number) {
+              this.value = lease;
+              if (count > 0) new Second(count - 1);
+            }
+          };
+        }
+        function makeDerived(Parent: HolderConstructor): HolderConstructor {
+          return class Derived extends Parent {
+            constructor(count: number) { super(count); }
+          };
+        }
+        const ownedLease: Lease = { value: 1 };
+        const actualLoan = borrow(owner);
+        const BaseA = makeBase(${borrowed ? "actualLoan" : "ownedLease"});
+        const BaseB = makeBase(${borrowed ? "ownedLease" : "actualLoan"});
+        const First = makeDerived(BaseA);
+        const Second = makeDerived(BaseB);
+        const built = new First(2);
+        await pending(); return read(built.value);
+      }
+      async function factoryRoot() { const owner = { value: 3 }; const stored = factoryUse(owner); return stored; }
+    `);
+    const { source, storage } = current;
+    const use = current.declaration("factoryUse");
+    const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
+      storage.enclosingRegionFor(node) === source.ast.body(current.declaration("factoryRoot")));
+    const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+      source.ast.text(source.ast.name(node)) === "value" && storage.enclosingRegionFor(node) === source.ast.body(use));
+    assert.equal(call !== undefined && access !== undefined, true, "The actual escaping call and post-await constructed field read are checked.");
+    const subject = storage.subjectFor(access!);
+    const caller = storage.bindingsForLexicalOwner(call!);
+    const entry = caller.kind === "resolved" ? storage.bindingsForInvocation(use, call!, caller.bindings) : caller;
+    assert.equal(subject.kind === "resolved" && entry.kind === "resolved", true, "The original actual owner and constructor scopes are retained.");
+    if (subject.kind !== "resolved" || entry.kind !== "resolved") return;
+    const inspect = () => {
+      const selected = storage.storageProducersFor(subject.subject, entry.bindings);
+      assert.equal(selected.kind, "complete", "Both real factory captures close through the same constructor model.");
+      if (selected.kind !== "complete") return;
+      assert.equal(selected.producers.length === 1, true, "Only this actual base's field producer is retained, never both marginal captures.");
+      assert.equal(selected.producers.some(producer => source.ast.is.IsCallExpression(producer.subject.node) &&
+        current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), borrowed,
+      "The actual supplied loan, not the sibling's payload, determines the field dependency.");
+      assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node)), !borrowed,
+        "An owned result is not contaminated by constructing an unrelated borrowed sibling before suspension.");
+    };
+    if (producersFirst) inspect();
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
+      selected.kind === "unresolved" ? selected.reason : "D12 follows the actual factory body capture and exact post-await field read.");
+    assert.equal(selected.kind === "resolved" && selected.dependencies.some(dependency => dependency.retention.kind === "scoped-borrowed" &&
+      source.ast.is.IsCallExpression(dependency.actual.node) && current.selectedDeclaration(dependency.actual.node) === current.declaration("borrow")), borrowed,
+    "The retained concrete loan is present exactly when supplied, not hidden by an unknown or budget refusal.");
+    if (!producersFirst) inspect();
+    assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true,
+      "Both ownership/query orders remain finite without collapsing actual captures or allocation identities.");
+  });
+}

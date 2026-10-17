@@ -261,6 +261,12 @@ for (const body of [false, true]) for (const reverse of [false, true]) {
       "The two selected captures belong to the identical source class and constructor, not different nominal ASTs.");
     const observe = (selection, expected, expectedArgument, expectedAllocation) => {
       assert.equal(selection.allocation === expectedAllocation, true, "Actual constructor entry and receiver allocation remain one relation.");
+      const property = ast.members(selection.root).find(node => node !== undefined && ast.is.IsPropertyDeclaration(node) &&
+        ast.text(ast.name(node)) === "fromBase");
+      const initializer = property === undefined ? undefined : ast.as.AsPropertyDeclaration(property).Initializer;
+      assert.equal(initializer !== undefined && selection.classes.length === 1 && selection.classes[0].owner === selection.root &&
+        selection.classes[0].regions.length === 1 && selection.classes[0].regions[0].node === initializer, true,
+      "Exactly the original Base/fromBase initializer is required; an empty class or region list is not a passing proof.");
       for (const selectedClass of selection.classes) for (const region of selectedClass.regions) {
         const subject = resolved(storage.subjectFor(region.node), "actual captured field initializer");
         const producers = storage.storageProducersFor(subject.subject, region.selection.bindings);
