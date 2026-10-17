@@ -285,9 +285,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
     }
     if (term.selection.kind === "projection" && term.selection.before !== undefined) {
+      const before = term.selection.before;
       const selection = term.selection;
       const receiver = term.receiver;
-      const contribution = transport.memberFlow.copyContributionFor(receiver.subject, declaration, receiverType, selection.before);
+      const contribution = transport.memberFlow.copyContributionFor(receiver.subject, declaration, receiverType, before);
       if (contribution === undefined) return { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
         subject: selection.subject, scope: receiver.scope,
         reason: "Copied source storage requires its exact ordered own component and original creation binding." })] };
