@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
-import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection } from "./lexical-captures.js";
+import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection,
+  type SourceNodeDomain } from "./lexical-captures.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection {
@@ -11,8 +12,15 @@ export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection 
 export function sourceLexicalEnvironment(
   scope: Node, roots: readonly Node[], ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary">,
+  domain: SourceNodeDomain,
   isRuntimeUse: (use: SourceDeclarationUse, declaration: Node) => boolean = () => true,
+  visit?: (node?: Node) => void,
 ): SourceLexicalEnvironment | { readonly kind: "unresolved"; readonly reason: string } {
+  if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
+    throw new Error("Lexical environments require an explicit source-node domain.");
+  }
+  const includes = (node: Node): boolean => domain === "source" || domain.has(node);
+  if (!includes(scope)) return { kind: "unresolved", reason: "A lexical environment requires its scope in the explicit source-node domain." };
   const captures = new Map<Node, Set<Node>>();
   const receivers = new Map<Node, Set<Node>>();
   const selfReferences = new Set<Node>();
@@ -25,12 +33,19 @@ export function sourceLexicalEnvironment(
   while (pending.length > 0) {
     if (++steps > 262_144) return exhausted();
     const { owner, roots: selectedRoots } = pending.pop()!;
+    visit?.(owner);
+    if (!includes(owner)) return { kind: "unresolved", reason: "A lexical callable requires its owner in the explicit source-node domain." };
+    if (selectedRoots.some(root => !includes(root))) return {
+      kind: "unresolved", reason: "A lexical environment requires every root in its explicit source-node domain.",
+    };
     if (callableRoots.has(owner)) continue;
     callableRoots.add(owner);
     const evaluationPending: Node[] = [];
     for (const root of selectedRoots) {
+      visit?.(root);
       if (!ast.is.IsFunctionDeclaration(root)) { evaluationPending.push(root); continue; }
       for (const parameter of ast.parameters(root)) {
+        visit?.(parameter);
         if (!ast.is.IsParameterDeclaration(parameter)) return {
           kind: "unresolved", reason: "A lexical callable has no exact parameter declaration.",
         };
@@ -41,8 +56,10 @@ export function sourceLexicalEnvironment(
       if (body !== undefined) evaluationPending.push(body);
     }
     while (evaluationPending.length > 0) {
-      if (++evaluationSteps > 4_194_304) return exhausted();
       const node = evaluationPending.pop()!;
+      if (!includes(node)) continue;
+      visit?.(node);
+      if (++evaluationSteps > 4_194_304) return exhausted();
       if (evaluated.has(node)) continue;
       evaluated.add(node);
       const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
@@ -55,21 +72,24 @@ export function sourceLexicalEnvironment(
       }
       forEachSourceImmediateEvaluationChild(ast, node, child => evaluationPending.push(child));
     }
-    const selected = sourceLexicalCaptures(owner, selectedRoots, ast, navigation);
+    const selected = sourceLexicalCaptures(owner, selectedRoots, ast, navigation, domain, visit);
     if (owner === scope) for (const reference of selected.selfReferences) selfReferences.add(reference);
     for (const receiver of selected.receivers) {
+      visit?.(receiver.owner);
       if (within(receiver.owner)) continue;
       const references = receivers.get(receiver.owner) ?? new Set<Node>();
-      for (const reference of receiver.references) references.add(reference);
+      for (const reference of receiver.references) { visit?.(reference); references.add(reference); }
       receivers.set(receiver.owner, references);
     }
     for (const capture of selected.captures) {
+      visit?.(capture.declaration);
       if (++steps > 262_144) return exhausted();
       let references = capture.references;
       if (ast.is.IsFunctionDeclaration(capture.declaration)) {
         const kinds = usesFor(capture.declaration);
         if (kinds === undefined) return exhausted();
         for (const reference of references) {
+          visit?.(reference);
           if (++steps > 262_144) return exhausted();
           if (kinds.get(reference) === undefined) return {
             kind: "unresolved", reason: "A lexical callable reference lost its exact checked use classification.",
@@ -83,7 +103,7 @@ export function sourceLexicalEnvironment(
       }
       if (references.length === 0 || within(capture.declaration)) continue;
       const values = captures.get(capture.declaration) ?? new Set<Node>();
-      for (const reference of references) values.add(reference);
+      for (const reference of references) { visit?.(reference); values.add(reference); }
       captures.set(capture.declaration, values);
     }
   }
@@ -102,6 +122,7 @@ export function sourceLexicalEnvironment(
 
   function within(node: Node): boolean {
     for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) {
+      visit?.(current);
       if (++steps > 262_144) return false;
       if (current === scope) return true;
     }
@@ -113,6 +134,8 @@ export function sourceLexicalEnvironment(
     if (existing !== undefined) return existing;
     const indexed = new Map<Node, SourceDeclarationUse>();
     for (const use of navigation.declarationUseSummary(declaration).uses) {
+      if (!includes(use.reference)) continue;
+      visit?.(use.reference);
       if (++steps > 262_144 || indexed.has(use.reference)) return undefined;
       indexed.set(use.reference, use);
     }
