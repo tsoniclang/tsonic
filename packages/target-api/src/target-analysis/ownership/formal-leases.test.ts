@@ -7,8 +7,9 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import { createSourceOwnershipQuery } from "./query.js";
 import { createSourceRetentionQuery } from "./retention.js";
-import { sourceAsyncResultUseIsRejected } from "./result-decision.js";
-import type { SourceOwnershipPremises, SourceRetentionPremise } from "./model.js";
+import { decideSourceAsyncResultUse } from "./result-decision.js";
+import { resolveSourceAsyncResultDisposition } from "./result-use.js";
+import type { SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionReadSelection } from "./model.js";
 
 function fixture(kind: "input-duration" | "type-argument",
   amend: (premise: SourceRetentionPremise) => SourceRetentionPremise = premise => premise) {
@@ -23,6 +24,8 @@ function fixture(kind: "input-duration" | "type-argument",
     async function escaped<Region>(value: Lease<number, Region>) {
       keep(value); const stored = keep(value); return stored;
     }
+    async function independent(): Promise<number> { return 7; }
+    function ownedRoot(): void { independent(); }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
@@ -67,6 +70,9 @@ function fixture(kind: "input-duration" | "type-argument",
       const type = storage.typeFor(value);
       assert.equal(type.kind === "resolved", true, "retention checked type");
       if (type.kind === "unresolved") return { kind: "unresolved", at: value.node, reason: type.reason };
+      if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("keep")) {
+        return undefined;
+      }
       const owner = sourceStorageFormalOwner(value, source.ast);
       if (value.kind !== "input" || owner === undefined) return { kind: "resolved", premises: [{ kind: "retained",
         value, reason: "owned-value", contractDeclaration: value.node, checkedType: type.type }] };
@@ -88,7 +94,7 @@ function fixture(kind: "input-duration" | "type-argument",
   const query = createSourceOwnershipQuery({ source, storage, budget, premises });
   const calls = storage.nodes.filter(node => source.ast.is.IsCallExpression(node) && selectedDeclaration(node) === declaration("keep"));
   assert.equal(calls.length, 3, "all actual result-use demands");
-  return { source, storage, budget, premises, query, declaration, calls };
+  return { source, storage, budget, premises, query, declaration, selectedDeclaration, calls };
 }
 
 for (const kind of ["input-duration", "type-argument"] as const) {
@@ -146,25 +152,55 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     const unresolved = createSourceOwnershipQuery({ ...current, budget }).forCall(call);
     assert.equal(unresolved.kind === "unresolved" && budget.failure() !== undefined, true, "the actual continuation budget is exhausted");
     const unknown = { kind: "unresolved" as const, at: call, reason: "The native projection has no completed lease premise." };
-    assert.equal(sourceAsyncResultUseIsRejected(unresolved, unknown), false, "unresolved native evidence never means an owned/static value or a source rejection");
-    assert.equal(sourceAsyncResultUseIsRejected(unresolved, { kind: "resolved", premises: [] }), false,
+    const decide = (retention: SourceRetentionReadSelection, selectedBudget = current.budget, selectedCall = call) => {
+      const selected = current.source.semantics.forNode(selectedCall).operations.call(selectedCall);
+      assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "the actual async call contract");
+      if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked async contract");
+      const completion = current.premises.completionFor(selectedCall, selected, current.storage.emptyBindings);
+      return decideSourceAsyncResultUse({ ...current, budget: selectedBudget, call: selectedCall, completion,
+        disposition: resolveSourceAsyncResultDisposition(current.source, current.storage, selectedCall, selectedBudget),
+        continuation: unknown, retention });
+    };
+    const unknownDecision = decide(unknown);
+    assert.equal(unknownDecision.kind === "unresolved", true,
+      "unresolved native evidence is neither native-safe admission nor a fabricated source rejection");
+    const emptyDecision = decide({ kind: "resolved", reference: call, premises: [] });
+    assert.equal(emptyDecision.kind === "unresolved", true,
       "an empty possible-lease set is not a fabricated retention proof");
-    const reference = current.storage.nodes.find(node => current.source.ast.is.IsIdentifier(node) &&
-      current.source.ast.text(node) === "value" && current.source.ast.is.IsCallExpression(current.source.ast.parent(node)));
+    const reference = current.source.ast.arguments(call)[0];
     assert.equal(reference !== undefined, true, "the real formal read");
-    const bindings = current.storage.bindingsForLexicalOwner(current.declaration("keep"));
+    const bindings = current.storage.bindingsForLexicalOwner(call);
     assert.equal(bindings.kind, "resolved", "the actual native formal execution");
     if (bindings.kind !== "resolved") return;
     const retention = createSourceRetentionQuery(current).forReference(reference!, bindings.bindings);
     assert.equal(retention.kind === "resolved" && retention.premises.some(premise => premise.kind === "formal-borrowed"), true,
       "the possible lease was admitted by the canonical retention validator");
-    assert.equal(sourceAsyncResultUseIsRejected(unresolved, retention), true,
-      "the unresolved continuation is refused only with the real validated formal lease");
+    const borrowedDecision = decide(retention);
+    assert.equal(borrowedDecision.kind === "unresolved", true,
+      "even a validated argument lease is not evidence about the call's retained asynchronous result");
+    const exhaustedDecision = decide(retention, budget);
+    assert.equal(exhaustedDecision.kind === "unresolved", true,
+      "even a validated native premise cannot turn exhausted analysis into a resolved decision");
     const rejected = current.query.forCall(call);
-    assert.equal(sourceAsyncResultUseIsRejected(rejected, unknown), true,
+    assert.equal(rejected.kind === "resolved" && rejected.decision === "rejected", true,
       "a resolved source rejection does not depend on inventing another premise");
     const admitted = current.query.forCall(current.calls[0]!);
-    assert.equal(sourceAsyncResultUseIsRejected(admitted, retention), false,
+    assert.equal(admitted.kind === "resolved" && admitted.decision === "admitted", true,
       "a real formal lease remains valid for its proven immediate await");
+    const nativeCall = current.storage.invocations.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === current.declaration("independent"));
+    assert.equal(nativeCall !== undefined, true, "the actual owned native completion has a distinct source call");
+    const nativeBindings = current.storage.bindingsForLexicalOwner(nativeCall!);
+    assert.equal(nativeBindings.kind, "resolved", "the owned native completion has its exact caller activation");
+    if (nativeBindings.kind !== "resolved") return;
+    const nativeRetention = createSourceRetentionQuery(current).forReference(nativeCall!, nativeBindings.bindings);
+    const unrelatedDecision = decide(nativeRetention);
+    assert.equal(unrelatedDecision.kind === "unresolved", true,
+      "owned native evidence from another call cannot discharge this result's unresolved lease");
+    const nativeDecision = decide(nativeRetention, current.budget, nativeCall!);
+    assert.equal(nativeRetention.kind === "resolved" && nativeRetention.premises.length > 0 &&
+      nativeRetention.premises.every(premise => premise.kind === "retained") &&
+      nativeDecision.kind === "resolved" && nativeDecision.decision === "observe-discarded-rejection", true,
+    "actual nonempty validated native retention remains authoritative when the source continuation is unresolved");
   });
 }

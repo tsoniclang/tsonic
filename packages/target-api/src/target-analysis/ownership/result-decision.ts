@@ -2,17 +2,8 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition,
-  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionSelection } from "./model.js";
+  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionReadSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
-
-export function sourceAsyncResultUseIsRejected(
-  selection: SourceAsyncOwnershipSelection,
-  possibleRetention: SourceRetentionSelection,
-): boolean {
-  if (selection.kind === "resolved") return selection.decision === "rejected";
-  return selection.kind === "unresolved" && possibleRetention.kind === "resolved" &&
-    possibleRetention.premises.some(premise => premise.kind === "scoped-borrowed" || premise.kind === "formal-borrowed");
-}
 
 export function decideSourceAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
@@ -22,8 +13,9 @@ export function decideSourceAsyncResultUse(input: {
   readonly completion: SourceAsyncCompletionSelection;
   readonly disposition: SourceAsyncResultDisposition | SourceOwnershipUnresolved;
   readonly continuation: SourceContinuationDependenciesSelection;
+  readonly retention: SourceRetentionReadSelection;
 }): SourceAsyncOwnershipSelection {
-  const { source, storage, budget, call, completion, disposition, continuation } = input;
+  const { source, storage, budget, call, completion, disposition, continuation, retention } = input;
   if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
   if (source !== storage.source) return sourceOwnershipUnresolved(call, "Result-use and storage require the identical checked source program.");
   const file = source.ast.getSourceFile(call);
@@ -43,13 +35,20 @@ export function decideSourceAsyncResultUse(input: {
       diagnostic: Object.freeze({ code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", at: call,
         message: "A native asynchronous call result must be observed, not discarded." }) });
   }
-  if (continuation.kind === "unresolved") return continuation;
-  for (const dependency of continuation.dependencies) {
+  if (continuation.kind === "unresolved" && (retention.kind === "unresolved" || retention.premises.length === 0)) {
+    return continuation;
+  }
+  if (continuation.kind === "unresolved" && retention.kind === "resolved" && retention.reference !== call) {
+    return sourceOwnershipUnresolved(call, "Native async retention must describe this exact result-use call, not another source read.");
+  }
+  const dependencies = continuation.kind === "resolved" ? continuation.dependencies : Object.freeze([]);
+  const leases = continuation.kind === "resolved" ? continuation.dependencies.map(dependency => dependency.retention)
+    : retention.kind === "resolved" ? retention.premises : [];
+  for (const lease of leases) {
     if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
-    if (dependency.retention.kind !== "scoped-borrowed" && dependency.retention.kind !== "formal-borrowed") continue;
+    if (lease.kind !== "scoped-borrowed" && lease.kind !== "formal-borrowed") continue;
     if (disposition.kind === "awaited-in-scope") {
-      const region = dependency.retention.kind === "scoped-borrowed"
-        ? dependency.retention.region : dependency.retention.executionOwner;
+      const region = lease.kind === "scoped-borrowed" ? lease.region : lease.executionOwner;
       let current: Node | undefined = disposition.use;
       const visited = new Set<Node>();
       while (current !== undefined && current !== region) {
@@ -62,11 +61,11 @@ export function decideSourceAsyncResultUse(input: {
         return sourceOwnershipUnresolved(disposition.use, "The immediate await does not occur inside the checked source lease's valid region.");
       }
     } else if (completion.resultPolicy === "observe-rejection") {
-      return Object.freeze({ kind: "resolved", call, disposition, dependencies: continuation.dependencies, decision: "rejected",
+      return Object.freeze({ kind: "resolved", call, disposition, dependencies, decision: "rejected",
         diagnostic: Object.freeze({ code: "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", at: call,
           message: "An asynchronous result retaining a source-scoped lease across pending work cannot be discarded, stored or returned." }) });
     }
   }
-  return Object.freeze({ kind: "resolved", call, disposition, dependencies: continuation.dependencies,
+  return Object.freeze({ kind: "resolved", call, disposition, dependencies,
     decision: disposition.kind === "discarded" ? "observe-discarded-rejection" : "admitted" });
 }
