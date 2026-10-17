@@ -10,7 +10,10 @@ export interface SourceClosedCallableArgument {
 
 export function sourceExpressionCallArgument(
   reference: Node,
-  source: TargetSourceProgram,
+  source: {
+    readonly ast: TargetSourceProgram["ast"];
+    readonly semantics: Pick<TargetSourceProgram["semantics"], "forNode">;
+  },
 ): SourceClosedCallableArgument | undefined {
   const { ast } = source;
   let argument = reference;

@@ -176,3 +176,70 @@ test("checked argument selection retains bounded grouping and exact call indexes
   const reference = current.source.navigation.expressionValueFlow(current.expression).uses[0]!.reference;
   assert.equal(sourceExpressionCallArgument(reference, current.source) === undefined, true, "bounded parent traversal");
 });
+
+test("checked argument selection consumes only the exact AST and semantic reader view", () => {
+  for (const body of [
+    "consume((value: unknown): void => {});",
+    "consume((((value: unknown): void => {})));",
+    "consume(((value: unknown): void => {}) satisfies ((value: unknown) => void));",
+    "consume(function recurse(value: unknown): void { if (value !== undefined) recurse(undefined); });",
+  ]) {
+    const current = fixture(body, true);
+    const view: Parameters<typeof sourceExpressionCallArgument>[1] = Object.freeze({
+      ast: current.source.ast,
+      semantics: Object.freeze({ forNode: current.source.semantics.forNode }),
+    });
+    const selected = sourceExpressionCallArgument(current.expression, view);
+    assert.equal(selected !== undefined, true, body);
+    const checked = view.semantics.forNode(selected!.call).operations.call(selected!.call);
+    assert.equal(checked?.sourceArguments[selected!.argumentIndex]?.expression === selected!.argument, true,
+      "the structural reader retains exact checked argument identity");
+    assert.equal(checked?.sourceSelectedSignatureKind, "resolved", "the original checked signature remains selected");
+    assert.equal(Object.isFrozen(selected), true, "the shared result remains immutable");
+    assert.equal("navigation" in view || "source" in view || "sourceFiles" in view, false,
+      "no whole source program is fabricated to supply the exact reader");
+  }
+});
+
+test("exact argument reader views preserve inverse identity, optional, spread and wrapper controls", () => {
+  for (const body of [
+    "const callback = (value: unknown): void => {}; consume?.(callback);",
+    "const callback = (value: unknown): void => {}; consume(callback as typeof callback);",
+    "const callback = (value: unknown): void => {}; consume(callback!);",
+    "const callback = (value: unknown): void => {}; consume(...[callback]);",
+  ]) {
+    const current = fixture(body);
+    const view: Parameters<typeof sourceExpressionCallArgument>[1] = {
+      ast: current.source.ast, semantics: { forNode: current.source.semantics.forNode },
+    };
+    for (const use of current.source.navigation.expressionValueFlow(current.expression).uses) {
+      if (use.role === "storage") continue;
+      assert.equal(sourceExpressionCallArgument(use.reference, view) === undefined, true, body);
+    }
+  }
+  const current = fixture("consume((value: unknown): void => {});", true);
+  const selected = sourceExpressionCallArgument(current.expression, current.source);
+  assert.equal(selected !== undefined, true, "the real source supplies the positive identity witness");
+  for (const missing of [false, true]) {
+    const view: Parameters<typeof sourceExpressionCallArgument>[1] = {
+      ast: current.source.ast,
+      semantics: { forNode(node: Node) {
+        const actual = current.source.semantics.forNode(node);
+        return { ...actual, operations: { ...actual.operations, call(call: Node) {
+          const checked = actual.operations.call(call);
+          return missing || checked === undefined ? undefined : { ...checked, sourceArguments: checked.sourceArguments.map(argument =>
+            ({ ...argument, expression: selected!.call })) };
+        } } };
+      } },
+    };
+    assert.equal(sourceExpressionCallArgument(current.expression, view) === undefined, true,
+      missing ? "missing checked call stays refused" : "a different real source node cannot replace the exact argument");
+  }
+  const duplicated: Parameters<typeof sourceExpressionCallArgument>[1] = {
+    ast: { ...current.source.ast, arguments: node => node === selected!.call
+      ? [selected!.argument, selected!.argument] : current.source.ast.arguments(node) },
+    semantics: { forNode: current.source.semantics.forNode },
+  };
+  assert.equal(sourceExpressionCallArgument(current.expression, duplicated) === undefined, true,
+    "an AST reader must still prove one unique argument slot");
+});
