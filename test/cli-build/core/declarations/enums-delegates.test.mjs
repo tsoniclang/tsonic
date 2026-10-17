@@ -61,7 +61,7 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
   assert.match(generatedSource, /Up = 1,/);
   assert.match(generatedSource, /Down = 2,/);
   assert.match(generatedSource, /Left = 4,/);
-  assert.match(generatedSource, /Right = 8,/u);
+  assert.match(generatedSource, /Right = 8\b/u);
   assert.match(generatedSource, /public static Direction turn\(Direction direction\)/);
   assert.match(generatedSource, /return direction == Direction\.Up \? Direction\.Right : Direction\.Up;/);
   assert.match(generatedSource, /selected = global::Smoke\.Generated\.Index\.turn\(Direction\.Up\) == Direction\.Right \? "right" : "bad";/);
