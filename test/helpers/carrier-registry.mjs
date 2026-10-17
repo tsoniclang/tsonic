@@ -2,10 +2,19 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
+import { analyzeCheckedTypeScriptModules } from "../architecture/tooling/module-graph.mjs";
 
 export const carrierDeclarationId = declaration => `${declaration.module}#${declaration.symbol}`;
 
 export async function readCarrierModelFiles(root) {
+  return readCarrierTypeScriptFiles(root, "src/target-model/types");
+}
+
+export async function readCarrierRegistrySourceFiles(root) {
+  return readCarrierTypeScriptFiles(root, "src");
+}
+
+async function readCarrierTypeScriptFiles(root, directory) {
   const files = new Map();
   async function visit(directory) {
     for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
@@ -16,8 +25,156 @@ export async function readCarrierModelFiles(root) {
       }
     }
   }
-  await visit("src/target-model/types");
+  await visit(directory);
   return files;
+}
+
+export async function readCarrierDivergenceRegister() {
+  const text = await readFile(new URL("../../docs/architecture/csharp-rust-structure.md", import.meta.url), "utf8");
+  return new Set([...text.matchAll(/^\| (S11-\d+|V-\d+) \|/gmu)].map(match => match[1]));
+}
+
+export function inspectCarrierRegistrySource(files, signedDifferences) {
+  const sources = new Map(files);
+  const failures = [];
+  const prefix = "/carrier-registry-source/";
+  const session = createCompilerSessionFromFiles({
+    currentDirectory: prefix.slice(0, -1),
+    files: new Map([...files].map(([file, text]) => [`${prefix}${file}`, text])),
+    rootFiles: [...files.keys()],
+    compilerOptions: { module: "esnext", moduleResolution: "bundler", target: "esnext", noLib: true, noResolve: true },
+  });
+  if (session.getDiagnostics("syntactic").length !== 0) {
+    return { sources, failures: ["Carrier registry source has invalid syntax."], modules: [] };
+  }
+  const source = session.checkSource();
+  const { ast } = source;
+  const modules = new Map();
+
+  function fields(node, required, optional = []) {
+    if (node === undefined || !ast.is.IsObjectLiteralExpression(node)) return undefined;
+    const result = new Map();
+    for (const property of ast.properties(node)) {
+      if (!ast.is.IsPropertyAssignment(property)) return undefined;
+      const name = ast.name(property);
+      if (name === undefined || !ast.is.IsIdentifier(name) && !ast.is.IsStringLiteral(name)) return undefined;
+      const key = ast.text(name);
+      if (result.has(key) || !required.includes(key) && !optional.includes(key)) return undefined;
+      result.set(key, ast.as.AsPropertyAssignment(property).Initializer);
+    }
+    return required.every(key => result.has(key)) ? result : undefined;
+  }
+
+  function literal(node) {
+    return node !== undefined && ast.is.IsStringLiteral(node) && ast.text(node).trim().length > 0;
+  }
+
+  function declaration(node) {
+    const selected = fields(node, ["module", "symbol"]);
+    return selected !== undefined && [...selected.values()].every(literal) ? selected : undefined;
+  }
+
+  function rowRanges(node) {
+    const row = fields(node, ["id", "kinds", "declaration", "counterpart", "frozen"], ["divergence"]);
+    if (row === undefined || !literal(row.get("id")) || !ast.is.IsArrayLiteralExpression(row.get("kinds")) ||
+        !ast.elements(row.get("kinds")).every(literal) || declaration(row.get("declaration")) === undefined ||
+        !["KindTrueKeyword", "KindFalseKeyword"].includes(ast.kindName(row.get("frozen")))) return undefined;
+    const ranges = [];
+    if (ast.kindName(row.get("counterpart")) !== "KindNullKeyword") {
+      const counterpart = declaration(row.get("counterpart"));
+      if (counterpart === undefined) return undefined;
+      ranges.push(...[...counterpart.values()].map(value => ast.authoredRange(value)));
+    }
+    if (row.has("divergence")) {
+      const divergence = fields(row.get("divergence"), ["register", "reason"]);
+      if (divergence === undefined || ![...divergence.values()].every(literal) ||
+          !signedDifferences.has(ast.text(divergence.get("register")))) return undefined;
+      ranges.push(ast.authoredRange(divergence.get("reason")));
+    }
+    return ranges.every(range => range.kind === "authored") ? ranges : undefined;
+  }
+
+  for (const sourceFile of source.sourceFiles) {
+    const file = ast.getFileName(sourceFile).slice(prefix.length);
+    if (!files.has(file)) continue;
+    const statements = ast.statements(sourceFile);
+    const imports = statements.filter(statement => ast.is.IsImportDeclaration(statement));
+    const registryImports = imports.flatMap(statement => {
+      const imported = ast.as.AsImportDeclaration(statement);
+      if (ast.text(imported.ModuleSpecifier) !== "@tsonic/target-api" ||
+          imported.ImportClause?.NamedBindings === undefined) return [];
+      return ast.children(imported.ImportClause?.NamedBindings).filter(specifier =>
+        ast.is.IsImportSpecifier(specifier) &&
+        ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) === "TargetCarrierRegistryEntry")
+        .map(specifier => ({ statement, name: ast.text(ast.name(specifier)) }));
+    });
+    if (registryImports.length === 0) continue;
+    const reject = () => failures.push(`Carrier registry source is not inert declared metadata: ${file}`);
+    const body = statements.filter(statement => !ast.is.IsImportDeclaration(statement));
+    if (registryImports.length !== 1 || !ast.isTypeOnlyImportDeclaration(registryImports[0].statement) ||
+        body.length !== 1 || !ast.is.IsVariableStatement(body[0]) || !ast.hasModifierKind(body[0], "export") ||
+        ast.variableDeclarationKind(body[0]) !== "const") { reject(); continue; }
+    const declarations = ast.as.AsVariableStatement(body[0]).DeclarationList.Declarations;
+    if (declarations.length !== 1) { reject(); continue; }
+    const selected = declarations[0];
+    const qualifiedType = ast.typeNode(selected);
+    const arrayType = ast.kindName(qualifiedType) === "KindTypeOperator" ? ast.typeNode(qualifiedType) : qualifiedType;
+    const entryType = arrayType !== undefined && ast.is.IsArrayTypeNode(arrayType)
+      ? ast.as.AsArrayTypeNode(arrayType).ElementType : undefined;
+    const entryName = entryType === undefined ? undefined : ast.children(entryType).find(child => ast.is.IsIdentifier(child));
+    const initializer = selected.Initializer;
+    const call = initializer === undefined ? undefined : ast.as.AsCallExpression(initializer);
+    const callee = call === undefined ? undefined : ast.as.AsPropertyAccessExpression(call.Expression);
+    const [array] = ast.arguments(initializer);
+    if (ast.name(selected) === undefined || !ast.is.IsIdentifier(ast.name(selected)) || ast.text(ast.name(selected)) === "Object" ||
+        entryType === undefined || !ast.is.IsTypeReferenceNode(entryType) || ast.text(entryName) !== registryImports[0].name ||
+        ast.typeArguments(entryType).length !== 1 || call === undefined || call.QuestionDotToken !== undefined ||
+        callee === undefined || callee.QuestionDotToken !== undefined || !ast.is.IsIdentifier(callee.Expression) ||
+        ast.text(callee.Expression) !== "Object" || ast.text(ast.name(callee)) !== "freeze" ||
+        ast.arguments(initializer).length !== 1 || ast.typeArguments(initializer).length !== 0 ||
+        !ast.is.IsArrayLiteralExpression(array)) { reject(); continue; }
+    const elements = ast.elements(array);
+    const aggregate = elements.length > 0 && elements.every(element => ast.is.IsSpreadElement(element) &&
+      ast.is.IsIdentifier(ast.as.AsSpreadElement(element).Expression));
+    const runtimeImports = imports.filter(statement => !ast.isTypeOnlyImportDeclaration(statement));
+    const typeImportsValid = imports.filter(statement => ast.isTypeOnlyImportDeclaration(statement)).every(statement => {
+      const imported = ast.as.AsImportDeclaration(statement);
+      const module = ast.text(imported.ModuleSpecifier);
+      const expected = module === "@tsonic/target-api" ? "TargetCarrierRegistryEntry"
+        : module === "../model.js" ? "TargetTypeRef" : undefined;
+      const bindings = imported.ImportClause?.NamedBindings;
+      return expected !== undefined && imported.ImportClause.name === undefined && bindings !== undefined &&
+        ast.children(bindings).length > 0 && ast.children(bindings).every(specifier =>
+          ast.is.IsImportSpecifier(specifier) &&
+          ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) === expected);
+    });
+    if (!typeImportsValid || !aggregate && runtimeImports.length !== 0) { reject(); continue; }
+    const ranges = aggregate ? [] : elements.map(rowRanges);
+    if (ranges.some(value => value === undefined)) { reject(); continue; }
+    modules.set(file, { aggregate, ranges: ranges.flat(), runtimeSpecifiers: new Set(runtimeImports.map(statement =>
+      ast.text(ast.as.AsImportDeclaration(statement).ModuleSpecifier))) });
+  }
+
+  const analysis = analyzeCheckedTypeScriptModules(source, files, prefix);
+  for (const edge of analysis.edges) {
+    if (modules.has(edge.target) && !modules.get(edge.source)?.aggregate) {
+      failures.push(`Production consumer of carrier registry metadata: ${edge.source}`);
+    }
+    if (modules.get(edge.source)?.aggregate && modules.get(edge.source).runtimeSpecifiers.has(edge.specifier) &&
+        !modules.has(edge.target)) {
+      failures.push(`Carrier registry aggregate imports non-metadata: ${edge.source}`);
+    }
+  }
+  if (failures.length === 0) {
+    for (const [file, metadata] of modules) {
+      let text = files.get(file);
+      for (const range of metadata.ranges.sort((left, right) => right.start - left.start)) {
+        text = text.slice(0, range.start) + " ".repeat(range.end - range.start) + text.slice(range.end);
+      }
+      sources.set(file, text);
+    }
+  }
+  return { sources, failures, modules: [...modules.keys()] };
 }
 
 export function deriveCarrierVocabulary(files, rootDeclaration) {
