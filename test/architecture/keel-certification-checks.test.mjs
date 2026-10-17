@@ -141,7 +141,7 @@ function boundarySafety(workspaceInputs = nativeBoundaryInputs(), currentSources
     if (index !== 7) inherited = inherited.slice(0, token.offset) + inherited.slice(token.offset + token.text.length);
   }
   return evaluateKeelSafety({ repo: "rust-runtime", trackedFiles: [path], workspaceInputs,
-    currentSources: currentSources ?? new Map([[path, workspaceInputs.get("rust-runtime").get(path)?.text ?? text]]),
+    currentSources: currentSources ?? new Map([[path, workspaceInputs.get("rust-runtime")?.get(path)?.text ?? text]]),
     baseSources: baseSources ?? new Map([["tests/old-observer.rs", inherited]]),
   });
 }
@@ -179,8 +179,8 @@ test("NS-T02: an unsafe addition anywhere in the exact module grants zero approv
 test("NS-T03: forwarding changes fail the complete digest even when the nine unsafe windows match", () => {
   const path = "tests/helpers/allocation_counts.rs";
   const original = nativeBoundaryInputs().get("rust-runtime").get(path).text;
-  const changed = original.replace("System.realloc(pointer, layout, new_size)", "System.realloc(pointer, layout, new_size + 1)");
-  assert.notEqual(changed, original);
+  const changed = original.replace("System.realloc(pointer, layout, size)", "System.realloc(pointer, layout, size + 1)");
+  assert.equal(changed !== original, true, "the actual forwarding argument is changed");
   assert.deepEqual(keelNativeUnsafeSites(changed), keelNativeUnsafeSites(original));
   const inputs = nativeBoundaryInputs();
   inputs.get("rust-runtime").set(path, safetyFile(changed));
