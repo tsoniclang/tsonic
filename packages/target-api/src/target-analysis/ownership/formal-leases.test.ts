@@ -26,6 +26,9 @@ function fixture(kind: "input-duration" | "type-argument",
     }
     async function independent(): Promise<number> { return 7; }
     function ownedRoot(): void { independent(); }
+    async function consume(value: Promise<number>): Promise<void> { await value; }
+    function passedRoot(): void { void consume(independent()); }
+    function receiverRoot(): void { independent().then(() => 0); }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
@@ -98,6 +101,39 @@ function fixture(kind: "input-duration" | "type-argument",
 }
 
 for (const kind of ["input-duration", "type-argument"] as const) {
+  test(`actual owned completion evidence preserves passed and receiver uses beside ${kind} lease negatives`, () => {
+    const current = fixture(kind);
+    const calls = current.storage.invocations.filter(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === current.declaration("independent"));
+    assert.equal(calls.length, 3, "discarded, passed and receiver-consumed uses retain their exact source calls");
+    for (const [index, call] of calls.entries()) {
+      const selected = current.query.forCall(call);
+      assert.equal(selected.kind === "resolved", true,
+        selected.kind === "unresolved" ? selected.reason : `owned result ${index} resolves`);
+      if (selected.kind !== "resolved") continue;
+      assert.equal(selected.decision, index === 0 ? "observe-discarded-rejection" : "admitted",
+        `owned result ${index} requires no invented source borrow`);
+      assert.equal(selected.disposition.kind, ["discarded", "passed", "consumed"][index],
+        `owned result ${index} preserves its actual selected use`);
+      const unknown = { kind: "unresolved" as const, at: call, reason: "No completed native or source retention evidence." };
+      const checked = current.source.semantics.forNode(call).operations.call(call);
+      assert.equal(checked?.sourceSelectedSignatureKind === "resolved", true, "actual selected source call");
+      if (checked?.sourceSelectedSignatureKind !== "resolved") continue;
+      const completion = current.premises.completionFor(call, checked, current.storage.emptyBindings);
+      for (const retention of [unknown, { kind: "resolved" as const, reference: call, premises: [] }]) {
+        const rejected = decideSourceAsyncResultUse({ ...current, call, completion, disposition: selected.disposition,
+          continuation: unknown, retention });
+        assert.equal(rejected.kind === "unresolved", true,
+          `${selected.disposition.kind}: use syntax does not replace unknown or empty retention evidence`);
+      }
+    }
+    for (const call of current.calls.slice(1)) {
+      const selected = current.query.forCall(call);
+      assert.equal(selected.kind === "resolved" && selected.decision === "rejected", true,
+        "owned results never erase the independent real formal-lease rejections");
+    }
+  });
+
   test(`a checked ${kind} formal lease admits the actual immediate await and rejects both escaping calls`, () => {
     const current = fixture(kind);
     const decisions = current.calls.map(call => current.query.forCall(call));

@@ -132,6 +132,7 @@ export function createTargetSourceProgram(
       },
     });
     const declarations = Object.freeze({
+      isDefaultLibraryDeclaration: queries.checker.isDefaultLibraryDeclaration,
       declaredValueType(declaration: Node) {
         if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
         return queries.checker.getTypeOfSymbol(navigation.declarationSymbol(declaration, sourceFile));
@@ -185,6 +186,7 @@ export function createTargetSourceProgram(
     });
     const types: SourceFinalTypeQueries = Object.freeze({
       expressionType: queries.checker.getTypeAtLocation,
+      awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType: queries.checker.getContextualType,
       typeOfSymbol: queries.checker.getTypeOfSymbol,

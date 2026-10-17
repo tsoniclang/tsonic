@@ -71,7 +71,7 @@ export interface SourceContinuationDependency {
 
 export type SourceAsyncResultDisposition =
   | (Extract<SourceExpressionResultDisposition, { readonly kind: "awaited-in-scope" }> & { readonly region: Node })
-  | { readonly kind: "discarded" | "stored" | "returned"; readonly use: Node };
+  | Exclude<SourceExpressionResultDisposition, { readonly kind: "awaited-in-scope" }>;
 
 export interface SourceAsyncOwnershipDiagnostic {
   readonly code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED" | "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES";
