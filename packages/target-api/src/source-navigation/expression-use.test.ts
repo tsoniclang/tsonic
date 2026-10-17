@@ -189,6 +189,7 @@ test("async result dispositions preserve selected values and distinguish storage
   findWrapper(file);
   assert.equal(wrappers.length > 0, true, "checked transparent wrapper for the cyclic-boundary proof");
   const wrapper = wrappers[0]!;
+  assert.equal(source.ast.is.IsParenthesizedExpression(wrapper), true, "the cyclic-boundary witness retains its exact checked wrapper kind");
   const wrapperData = source.ast.as.AsParenthesizedExpression(wrapper)!;
   assert.throws(() => sourceExpressionResultDisposition({ ...source.ast, parent: () => wrapper,
     as: { ...source.ast.as, AsParenthesizedExpression: () => ({ ...wrapperData, Expression: wrapper }) } }, wrapper),
