@@ -9,7 +9,8 @@ import { analyzeSourceGenericAdoption } from "./generic-adoption.js";
 function fixture(text: string, projectRoot = "/src") {
   const checked = createCompilerSessionFromFiles({ currentDirectory: projectRoot, files: { [`${projectRoot}/index.ts`]: text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.slice(0, 3)).slice(0, 2048));
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics
+    .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined).slice(0, 3)).slice(0, 2048));
   const source = createTargetSourceProgram(checked);
   const nodes: Node[] = [];
   const visit = (node: Node): void => {
