@@ -156,7 +156,9 @@ export function exercise(): number {
         : "an actual property, recursive, escape, shadow or ordinary use remains indexed");
       const entries = definition ? definitions : uses;
       const name = source.ast.text(node);
-      entries.set(name, [...entries.get(name) ?? [], node]);
+      if (name !== "value" || checker.getSymbolDeclarations(selected!.symbol).some(declaration =>
+        source.ast.is.IsGetAccessorDeclaration(declaration) || source.ast.is.IsSetAccessorDeclaration(declaration)))
+        entries.set(name, [...entries.get(name) ?? [], node]);
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
