@@ -30,8 +30,10 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const body = ast.body(declaration);
     if (body === undefined) return [];
     const regions = [body];
-    const selection = invocation === undefined ? undefined : semantics.forNode(invocation).operations.call(invocation);
-    const slots = sourceStorageCallableInputSlots(source, declaration, step);
+    const consumer = semantics.forNode(invocation ?? declaration);
+    const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
+    const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
+      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, step);
     for (const parameter of ast.parameters(declaration)) {
       if (!step()) break;
       const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
@@ -44,7 +46,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       if (initializer === undefined) continue;
       if (callback !== undefined && invocation !== undefined) {
         const inputs = sourceStorageNativeInputSlots(source, declaration,
-          { node: parameter, kind: "input", projection: [] }, callback.argument.binding.selectedParameterType, step);
+          { node: parameter, kind: "input", projection: [] }, callback.argument.binding.selectedParameterType, consumer, step);
         if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
           typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
         continue;
