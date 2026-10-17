@@ -183,6 +183,7 @@ for (const [name, change] of [
   ["foreign type-only import", text => `import type { Foreign } from "@tsonic/csharp";\n${text}`],
   ["additional executable statement", text => `${text}\nconsole.log("dotnet");`],
   ["mutable registry binding", text => text.replace("export const nativeEntries", "export let nativeEntries")],
+  ["uninitialized declaration", text => text.slice(0, text.indexOf(" = Object.freeze")) + ";"],
   ["unfrozen registry array", text => text.replace("Object.freeze([", "[").replace("\n]);", "\n];")],
   ["computed counterpart", text => text.replace('symbol: "csharpCarrier"', 'symbol: select("csharp")')],
   ["computed counterpart key", text => text.replace('counterpart: { module:', 'counterpart: { ["module"]:')],

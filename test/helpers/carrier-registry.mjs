@@ -114,7 +114,7 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
     if (registryImports.length !== 1 || !ast.isTypeOnlyImportDeclaration(registryImports[0].statement) ||
         body.length !== 1 || !ast.is.IsVariableStatement(body[0]) || !ast.hasModifierKind(body[0], "export") ||
         ast.variableDeclarationKind(body[0]) !== "const") { reject(); continue; }
-    const declarations = ast.as.AsVariableStatement(body[0]).DeclarationList.Declarations;
+    const declarations = ast.as.AsVariableStatement(body[0]).DeclarationList.Declarations.Nodes;
     if (declarations.length !== 1) { reject(); continue; }
     const selected = declarations[0];
     const qualifiedType = ast.typeNode(selected);
@@ -125,7 +125,7 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
     const initializer = selected.Initializer;
     const call = initializer === undefined ? undefined : ast.as.AsCallExpression(initializer);
     const callee = call === undefined ? undefined : ast.as.AsPropertyAccessExpression(call.Expression);
-    const [array] = ast.arguments(initializer);
+    const [array] = call === undefined ? [] : ast.arguments(initializer);
     if (ast.name(selected) === undefined || !ast.is.IsIdentifier(ast.name(selected)) || ast.text(ast.name(selected)) === "Object" ||
         entryType === undefined || !ast.is.IsTypeReferenceNode(entryType) || ast.text(entryName) !== registryImports[0].name ||
         ast.typeArguments(entryType).length !== 1 || call === undefined || call.QuestionDotToken !== undefined ||
