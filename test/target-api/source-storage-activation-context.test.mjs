@@ -557,10 +557,13 @@ for (const reversed of [false, true]) for (const timing of ["synchronous", "defe
     for (let pass = 0; pass < 2; pass += 1) {
       const selected = storage.contributingExecutionsFor(demanded, callback, entry);
       assert.equal(selected.kind, timing === undefined ? "open" : "complete", "demand-local native execution status");
-      assert.equal(selected.producers.length, 2, "one correlated execution for each selected native callback port");
+      assert.equal(selected.producers.length, timing === undefined ? 0 : 2,
+        "only completed execution contracts certify the actual native callback ports");
+      const executions = selected.kind === "open" ? selected.boundaries : selected.producers;
+      assert.equal(executions.length, 2, "one correlated execution context for each selected native callback port");
       const observed = new Set();
       const bindings = new Set();
-      for (const producer of (pass === 0) !== reversed ? selected.producers : selected.producers.slice().reverse()) {
+      for (const producer of (pass === 0) !== reversed ? executions : executions.slice().reverse()) {
         assert.equal(producer.subject === demanded, true, "the original actual demanded value is retained");
         const activation = resolved(storage.boundActivationsFor(callback, producer.bindings));
         assert.equal(activation.activations.length, 1, "one actual native entry frame");
@@ -584,7 +587,7 @@ for (const reversed of [false, true]) for (const timing of ["synchronous", "defe
         "first and second actual capture values survive either query order");
       if (selected.kind === "open") assert.equal(selected.boundaries.every(boundary => boundary.exposure === native), true,
         "unknown execution is located at the actual native exposure");
-      views.push(selected.producers.map(producer => producer.bindings));
+      views.push(executions.map(producer => producer.bindings));
     }
     assert.equal(views[0].every(binding => views[1].includes(binding)), true, "fresh and reverse reads preserve canonical frame identity");
     assert.equal(storage.failureReason() === undefined, true, "opaque execution is not a global budget failure");
@@ -870,15 +873,16 @@ for (const mapped of [false, true]) for (const invoked of [false, true]) for (co
   });
 }
 
-for (const reversed of [false, true]) {
-  test("an uncertain native input boundary publishes each actual factory creation binding: " + reversed, async () => {
+for (const sameValue of [false, true]) for (const reversed of [false, true]) {
+  test("an uncertain native input boundary publishes each actual factory creation binding: " + reversed +
+    (sameValue ? "/equal-values" : ""), async () => {
     const current = await fixture("native-boundary-factory-creation", `
       declare function observe(value: number): void;
       declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
       function make(callback: (value: number) => void, value: number): () => void { return () => { callback(value); }; }
       export function create(first: number, second: number) {
         const firstCallback = make(observe, first);
-        const secondCallback = make(observe, second);
+        const secondCallback = make(observe, ${sameValue ? "first" : "second"});
         return () => { nativeInvoke([${reversed ? "secondCallback, firstCallback" : "firstCallback, secondCallback"}], next => { next(); }); };
       }
     `, (source, nodes) => {
@@ -913,8 +917,10 @@ for (const reversed of [false, true]) {
       for (const subject of origins.subjects) actuals.add(subject.node);
     }
     assert.equal(creationScopes.size, 2, "same arrow, distinct actual creation bindings");
-    assert.equal(actuals.size === 2 && ast.parameters(declaration("create")).every(parameter => actuals.has(parameter)), true,
-      "both factory argument rows survive without substitution or cross-union");
+    const parameters = ast.parameters(declaration("create"));
+    assert.equal(sameValue ? actuals.size === 1 && actuals.has(parameters[0])
+      : actuals.size === 2 && parameters.every(parameter => actuals.has(parameter)), true,
+    "both original factory argument rows survive without substitution or cross-union");
     assert.equal(storage.boundOriginsFor(argument, {}).kind, "unresolved", "a fabricated scope is never replaced with empty bindings");
     assert.equal(storage.failureReason() === undefined, true, "unknown correspondence stays local");
   });

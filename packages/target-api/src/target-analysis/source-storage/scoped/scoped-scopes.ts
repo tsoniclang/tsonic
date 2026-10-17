@@ -429,17 +429,20 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   });
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
   const activations = new Map<string, SourceStorageActivation>();
+  const noCreation: readonly SourceStorageActivation[] = Object.freeze([]);
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
     if (activationKeys.has(scope)) return activationKeys.get(scope);
-    const intern = (key: string, variable: SourceStorageVariable | undefined,
+    const intern = (key: string, variable: SourceStorageVariable | undefined, owner: Node | undefined,
+      creation: readonly SourceStorageActivation[],
       context: { readonly invocation: Node; readonly parent: SourceStorageActivation; readonly nativeEntry?: string } | undefined): SourceStorageActivation | undefined => {
       let selected = activations.get(key);
       if (selected !== undefined) return selected;
-      if (!rows.add(2)) return undefined;
+      if (!rows.add(2 + creation.length)) return undefined;
       selected = Object.freeze(context === undefined
-        ? { key: `${activations.size}`, variable, invocation: undefined, parent: undefined }
-        : { key: `${activations.size}`, variable, invocation: context.invocation, parent: context.parent, nativeEntry: context.nativeEntry });
+        ? { key: `${activations.size}`, variable, owner, creation, invocation: undefined, parent: undefined }
+        : { key: `${activations.size}`, variable, owner, creation,
+          invocation: context.invocation, parent: context.parent, nativeEntry: context.nativeEntry });
       activations.set(key, selected);
       return selected;
     };
@@ -449,53 +452,72 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       activationKeys.set(scope, value);
       return true;
     };
-    const pending: { readonly scope: SourceStorageScope; readonly invocation: Node; readonly nativeEntry?: string }[] = [];
-    const visited = new Set<SourceStorageScope>();
-    let selected: SourceStorageActivation | undefined;
-    let current: SourceStorageScope | undefined = scope;
-    while (current !== undefined) {
+    const pending: ({ readonly kind: "visit"; readonly scope: SourceStorageScope } |
+      { readonly kind: "complete"; readonly scope: SourceStorageScope; readonly frame: SourceStorageFrame;
+        readonly captures: readonly SourceStorageScope[]; readonly caller: SourceStorageScope | undefined })[] =
+      [{ kind: "visit", scope }];
+    const active = new Set<SourceStorageScope>();
+    while (pending.length !== 0) {
       if (!budget.step()) return undefined;
-      const retained = activationKeys.get(current);
-      if (retained !== undefined) { selected = retained; break; }
-      if (visited.has(current)) break;
-      if (!temporary.add(1)) return undefined;
-      visited.add(current);
-      const frame: SourceStorageFrame | SourceStorageVariable = current.kind === "substitution" ? current.scope : current;
-      if (frame.kind === "variable" || frame.invocation === undefined) {
-        selected = intern(frame.kind === "variable"
-          ? `v${frame.equation.identity}:${identity(frame.owner)}:${frame.capture === undefined ? "" : identity(frame.capture)}:${callbackKey(frame.callback)}` : "root",
-          frame.kind === "variable" ? frame : undefined, undefined);
-        if (selected === undefined || !remember(current, selected)) return undefined;
-        break;
+      const current = pending.pop()!;
+      if (activationKeys.has(current.scope)) continue;
+      if (current.kind === "visit") {
+        if (active.has(current.scope)) {
+          budget.reject("Source storage activation ownership must be acyclic."); return undefined;
+        }
+        const frame = current.scope.kind === "substitution" ? current.scope.scope : current.scope;
+        if (frame.kind === "variable" || current.scope === empty) {
+          const selected = frame.kind === "variable"
+            ? intern(`v${frame.equation.identity}:${identity(frame.owner)}:${frame.capture === undefined ? "" : identity(frame.capture)}:${callbackKey(frame.callback)}`,
+              frame, frame.owner, noCreation, undefined)
+            : intern("root", undefined, undefined, noCreation, undefined);
+          if (selected === undefined || !remember(current.scope, selected)) return undefined;
+          continue;
+        }
+        if (!temporary.add(2 + frame.parents.length)) return undefined;
+        const captures: SourceStorageScope[] = [];
+        for (const captured of frame.parents) {
+          if (!budget.step()) return undefined;
+          const actual = current.scope.kind === "substitution" ? applyScope(captured, current.scope.substitutions) : captured;
+          if (actual === undefined) return undefined;
+          captures.push(actual);
+        }
+        const caller = frame.caller === undefined ? undefined : current.scope.kind === "substitution"
+          ? applyScope(frame.caller, current.scope.substitutions) : frame.caller;
+        if (frame.owner === undefined || frame.invocation !== undefined && caller === undefined) {
+          budget.reject("Source storage activation requires its actual callable owner and invocation caller."); return undefined;
+        }
+        active.add(current.scope);
+        pending.push({ kind: "complete", scope: current.scope, frame, captures, caller });
+        for (const captured of captures) pending.push({ kind: "visit", scope: captured });
+        if (caller !== undefined) pending.push({ kind: "visit", scope: caller });
+        continue;
       }
-      if (!temporary.add(1)) return undefined;
-      const captures: number[] = [];
-      if (frame.callback !== undefined) for (const captured of frame.parents) {
+      const creation: SourceStorageActivation[] = [];
+      let variable: SourceStorageVariable | undefined;
+      for (const captured of current.captures) {
         if (!budget.step()) return undefined;
-        const actual = current.kind === "substitution" ? applyScope(captured, current.substitutions) : captured;
-        if (actual === undefined) return undefined;
-        captures.push(identity(actual));
+        const selected = activationKeys.get(captured);
+        if (selected === undefined) return undefined;
+        creation.push(selected);
+        variable ??= selected.variable;
       }
-      const nativeEntry = frame.callback === undefined ? undefined :
-        `${callbackKey(frame.callback)}:${frame.owner === undefined ? "" : identity(frame.owner)}:${captures.join(":")}`;
-      pending.push({ scope: current, invocation: frame.invocation, nativeEntry });
-      if (frame.caller === undefined) break;
-      const caller: SourceStorageScope | undefined = current.kind === "substitution"
-        ? applyScope(frame.caller, current.substitutions) : frame.caller;
-      if (caller === undefined) return undefined;
-      current = caller;
-    }
-    if (selected === undefined) {
-      budget.reject("Source storage activation ownership must be acyclic."); return undefined;
-    }
-    for (let index = pending.length - 1; index >= 0; index -= 1) {
-      if (!budget.step()) return undefined;
-      const current = pending[index]!;
-      selected = intern(`f${identity(current.invocation)}:${current.nativeEntry ?? ""}:${selected.key}`, selected.variable,
-        { invocation: current.invocation, parent: selected, nativeEntry: current.nativeEntry });
+      const parent = current.caller === undefined ? undefined : activationKeys.get(current.caller);
+      if (current.caller !== undefined && parent === undefined) return undefined;
+      variable = parent?.variable ?? variable;
+      const nativeEntry = current.frame.callback === undefined ? undefined : callbackKey(current.frame.callback);
+      const owner = current.frame.owner;
+      if (owner === undefined) return undefined;
+      const context = current.frame.invocation === undefined ? undefined : parent === undefined ? undefined
+        : { invocation: current.frame.invocation, parent, nativeEntry };
+      if (current.frame.invocation !== undefined && context === undefined) return undefined;
+      const selected = intern(
+        `${current.frame.invocation === undefined ? "d" : `f${identity(current.frame.invocation)}`}:${identity(owner)}:${nativeEntry ?? ""}:${parent?.key ?? ""}:${creation.map(value => value.key).join(":")}`,
+        variable, owner, Object.freeze(creation), context);
       if (selected === undefined || !remember(current.scope, selected)) return undefined;
+      active.delete(current.scope);
     }
-    return remember(scope, selected) ? selected : undefined;
+    return activationKeys.get(scope);
   });
   const formals = (scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => budget.withRows(temporary => {
     const selected = new Set<SourceStorageSubject>(); const visited = new Set<SourceStorageScope>(); const pending = [scope];

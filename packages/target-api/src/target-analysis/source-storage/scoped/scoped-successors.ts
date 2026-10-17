@@ -613,20 +613,37 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination => Object.freeze({ ...term, destination }), { contributes: false });
       if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
       if (term.receiver.subject !== term.destination.subject) return absent;
-      let receiver = birth(term.receiver.subject, term.receiver.scope);
-      let destination = birth(term.destination.subject, term.destination.scope);
+      const receiver = birth(term.receiver.subject, term.receiver.scope);
+      const destination = birth(term.destination.subject, term.destination.scope);
       if (receiver === undefined || destination === undefined) return undefined;
-      while (receiver.key !== destination.key) {
-        if (!budget.step()) return undefined;
-        if (receiver.invocation === undefined || destination.invocation === undefined) {
-          const variable = receiver.invocation === undefined ? receiver.variable : destination.variable;
-          return variable === undefined ? absent : { kind: "expand", variable };
+      return budget.withRows((rows): SourceStorageReduction | undefined => {
+        const pending: (readonly [SourceStorageActivation, SourceStorageActivation])[] = [[receiver, destination]];
+        const visited = new Map<SourceStorageActivation, Set<SourceStorageActivation>>();
+        while (pending.length !== 0) {
+          if (!budget.step()) return undefined;
+          const [receiver, destination] = pending.pop()!;
+          if (receiver.key === destination.key || visited.get(receiver)?.has(destination)) continue;
+          if (!rows.add(2)) return undefined;
+          const targets = visited.get(receiver) ?? new Set<SourceStorageActivation>();
+          targets.add(destination);
+          visited.set(receiver, targets);
+          if (receiver.invocation !== undefined && destination.invocation !== undefined &&
+            (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
+              receiver.nativeEntry !== destination.nativeEntry)) return absent;
+          if (receiver.invocation === undefined || destination.invocation === undefined) {
+            const variable = receiver.invocation === undefined ? receiver.variable : destination.variable;
+            if (variable !== undefined) return { kind: "expand", variable };
+            if (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
+              receiver.nativeEntry !== destination.nativeEntry) return absent;
+          } else pending.push([receiver.parent, destination.parent]);
+          if (receiver.creation.length !== destination.creation.length) return absent;
+          for (const [index, creation] of receiver.creation.entries()) {
+            if (!budget.step() || !rows.add(1)) return undefined;
+            pending.push([creation, destination.creation[index]!]);
+          }
         }
-        if (receiver.invocation !== destination.invocation || receiver.nativeEntry !== destination.nativeEntry) return absent;
-        receiver = receiver.parent;
-        destination = destination.parent;
-      }
-      return { kind: "replace", terms: [term.value] };
+        return { kind: "replace", terms: [term.value] };
+      });
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));

@@ -175,6 +175,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const activation = activationKey(selected.scope);
         const inputs: Encoded[] = [];
         const owner = sourceStorageRegionOwner(source.ast, selected.region);
+        const callable = owner === undefined ? undefined : transport.subject(owner);
+        const captures = owner === undefined ? null : callable === undefined ? undefined : encodeScope(callable, selected.scope);
         const parameters = owner === undefined || source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)
           ? [] : source.ast.parameters(owner);
         if (owner !== undefined) for (const parameter of [...parameters, owner]) {
@@ -184,7 +186,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           if (value === undefined) return undefined;
           inputs.push(value);
         }
-        return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs];
+        return activation === undefined || captures === undefined ? undefined : [selected.kind, scopes.identity(selected.region),
+          scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs, captures];
       }
       if (selected.kind === "member") {
         const receiver = encodeBinding(selected.receiver);
