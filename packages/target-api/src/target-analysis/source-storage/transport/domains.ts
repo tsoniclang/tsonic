@@ -207,7 +207,7 @@ export function createSourceStorageDomains(
       domainInputs.seal();
     }
   };
-  const boundariesFor = (subject: SourceStorageSubject): readonly SourceStorageDomainBoundary[] => {
+  const boundariesFor = (subject: SourceStorageSubject): readonly Omit<SourceStorageDomainBoundary, "bindings">[] => {
     const selected = [...witnesses.forSubject(subject)];
     for (let length = 0; length < subject.projection.length && budget.step(); length += 1) {
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
@@ -299,21 +299,26 @@ export function createSourceStorageDomains(
     initialize();
     const selected = transport.substitutions.walk(subject, bindings);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
-      subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary[]),
+      subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),
       boundSubjects: Object.freeze([] as import("../scoped/substitutions.js").SourceStorageBoundSubject[]),
       reason: budget.failure() ?? selected?.reason ?? "Source storage requires one completed scoped relation.",
     });
-    const boundaries = new Set<SourceStorageDomainBoundary>();
+    const boundaries: SourceStorageDomainBoundary<SourceStorageSubstitutions>[] = [];
+    const retainBoundary = (boundary: Omit<SourceStorageDomainBoundary, "bindings">, bindings: SourceStorageSubstitutions): void => {
+      if (boundaries.some(selected => selected.kind === boundary.kind && selected.subject === boundary.subject &&
+        selected.owner === boundary.owner && selected.exposure === boundary.exposure && selected.bindings === bindings)) return;
+      if (rows.add(1)) boundaries.push(Object.freeze({ ...boundary, bindings }));
+    };
     const pending = [...selected.subjects];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     let reason: string | undefined;
     while (pending.length !== 0) {
       if (!budget.step()) break;
       const current = pending.pop()!;
-      const selected = visited.get(current.bindings);
-      if (selected?.has(current.subject)) continue;
-      if (!rows.add(1 + (selected === undefined ? 1 : 0))) break;
-      const retained = selected ?? new Set<SourceStorageSubject>();
+      const seen = visited.get(current.bindings);
+      if (seen?.has(current.subject)) continue;
+      if (!rows.add(1 + (seen === undefined ? 1 : 0))) break;
+      const retained = seen ?? new Set<SourceStorageSubject>();
       retained.add(current.subject); visited.set(current.bindings, retained);
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       reason = transport.unresolvedStoredInputsFor(current.subject);
@@ -331,15 +336,12 @@ export function createSourceStorageDomains(
             if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes }))); continue; }
           }
         }
-        boundaries.add(boundary);
+        retainBoundary(boundary, current.bindings);
       }
-    }
-    for (const origin of selected.origins) {
-      if (!budget.step()) break;
-      if (!ast.is.IsVariableDeclaration(origin.node) || Node_Initializer(ast, origin.node) !== undefined ||
-        navigation.isProjectDeclaration(origin.node)) continue;
-      if (!rows.add(1)) break;
-      boundaries.add(Object.freeze({ kind: "external-input", subject: origin, exposure: origin.node }));
+      const origin = current.subject;
+      if (selected.origins.has(origin) && ast.is.IsVariableDeclaration(origin.node) && Node_Initializer(ast, origin.node) === undefined &&
+        !navigation.isProjectDeclaration(origin.node))
+        retainBoundary({ kind: "external-input", subject: origin, exposure: origin.node }, current.bindings);
     }
     const boundSubjects: import("../scoped/substitutions.js").SourceStorageBoundSubject[] = [];
     for (const candidate of selected.subjects) {
@@ -350,7 +352,7 @@ export function createSourceStorageDomains(
     }
     if (budget.failure() !== undefined) reason = budget.failure();
     return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundSubjects: Object.freeze(boundSubjects),
-      boundaries: Object.freeze([...boundaries]), reason });
+      boundaries: Object.freeze(boundaries), reason });
   });
   return Object.freeze({ select });
 }

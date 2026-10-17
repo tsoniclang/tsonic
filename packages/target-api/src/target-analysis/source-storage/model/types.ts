@@ -60,11 +60,12 @@ export type SourceStorageOriginsSelection =
   | { readonly kind: "resolved"; readonly origins: readonly SourceStorageTypedSubject[] }
   | SourceStorageUnresolved;
 
-export interface SourceStorageDomainBoundary {
+export interface SourceStorageDomainBoundary<Bindings = SourceStorageBindings> {
   readonly kind: "external-input" | "external-write" | "opaque-write" | "opaque-result" | "unclassified-exposure";
   readonly subject: SourceStorageSubject;
   readonly exposure: Node;
   readonly owner?: SourceStorageSubject;
+  readonly bindings: Bindings;
 }
 
 export type SourceStorageClosedOriginsSelection =

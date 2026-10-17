@@ -12,7 +12,7 @@ import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
-  SourceStorageBoundActivation, SourceStorageBindingsSelection,
+  SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageDomainBoundary,
 } from "./model/types.js";
 
 export function createSourceStorageQuery(
@@ -210,7 +210,7 @@ export function createSourceStorageQuery(
     const states = bindingStates.get(bindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
-    const boundaries = new Set<ReturnType<typeof domains.select>["boundaries"][number]>();
+    const boundaries: SourceStorageDomainBoundary[] = [];
     const producerStates = new Map<SourceStorageSubject, Set<SourceStorageSubstitutions>>();
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
@@ -223,14 +223,21 @@ export function createSourceStorageQuery(
         states.add(origin.bindings);
         producerStates.set(origin.subject, states);
       }
-      for (const boundary of selected.boundaries) { if (!budget.step()) return unresolved(budget.failure()!); boundaries.add(boundary); }
+      for (const boundary of selected.boundaries) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        const bindings = bindingView([boundary.bindings]);
+        if (bindings === undefined) return unresolved(budget.failure() ?? "A source boundary requires its original owned activation bindings.");
+        if (!boundaries.some(selected => selected.kind === boundary.kind && selected.subject === boundary.subject &&
+          selected.owner === boundary.owner && selected.exposure === boundary.exposure && selected.bindings === bindings))
+          boundaries.push(Object.freeze({ ...boundary, bindings }));
+      }
     }
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
     if (subjects.size === 0) return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects]);
     if (origins.kind === "unresolved") return origins;
-    return boundaries.size === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
-      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze([...boundaries]) });
+    return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
+      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
   };
   const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
     const selected = selectDomain(subject, bindings, "values");
@@ -516,8 +523,10 @@ export function createSourceStorageQuery(
         for (const boundary of selected.boundaries) {
           if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
           if (boundary.exposure === undefined) return unresolved("A native execution boundary requires its actual exposure.");
+          const bindings = bindingView([boundary.scope]);
+          if (bindings === undefined) return unresolved(budget.failure() ?? "A native execution boundary requires its original creation bindings.");
           boundaries.push(Object.freeze({ kind: "unclassified-exposure" as const,
-            subject: boundary.subject, exposure: boundary.exposure }));
+            subject: boundary.subject, exposure: boundary.exposure, bindings }));
         }
         return boundaries.length === 0 ? Object.freeze({ kind: "complete", producers: Object.freeze(producers) })
           : Object.freeze({ kind: "open", producers: Object.freeze(producers), boundaries: Object.freeze(boundaries) });
@@ -531,9 +540,10 @@ export function createSourceStorageQuery(
       const entries = transport.callbackEntriesFor(invocation);
       const arguments_ = Object.freeze(entries.map(entry => entry.argument));
       const unknown = entries.filter(entry => entry.timing === "unknown");
-      return unknown.length === 0 ? Object.freeze({ kind: "resolved", arguments: arguments_ })
-        : Object.freeze({ kind: "open", arguments: arguments_, boundaries: Object.freeze(unknown.map(entry =>
-          Object.freeze({ kind: "unclassified-exposure" as const, subject: entry.argument.actual, exposure: invocation }))) });
+      if (unknown.length === 0) return Object.freeze({ kind: "resolved", arguments: arguments_ });
+      const lexical = query.bindingsForLexicalOwner(invocation);
+      return lexical.kind === "unresolved" ? lexical : Object.freeze({ kind: "open", arguments: arguments_, boundaries: Object.freeze(unknown.map(entry =>
+        Object.freeze({ kind: "unclassified-exposure" as const, subject: entry.argument.actual, exposure: invocation, bindings: lexical.bindings }))) });
     },
     boundValueFrontierFor(subject, bindings, boundaries, position = "value") {
       return budget.withRows(rows => {
