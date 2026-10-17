@@ -291,6 +291,16 @@ test("shared expression inputs retain holes, spreads, spans and branch roles wit
   assert.equal(elements[1]!.expression === source.ast.as.AsSpreadElement(source.ast.children(array)[2])?.Expression, true,
     "spread uses its original underlying expression");
   assert.deepEqual(sourceExpressionValueInputs(source.ast, initializer("text"))!.map(input => input.slot.kind === "span" ? input.slot.index : -1), [0, 1]);
+  const wrongSpanKind = { ...source.ast, is: { ...source.ast.is, IsTemplateSpan: () => false },
+    as: { ...source.ast.as, AsTemplateSpan: () => { throw new Error("A non-span cannot reach its cast."); } } };
+  assert.equal(sourceExpressionValueInputs(wrongSpanKind, initializer("text")) === undefined, true,
+    "every original template input requires an exact checked span before casting");
+  const missingSpanExpression = { ...source.ast, as: { ...source.ast.as, AsTemplateSpan: () => undefined } };
+  assert.equal(sourceExpressionValueInputs(missingSpanExpression, initializer("text")) === undefined, true,
+    "a required missing span expression is not an empty successful input vector");
+  const missingTemplate = { ...source.ast, as: { ...source.ast.as, AsTemplateExpression: () => undefined } };
+  assert.equal(sourceExpressionValueInputs(missingTemplate, initializer("text")) === undefined, true,
+    "a missing checked template cannot publish an empty successful input vector");
   assert.equal(conditional !== undefined, true, "checked conditional exists");
   assert.deepEqual(sourceExpressionValueInputs(source.ast, conditional!)!.map(input => input.slot.kind === "branch" ? input.slot.branch : input.slot.kind),
     ["condition", "true", "false"]);
