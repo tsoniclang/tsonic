@@ -3,6 +3,7 @@ import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer, sourc
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageUnresolved } from "./types.js";
+import type { SourceStorageSubject } from "./subjects.js";
 
 export function sourceStorageConstructionExpression(invocation: Node, source: TargetSourceProgram,
   step: () => boolean): Node | undefined {
@@ -45,27 +46,35 @@ export function sourceStorageInstanceInitializers(declaration: Node, source: Tar
   return initializers;
 }
 
-export function sourceStorageAllocation<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageAllocations<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings,
-  activationFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
-    { readonly invocation: Node; readonly callerBindings: Bindings }): SourceStorageUnresolved |
-  { readonly kind: "resolved"; readonly call: Node; readonly callerBindings: Bindings } {
+  receiverOriginsFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
+    readonly { readonly subject: SourceStorageSubject; readonly bindings: Bindings }[]): SourceStorageUnresolved |
+  { readonly kind: "resolved"; readonly allocations: readonly { readonly call: Node; readonly callerBindings: Bindings }[] } {
   return budget.withRows(temporary => {
-    const seen = new Set<Bindings>();
-    let call = invocation;
-    let callerBindings = bindings;
-    while (!source.ast.is.IsNewExpression(call)) {
+    if (source.ast.is.IsNewExpression(invocation)) return Object.freeze({ kind: "resolved",
+      allocations: Object.freeze([Object.freeze({ call: invocation, callerBindings: bindings })]) });
+    const base = sourceStorageSuperConstructor(invocation, source, budget.step);
+    if (base === undefined) return Object.freeze({ kind: "unresolved",
+      reason: "Constructor execution requires its actual checked allocation receiver, not guessed heritage order." });
+    const selected = receiverOriginsFor(base.owner, bindings);
+    if ("kind" in selected) return selected;
+    const allocations: { readonly call: Node; readonly callerBindings: Bindings }[] = [];
+    const seen = new Map<Node, Set<Bindings>>();
+    for (const origin of selected) {
       if (!budget.step()) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
-      const base = sourceStorageSuperConstructor(call, source, budget.step);
-      if (base === undefined || seen.has(callerBindings)) return Object.freeze({ kind: "unresolved",
-        reason: "Constructor execution requires the actual checked allocation activation, not guessed heritage order." });
-      if (!temporary.add(1)) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
-      seen.add(callerBindings);
-      const selected = activationFor(base.owner, callerBindings);
-      if ("kind" in selected) return selected;
-      call = selected.invocation;
-      callerBindings = selected.callerBindings;
+      if (origin.subject.kind !== "value" || origin.subject.projection.length !== 0 || !source.ast.is.IsNewExpression(origin.subject.node))
+        return Object.freeze({ kind: "unresolved", reason: "Constructor execution requires every actual receiver origin to identify its checked allocation." });
+      const previous = seen.get(origin.subject.node);
+      if (previous?.has(origin.bindings)) continue;
+      if (!temporary.add(previous === undefined ? 3 : 2)) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
+      const contexts = previous ?? new Set<Bindings>();
+      contexts.add(origin.bindings);
+      seen.set(origin.subject.node, contexts);
+      allocations.push(Object.freeze({ call: origin.subject.node, callerBindings: origin.bindings }));
     }
-    return Object.freeze({ kind: "resolved", call, callerBindings });
+    return allocations.length === 0 ? Object.freeze({ kind: "unresolved",
+      reason: "Constructor execution has no completed actual allocation receiver." })
+      : Object.freeze({ kind: "resolved", allocations: Object.freeze(allocations) });
   });
 }

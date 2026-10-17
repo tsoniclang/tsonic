@@ -36,10 +36,13 @@ export interface SourceStorageScopeView {
 
 export type SourceStorageScope = SourceStorageFrame | SourceStorageVariable | SourceStorageScopeView;
 
-export interface SourceStorageActivation {
+export type SourceStorageActivation = {
   readonly key: string;
   readonly variable: SourceStorageVariable | undefined;
-}
+} & (
+  | { readonly invocation: Node; readonly parent: SourceStorageActivation }
+  | { readonly invocation: undefined; readonly parent: undefined }
+);
 
 export interface SourceStorageReference {
   readonly kind: "reference" | "leaf";

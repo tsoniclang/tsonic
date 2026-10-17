@@ -392,11 +392,15 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
     if (activationKeys.has(scope)) return activationKeys.get(scope);
-    const intern = (key: string, variable: SourceStorageVariable | undefined): SourceStorageActivation | undefined => {
+    const intern = (key: string, variable: SourceStorageVariable | undefined,
+      context: { readonly invocation: Node; readonly parent: SourceStorageActivation } | undefined): SourceStorageActivation | undefined => {
       let selected = activations.get(key);
       if (selected !== undefined) return selected;
       if (!rows.add(2)) return undefined;
-      selected = Object.freeze({ key: `${activations.size}`, variable }); activations.set(key, selected);
+      selected = Object.freeze(context === undefined
+        ? { key: `${activations.size}`, variable, invocation: undefined, parent: undefined }
+        : { key: `${activations.size}`, variable, invocation: context.invocation, parent: context.parent });
+      activations.set(key, selected);
       return selected;
     };
     const remember = (scope: SourceStorageScope, value: SourceStorageActivation): boolean => {
@@ -420,7 +424,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (frame.kind === "variable" || frame.invocation === undefined) {
         selected = intern(frame.kind === "variable"
           ? `v${frame.equation.identity}:${identity(frame.owner)}:${frame.capture === undefined ? "" : identity(frame.capture)}` : "root",
-          frame.kind === "variable" ? frame : undefined);
+          frame.kind === "variable" ? frame : undefined, undefined);
         if (selected === undefined || !remember(current, selected)) return undefined;
         break;
       }
@@ -438,7 +442,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     for (let index = pending.length - 1; index >= 0; index -= 1) {
       if (!budget.step()) return undefined;
       const current = pending[index]!;
-      selected = intern(`f${identity(current.invocation)}:${selected.key}`, selected.variable);
+      selected = intern(`f${identity(current.invocation)}:${selected.key}`, selected.variable,
+        { invocation: current.invocation, parent: selected });
       if (selected === undefined || !remember(current.scope, selected)) return undefined;
     }
     return remember(scope, selected) ? selected : undefined;

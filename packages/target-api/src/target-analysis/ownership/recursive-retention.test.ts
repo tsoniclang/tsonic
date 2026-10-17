@@ -925,3 +925,192 @@ test("canonical contexts keep actual closure captures and generic input substitu
   assert.equal(keys[0] !== undefined && keys[1] !== undefined && keys[0] !== keys[1], true,
     "same source closure does not merge distinct actual captured generic values");
 });
+
+for (const depth of [2, 3]) for (const reverse of [false, true]) {
+  test(`repeated class initializer reads retain their distinct actual capture contexts: depth=${depth}, reverse=${reverse}`, () => {
+    const layers = Array.from({ length: depth }, (_, index) =>
+      `const Layer${index} = repeatedLayer(${index === 0 ? "RepeatedRoot" : `Layer${index - 1}`},
+        ${(index % 2 === 0) !== reverse ? "borrowed" : "owned"});`).join("\n");
+    const current = fixture(reverse, "self", `
+      type RepeatedFactory = new () => { root: number };
+      class RepeatedRoot { root = 0; }
+      function repeatedLayer(Parent: RepeatedFactory, lease: Lease) {
+        return class RepeatedLayer extends Parent { field = read(lease); };
+      }
+      async function repeatedClassRoot(): Promise<number> {
+        const owner = { value: 3 }; const borrowed = borrow(owner); const owned: Lease = { value: 4 };
+        ${layers}
+        const instance = new Layer${depth - 1}();
+        return instance.root;
+      }
+    `);
+    const { source, storage } = current;
+    const root = current.declaration("repeatedClassRoot");
+    const call = storage.invocations.find(node => source.ast.is.IsNewExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(root));
+    assert.equal(call !== undefined, true, "One actual repeated-factory allocation is checked.");
+    const bindings = storage.bindingsForLexicalOwner(call!);
+    assert.equal(bindings.kind, "resolved", "The actual allocation caller is retained.");
+    const closure = createSourceContinuationClosureQuery({ source, storage, premises: current.premises, budget: current.budget });
+    const selected = closure.forInvocation(call!, bindings.bindings);
+    assert.equal(selected.kind === "resolved", true,
+      selected.kind === "unresolved" ? selected.reason : "Every actual initializer activation participates in the same complete closure.");
+    if (selected.kind === "unresolved") return;
+    const reads = selected.reads.filter(read => source.ast.is.IsIdentifier(read.reference) && source.ast.text(read.reference) === "lease");
+    assert.equal(reads.length, depth, "Each original initializer read occurs once per actual factory capture.");
+    assert.equal(reads.every(read => read.reference === reads[0]!.reference && read.candidate === reads[0]!.candidate), true,
+      "The same source read and class AST have distinct execution bindings, not fabricated syntax.");
+    assert.equal(new Set(reads.map(read => read.bindings)).size, depth, "The ownership consumer preserves each real point's activation.");
+    let borrowed = 0;
+    let owned = 0;
+    for (const read of reads) {
+      const subject = storage.subjectFor(read.reference);
+      assert.equal(subject.kind, "resolved", "The exact original capture subject is checked.");
+      const producers = storage.storageProducersFor(subject.subject, read.bindings);
+      assert.equal(producers.kind === "complete" && producers.producers.length === 1, true,
+        "Each point reads its own actual factory argument without a merged capture environment.");
+      if (producers.kind !== "complete") return;
+      const value = producers.producers[0]!.subject.node;
+      if (source.ast.is.IsCallExpression(value) && current.selectedDeclaration(value) === current.declaration("borrow")) borrowed += 1;
+      else {
+        assert.equal(source.ast.is.IsObjectLiteralExpression(value), true, "The other actual factory input is the checked owned value.");
+        owned += 1;
+      }
+    }
+    assert.equal(borrowed, Array.from({ length: depth }, (_, index) => (index % 2 === 0) !== reverse).filter(Boolean).length,
+      "Every actual borrowed factory capture remains represented.");
+    assert.equal(owned, depth - borrowed, "Every actual owned factory capture remains separate.");
+    assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true,
+      "The repeated finite source lineage closes within the unchanged budgets.");
+  });
+}
+
+for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (const producersFirst of [false, true]) {
+  test(`a recursive construction's field keeps its real write relation before D12 admission: ${recursiveClass}, producersFirst=${producersFirst}`, () => {
+    const current = fixture(false, "self", `
+      class MLeaf { readonly value: Lease;
+        constructor(value: Lease, count: number, owner: { value: number }) { this.value = value; }
+      }
+      class MBase { readonly value: Lease;
+        constructor(value: Lease, count: number, owner: { value: number }) {
+          this.value = count > 0 ? new ${recursiveClass}(borrow(owner), count - 1, owner).value : value;
+        }
+      }
+      class MDerived extends MBase {}${recursiveClass === "MExplicit" ? `
+      class MExplicit extends MBase {
+        constructor(value: Lease, count: number, owner: { value: number }) { super(value, count, owner); }
+      }` : ""}
+      async function fieldUse(owner: { value: number }): Promise<number> {
+        const ownedLease: Lease = { value: 1 };
+        const built = new MDerived(ownedLease, 2, owner);
+        await pending(); return read(built.value);
+      }
+      async function fieldRoot() { const owner = { value: 3 }; const stored = fieldUse(owner); return stored; }
+    `);
+    const { source, storage } = current;
+    const use = current.declaration("fieldUse");
+    const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
+      storage.enclosingRegionFor(node) === source.ast.body(current.declaration("fieldRoot")));
+    const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+      source.ast.text(source.ast.name(node)) === "value" && storage.enclosingRegionFor(node) === source.ast.body(use));
+    assert.equal(call !== undefined && access !== undefined, true, "The original escaping call and constructor-produced field are checked.");
+    const subject = storage.subjectFor(access!);
+    const caller = storage.bindingsForLexicalOwner(call!);
+    const entry = caller.kind === "resolved" ? storage.bindingsForInvocation(use, call!, caller.bindings) : caller;
+    assert.equal(subject.kind === "resolved" && entry.kind === "resolved", true, "The field query retains the actual allocation's caller activation.");
+    if (subject.kind !== "resolved" || entry.kind !== "resolved") return;
+    const inspect = () => {
+      const selected = storage.storageProducersFor(subject.subject, entry.bindings);
+      assert.equal(selected.kind, "complete", "Every live recursive write contribution is completed, not dropped under an opaque boundary.");
+      if (selected.kind !== "complete") return;
+      assert.equal(selected.producers.some(producer => source.ast.is.IsCallExpression(producer.subject.node) &&
+        current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
+      "The nested constructor's actual borrowed value reaches the field.");
+      assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node)), true,
+        "The original non-recursive value branch remains represented as well.");
+    };
+    if (producersFirst) inspect();
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === "rejected", true,
+      selected.kind === "unresolved" ? selected.reason : "An escaping actual constructor-field loan is rejected, never silently admitted.");
+    assert.equal(selected.kind === "resolved" && selected.dependencies.some(dependency => dependency.retention.kind === "scoped-borrowed" &&
+      source.ast.is.IsCallExpression(dependency.actual.node) && current.selectedDeclaration(dependency.actual.node) === current.declaration("borrow")), true,
+    "Rejection is backed by the actual scoped loan, not an invented unknown or budget refusal.");
+    if (!producersFirst) inspect();
+    assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true, "Existing finite equations close the allocation/write relation.");
+  });
+}
+
+for (const recursiveClass of ["LinkedNode", "LinkedLeaf"]) for (const producersFirst of [false, true]) {
+  test(`linked recursive allocations preserve the nested field's actual loan: ${recursiveClass}, producersFirst=${producersFirst}`, () => {
+    const current = fixture(false, "self", `
+      class LinkedNode {
+        readonly value: Lease;
+        readonly next: LinkedNode | undefined;
+        constructor(value: Lease, count: number, owner: { value: number }) {
+          this.value = value;
+          this.next = count > 0 ? new ${recursiveClass}(borrow(owner), count - 1, owner) : undefined;
+        }
+      }
+      class LinkedLeaf extends LinkedNode {}
+      async function linkedUse(owner: { value: number }): Promise<number> {
+        const ownedLease: Lease = { value: 1 };
+        const built = new LinkedNode(ownedLease, 2, owner);
+        const next = built.next;
+        await pending(); return next === undefined ? 0 : read(next.value);
+      }
+      async function linkedRoot() { const owner = { value: 3 }; const stored = linkedUse(owner); return stored; }
+    `);
+    const { source, storage } = current;
+    const use = current.declaration("linkedUse");
+    const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
+      storage.enclosingRegionFor(node) === source.ast.body(current.declaration("linkedRoot")));
+    const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+      source.ast.text(source.ast.name(node)) === "value" && storage.enclosingRegionFor(node) === source.ast.body(use));
+    assert.equal(call !== undefined && access !== undefined, true, "The original linked-node field access and escaping call are checked.");
+    const subject = storage.subjectFor(access!);
+    const caller = storage.bindingsForLexicalOwner(call!);
+    const entry = caller.kind === "resolved" ? storage.bindingsForInvocation(use, call!, caller.bindings) : caller;
+    assert.equal(subject.kind === "resolved" && entry.kind === "resolved", true, "Linked storage retains the original allocation activation.");
+    if (subject.kind !== "resolved" || entry.kind !== "resolved") return;
+    const inspect = () => {
+      const selected = storage.storageProducersFor(subject.subject, entry.bindings);
+      assert.equal(selected.kind === "complete" && selected.producers.some(producer => source.ast.is.IsCallExpression(producer.subject.node) &&
+        current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
+      selected.kind === "unresolved" ? selected.reason : "The nested allocation's own field retains the actual borrowed constructor argument.");
+    };
+    if (producersFirst) inspect();
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === "rejected", true,
+      selected.kind === "unresolved" ? selected.reason : "A linked stored completion retaining an actual loan cannot escape.");
+    if (!producersFirst) inspect();
+    assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true, "Linked recursive writes stay within the same finite model.");
+  });
+}
+
+test("recursive construction writes do not borrow an unrelated allocation's lease", () => {
+  const current = fixture(false, "self", `
+    class OwnedNode { readonly value: Lease;
+      constructor(value: Lease, count: number) {
+        this.value = count > 0 ? new OwnedNode(value, count - 1).value : value;
+      }
+    }
+    async function ownedFieldUse(owner: { value: number }): Promise<number> {
+      const unrelated = borrow(owner);
+      const value: Lease = { value: 1 };
+      const built = new OwnedNode(value, 2);
+      await pending(); return read(built.value);
+    }
+    async function ownedFieldRoot() { const owner = { value: 3 }; const stored = ownedFieldUse(owner); return stored; }
+  `);
+  const { source, storage } = current;
+  const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+    current.selectedDeclaration(node) === current.declaration("ownedFieldUse") &&
+    storage.enclosingRegionFor(node) === source.ast.body(current.declaration("ownedFieldRoot")));
+  assert.equal(call !== undefined, true, "The owned actual allocation uses the same recursive write model.");
+  const selected = current.query.forCall(call!);
+  assert.equal(selected.kind === "resolved" && selected.decision === "admitted" &&
+    selected.dependencies.every(dependency => dependency.retention.kind !== "scoped-borrowed"), true,
+  selected.kind === "unresolved" ? selected.reason : "A separate earlier borrowed value cannot contaminate owned recursive field storage.");
+  assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true, "The owned inverse closes without a compatibility fallback.");
+});

@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
-import type { SourceStorageReference, SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
+import type { SourceStorageActivation, SourceStorageReference, SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "../graph/context-footprints.js";
@@ -55,10 +55,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return selected;
     });
   };
-  const birth = (subject: SourceStorageSubject, scope: SourceStorageScope) => {
+  const birth = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageActivation | undefined => {
     if (!budget.step()) return undefined;
     const owner = scope === scopes.empty ? undefined : locationOwner(subject);
-    return scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
+    const selected = scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
+    return selected === undefined ? undefined : Object.freeze({ ...selected, key: `${scopes.identity(subject)}:${selected.key}` });
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
@@ -74,7 +75,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const birthKey = (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);
       if (selected?.variable !== undefined) closed = false;
-      return selected === undefined ? undefined : `${scopes.identity(subject)}:${selected.key}`;
+      return selected?.key;
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
       if (scope === scopes.empty) return [];
@@ -335,9 +336,6 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       });
     },
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
-    birthKey: (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
-      const selected = birth(subject, scope);
-      return selected === undefined ? undefined : `${scopes.identity(subject)}:${selected.key}`;
-    },
+    birth,
     invocation: (term: Extract<SourceStorageTerm, { readonly kind: "application" }>) => key(term, true) });
 }

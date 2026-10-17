@@ -225,7 +225,7 @@ export function createSourceStorageDomains(
     const region = transport.regions.enclosing(invocation);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
     const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.boundActivation(bindings, owner)?.scope;
+      : transport.substitutions.ownerScope(bindings, owner);
     if (target === undefined || activation === undefined) return false;
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
       subjectFor: transport.subjectFor,
@@ -298,11 +298,10 @@ export function createSourceStorageDomains(
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings);
-    if (selected?.reason !== undefined) budget.reject(selected.reason);
-    if (selected === undefined || budget.failure() !== undefined) return Object.freeze({
+    if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary[]),
       boundSubjects: Object.freeze([] as import("../scoped/substitutions.js").SourceStorageBoundSubject[]),
-      reason: budget.failure() ?? "Source storage requires one completed scoped relation.",
+      reason: budget.failure() ?? selected?.reason ?? "Source storage requires one completed scoped relation.",
     });
     const boundaries = new Set<SourceStorageDomainBoundary>();
     const pending = [...selected.subjects];
