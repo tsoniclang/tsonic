@@ -35,7 +35,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const recursion = createSourceStorageScopedRecursion(source, budget, transport, invocationInputs);
   const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
-  const equations = createSourceStorageEquations(budget, transport, scopes, recursion, keys.invocation);
+  const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
   interface ReferenceMemo {
     reference?: SourceStorageRelation;
