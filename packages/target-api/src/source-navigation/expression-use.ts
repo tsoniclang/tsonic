@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
+import type { SourceProgramNavigation } from "./types.js";
 
 export function sourceExpressionSelectsOperandValue(ast: AstReader, expression: Node, operand: Node): boolean {
   if (ast.is.IsConditionalExpression(expression)) {
@@ -125,15 +126,27 @@ export function sourceExpressionResultUse(ast: AstReader, expression: Node): "co
   return sourceExpressionResultDisposition(ast, expression).kind === "discarded" ? "discarded" : "consumed";
 }
 
-export function sourceCallableDefinitionIsDiscarded(declaration: Node, ast: AstReader): boolean {
+export function sourceCallableDefinitionIsDiscarded(
+  declaration: Node,
+  ast: AstReader,
+  navigation: Pick<SourceProgramNavigation, "expressionValueFlow">,
+): boolean {
   const visited = new Set<Node>();
   for (let current: Node | undefined = declaration; current !== undefined; current = ast.parent(current)) {
     if (visited.has(current) || visited.size >= 262_144) {
       throw new Error("Callable creation demand exceeded its finite acyclic source boundary.");
     }
     visited.add(current);
-    if ((ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) &&
-      sourceExpressionResultUse(ast, current) === "discarded") return true;
+    if (ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) {
+      const disposition = sourceExpressionResultDisposition(ast, current);
+      if (disposition.kind === "discarded") return true;
+      if (disposition.kind !== "stored") continue;
+      const flow = navigation.expressionValueFlow(current);
+      if (!flow.escapes && !flow.memberWritten && !flow.receiverUsed && !flow.identityCompared &&
+        flow.aliasDeclarations.length !== 0 && flow.uses.every(use => use.kind === "type-only" ||
+          use.role === "storage" || use.kind !== "direct-call" && use.role !== "write" &&
+          sourceExpressionResultDisposition(ast, use.reference).kind === "discarded")) return true;
+    }
   }
   return false;
 }

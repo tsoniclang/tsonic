@@ -32,7 +32,7 @@ test("discarded callable creation includes nested definitions but not invoked or
         ? source.ast.as.AsVariableDeclaration(node)?.Initializer
         : source.ast.as.AsBindingElement(node)?.Initializer;
       if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
-        results.set(source.ast.text(name), sourceCallableDefinitionIsDiscarded(initializer, source.ast));
+        results.set(source.ast.text(name), sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
       }
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
@@ -42,9 +42,79 @@ test("discarded callable creation includes nested definitions but not invoked or
     ["erased", true], ["asyncErased", true], ["retained", false], ["retainedNested", false],
     ["invokedNested", false], ["selected", false],
   ]);
-  assert.equal(sourceCallableDefinitionIsDiscarded(file!, source.ast), false);
-  assert.throws(() => sourceCallableDefinitionIsDiscarded(file!, { ...source.ast, parent: () => file! }),
+  assert.equal(sourceCallableDefinitionIsDiscarded(file!, source.ast, source.navigation), false);
+  assert.throws(() => sourceCallableDefinitionIsDiscarded(file!, { ...source.ast, parent: () => file! }, source.navigation),
     /finite acyclic source boundary/u);
+});
+
+test("callable binding demand follows exact local aliases and retains every real observation", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      declare function consume(value: () => number): void;
+      export const exported = () => 1;
+      export function run() {
+        const discarded = () => 2;
+        void discarded;
+        const aliasRoot = () => 3;
+        const alias = aliasRoot;
+        void alias;
+        const typeOnly = () => 4;
+        type Signature = typeof typeOnly;
+        const invoked = () => 5;
+        void invoked();
+        const passed = () => 6;
+        consume(passed);
+        const captured = () => 7;
+        consume(() => { void captured; return 0; });
+        const compared = () => 8;
+        void (compared === compared);
+        const receiver = () => 9;
+        void receiver.name;
+        let rewritten = () => 10;
+        rewritten = () => 11;
+        void rewritten;
+        const returned = () => 12;
+        const stored = () => 13;
+        const object = { stored };
+        void object;
+        const shadowed = () => 14;
+        { const shadowed = () => 15; shadowed(); }
+        void shadowed;
+        const opaque = () => 16;
+        void typeof opaque;
+        return returned;
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+  assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the alias controls use their exact checked source file");
+  const results = new Map<string, boolean[]>();
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const name = source.ast.name(node);
+      const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+      if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
+        const label = source.ast.text(name);
+        const values = results.get(label) ?? [];
+        values.push(sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
+        results.set(label, values);
+      }
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file!);
+  for (const label of ["discarded", "aliasRoot", "typeOnly"]) {
+    assert.equal(results.get(label)?.length, 1, label + ": the original checked binding is visited once");
+    assert.equal(results.get(label)?.[0], true, label + ": only discarded/type-only reads through local aliases");
+  }
+  for (const label of ["exported", "invoked", "passed", "captured", "compared", "receiver", "rewritten", "returned", "stored", "opaque"])
+    assert.equal(results.get(label)?.[0], false, label + ": an actual observation retains its callable body");
+  assert.equal(results.get("shadowed")?.length, 2, "same-spelling declarations remain separate identities");
+  assert.equal(results.get("shadowed")?.[0], true, "the outer binding has only its own discarded read");
+  assert.equal(results.get("shadowed")?.[1], false, "the inner binding has its own actual invocation");
 });
 
 test("async result dispositions preserve selected values and distinguish storage from scoped observation", () => {
