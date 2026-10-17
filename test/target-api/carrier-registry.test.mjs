@@ -240,6 +240,7 @@ export const registry: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]
     'import { nativeEntries } from "./unrestricted-name.js"; export const selected = nativeEntries[0].counterpart.symbol;',
     'export { nativeEntries } from "./unrestricted-name.js";',
     'export async function select() { return (await import("./unrestricted-name.js")).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(`./unrestricted-name.js`)).nativeEntries[0].counterpart; }',
   ]) {
     const invalid = inspectMetadata(registryMetadata, [["src/consumer.ts", consumer]]);
     assert.equal(invalid.failures.includes("Production consumer of carrier registry metadata: src/consumer.ts"), true,
