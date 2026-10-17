@@ -767,6 +767,23 @@ test("QFINAL: the entire builtin getter and observer-root class requires positiv
   }
 });
 
+test("QFINAL: erased declarations and type parameters never hide native runtime roots", () => {
+  for (const body of [
+    'type process = {}; process["getBuiltinModule"]("module");',
+    'interface process {} process["getBuiltinModule"]("module");',
+    'function start<process>() { process["getBuiltinModule"]("module"); }',
+    'declare const process: { getBuiltinModule(value: string): unknown }; process["getBuiltinModule"]("module");',
+    'declare function require(path: string): unknown; const load = require; load("../test/helpers/native-ownership-cost.mjs");',
+    'import fs = require("node:fs"); const read = fs.readFileSync; read(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url));',
+    'import fs = require("node:fs"); fs.readFileSync(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url));',
+    'import owner = process; owner.getBuiltinModule("module");',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/ambient.ts", safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, body);
+  }
+});
+
 test("QFINAL: static non-reader selections and ordinary data uses retain native behavior", () => {
   for (const body of [
     'const { mkdtemp, writeFile: writeFileAsync, rm } = await import("node:fs/promises"); await writeFileAsync("data.txt", "data");',
@@ -780,12 +797,28 @@ test("QFINAL: static non-reader selections and ordinary data uses retain native 
     'import { default as fs } from "fs"; fs.writeFileSync("data", "bytes");',
     'process.cwd(); const env = process.env; const args = globalThis.process.argv;',
     'const nativeTypes = [typeof process, typeof globalThis];',
+    'process.exitCode = 1; process.env = replacement; process.title += "-worker";',
+    'import { default as processOwner } from "process"; processOwner["exitCode"] = 2; processOwner?.argv?.slice(2);',
+    'const args = globalThis.process?.argv?.slice(2) ?? [];',
+    'import fs from "fs"; fs.observerMetadata = {}; const metadata = fs?.constants;',
+    'globalThis.observerMetadata = {}; delete globalThis.observerMetadata;',
+    'const maps = new WeakMap<object, globalThis.Map<string, string>>();',
+    'function local<process, globalThis>() { return 1; }',
+    'const { process: localProcess, global: localGlobal } = input; consume(localProcess, localGlobal);',
+    'import { readFileSync } from "fs"; const kind = typeof readFileSync; void readFileSync;',
+    'import { getBuiltinModule } from "process"; const kind = typeof getBuiltinModule; void getBuiltinModule;',
+    'const kind = typeof require;',
     'import * as processOwner from "process"; processOwner.cwd();',
     'const process = { getBuiltinModule: value => value }; const alias = process;',
     'function local(process) { const alias = process; return alias; }',
     'function local({ process }) { const alias = process; return alias; }',
     'function local(global) { return global; }',
     'const self = { value: 1 }; consume(self);',
+    'class process {} const alias = process;',
+    'namespace process { export const value = 1; } const alias = process;',
+    'enum process { Value = 1 } const alias = process;',
+    'const object = { get process() { return 1; }, set global(value) {} };',
+    'import processOwner = require("node:process"); processOwner.exitCode = 1;',
     'import { readFileSync } from "fs"; function local(readFileSync) { return readFileSync; }',
     'import type { readFileSync } from "fs"; type Reader = typeof readFileSync;',
     'import { readFileSync } from "fs"; type Reader = typeof readFileSync;',
@@ -796,6 +829,232 @@ test("QFINAL: static non-reader selections and ordinary data uses retain native 
     assert.equal(result.findings.length, 0, body);
     assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/src/data.ts"), false,
       "a proven non-reader selection is not relabelled as an unproved external entry");
+  }
+});
+
+test("C135-Q3: the complete 97 pinned root-use, entry and ordinary-native forms have explicit dispositions", () => {
+  const OBS = 'new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url)';
+  const OBSH = 'new URL("../../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url)';
+  const OBSP = '"../../rust-runtime/tests/helpers/allocation_counts.rs"';
+  const WR = '"../test/helpers/native-ownership-cost.mjs"';
+  const WRU = `new URL(${WR}, import.meta.url)`;
+  const LOAD = `.createRequire(import.meta.url); export const w = r(${WR});`;
+  const productEntries = (text, path = "src/x.mjs") => [["tsonic-rust", path, text]];
+  const helperEntries = text => [["tsonic-rust", "test/helpers/h.mjs", text]];
+  const testEntries = text => [["tsonic-rust", "test/x.test.mjs", `import test from "node:test"; ${text}`]];
+  const pairedEntries = (helper, user) => [["tsonic-rust", "src/fsx.mjs", helper], ["tsonic-rust", "src/x.mjs", user]];
+  const cases = [
+    ["c1", "deny", "direct readFileSync(observer)", productEntries(`import { readFileSync } from "node:fs"; readFileSync(${OBS});`)],
+    ["c2", "deny", "direct process.getBuiltinModule(\"node:module\")", productEntries(`const r = process.getBuiltinModule("node:module")${LOAD}`)],
+    ["c3", "deny", "CJS require(writer)", productEntries(`require(${WR});`, "src/x.cjs")],
+    ["c4", "deny", "named import getBuiltinModule from node:process", productEntries(`import { getBuiltinModule } from "node:process"; const r = getBuiltinModule("node:module")${LOAD}`)],
+    ["c5", "deny", "node:fs/promises readFile(observer)", productEntries(`import { readFile } from "node:fs/promises"; await readFile(${OBS});`)],
+    ["c6", "deny", "static import of the writer from .ts", productEntries(`import w from ${WR}; export default w;`, "src/x.ts")],
+    ["c7", "deny", "test-tree helper (not an entry) direct readFileSync(observer)", helperEntries(`import { readFileSync } from "node:fs"; readFileSync(${OBSH});`)],
+    ["c8", "deny", "aliased address helper with literal evidence", productEntries(`import { readFileSync } from "node:fs"; import { join } from "node:path"; const j = join; readFileSync(j(process.cwd(), ${OBSP}));`)],
+    ["c9", "deny", "Worker eval code string", productEntries(`import { Worker } from "node:worker_threads"; new Worker("import(" + JSON.stringify(${WR}) + ")", { eval: true });`)],
+    ["c10", "deny", "await import(\"node:module\") (W1)", productEntries(`const { createRequire: c } = await import("node:module"); const r = c(import.meta.url); r(${WR});`)],
+    ["c11", "deny", "process.getBuiltinModule(\"node:fs\").readFileSync (getter recognized)", productEntries(`process.getBuiltinModule("node:fs").readFileSync(${OBS});`)],
+    ["c12", "deny", "direct import(writer)", productEntries(`await import(${WR});`)],
+    ["c13", "info", "test entry: aliased observer read (allowed position)", testEntries(`import { readFileSync } from "node:fs"; const read = readFileSync; read(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url));`)],
+    ["A1", "class", "K-0118 process[\"getBuiltinModule\"]", productEntries(`const r = process["getBuiltinModule"]("node:module")${LOAD}`)],
+    ["A1h", "class", "K-0118 process[\"getBuiltinModule\"] in a test-tree helper", helperEntries(`const r = process["getBuiltinModule"]("node:module").createRequire(import.meta.url); export const w = r("./native-ownership-cost.mjs");`)],
+    ["A2", "class", "process[`getBuiltinModule`]", productEntries(`const r = process[\`getBuiltinModule\`]("node:module")${LOAD}`)],
+    ["A3", "class", "process[\"getBuiltin\" + \"Module\"] (computed key)", productEntries(`const r = process["getBuiltin" + "Module"]("node:module")${LOAD}`)],
+    ["A4", "class", "globalThis.process.getBuiltinModule", productEntries(`const r = globalThis.process.getBuiltinModule("node:module")${LOAD}`)],
+    ["A5", "class", "global.process.getBuiltinModule", productEntries(`const r = global.process.getBuiltinModule("node:module")${LOAD}`)],
+    ["A6", "class", "globalThis[\"process\"].getBuiltinModule", productEntries(`const r = globalThis["process"].getBuiltinModule("node:module")${LOAD}`)],
+    ["A7", "class", "const g = process.getBuiltinModule; g(...)", productEntries(`const g = process.getBuiltinModule; const r = g("node:module")${LOAD}`)],
+    ["A8", "class", "const { getBuiltinModule } = process", productEntries(`const { getBuiltinModule } = process; const r = getBuiltinModule("node:module")${LOAD}`)],
+    ["A9", "class", "const { getBuiltinModule: g } = process", productEntries(`const { getBuiltinModule: g } = process; const r = g("node:module")${LOAD}`)],
+    ["A10", "class", "process.getBuiltinModule.call(process, ...)", productEntries(`const r = process.getBuiltinModule.call(process, "node:module")${LOAD}`)],
+    ["A11", "class", "Reflect.get(process, \"getBuiltinModule\")", productEntries(`const r = Reflect.get(process, "getBuiltinModule")("node:module")${LOAD}`)],
+    ["A12", "class", "process passed as a value: (q => q.getBuiltinModule(...))(process)", productEntries(`const r = (q => q.getBuiltinModule("node:module"))(process)${LOAD}`)],
+    ["A13", "class", "const process = globalThis.process; process.getBuiltinModule (local alias disables the recognizer)", productEntries(`const process = globalThis.process; const r = process.getBuiltinModule("node:module")${LOAD}`)],
+    ["A14", "class", "import proc from \"node:process\"; proc[\"getBuiltinModule\"]", productEntries(`import proc from "node:process"; const r = proc["getBuiltinModule"]("node:module")${LOAD}`)],
+    ["A15", "class", "import * as ns from \"node:process\"; ns[\"getBuiltinModule\"]", productEntries(`import * as ns from "node:process"; const r = ns["getBuiltinModule"]("node:module")${LOAD}`)],
+    ["A16", "class", "bare import process from \"process\"; process.getBuiltinModule", productEntries(`import process from "process"; const r = process.getBuiltinModule("node:module")${LOAD}`)],
+    ["A17", "class", "bare import { getBuiltinModule } from \"process\"", productEntries(`import { getBuiltinModule } from "process"; const r = getBuiltinModule("node:module")${LOAD}`)],
+    ["A18", "class", "(await import(\"node:process\")).default.getBuiltinModule", productEntries(`const ns = await import("node:process"); const r = ns.default.getBuiltinModule("node:module")${LOAD}`)],
+    ["A19", "class", "process?.[\"getBuiltinModule\"]", productEntries(`const r = process?.["getBuiltinModule"]("node:module")${LOAD}`)],
+    ["A20", "class", "CJS with (process) getBuiltinModule(...)", productEntries(`with (process) { const r = getBuiltinModule("node:module").createRequire(__filename); r(${WR}); }`, "src/x.cjs")],
+    ["B1", "class", "K-0118 const read = readFileSync; read(observer)", productEntries(`import { readFileSync } from "node:fs"; const read = readFileSync; read(${OBS});`)],
+    ["B1h", "class", "K-0118 alias read in a test-tree helper", helperEntries(`import { readFileSync } from "node:fs"; const read = readFileSync; read(${OBSH});`)],
+    ["B2", "class", "const { readFileSync } = fs namespace", productEntries(`import * as fs from "node:fs"; const { readFileSync } = fs; readFileSync(${OBS});`)],
+    ["B3", "class", "fs[\"readFileSync\"](observer)", productEntries(`import * as fs from "node:fs"; fs["readFileSync"](${OBS});`)],
+    ["B4", "class", "const f2 = fs; f2.readFileSync(observer)", productEntries(`import * as fs from "node:fs"; const f2 = fs; f2.readFileSync(${OBS});`)],
+    ["B5", "class", "readFileSync.call(null, observer)", productEntries(`import { readFileSync } from "node:fs"; readFileSync.call(null, ${OBS});`)],
+    ["B6", "class", "readFileSync.apply(null, [observer])", productEntries(`import { readFileSync } from "node:fs"; readFileSync.apply(null, [${OBS}]);`)],
+    ["B7", "class", "readFileSync.bind(null)(observer)", productEntries(`import { readFileSync } from "node:fs"; readFileSync.bind(null)(${OBS});`)],
+    ["B8", "class", "Reflect.apply(readFileSync, null, [observer])", productEntries(`import { readFileSync } from "node:fs"; Reflect.apply(readFileSync, null, [${OBS}]);`)],
+    ["B9", "class", "[observer].map(readFileSync)", productEntries(`import { readFileSync } from "node:fs"; [${OBS}].map(readFileSync);`)],
+    ["B10", "class", "fs.promises.readFile(observer)", productEntries(`import * as fs from "node:fs"; await fs.promises.readFile(${OBS});`)],
+    ["B11", "class", "import { promises } from \"node:fs\"; promises.readFile", productEntries(`import { promises } from "node:fs"; await promises.readFile(${OBS});`)],
+    ["B12", "class", "import { default as fs } from \"node:fs\"; fs.readFileSync", productEntries(`import { default as fs } from "node:fs"; fs.readFileSync(${OBS});`)],
+    ["B13", "class", "import * as fs; fs.default.readFileSync", productEntries(`import * as fs from "node:fs"; fs.default.readFileSync(${OBS});`)],
+    ["B14", "class", "bare import { readFileSync } from \"fs\"", productEntries(`import { readFileSync } from "fs"; readFileSync(${OBS});`)],
+    ["B15", "class", "bare import { readFile } from \"fs/promises\"", productEntries(`import { readFile } from "fs/promises"; await readFile(${OBS});`)],
+    ["B16", "class", "const fs = await import(\"node:fs\"); fs.readFileSync", productEntries(`const fs = await import("node:fs"); fs.readFileSync(${OBS});`)],
+    ["B17", "class", "const { readFileSync } = await import(\"node:fs\")", productEntries(`const { readFileSync } = await import("node:fs"); readFileSync(${OBS});`)],
+    ["B18", "class", "createRequire binding r(\"node:fs\").readFileSync", productEntries(`import { createRequire } from "node:module"; const r = createRequire(import.meta.url); const fs = r("node:fs"); fs.readFileSync(${OBS});`)],
+    ["B19", "class", "local module: export { readFileSync as read } from \"node:fs\"", pairedEntries('export { readFileSync as read } from "node:fs";', `import { read } from "./fsx.mjs"; read(${OBS});`)],
+    ["B20", "class", "local module: export const read = readFileSync", pairedEntries('import { readFileSync } from "node:fs"; export const read = readFileSync;', `import { read } from "./fsx.mjs"; read(${OBS});`)],
+    ["B21", "class", "local module: export * from \"node:fs\"", pairedEntries('export * from "node:fs";', `import { readFileSync } from "./fsx.mjs"; readFileSync(${OBS});`)],
+    ["B22", "class", "TypeScript import fs = require(\"node:fs\")", productEntries(`import fs = require("node:fs"); fs.readFileSync(${OBS});`, "src/x.cts")],
+    ["B23", "class", "CJS require(\"node:fs\").readFileSync", productEntries(`require("node:fs").readFileSync(${OBSP});`, "src/x.cjs")],
+    ["B24", "class", "CJS const { readFileSync } = require(\"node:fs\")", productEntries(`const { readFileSync } = require("node:fs"); readFileSync(${OBSP});`, "src/x.cjs")],
+    ["B25", "class", "const copy = copyFileSync; copy(observer, dest)", productEntries(`import { copyFileSync } from "node:fs"; const copy = copyFileSync; copy(${OBS}, process.env.D);`)],
+    ["B26", "class", "fs.readFileSync.call(fs, observer) (namespace member)", productEntries(`import * as fs from "node:fs"; fs.readFileSync.call(fs, ${OBS});`)],
+    ["C1", "class", "CJS module.require(writer)", productEntries(`module.require(${WR});`, "src/x.cjs")],
+    ["C2", "class", "CJS require.call(null, writer)", productEntries(`require.call(null, ${WR});`, "src/x.cjs")],
+    ["C3", "class", "CJS const r = require; r(writer)", productEntries(`const r = require; r(${WR});`, "src/x.cjs")],
+    ["C4", "class", "CJS require.main.require(writer)", productEntries(`require.main.require(${WR});`, "src/x.cjs")],
+    ["C5", "class", "CJS process.mainModule.require(writer)", productEntries(`process.mainModule.require(${WR});`, "src/x.cjs")],
+    ["C6", "class", "CJS module.constructor._load(writer) (no prefilter keyword)", productEntries(`module.constructor._load(${WR});`, "src/x.cjs")],
+    ["C7", "class", "CJS const M = require(\"node:module\"); M.createRequire(...)(writer)", productEntries(`const M = require("node:module"); const r = M.createRequire(__filename); r(${WR});`, "src/x.cjs")],
+    ["C8", "class", "createRequire binding r(\"node:module\").createRequire(...)(writer)", productEntries(`import { createRequire } from "node:module"; const r = createRequire(import.meta.url); const M = r("node:module"); const r2 = M.createRequire(import.meta.url); r2(${WR});`)],
+    ["C9", "class", "TypeScript import w = require(writer) (static entry form)", productEntries(`import w = require(${WR}); export default w;`, "src/x.cts")],
+    ["C10", "class", "TypeScript import M = require(\"node:module\")", productEntries(`import M = require("node:module"); const r = M.createRequire(__filename); r(${WR});`, "src/x.cts")],
+    ["D1", "class", "eval(\"import(writer)\")", productEntries(`await eval("import(" + JSON.stringify(${WR}) + ")");`)],
+    ["D2", "class", "new Function(\"return import(writer)\")", productEntries(`await new Function("return import(" + JSON.stringify(${WR}) + ")")();`)],
+    ["D3", "class", "Function(\"return import(writer)\") without new", productEntries(`await Function("return import(" + JSON.stringify(${WR}) + ")")();`)],
+    ["D4", "class", "vm.runInThisContext(code naming the writer)", productEntries(`import vm from "node:vm"; vm.runInThisContext("import(" + JSON.stringify(${WR}) + ")");`)],
+    ["D5", "class", "spawn(process.execPath, [writer])", productEntries(`import { spawn } from "node:child_process"; spawn(process.execPath, [${WR}]);`)],
+    ["D6", "class", "spawnSync(process.execPath, [\"--import\", writer, \"-e\", \"0\"])", productEntries(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ["--import", ${WR}, "-e", "0"]);`)],
+    ["D7", "class", "execFileSync(\"cp\", [observer, dest])", productEntries(`import { execFileSync } from "node:child_process"; execFileSync("cp", [${OBSP}, process.env.D]);`)],
+    ["E1", "class", "cpSync(observer directory, dest)", productEntries(`import { cpSync } from "node:fs"; cpSync(new URL("../../rust-runtime/tests/helpers/", import.meta.url), process.env.D, { recursive: true });`)],
+    ["E2", "class", "symlinkSync(observer, dest)", productEntries(`import { symlinkSync } from "node:fs"; symlinkSync(${OBS}, process.env.D);`)],
+    ["E3", "class", "linkSync(observer, dest)", productEntries(`import { linkSync } from "node:fs"; linkSync(${OBS}, process.env.D);`)],
+    ["E4", "class", "createReadStream(observer)", productEntries(`import { createReadStream } from "node:fs"; createReadStream(${OBS});`)],
+    ["E5", "class", "openSync + readSync(observer)", productEntries(`import { openSync, readSync } from "node:fs"; const fd = openSync(${OBS}, "r"); readSync(fd, Buffer.alloc(8));`)],
+    ["E6", "class", "openAsBlob(observer)", productEntries(`import { openAsBlob } from "node:fs"; await openAsBlob(${OBS});`)],
+    ["E7", "class", "fs/promises cp(observer, dest)", productEntries(`import { cp } from "node:fs/promises"; await cp(${OBS}, process.env.D);`)],
+    ["E8", "class", "fs/promises open(observer).readFile()", productEntries(`import { open } from "node:fs/promises"; await (await open(${OBS})).readFile();`)],
+    ["E9", "class", "renameSync(observer, dest)", productEntries(`import { renameSync } from "node:fs"; renameSync(${OBS}, process.env.D);`)],
+    ["P1", "allow", "globalThis.process?.argv dot read (tsts go/flag shape)", productEntries(`export const a = globalThis.process?.argv?.slice(2) ?? [];`)],
+    ["P2", "allow", "fs.constants member read", productEntries(`import * as fs from "node:fs"; fs.accessSync(process.cwd(), fs.constants.R_OK);`)],
+    ["P3", "allow", "realpathSync.native", productEntries(`import { realpathSync } from "node:fs"; export const r = realpathSync.native(process.cwd());`)],
+    ["P4", "allow", "non-entry const { mkdtemp, writeFile, rm } = await import(\"node:fs/promises\")", productEntries(`const { mkdtemp, writeFile, rm } = await import("node:fs/promises"); await rm(await mkdtemp("x"), { recursive: true }); await writeFile("y", "");`)],
+    ["P5", "allow", "process.env read", productEntries(`export const v = process.env.HOME;`)],
+    ["P6", "allow", "test entry const { readFileSync } = await import(\"node:fs\") on a data file", testEntries(`const { readFileSync } = await import("node:fs"); readFileSync(new URL("./data.json", import.meta.url));`)],
+    ["P7", "allow", "test fixture non-entry new Function(...names, body) (census site)", [["tsonic-rust", "test/fixtures/f.mjs", `export const make = (names, entry) => new Function(...names, entry.body);`]]],
+    ["P8", "allow", "non-entry spawnSync(process.execPath, [\"--test\", ...files]) (census shape)", productEntries(`import { spawnSync } from "node:child_process"; export const run = files => spawnSync(process.execPath, ["--test", "--test-concurrency=1", ...files]);`)],
+    ["P9", "edit", "test-tree helper re-exports readFile (census site; rule denies, consumers edit)", [["tsonic-rust", "test/helpers/h.mjs", `import { readFile } from "node:fs/promises"; export { readFile };`], ["tsonic-rust", "test/x.test.mjs", `import test from "node:test"; import { readFile } from "./helpers/h.mjs"; await readFile(new URL("./data.json", import.meta.url));`]]],
+    ["F1", "info", "wrapper const load = s => import(s); load(writer) (listed external dynamic entry)", productEntries(`const load = (s) => import(s); load(${WR});`)],
+  ];
+
+  assert.equal(cases.length, 97, "all reviewer control and member programs are retained");
+  for (const [id, expectation, label, entries] of cases) {
+    const inputs = nativeBoundaryInputs();
+    for (const [repo, file, text] of entries) inputs.get(repo).set(file, safetyFile(text));
+    const result = boundarySafety(inputs);
+    const denied = ["deny", "class", "edit"].includes(expectation) && id !== "D7";
+    assert.equal(result.nativeAllocationBoundary === undefined, denied, `${id}: ${label}`);
+    if (denied) {
+      assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, `${id}: no unproved allocator credits`);
+    } else {
+      assert.equal(result.findings.length, 0, `${id}: ordinary native and genuine test uses stay admitted`);
+      if (id === "D7") {
+        assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "external-process"), true, "non-Node external dynamic IO is explicitly unproved, not a sandbox claim");
+      }
+      if (id === "F1" || id === "P7" || id === "P8") assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length > 0, true, `${id}: the non-static entry is recorded, never silently proven`);
+    }
+  }
+});
+
+
+test("C135-Q3: native Node executable identities, entry arguments, loader flags and code flags share the entry cut", () => {
+  const writer = '../test/helpers/native-ownership-cost.mjs';
+  for (const executable of ['process.execPath', 'process.argv[0]', 'process.argv0', '"node"']) {
+    for (const method of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
+      for (const arguments_ of [
+        JSON.stringify([writer]),
+        JSON.stringify(['--test', '--test-concurrency', '1', writer]),
+        JSON.stringify(['--import', writer, '-e', '0']),
+        JSON.stringify([`--import=${writer}`, '-e', '0']),
+        JSON.stringify(['--require', writer, '-e', '0']),
+        JSON.stringify(['-r', writer, '-e', '0']),
+        JSON.stringify([`-r${writer}`, '-e', '0']),
+        JSON.stringify(['--loader', writer, '-e', '0']),
+        JSON.stringify(['--experimental-loader', writer, '-e', '0']),
+        JSON.stringify(['--', writer]),
+        `[...prefix, ${JSON.stringify(writer)}]`,
+      ]) {
+        const inputs = nativeBoundaryInputs();
+        const label = `${method} ${executable} ${arguments_}`;
+        inputs.get('tsonic-rust').set('src/launch.mjs', safetyFile(`import { ${method} } from "node:child_process"; ${method}(${executable}, ${arguments_});`));
+        assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, label);
+      }
+    }
+  }
+  for (const flag of ['-e', '--eval', '-p', '--print']) {
+    for (const arguments_ of [JSON.stringify([flag, `import(${JSON.stringify(writer)})`]),
+      JSON.stringify([`${flag}=import(${JSON.stringify(writer)})`]),
+      ...(['-e', '-p'].includes(flag) ? [JSON.stringify([`${flag}import(${JSON.stringify(writer)})`])] : [])]) {
+      const inputs = nativeBoundaryInputs();
+      inputs.get('tsonic-rust').set('src/code.mjs', safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${arguments_});`));
+      assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, arguments_);
+    }
+  }
+  for (const body of [
+    'import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ["--test", "--test-concurrency", "1", ...files]);',
+    'import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ["--eval", "1 + 1"]);',
+    'import { spawnSync } from "node:child_process"; spawnSync("dotnet", ["test", project]);',
+    'import { execFileSync } from "node:child_process"; execFileSync("cp", ["../../rust-runtime/tests/helpers/allocation_counts.rs", destination]);',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get('tsonic-rust').set('scripts/ordinary.mjs', safetyFile(body));
+    const result = boundarySafety(inputs);
+    assert.equal(result.findings.length, 0, body);
+    assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length > 0, true, 'unknown entries remain explicitly unproved');
+  }
+});
+
+test("C135-Q3: guarded globals, native destructured members and VM values cannot escape through unmodelled uses", () => {
+  for (const body of [
+    'globalThis.eval("import(\"../test/helpers/native-ownership-cost.mjs\")");',
+    'global["Function"]("return import(\"../test/helpers/native-ownership-cost.mjs\")")();',
+    'const execute = eval;', 'consume(Function);', 'globalThis.require = replacement;', 'delete globalThis.module;',
+    'process.binding("fs");', 'process.dlopen(module, "addon.node");',
+    'import vm from "vm"; const execute = vm.runInThisContext;',
+    'const { runInThisContext: execute } = await import("node:vm"); execute("import(\"../test/helpers/native-ownership-cost.mjs\")");',
+    'const { readFileSync } = await import("node:fs"); consume(readFileSync);',
+    'import fs from "node:fs"; const { [field]: read } = fs;',
+    'import fs from "node:fs"; const { readFileSync = fallback } = fs;',
+    'import fs from "node:fs"; let { readFileSync } = fs;',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get('tsonic-rust').set('src/root.mjs', safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, body);
+  }
+  for (const body of [
+    'import fs from "node:fs"; const { writeFile, constants } = fs; consume(constants); writeFile("output", "");',
+    'const { mkdtemp, rm } = await import("node:fs/promises"); function local(rm) { return rm; }',
+    'function ordinary(Function, module, require) { consume(Function, module, require); }',
+    'const process = { binding: () => 1 }; process.binding();',
+    'const metadata = { module: 1, eval: 2, Function: 3 };',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get('tsonic-rust').set('src/ordinary.mjs', safetyFile(body));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+});
+
+test("C135-Q3: shell text is an unproved source entry, never an inferred non-Node executable", () => {
+  for (const method of ['exec', 'execSync']) {
+    for (const argument of ['"node --import ../test/helpers/native-ownership-cost.mjs"',
+      '"cp source destination"', '`node ${flags} ${entry}`', 'command']) {
+      const body = `import { ${method} } from "node:child_process"; ${method}(${argument});`;
+      const inputs = nativeBoundaryInputs();
+      inputs.get('tsonic-rust').set('src/shell.mjs', safetyFile(body));
+      assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${method}: ${argument}`);
+      const contained = nativeBoundaryInputs();
+      contained.get('tsonic-rust').set('test/shell.test.mjs', safetyFile(`import test from "node:test"; ${body}`));
+      const result = boundarySafety(contained);
+      assert.equal(result.findings.length, 0, `${method}: genuine test entry is contained`);
+      assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === 'tsonic-rust/test/shell.test.mjs' &&
+        consumer.kind === 'Node test computed source entry'), true, `${method}: no shell evaluation or false non-Node proof`);
+    }
   }
 });
 

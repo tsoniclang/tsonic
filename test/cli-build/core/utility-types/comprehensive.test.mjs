@@ -1,7 +1,6 @@
 import {
   assert,
   cliPath,
-  readFile,
   resolve,
   runGeneratedProject,
   runNode,
@@ -9,6 +8,7 @@ import {
   test,
   writeProject,
 } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits, dotnet-builds, and executes the complete TypeScript utility matrix", async () => {
   const assemblyName = "SmokeGeneratedTypeScriptUtilities";

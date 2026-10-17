@@ -1,4 +1,5 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI runs array fixed default rest and nested destructuring from finalized carrier facts", async () => {
   const assemblyName = "SmokeGeneratedArrayBindingFacts";

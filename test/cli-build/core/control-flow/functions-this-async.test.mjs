@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits async functions and lambdas from TSTS Promise carriers", async () => {
   const projectDirectory = resolve(tempRoot, "async-promise-carriers");

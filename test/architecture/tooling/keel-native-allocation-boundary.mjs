@@ -176,7 +176,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
   for (const [path, script] of scripts) {
     const usesWriter = script.references.some(reference => reference.module && destinations(path, reference).includes(writerPath));
-    const readsObserver = script.references.some(reference => reference.fileRead && destinations(path, reference).includes(canonicalPath));
+    const readsObserver = script.references.some(reference => reference.fileRead && destinations(path, reference).some(target =>
+      target === canonicalPath || (reference.directory || reference.treeRead) && canonicalPath.startsWith(`${target}/`)));
     const computedEntry = script.references.some(reference => reference.module && ambiguousEntry(path, reference));
     if (path === writerPath || !usesWriter && !readsObserver && !computedEntry) continue;
     restricted.add(path);
@@ -213,7 +214,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         externalDynamicEntries.push(Object.freeze({ path, packageImport: reference.specifier, externalTargets })); continue;
       }
       const targets = destinations(path, reference);
-      const hits = targets.some(target => touchesRestricted(target, path));
+      const hits = targets.some(target => touchesRestricted(target, path, reference.fileRead && (reference.directory || reference.treeRead)));
       const ambiguous = ambiguousEntry(path, reference);
       if (!hits && !ambiguous) {
         if (reference.module && targets.length === 0 && reference.specifier === undefined && !reference.firstParty) {
@@ -286,14 +287,15 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     return resolved;
   }
 
-  function touchesRestricted(path, ownerPath = path) {
+  function touchesRestricted(path, ownerPath = path, directory = false) {
     if (path === undefined) return false;
     if (path.includes("*")) {
       const resolved = resolveAlias(path, ownerPath, true);
       return resolved === undefined || [...restricted, ...aliases.keys()].some(entry => new RegExp(
         `^${resolved.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
     }
-    return restricted.has(resolveAlias(path, ownerPath));
+    const resolved = resolveAlias(path, ownerPath);
+    return restricted.has(resolved) || directory && resolved !== undefined && [...restricted].some(entry => entry.startsWith(`${resolved}/`));
   }
 
   function externalPackageImportTargets(path, reference) {

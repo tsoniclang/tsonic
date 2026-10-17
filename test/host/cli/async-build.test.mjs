@@ -1,4 +1,5 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../cli-build/helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../cli-build/helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits and executes async functions from TSTS Promise carriers", async () => {
   const assemblyName = "SmokeGeneratedAsyncFunctions";

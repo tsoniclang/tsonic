@@ -4,7 +4,6 @@ import {
   assertRuntimeProjectReference,
   assertNoInstalledAssemblyReference,
   cliPath,
-  readFile,
   resolve,
   runGeneratedCsharpRunner,
   runGeneratedProject,
@@ -13,6 +12,7 @@ import {
   test,
   writeProject,
 } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI awaits top-level Promise evaluation through runtime module dependencies", async () => {
   const projectDirectory = resolve(

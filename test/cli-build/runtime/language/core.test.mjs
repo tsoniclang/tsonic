@@ -1,4 +1,5 @@
-import { assert, cliPath, readFile, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI runs generated C# executable for provider Console hello world", async () => {
   const assemblyName = "SmokeGeneratedE2EHello";

@@ -3,7 +3,6 @@ import {
   assert,
   cliPath,
   existsSync,
-  readFile,
   resolve,
   runGeneratedProject,
   runNode,
@@ -11,6 +10,7 @@ import {
   test,
   writeProject,
 } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI compiles a hoisted workspace source package through its package exports", async () => {
   const workspaceDirectory = resolve(tempRoot, "hoisted-workspace-source-package");
