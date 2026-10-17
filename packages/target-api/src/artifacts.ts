@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { ExtensionDiagnostic, Node } from "@tsonic/tsts";
 
 export type TargetArtifactKind =
   | "source"
@@ -25,6 +25,22 @@ export interface TargetDiagnostic {
   readonly sourceNode?: Node;
   readonly sourceSpan?: TargetDiagnosticSourceSpan;
   readonly evidence?: readonly string[];
+}
+
+export function targetDiagnosticFromExtension(
+  node: Node | undefined,
+  diagnostic: ExtensionDiagnostic,
+): TargetDiagnostic {
+  return {
+    code: `TS${diagnostic.numericCode}`,
+    category: diagnostic.category,
+    source: diagnostic.extensionId,
+    message: diagnostic.message,
+    ...(node === undefined ? {} : { sourceNode: node }),
+    ...(diagnostic.evidence === undefined || diagnostic.evidence.length === 0 ? {} : {
+      evidence: Object.freeze([...new Set(diagnostic.evidence.map(entry => entry.message))]),
+    }),
+  };
 }
 
 export interface TargetDiagnosticSourceSpan {
