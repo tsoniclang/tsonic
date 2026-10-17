@@ -109,8 +109,8 @@ test("CLI runs array parameter destructuring from real TSTS binding facts", asyn
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double sum\(Tsonic\.CSharp\.Js\.JSArray<double> __tsonic_param\d+\)/);
-  assert.match(generatedSource, /double first = (__tsonic_param\d+)\.length > 0 \? \1\[0\] : 10;/);
-  assert.match(generatedSource, /double second = (__tsonic_param\d+)\.length > 1 \? \1\[1\] : 20;/);
+  assert.match(generatedSource, /double first = (__tsonic_param\d+)\.length > 0 \? \1\[0\] : 10D;/);
+  assert.match(generatedSource, /double second = (__tsonic_param\d+)\.length > 1 \? \1\[1\] : 20D;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> rest = __tsonic_param\d+\.slice\(2\);/);
   assert.match(generatedSource, /public static double nested\(Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> __tsonic_param\d+\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);

@@ -99,7 +99,7 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.match(composeBody, new RegExp(`return ${composeCopies[1]}\\.AppendElement\\(9\\);`));
   assert.doesNotMatch(generatedSource, /\.concat\(|new Tsonic\.CSharp\.Js\.JSArray<int>\((?:left|right)\)/u);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<float> values = Tsonic\.CSharp\.Js\.JSArray<float>\.of\(\[1.5F, 2.5F\]\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> values = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[1, 2, 3\]\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> values = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[1D, 2D, 3D\]\);/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
@@ -159,7 +159,7 @@ test("CLI emits readonly source arrays through finalized JSArray carrier facts",
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int readonlyIndexed\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\[0\] \+ values\.length;/);
+  assert.match(generatedSource, /return values\[0D\] \+ values\.length;/);
   assert.match(generatedSource, /public static T genericReadonly<T>\(Tsonic\.CSharp\.Js\.JSArray<T> values\)/);
   assert.match(generatedSource, /public static int nested\(Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> values\)/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> readonlySpread\(Tsonic\.CSharp\.Js\.JSArray<int> left, Tsonic\.CSharp\.Js\.JSArray<int> right\)/);

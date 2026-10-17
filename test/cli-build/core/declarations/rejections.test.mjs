@@ -227,7 +227,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(modelSource, /public class Entity[\s\S]*public static string suffix = "score";[\s\S]*public Entity\(string label\)/);
   assert.match(modelSource, /public virtual string title[\s\S]*get[\s\S]*return this\.label \+ "-" \+ Entity\.suffix;/);
   assert.match(modelSource, /public override string title[\s\S]*get[\s\S]*return (?:this|\(\(Entity\)this\))\.label \+ "-score:" \+ this\.points;/);
-  assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3;[\s\S]*public static ScoreCard create\(string label, double points\)/);
+  assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3D;[\s\S]*public static ScoreCard create\(string label, double points\)/);
   assert.match(modelSource, /public ScoreCard\(string label, double points\) : base\(label\)/);
   assert.match(modelSource, /return base\.baseScore\(\) \+ this\.points \+ ScoreCard\.bonus;/);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");

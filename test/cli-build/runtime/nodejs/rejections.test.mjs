@@ -231,7 +231,7 @@ test("CLI retains native references for provider-owned type imports without emit
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double loaded\(\)[\s\S]*return 1;/u);
+  assert.match(generatedSource, /public static double loaded\(\)[\s\S]*return 1D;/u);
   assert.doesNotMatch(generatedSource, /IncomingMessage|ServerResponse|Reflection|dynamic|GetMethod|GetProperty/u);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "utf8");
   assert.match(generatedProject, /Tsonic\.CSharp\.Node/u);

@@ -36,7 +36,7 @@ test("CLI emits native .NET array element access and JS-selected length facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /new System\.IO\.MemoryStream\(new byte\[\] \{ 65, 66 \}\)/);
+  assert.match(generatedSource, /new System\.IO\.MemoryStream\(new byte\[\] \{ \(byte\)65, \(byte\)66 \}\)/);
   assert.match(generatedSource, /byte\[\] bytes = reader\.ReadBytes\(2\);/);
   assert.match(generatedSource, /return bytes\[0\] \+ bytes\.Length;/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);

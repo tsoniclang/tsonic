@@ -81,7 +81,7 @@ test("CLI emits expanded process operations from selected Node provider-package 
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(Tsonic\.CSharp\.Generated\.__TsonicConversions\.LiftNullable<double, int>\(code, System\.Convert\.ToInt32\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0D\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
   assert.match(generatedSource, /long\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
   assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
@@ -319,7 +319,7 @@ test("CLI emits Buffer and crypto operations from selected Node provider-package
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(Tsonic\.CSharp\.Node\.Buffer\.from\(input\)\)\.digestBuffer\(\)\.length;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHmac\("sha256", Tsonic\.CSharp\.Node\.Buffer\.from\(key\)\)\.update\(value\)\.digest\("hex"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.timingSafeEqual\(Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\), Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\)\);/);
-  assert.match(generatedSource, /ints\.writeUInt16LE\(4660, 0\);/);
+  assert.match(generatedSource, /ints\.writeUInt16LE\(\(ushort\)4660, 0\);/);
   assert.match(generatedSource, /ints\.writeInt16BE\(-2, 2\);/);
   assert.match(generatedSource, /ints\.writeUInt32BE\(16909060, 4\);/);
   assert.match(generatedSource, /floats\.writeFloatLE\(1\.5F, 0\);/);
