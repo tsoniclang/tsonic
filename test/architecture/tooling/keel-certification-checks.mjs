@@ -560,7 +560,7 @@ function scriptSourceReferences(path, text) {
     }
     if (ast.kindName(node) === "KindPropertyAccessExpression") {
       const receiver = ast.children(node)[0];
-      const imported = imports.get(ast.text(receiver));
+      const imported = ast.kindName(receiver) === "KindIdentifier" ? imports.get(ast.text(receiver)) : undefined;
       if (imported?.endsWith("#*")) return `${imported.slice(0, -1)}${ast.text(ast.name(node))}`;
     }
     return "";
