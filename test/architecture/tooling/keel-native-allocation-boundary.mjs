@@ -269,13 +269,14 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       pendingRestricted.push(sourcePath);
     }
   }
-  const productRoots = new Set(metadataEntries.flatMap(({ path, entry, moduleEntry }) => {
+  const productRoots = new Set([...nativeScripts].filter(path => !scripts.get(path)?.testEntry && path !== writerPath));
+  for (const path of metadataEntries.flatMap(({ path, entry, moduleEntry }) => {
     if (moduleEntry !== undefined) return moduleEntry.path !== undefined &&
       !moduleEntry.external && !(moduleEntry.executionRoot && scripts.get(moduleEntry.path)?.testEntry) &&
       (moduleEntry.executionRoot || nativeNodeModuleFormat(moduleEntry.path) !== "data") ? [moduleEntry.path] : [];
     const target = resolveAlias(`${posix.dirname(path)}/${entry}`, path);
     return target === undefined ? [] : [target];
-  }));
+  })) productRoots.add(path);
   const openNativeExecutionBoundaries = packageEntries.filter(entry => entry.openBoundary).map(entry => {
     const pending = entry.executable === undefined ? [] : [entry.executable];
     const seen = new Set(pending);

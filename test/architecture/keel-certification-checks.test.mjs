@@ -2372,11 +2372,11 @@ test("QRC-17: opaque commands remain individually open, and actual incoming prod
     current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: command } })));
     assert.equal(boundarySafety(current).findings.length, 0, `${command}: the existing nonexecuting native modes do not manufacture a source-execution root`);
   }
-  for (const bridge of [false, true]) {
+  for (const bridge of [false, true, "native-source"]) {
     const current = nativeBoundaryInputs();
     current.get("tsonic-rust").set("bin/opaque", inputs.get("tsonic-rust").get("bin/opaque"));
     current.get("tsonic-rust").set("src/bridge.mjs", safetyFile('import "../bin/opaque"; export const ordinary = 1;'));
-    current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ bin: bridge ? "./src/bridge.mjs" : "./bin/opaque" })));
+    if (bridge !== "native-source") current.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ bin: bridge ? "./src/bridge.mjs" : "./bin/opaque" })));
     const negative = boundarySafety(current);
     assert.equal(negative.nativeAllocationBoundary === undefined, true, "direct or transitive product promotion cannot certify an opaque interpreter boundary");
     assert.equal(negative.unsupportedNativeExecutionBoundaryCount, 1, "the one actual incoming command is counted exactly once");
