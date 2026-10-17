@@ -84,9 +84,9 @@ function selectSourceDeclarationReferenceForNode(
   const meaning = sourceReferenceMeaning(ast, queryNode);
   const referencesBySelectedSymbol = referencesByMeaning[meaning];
   const unresolvedImportedSymbols = unresolvedImportsByMeaning[meaning];
-  if (
+  if (meaning === "value" && (
     ast.is.IsPropertyAccessExpression(queryNode) ||
-    ast.is.IsElementAccessExpression(queryNode)
+    ast.is.IsElementAccessExpression(queryNode))
   ) {
     return selectedAccessDeclarationReference(
       ast,
