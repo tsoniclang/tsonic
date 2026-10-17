@@ -457,7 +457,7 @@ export function analyzeSourceGenericAdoption(input: {
     }
   };
   const executionContexts = (operation: Node, owner: Node,
-    selection: Exclude<SourceStorageProducersSelection, { readonly kind: "unresolved" }>) => {
+    selection: Exclude<SourceStorageProducersSelection, { readonly kind: "unresolved" }>, unknown: (reason: string) => void) => {
     const contexts: { readonly bindings: SourceStorageBindings; readonly uncertain: boolean }[] = [];
     for (const producer of selection.producers) {
       if (!step(operation)) return undefined;
@@ -468,8 +468,14 @@ export function analyzeSourceGenericAdoption(input: {
     }
     if (selection.kind === "open") for (const boundary of selection.boundaries) {
       if (!step(operation)) return undefined;
-      if (!contexts.some(context => context.bindings === boundary.bindings && context.uncertain))
-        contexts.push(Object.freeze({ bindings: boundary.bindings, uncertain: true }));
+      const owning = input.storage.boundActivationsFor(owner, boundary.bindings);
+      if (owning.kind === "unresolved") { unknown(owning.reason); continue; }
+      if (owning.activations.length === 0) { unknown("An open source execution requires its nonempty demanded-owner activation domain."); continue; }
+      for (const activation of owning.activations) {
+        if (!step(operation)) return undefined;
+        if (!contexts.some(context => context.bindings === activation.bindings && context.uncertain))
+          contexts.push(Object.freeze({ bindings: activation.bindings, uncertain: true }));
+      }
     }
     return Object.freeze(contexts);
   };
@@ -507,7 +513,7 @@ export function analyzeSourceGenericAdoption(input: {
           unknownArgument(node, argument, executions.reason);
           continue;
         }
-        const contexts = executionContexts(node, owner, executions);
+        const contexts = executionContexts(node, owner, executions, reason => unknownArgument(node, argument, reason));
         if (contexts === undefined) continue;
         for (const context of contexts) {
           const origins = input.storage.storageProducersFor(subject.subject, context.bindings);
@@ -552,7 +558,9 @@ export function analyzeSourceGenericAdoption(input: {
             for (const callback of callbacks.arguments) unknownNativeInput(node, callback.binding.selectedParameterType, executions.reason);
             continue;
           }
-          const contexts = executionContexts(node, owner, executions);
+          const contexts = executionContexts(node, owner, executions, reason => {
+            for (const callback of callbacks.arguments) unknownNativeInput(node, callback.binding.selectedParameterType, reason);
+          });
           if (contexts === undefined) continue;
           for (const context of contexts) {
             for (const callback of callbacks.arguments) {

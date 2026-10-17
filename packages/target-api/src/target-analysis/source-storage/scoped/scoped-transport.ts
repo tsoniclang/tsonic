@@ -31,7 +31,9 @@ export interface SourceStorageScopedTransport {
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
   callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
   callbackImplementationsFor(entry: SourceStorageCallbackEntry): ReadonlySet<Node>;
-  callbackInputFrontiersFor(invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings">> | undefined;
+  callbackInputFrontiersFor(invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings"> & {
+    readonly callback?: SourceStorageCallbackEntry;
+  }> | undefined;
   memberAccessorsFor(declaration: Node): ReadonlySet<Node> | undefined;
   isOpaque(invocation: Node): boolean;
 }

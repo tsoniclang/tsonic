@@ -498,7 +498,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           if (!budget.step()) return undefined;
           const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, ast);
           const selected = transport.subjectFor(term.demand);
-          if (selected === undefined) return undefined;
+          const uncertain = (scope: SourceStorageScope, reason: string): boolean => {
+            if (selected !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope, reason, exposure: frontier.exposure }));
+            else for (const store of transport.storesIn(term.demand) ?? []) {
+              if (!budget.step()) return false;
+              terms.push(Object.freeze({ kind: "unresolved", subject: store.storage, scope, reason, exposure: frontier.exposure }));
+            }
+            return budget.failure() === undefined;
+          };
           const contexts = scopes.nativeExecutionRoots(term.scope);
           if (contexts === undefined) return undefined;
           for (const context of contexts) {
@@ -509,8 +516,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             if (native?.invocation !== frontier.exposure) {
               if (context.scope.kind === "variable" && context.callback !== undefined &&
                 transport.callbackEntriesFor(frontier.exposure).includes(context.callback))
-                terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: context.scope, exposure: frontier.exposure,
-                  reason: "A relevant native callback input requires its completed same-activation value correspondence." }));
+                if (!uncertain(context.scope, "A relevant native callback input requires its completed same-activation value correspondence.")) return undefined;
               continue;
             }
             if (native.callback.timing === "deferred" && !term.deferred) continue;
@@ -532,14 +538,26 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
               },
             });
             if (payloads === undefined) return undefined;
-            if (!payloads.complete) terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: native.caller,
-              exposure: frontier.exposure, reason: "A relevant native callback input requires its actual source payload and creation correspondence." }));
+            if (!payloads.complete && !uncertain(native.caller,
+              "A relevant native callback input requires its actual source payload and creation correspondence.")) return undefined;
             for (const value of payloads.values) {
               if (!budget.step()) return undefined;
               if (value.subject !== frontier.subject) continue;
-              terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: value.bindings,
-                exposure: frontier.exposure,
-                reason: "A relevant source callable crosses a native input without completed value and capture correspondence." }));
+              if (frontier.callback?.timing === "deferred" && !term.deferred) continue;
+              const possible = readRelation(Object.freeze({ kind: "application", invocation,
+                callee: leaf(value.subject, value.bindings), scope: term.scope, projection: [],
+                ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
+                mode: "execution", demand: term.demand, deferred: term.deferred }));
+              if (possible === undefined) return undefined;
+              for (const result of possible) {
+                if (!budget.step()) return undefined;
+                if (result.kind === "leaf" && result.subject === selected || result.kind === "unresolved")
+                  terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure: frontier.exposure,
+                    reason: "A relevant source callable crosses a native input without completed value and capture correspondence." }));
+                else if (result.kind === "effect" && result.store.region === term.demand)
+                  terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure: frontier.exposure,
+                    reason: "A relevant source effect crosses a native input without completed value and capture correspondence." }));
+              }
             }
           }
         }

@@ -325,6 +325,96 @@ test("a factory callee is not a returned native callback payload", () => {
   if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the returned closure observes Value but never resolves it");
 });
 
+const nativePayloadContinuationCases = [
+  {
+    "name": "source-helper",
+    "declarations": "function send<Part>(done: (value: Part) => void, value: Part): void { done(value); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { send(done, value); }; }",
+    "ordinary": "send(resolve, 7);",
+    "adopter": "send((actual: number): void => { void actual; }, 7);",
+    "expression": "done(value)"
+  },
+  {
+    "name": "source-helper-chain",
+    "declarations": "function send<Part>(done: (value: Part) => void, value: Part): void { done(value); } function forward<Part>(done: (value: Part) => void, value: Part): void { send(done, value); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { forward(done, value); }; }",
+    "ordinary": "send(resolve, 7);",
+    "adopter": "send((actual: number): void => { void actual; }, 7);",
+    "expression": "done(value)"
+  },
+  {
+    "name": "native-forwarded-helper",
+    "declarations": "function send<Part>(done: (value: Part) => void, value: Part): void { done(value); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { send(done, value); }; }",
+    "ordinary": "send(resolve, 7);",
+    "adopter": "send((actual: number): void => { void actual; }, 7);",
+    "expression": "done(value)"
+  },
+  {
+    "name": "default-helper",
+    "declarations": "function send<Part>(done: (value: Part) => void, value: Part, actual: Part = value): void { done(actual); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { send(done, value); }; }",
+    "ordinary": "send(resolve, 7);",
+    "adopter": "send((actual: number): void => { void actual; }, 7);",
+    "expression": "done(actual)"
+  },
+  {
+    "name": "component-helper",
+    "declarations": "function send<Part>(done: (value: Part) => void, input: { payload: Part }): void { done(input.payload); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { send(done, { payload: value }); }; }",
+    "ordinary": "send(resolve, { payload: 7 });",
+    "adopter": "send((actual: number): void => { void actual; }, { payload: 7 });",
+    "expression": "done(input.payload)"
+  },
+  {
+    "name": "recursive-helper",
+    "declarations": "function send<Part>(done: (value: Part) => void, value: Part, depth: number): void { if (depth > 0) send(done, value, depth - 1); else done(value); } function make<Part>(done: (value: Part) => void, value: Part): () => void { return () => { send(done, value, 1); }; }",
+    "ordinary": "send(resolve, 7, 1);",
+    "adopter": "send((actual: number): void => { void actual; }, 7, 1);",
+    "expression": "done(value)"
+  },
+  {
+    "name": "receiver-helper",
+    "declarations": "class Relay<Part> { constructor(readonly done: (value: Part) => void, readonly value: Part) {} run(): void { this.done(this.value); } } function make<Part>(done: (value: Part) => void, value: Part): () => void { const relay = new Relay(done, value); return () => { relay.run(); }; }",
+    "ordinary": "new Relay(resolve, 7).run();",
+    "adopter": "new Relay((actual: number): void => { void actual; }, 7).run();",
+    "expression": "this.done(this.value)"
+  }
+] as const;
+
+for (const form of nativePayloadContinuationCases) for (const adopting of [false, true]) {
+  for (const ordinary of [false, true]) for (const reversed of [false, true]) {
+    test("native payload demand-owner continuation keeps exact " + form.name + "/" + adopting + "/" + ordinary + "/" + reversed, () => {
+      const expose = form.name === "native-forwarded-helper"
+        ? "nativeInvoke([payload], next => { nativeAgain(next); });"
+        : "nativeInvoke([payload], next => { next(); });";
+      const separate = adopting ? form.adopter : form.ordinary;
+      const creation = adopting ? "make(resolve, value)" : "make((actual: Value): void => { void actual; }, value)";
+      const current = fixture(`
+        declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+        declare function nativeAgain(callback: () => void): void;
+        ${form.declarations}
+        function wrap<Value>(value: Value): Promise<Value | number> {
+          return new Promise<Value | number>(resolve => {
+            const payload = ${creation};
+            ${reversed ? separate + expose : expose + separate}
+          });
+        }
+        export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+      `, "/src", (source, nodes) => {
+        const invoke = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+        const again = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeAgain");
+        return { callbackEntries(node, selected) {
+          const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+          return declaration === invoke ? [{ parameterIndex: 1, timing: "synchronous" }]
+            : declaration === again ? [{ parameterIndex: 0, timing: "synchronous" }] : undefined;
+        } };
+      });
+      const selected = current.query();
+      assert.equal(selected.kind, adopting && !ordinary ? "unresolved" : "resolved",
+        "possible helper invocations retain their demanded owner, not a source-global argument union");
+      if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+        "ordinary identity or the actual observer/number inverse stays admitted");
+      else assert.equal(current.textFor(selected.at), form.expression, "the relevant resolving helper demand owns uncertainty");
+    });
+  }
+}
+
 for (const form of ["uncalled", "nonresolver", "ignored-source-argument", "unused-native-input"] as const) {
   test("opaque native inputs do not taint unrelated resolving paths: " + form, () => {
     const payload = form === "nonresolver" ? "() => { void value; }" : "() => { resolve(value); }";

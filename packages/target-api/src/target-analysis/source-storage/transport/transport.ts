@@ -779,14 +779,16 @@ export function createSourceStorageTransport(
     }
     return nativeInputs.get(parameter) ?? [];
   };
-  const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings">> | undefined => {
-    const selected = new Set<Omit<SourceStorageDomainBoundary, "bindings">>();
-    const operands = new Set<SourceStorageSubject>();
+  const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings"> & {
+    readonly callback?: SourceStorageCallbackEntry;
+  }> | undefined => {
+    const selected = new Set<Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry }>();
+    const operands: { readonly subject: SourceStorageSubject; readonly callback?: SourceStorageCallbackEntry }[] = [];
     const target = invocationTargets.get(invocation);
-    if (target !== undefined) operands.add(target);
-    for (const callback of callbackEntriesFor(invocation)) operands.add(callback.argument.actual);
+    if (target !== undefined) operands.push({ subject: target });
+    for (const callback of callbackEntriesFor(invocation)) operands.push({ subject: callback.argument.actual, callback });
     for (const operand of operands) {
-      const origins = originSubjects(operand);
+      const origins = originSubjects(operand.subject);
       if (origins === undefined) return undefined;
       for (const origin of origins) {
         if (!step()) return undefined;
@@ -805,7 +807,8 @@ export function createSourceStorageTransport(
           if (candidates === undefined) return undefined;
           for (const candidate of candidates) {
             if (!step()) return undefined;
-            selected.add(Object.freeze({ kind: "unclassified-exposure", subject: candidate, owner: origin, exposure: entry.invocation }));
+            selected.add(Object.freeze({ kind: "unclassified-exposure", subject: candidate, owner: origin, exposure: entry.invocation,
+              ...(operand.callback === undefined ? {} : { callback: operand.callback }) }));
           }
         }
       }

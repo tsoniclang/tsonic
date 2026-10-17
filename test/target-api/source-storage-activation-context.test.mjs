@@ -705,6 +705,70 @@ for (const reversed of [false, true]) {
   });
 }
 
+for (const nativeForward of [false, true]) for (const reversed of [false, true]) {
+  test("possible native payload execution publishes demand-owner helper bindings: " + nativeForward + "/" + reversed, async () => {
+    const current = await fixture("native-boundary-demand-owner", `
+      declare function observe(value: number): void;
+      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
+      declare function nativeAgain(callback: () => void): void;
+      function send(callback: (value: number) => void, value: number): void { callback(value); }
+      function make(callback: (value: number) => void, value: number): () => void { return () => { send(callback, value); }; }
+      export function create(first: number, second: number) {
+        const firstCallback = make(observe, first);
+        const secondCallback = make(observe, second);
+        return () => {
+          ${reversed ? "send(observe, 99);" : ""}
+          nativeInvoke([${reversed ? "secondCallback, firstCallback" : "firstCallback, secondCallback"}], next => {
+            ${nativeForward ? "nativeAgain(next);" : "next();"}
+          });
+          ${reversed ? "" : "send(observe, 99);"}
+        };
+      }
+    `, (source, nodes) => {
+      const invoke = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      const again = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeAgain");
+      return { callbackEntries(node, selected) {
+        const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+        return declaration === invoke ? [{ parameterIndex: 1, timing: "synchronous" }]
+          : declaration === again ? [{ parameterIndex: 0, timing: "synchronous" }] : undefined;
+      } };
+    });
+    const { ast, nodes, storage, declaration } = current;
+    const owner = declaration("send");
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+    const forwarded = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "send" &&
+      ast.is.IsIdentifier(ast.arguments(node)[1]));
+    const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(invocation));
+    const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
+    assert.equal(domain.kind, "complete", "the original executor creation is closed");
+    assert.equal(domain.producers.length, 1, "one original executor producer");
+    const demand = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+    const selected = storage.contributingExecutionsFor(demand, owner, domain.producers[0]);
+    assert.equal(selected.kind, "open", "possible helper execution stays open");
+    assert.equal(selected.producers.length, 1, "only the separate real source helper call is certified as executed");
+    assert.equal(selected.boundaries.length, 2, "each original callback creation owns a distinct possible helper invocation");
+    const actuals = new Set();
+    const creations = new Set();
+    const argument = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+    for (const boundary of reversed ? [...selected.boundaries].reverse() : selected.boundaries) {
+      assert.equal(boundary.subject === demand && Object.isFrozen(boundary.bindings), true, "the original demand has owned immutable bindings");
+      const contexts = resolved(storage.boundActivationsFor(owner, boundary.bindings));
+      assert.equal(contexts.activations.length === 1 && contexts.activations[0].kind === "invocation" &&
+        contexts.activations[0].invocation === forwarded, true, "the real forwarding call, not a factory frame, owns the demand");
+      const factory = resolved(storage.boundActivationsFor(declaration("make"), contexts.activations[0].bindings));
+      assert.equal(factory.activations.length, 1, "the helper invocation retains one original factory creation");
+      creations.add(factory.activations[0].bindings);
+      for (const subject of resolved(storage.boundOriginsFor(argument, contexts.activations[0].bindings)).subjects) actuals.add(subject.node);
+    }
+    assert.equal(creations.size, 2, "the same helper call is instantiated in both distinct factory activations");
+    assert.equal(actuals.size === 2 && ast.parameters(declaration("create")).every(parameter => actuals.has(parameter)), true,
+      "the separate literal99 call cannot enter the possible observer's argument domain");
+    assert.equal(storage.failureReason() === undefined, true, "conditional provenance uses the existing bounded scoped relation");
+  });
+}
+
 test("a known empty native execution fact does not become unknown or invoke an unused callback", async () => {
   const current = await fixture("native-empty-entry", `
     declare function nativeInvoke(callback: () => void): void;
