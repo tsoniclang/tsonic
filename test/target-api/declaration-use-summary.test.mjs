@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram, sourceDeclarationHasOnlyTypeUses } from "../../packages/target-api/dist/public/source.js";
-import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
+import { createTargetSourceProgram, sourceDeclarationHasOnlyTypeUses, sourceDeclarationIsModuleScoped } from "../../packages/target-api/dist/public/source.js";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("declaration use classification owns erased contracts without inventing initializer purity", async () => {
   const checked = await checkedSource("metadata-only-use-kinds", { "src/index.ts": `
@@ -74,7 +74,9 @@ function inner(): string { const shadow = "inner"; return shadow; }
     assert.equal(sourceDeclarationHasOnlyTypeUses(source.navigation.declarationUseSummary(declaration)), false,
       `${name}: actual runtime/export/write/escape or absent-use premise`);
   }
-  const outer = namedVariable(source.ast, file, "shadow");
+  const outer = requiredNode(source.ast, file, node => source.ast.is.IsVariableDeclaration(node) &&
+    source.ast.is.IsIdentifier(source.ast.name(node)) && source.ast.text(source.ast.name(node)) === "shadow" &&
+    sourceDeclarationIsModuleScoped(node, source.ast));
   const inner = namedVariable(source.ast, namedDeclaration(source.ast, file, "inner"), "shadow");
   assert.equal(outer === inner, false, "identically spelled bindings have different checked identities");
   assert.equal(sourceDeclarationHasOnlyTypeUses(source.navigation.declarationUseSummary(outer)), true, "outer binding is used only by its erased interface");

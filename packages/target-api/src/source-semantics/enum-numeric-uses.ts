@@ -1,6 +1,7 @@
 import type { CheckedSourceProgram, Node, Symbol, Type } from "@tsonic/tsts";
 import { ContextFlagsSkipBindingPatterns } from "@tsonic/tsts";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
+import { sourceExpressionResultDisposition } from "../source-navigation/expression-use.js";
 import { isTsonicSourceProfileDeclarationPath } from "../source-profile.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-constants.js";
@@ -159,6 +160,8 @@ export function analyzeSourceEnumNumericUses(
 
     function refusedUse(expression: Node, value: EnumValueDomain): { readonly root: Node; readonly stringProjection: boolean } | undefined {
       const parent = ast.parent(expression)!;
+      const resultUse = sourceExpressionResultDisposition(ast, expression);
+      if (resultUse.kind === "discarded" && resultUse.use === parent) return undefined;
       const operator = ast.operatorKindName(parent);
       const conditional = ast.is.IsConditionalExpression(parent) ? ast.as.AsConditionalExpression(parent) : undefined;
       if (ast.is.IsParenthesizedExpression(parent) || ast.is.IsNonNullExpression(parent) ||
@@ -235,12 +238,13 @@ export function analyzeSourceEnumNumericUses(
     }
 
     function destinationType(expression: Node, parent: Node): Type | undefined {
+      if (ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent)) return checkedType(parent);
       const contextual = checker.getContextualType(expression, ContextFlagsSkipBindingPatterns);
       if (contextual !== undefined) return contextual;
       if (ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) ||
         ast.is.IsParameterDeclaration(parent) || ast.is.IsBindingElement(parent)) return checkedType(parent);
       if (ast.is.IsPropertyAssignment(parent) || ast.is.IsShorthandPropertyAssignment(parent)) {
-        return checker.getResolvedObjectLiteralElementInfo(parent)?.sourceSelectedType;
+        return checker.getResolvedObjectLiteralElementInfo(parent)?.sourceElementType;
       }
       if (ast.is.IsArrayLiteralExpression(parent)) {
         const container = checkedType(parent);
@@ -259,7 +263,6 @@ export function analyzeSourceEnumNumericUses(
         while (callable !== undefined && !isSourceCallableBodyBoundary(ast, callable)) callable = ast.parent(callable);
         return callable === undefined ? undefined : types.getDeclarationSignatureInfo(callable)?.returnType;
       }
-      if (ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent)) return checkedType(parent);
       return undefined;
     }
     function enumValue(expression: Node): EnumValueDomain {
@@ -298,8 +301,6 @@ export function analyzeSourceEnumNumericUses(
         const inner = ast.is.IsParenthesizedExpression(current.node) ? ast.as.AsParenthesizedExpression(current.node)?.Expression
           : ast.is.IsNonNullExpression(current.node) ? ast.as.AsNonNullExpression(current.node)?.Expression
           : ast.is.IsSatisfiesExpression(current.node) ? ast.as.AsSatisfiesExpression(current.node)?.Expression
-          : ast.is.IsAsExpression(current.node) ? ast.as.AsAsExpression(current.node)?.Expression
-          : ast.is.IsTypeAssertion(current.node) ? ast.as.AsTypeAssertion(current.node)?.Expression
           : ast.is.IsPrefixUnaryExpression(current.node) && operator === "KindTildeToken"
             ? ast.as.AsPrefixUnaryExpression(current.node)?.Operand : initializer;
         const binary = ast.is.IsBinaryExpression(current.node) && operator !== undefined &&
