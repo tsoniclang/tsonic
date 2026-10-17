@@ -306,6 +306,17 @@ policy.
   identifier's semantic name, such as Rust `r#type` or C# `@event`. Exact imported
   native names remain provider-owned. Compiler-generated helpers require their
   own collision-safe names; they do not authorize renaming authored APIs.
+- The registered C# native type/value-name collision is a narrow exception:
+  only a method type parameter that conflicts with an actually emitted value
+  name receives a deterministic, capture-free suffix. The existing pre-seal
+  name plan owns that selection and preserves declaration identity in every
+  constraint, bound use, implementing member and forwarding member. Value
+  names, unrelated authored names and nonconflicting type parameters retain
+  their spelling. Generated protocol parameter names, nested bindings and
+  local bindings must be included in the actual emitted-name decision; source
+  spelling alone does not establish a collision. See S11-13 in
+  `csharp-rust-structure.md`. This exception adds no runtime representation,
+  allocation, boxing, copy or compatibility path.
 - Audit declaration, member, reference, import/export and module/file pathways
   together. An actual target naming or collision constraint needs an explicit
   supported policy or a precise diagnostic, not an unannounced casing rewrite.
