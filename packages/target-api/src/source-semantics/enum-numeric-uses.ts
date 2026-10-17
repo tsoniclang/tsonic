@@ -229,7 +229,10 @@ export function analyzeSourceEnumNumericUses(
       if (!valueKinds.has(ast.kindName(node))) return undefined;
       const parent = ast.parent(node);
       if (parent !== undefined && (ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) ||
-        ast.is.IsSatisfiesExpression(parent))) return undefined;
+        ast.is.IsSatisfiesExpression(parent) || ast.is.IsParenthesizedExpression(parent) ||
+        ast.is.IsNonNullExpression(parent) || ast.is.IsConditionalExpression(parent) ||
+        ast.is.IsBinaryExpression(parent) && (logicalOperators.has(ast.operatorKindName(parent)!) ||
+          ast.operatorKindName(parent) === "KindCommaToken"))) return undefined;
       const selected = enumValue(node);
       if (selected.possibleEnums.length === 0) return undefined;
       const contextual = checker.getContextualType(node, ContextFlagsSkipBindingPatterns);
