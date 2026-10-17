@@ -5,7 +5,7 @@ import { createAstReader } from "../../../packages/tsts/dist/src/services/ast-re
 import { ScriptKindJS, ScriptKindJSX, ScriptKindTS, ScriptKindTSX } from "../../../packages/tsts/dist/src/internal/core/scriptkind.js";
 import { Node_QuestionDotToken, SourceFile_Diagnostics } from "../../../packages/tsts/dist/src/internal/ast/ast.js";
 import { NodeDefault_AsNode } from "../../../packages/tsts/dist/src/internal/ast/spine.js";
-import { AsMetaProperty } from "../../../packages/tsts/dist/src/internal/ast/generated/casts.js";
+import { AsBindingElement, AsMetaProperty } from "../../../packages/tsts/dist/src/internal/ast/generated/casts.js";
 import { KindImportKeyword } from "../../../packages/tsts/dist/src/internal/ast/generated/kinds.js";
 
 export function staticFileAddress(sourcePath, specifier) {
@@ -23,7 +23,7 @@ export function staticFileAddress(sourcePath, specifier) {
 }
 
 export function scriptSourceReferences(path, text, boundary) {
-  if (!/\b(?:import|export|require|URL|readFile|copyFile|Worker|fork|getBuiltinModule)\b/u.test(text)) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+  if (!/\b(?:import|export|require|URL|readFile|copyFile|Worker|fork|getBuiltinModule|process|globalThis|global|self|window)\b/u.test(text)) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;
@@ -37,6 +37,7 @@ export function scriptSourceReferences(path, text, boundary) {
   const imports = new Map();
   const variables = new Map();
   const identifiers = new Map();
+  const valueDeclarations = new Map();
   const visit = node => {
     nodes.push(node);
     if (ast.kindName(node) === "KindIdentifier") {
@@ -52,15 +53,15 @@ export function scriptSourceReferences(path, text, boundary) {
       const literal = ast.children(node).find(child => ast.kindName(child) === "KindStringLiteral");
       if (literal === undefined) continue;
       const specifier = ast.text(literal);
-      const nativeSpecifier = specifier === "module" ? "node:module" : specifier;
+      const nativeSpecifier = builtinSpecifier(specifier);
       references.push({ specifier, module: true });
       if (kindName !== "KindImportDeclaration") continue;
       const collect = child => {
         if (ast.kindName(child) === "KindImportSpecifier") {
           const names = ast.children(child);
-          imports.set(ast.text(names.at(-1)), `${nativeSpecifier}#${ast.text(names[0])}`);
+          if (!ast.isTypeOnlyImportOrExportDeclaration(child)) imports.set(ast.text(names.at(-1)), `${nativeSpecifier}#${ast.text(names[0])}`);
         } else if (["KindImportClause", "KindNamespaceImport"].includes(ast.kindName(child)) && ast.name(child) !== undefined) {
-          imports.set(ast.text(ast.name(child)), `${nativeSpecifier}#*`);
+          if (!ast.isTypeOnlyImportOrExportDeclaration(child)) imports.set(ast.text(ast.name(child)), `${nativeSpecifier}#*`);
         }
         ast.forEachChild(child, collect);
       };
@@ -68,6 +69,11 @@ export function scriptSourceReferences(path, text, boundary) {
     } else if (kindName === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindIdentifier") {
       const name = ast.text(ast.name(node));
       variables.set(name, [...variables.get(name) ?? [], node]);
+    }
+    if (["KindVariableDeclaration", "KindBindingElement", "KindParameter", "KindFunctionDeclaration", "KindFunctionExpression", "KindClassDeclaration", "KindClassExpression"].includes(kindName) &&
+      ast.kindName(ast.name(node)) === "KindIdentifier") {
+      const name = ast.text(ast.name(node));
+      valueDeclarations.set(name, [...valueDeclarations.get(name) ?? [], node]);
     }
   }
   const testEntry = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
@@ -99,6 +105,18 @@ export function scriptSourceReferences(path, text, boundary) {
     const parentKind = ast.kindName(parent);
     const directCall = parentKind === "KindCallExpression" && ast.children(parent)[0] === node && Node_QuestionDotToken(parent) === undefined;
     const importedName = ["KindImportSpecifier", "KindImportClause", "KindNamespaceImport"].includes(parentKind);
+    if (!nonValueName(node) && !importedName) {
+      const namespace = ["node:fs#*", "node:fs/promises#*", "node:process#*", "node:worker_threads#*", "node:child_process#*"].includes(selected);
+      const reader = /^node:fs(?:\/promises)?#(?:readFile(?:Sync)?|copyFile(?:Sync)?)$/u.test(selected);
+      if (namespace && !namespaceUse(node, selected) || reader && (!directCall || mutated(node))) computedModuleEntry(node);
+      if (globalObject(node)) {
+        const member = memberAccess(parent);
+        if (!["KindTypeOfExpression", "KindVoidExpression"].includes(parentKind) &&
+          (member?.receiver !== node || member.name === undefined || ["valueOf", "constructor", "__proto__", "prototype"].includes(member.name) || mutated(parent))) computedModuleEntry(node);
+      }
+      if (ast.kindName(node) === "KindIdentifier" && api(node) === "require" && !moduleBindings.has(ast.text(node)) &&
+        !directCall && !resolutionOnlyUse(node)) computedModuleEntry(node);
+    }
     if (selected.startsWith("node:module#") && !nonValueName(node) && !importedName) {
       const member = selected.slice("node:module#".length);
       if (member === "*") {
@@ -125,11 +143,6 @@ export function scriptSourceReferences(path, text, boundary) {
         !(ast.kindName(parent) === expected && ast.children(parent)[0] === node)) {
         references.push({ unresolved: true, unresolvedReason: "unresolved first-party source-entry API alias, write or escape" });
       }
-    }
-    if (ast.kindName(node) !== "KindIdentifier" || !["node:worker_threads#*", "node:child_process#*"].includes(imports.get(ast.text(node))) || nonValueName(node)) continue;
-    if (!["KindImportClause", "KindNamespaceImport"].includes(ast.kindName(parent)) &&
-      !(ast.kindName(parent) === "KindPropertyAccessExpression" && ast.children(parent)[0] === node)) {
-      references.push({ unresolved: true, unresolvedReason: "unresolved first-party source-entry namespace alias, computed member or escape" });
     }
   }
   const literalUrlLoaders = [];
@@ -208,9 +221,13 @@ export function scriptSourceReferences(path, text, boundary) {
       if (!module && !fileRead) continue;
       if (loaderImports.has(node)) { references.push(...loaderImports.get(node)); continue; }
       const address = sourceAddress(ast.arguments(node)[0]);
-      if (ast.kindName(callee) === "KindImportKeyword" && ["node:module", "module"].includes(address.specifier)) {
+      if ((require || ast.kindName(callee) === "KindImportKeyword") && ["node:module", "module"].includes(address.specifier)) {
         computedModuleEntry(node); continue;
       }
+      const nativeModule = builtinSpecifier(address.specifier);
+      if ((require || ast.kindName(callee) === "KindImportKeyword") &&
+        ["node:fs", "node:fs/promises", "node:process", "node:worker_threads", "node:child_process"].includes(nativeModule) &&
+        !namespaceUse(node, `${nativeModule}#*`, false)) computedModuleEntry(node);
       const binding = require && ast.kindName(callee) === "KindIdentifier" ? moduleBindings.get(ast.text(callee)) : undefined;
       if (binding !== undefined) {
         if (binding.finiteTargets !== undefined) {
@@ -295,6 +312,7 @@ export function scriptSourceReferences(path, text, boundary) {
     const roots = new Set(["globalThis", "global", "self", "window", ...namespaces]);
     return [...roots].every(name => (identifiers.get(name) ?? []).every(use => {
       if (nonValueName(use)) return true;
+      if (!namespaces.includes(name) && !globalObject(use)) return true;
       const parent = ast.parent(use);
       if (["KindImportClause", "KindNamespaceImport"].includes(ast.kindName(parent)) && imports.get(name) === "node:url#*") return true;
       if (!["KindPropertyAccessExpression", "KindElementAccessExpression"].includes(ast.kindName(parent)) || ast.children(parent)[0] !== use) return false;
@@ -307,18 +325,96 @@ export function scriptSourceReferences(path, text, boundary) {
   function nonValueName(node) {
     const parent = ast.parent(node);
     return ["KindPropertyAccessExpression", "KindPropertyAssignment", "KindPropertyDeclaration", "KindPropertySignature", "KindMethodDeclaration", "KindMethodSignature"].includes(ast.kindName(parent)) && ast.name(parent) === node ||
-      ast.kindName(parent) === "KindImportSpecifier" && ast.name(parent) !== node;
+      ast.kindName(parent) === "KindImportSpecifier" && ast.name(parent) !== node || typeOnlyUse(node);
+  }
+
+  function builtinSpecifier(specifier) {
+    return ["module", "process", "fs", "fs/promises", "path", "url", "worker_threads", "child_process"].includes(specifier) ? `node:${specifier}` : specifier;
+  }
+
+  function typeOnlyUse(node) {
+    for (let current = node; current !== undefined; current = ast.parent(current)) {
+      const parent = ast.parent(current);
+      if (ast.typeNode(parent) === current || ["KindTypeQuery", "KindTypeAliasDeclaration", "KindInterfaceDeclaration", "KindImportType"].includes(ast.kindName(parent))) return true;
+      if (["KindStatement", "KindBlock", "KindSourceFile", "KindCallExpression", "KindNewExpression"].includes(ast.kindName(parent))) break;
+    }
+    return false;
+  }
+
+  function bindingScope(declaration) {
+    let owner = declaration;
+    while (["KindBindingElement", "KindObjectBindingPattern", "KindArrayBindingPattern"].includes(ast.kindName(owner))) owner = ast.parent(owner);
+    const parameter = ast.kindName(owner) === "KindParameter";
+    const functionScoped = parameter || ast.variableDeclarationKind(owner) === "var";
+    if (["KindFunctionExpression", "KindClassExpression"].includes(ast.kindName(owner))) return owner;
+    for (let current = ast.parent(owner); current !== undefined; current = ast.parent(current)) {
+      const kindName = ast.kindName(current);
+      if (["KindSourceFile", "KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(kindName) ||
+        !functionScoped && ["KindBlock", "KindModuleBlock", "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindCatchClause"].includes(kindName)) return current;
+    }
+    return undefined;
+  }
+
+  function shadowed(node) {
+    const declarations = valueDeclarations.get(ast.text(node));
+    if (declarations === undefined) return false;
+    const ancestors = new Set();
+    for (let current = node; current !== undefined; current = ast.parent(current)) ancestors.add(current);
+    return declarations.some(declaration => ancestors.has(bindingScope(declaration)));
+  }
+
+  function memberAccess(node) {
+    if (!["KindPropertyAccessExpression", "KindElementAccessExpression"].includes(ast.kindName(node))) return undefined;
+    return { receiver: ast.children(node)[0], name: ast.kindName(node) === "KindPropertyAccessExpression" ? ast.text(ast.name(node))
+      : literal(ast.children(node)[1]) ? ast.text(ast.children(node)[1]) : undefined };
+  }
+
+  function globalObject(node) {
+    if (ast.kindName(node) === "KindIdentifier") return ["globalThis", "global", "self", "window"].includes(ast.text(node)) && !imports.has(ast.text(node)) && !shadowed(node);
+    const member = memberAccess(node);
+    return member !== undefined && ["globalThis", "global", "self", "window"].includes(member.name) && globalObject(member.receiver);
+  }
+
+  function namespaceUse(node, namespace, trackedMember = true) {
+    let expression = node;
+    while (["KindAwaitExpression", "KindParenthesizedExpression", "KindNonNullExpression"].includes(ast.kindName(ast.parent(expression)))) expression = ast.parent(expression);
+    const parent = ast.parent(expression);
+    if (["KindTypeOfExpression", "KindVoidExpression"].includes(ast.kindName(parent))) return true;
+    const member = memberAccess(parent);
+    if (member?.receiver === expression) return member.name !== undefined && Node_QuestionDotToken(parent) === undefined && !mutated(parent) &&
+      !["valueOf", "constructor", "__proto__", "prototype"].includes(member.name) &&
+      (trackedMember || nonReaderMember(member.name));
+    if (ast.kindName(parent) !== "KindVariableDeclaration" || initializer(parent) !== expression || ast.kindName(ast.name(parent)) !== "KindObjectBindingPattern") return false;
+    const elements = ast.elements(ast.name(parent));
+    return elements.length > 0 && elements.every(element => {
+      const binding = AsBindingElement(element);
+      const key = binding?.PropertyName ?? ast.name(element);
+      const name = ast.kindName(key) === "KindIdentifier" || literal(key) ? ast.text(key) : undefined;
+      if (binding === undefined || binding.DotDotDotToken !== undefined || binding.Initializer !== undefined ||
+        ast.kindName(ast.name(element)) !== "KindIdentifier" || name === undefined) return false;
+      return nonReaderMember(name) && !namespace.startsWith("node:module#");
+    });
+  }
+
+  function nonReaderMember(name) {
+    return !["*", "default", "promises", "readFile", "readFileSync", "copyFile", "copyFileSync", "getBuiltinModule", "mainModule", "Worker", "fork", "valueOf", "constructor", "__proto__", "prototype"].includes(name);
   }
 
   function importedApi(node) {
     if (ast.kindName(node) === "KindIdentifier") {
       const name = ast.text(node);
-      return imports.get(name) ?? "";
+      if (shadowed(node)) return "";
+      const imported = imports.get(name);
+      return imported === "node:fs#promises" ? "node:fs/promises#*" : imported?.endsWith("#default") ? `${imported.slice(0, -7)}*`
+        : imported ?? (name === "process" ? "node:process#*" : "");
     }
-    if (ast.kindName(node) === "KindPropertyAccessExpression") {
-      const receiver = ast.children(node)[0];
-      const imported = ast.kindName(receiver) === "KindIdentifier" ? imports.get(ast.text(receiver)) : undefined;
-      if (imported?.endsWith("#*")) return `${imported.slice(0, -1)}${ast.text(ast.name(node))}`;
+    const member = memberAccess(node);
+    if (member?.name !== undefined) {
+      if (member.name === "process" && globalObject(member.receiver)) return "node:process#*";
+      const imported = importedApi(member.receiver);
+      if (imported === "node:fs#*" && member.name === "promises") return "node:fs/promises#*";
+      if (imported.endsWith("#*") && member.name === "default") return imported;
+      if (imported.endsWith("#*")) return `${imported.slice(0, -1)}${member.name}`;
     }
     return "";
   }
@@ -328,7 +424,7 @@ export function scriptSourceReferences(path, text, boundary) {
     if (imported !== "") return imported;
     if (ast.kindName(node) !== "KindIdentifier") return "";
     const name = ast.text(node);
-    return moduleBindings.has(name) ? "require" : !variables.has(name) && ["URL", "require"].includes(name) ? name : "";
+    return moduleBindings.has(name) ? "require" : !imports.has(name) && !shadowed(node) && ["URL", "require"].includes(name) ? name : "";
   }
 
   function resolutionOnlyUse(node) {
@@ -345,10 +441,7 @@ export function scriptSourceReferences(path, text, boundary) {
   }
 
   function nativeBuiltinModuleGetter(node) {
-    if (importedApi(node) === "node:process#getBuiltinModule") return true;
-    if (ast.kindName(node) !== "KindPropertyAccessExpression" || ast.text(ast.name(node)) !== "getBuiltinModule") return false;
-    const receiver = ast.children(node)[0];
-    return ast.kindName(receiver) === "KindIdentifier" && ast.text(receiver) === "process" && !variables.has("process") && !imports.has("process");
+    return ["node:process#getBuiltinModule", "node:process#mainModule"].includes(importedApi(node));
   }
 
   function finiteRequireTargets(declaration) {

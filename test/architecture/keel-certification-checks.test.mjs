@@ -702,6 +702,103 @@ test("C119-R6: dynamic builtin-module routes are refused in products and explici
   }
 });
 
+test("QFINAL: the entire builtin getter and observer-root class requires positive direct uses", () => {
+  const load = '.createRequire(import.meta.url)("../test/helpers/native-ownership-cost.mjs")';
+  const read = '(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url))';
+  const cases = [
+    ['global literal getter', `process["getBuiltinModule"]("node:module")${load};`],
+    ['global computed getter', `process["get" + "BuiltinModule"]("node:module")${load};`],
+    ['global process alias', `const owner = process; owner.getBuiltinModule("module")${load};`],
+    ['global process argument', `consume(process);`],
+    ['global process valueOf', 'const owner = process.valueOf();'],
+    ['global-object valueOf', 'const owner = globalThis.valueOf();'],
+    ['global process binding', `const { getBuiltinModule: get } = process; get("module")${load};`],
+    ['global-object process', `globalThis["process"]["getBuiltinModule"]("module")${load};`],
+    ['global-object alias', `const owner = globalThis; owner.process.getBuiltinModule("module")${load};`],
+    ['global process write', 'globalThis.process = replacement;'],
+    ['global process delete', 'delete globalThis["process"];'],
+    ['unknown global property', 'const owner = globalThis[process.env.ROOT];'],
+    ['default process', `import processOwner from "process"; processOwner["getBuiltinModule"]("module")${load};`],
+    ['namespace process', `import * as processOwner from "node:process"; const get = processOwner.getBuiltinModule; get("module")${load};`],
+    ['named getter', `import { getBuiltinModule as get } from "process"; const alias = get; alias("module")${load};`],
+    ['reader alias', `import { readFileSync } from "node:fs"; const read = readFileSync; read${read};`],
+    ['reader callback', 'import { readFileSync } from "fs"; consume(readFileSync);'],
+    ['reader export', 'import { readFileSync } from "fs"; export { readFileSync };'],
+    ['reader object escape', 'import { readFileSync } from "fs"; const readers = { read: readFileSync };'],
+    ['namespace reader', `import * as fs from "fs"; fs["readFileSync"]${read};`],
+    ['namespace reader alias', `import fs from "node:fs"; const read = fs.readFileSync; read${read};`],
+    ['namespace destructure', `import fs from "fs"; const { readFileSync: read } = fs; read${read};`],
+    ['namespace alias', 'import * as fs from "fs"; const alias = fs;'],
+    ['namespace escape', 'import fs from "fs"; consume(fs);'],
+    ['namespace valueOf', 'import fs from "fs"; const alias = fs.valueOf();'],
+    ['namespace computed member', `import fs from "fs"; fs[process.env.READER]${read};`],
+    ['namespace reader write', 'import fs from "fs"; fs.readFileSync = replacement;'],
+    ['namespace promises', `import fs from "fs"; await fs.promises["readFile"]${read};`],
+    ['named promises', `import { promises as fs } from "fs"; const read = fs.readFile; read${read};`],
+    ['default-as namespace', `import { default as fs } from "fs"; const read = fs.copyFileSync; read${read};`],
+    ['dynamic reader selection', `const { readFileSync: read } = await import("fs"); read${read};`],
+    ['dynamic namespace', `const fs = await import("node:fs"); fs.readFileSync${read};`],
+    ['dynamic direct member', `const read = (await import("fs"))["readFileSync"]; read${read};`],
+    ['require direct member', `const read = require("fs").readFileSync; read${read};`],
+    ['require alias', 'const load = require; load("../test/helpers/native-ownership-cost.mjs");'],
+    ['require Module', 'const Module = require("module"); Module._load("../test/helpers/native-ownership-cost.mjs");'],
+    ['dynamic namespace default', `const { default: fs } = await import("fs"); fs.readFileSync${read};`],
+    ['dynamic nested promises', `const { promises: fs } = await import("fs"); fs.readFile${read};`],
+    ['dynamic rest', 'const { writeFile, ...rest } = await import("fs/promises"); consume(rest);'],
+    ['dynamic computed selection', 'const { [process.env.READER]: read } = await import("fs/promises");'],
+    ['dynamic process', `const { getBuiltinModule: get } = await import("process"); get("module")${load};`],
+    ['require reader', `const { readFileSync: read } = require("fs"); read${read};`],
+    ['dynamic Worker', 'const { Worker } = await import("worker_threads"); new Worker("../test/helpers/native-ownership-cost.mjs");'],
+    ['dynamic fork', 'const { fork } = require("child_process"); fork("../test/helpers/native-ownership-cost.mjs");'],
+  ];
+  for (const [label, body] of cases) {
+    const product = nativeBoundaryInputs();
+    product.get("tsonic-rust").set("src/emitter.mjs", safetyFile(body));
+    assert.equal(boundarySafety(product).nativeAllocationBoundary === undefined, true, label);
+    const testInputs = nativeBoundaryInputs();
+    const path = "test/computed-root.test.mjs";
+    testInputs.get("tsonic-rust").set(path, safetyFile(`import test from "node:test"; ${body}`));
+    const result = boundarySafety(testInputs);
+    assert.equal(result.findings.length, 0, `${label}: genuine test entry remains contained`);
+    assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === `tsonic-rust/${path}`), true,
+      `${label}: actual effect or computed root is recorded, not ignored`);
+    testInputs.get("tsonic-rust").set("src/promote.mjs", safetyFile(`import "../${path}";`));
+    assert.equal(boundarySafety(testInputs).nativeAllocationBoundary === undefined, true, `${label}: product promotion still denies`);
+  }
+});
+
+test("QFINAL: static non-reader selections and ordinary data uses retain native behavior", () => {
+  for (const body of [
+    'const { mkdtemp, writeFile: writeFileAsync, rm } = await import("node:fs/promises"); await writeFileAsync("data.txt", "data");',
+    'const { existsSync, mkdirSync, writeFileSync } = await import("fs"); writeFileSync("data.txt", "data");',
+    'const { execFileSync } = await import("child_process"); execFileSync("ordinary-program");',
+    'const { mkdtemp, writeFile, rm } = require("fs/promises");',
+    'import fs from "node:fs/promises"; const { writeFile: write } = fs; write("data", "bytes");',
+    'import { readFileSync as read } from "fs"; const value = read(new URL("./data.json", import.meta.url));',
+    'import * as fs from "node:fs"; fs["readFileSync"](new URL("./data.json", import.meta.url));',
+    'import { promises as fs } from "node:fs"; await fs.readFile(new URL("./data.json", import.meta.url));',
+    'import { default as fs } from "fs"; fs.writeFileSync("data", "bytes");',
+    'process.cwd(); const env = process.env; const args = globalThis.process.argv;',
+    'const nativeTypes = [typeof process, typeof globalThis];',
+    'import * as processOwner from "process"; processOwner.cwd();',
+    'const process = { getBuiltinModule: value => value }; const alias = process;',
+    'function local(process) { const alias = process; return alias; }',
+    'function local({ process }) { const alias = process; return alias; }',
+    'function local(global) { return global; }',
+    'const self = { value: 1 }; consume(self);',
+    'import { readFileSync } from "fs"; function local(readFileSync) { return readFileSync; }',
+    'import type { readFileSync } from "fs"; type Reader = typeof readFileSync;',
+    'import { readFileSync } from "fs"; type Reader = typeof readFileSync;',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/data.ts", safetyFile(body));
+    const result = boundarySafety(inputs);
+    assert.equal(result.findings.length, 0, body);
+    assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/src/data.ts"), false,
+      "a proven non-reader selection is not relabelled as an unproved external entry");
+  }
+});
+
 test("C119-R7: Module loading is refused, registration is cut, hooks remain an explicit environment assumption", () => {
   for (const body of [
     'import Module from "node:module"; Module._load("../test/helpers/native-ownership-cost.mjs");',
