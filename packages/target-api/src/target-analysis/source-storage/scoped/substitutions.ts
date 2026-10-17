@@ -15,6 +15,7 @@ import { sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import { sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 
 export type SourceStorageSubstitutions = SourceStorageScope;
@@ -178,7 +179,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const previousRead = currentRead;
     currentRead = term => select(term, false);
     try {
-      if (current.kind === "leaf" || current.kind === "unresolved" || current.kind === "effect") return emit(relation, true);
+      if (current.kind === "leaf" || current.kind === "unresolved" || current.kind === "effect" || current.kind === "empty") return emit(relation, true);
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
@@ -189,7 +190,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         }
         return input !== undefined && project(input, value => scopes.withTraversal(() => {
           const projected = value.kind === "leaf" ? selected.select(value)
-            : value.kind === "unresolved" ? [value] : [];
+            : value.kind === "unresolved" || value.kind === "empty" ? [value] : [];
           if (projected === undefined) return undefined;
           const outputs: SourceStorageRelation[] = [];
           for (const output of projected) {
@@ -224,7 +225,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (successor === undefined || !emit(successor, true)) return false;
           continue;
         }
-        const terminal = term.kind === "leaf" || term.kind === "unresolved";
+        const terminal = term.kind === "leaf" || term.kind === "unresolved" || term.kind === "empty";
         const successor = retain(term);
         if (successor === undefined) return false;
         if (terminal) {
@@ -275,6 +276,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
+    if (stopAt === undefined && results(root) === undefined) return undefined;
     const visited = new Map<SourceStorageRelation, Map<string, number>>();
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly guards?: SourceStorageValueGuards }[] =
       [{ relation: root, collect: true }];
@@ -332,6 +334,19 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const completed = collectWitnesses(relation, entry.collect, entry.guards);
       if (completed === undefined) return undefined;
       if (completed) continue;
+      if (stopAt === undefined && entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
+        const completed = results(relation);
+        if (completed === undefined) return undefined;
+        if (completed.size === 0) {
+          const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
+            : current.kind === "application" ? transport.subject(current.invocation, "value", current.projection)
+            : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
+              : transport.subject(current.selection.node) : undefined;
+          const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
+          if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type))
+            reason ??= "A demanded source storage relation has no completed correlated producer or absence proof.";
+        }
+      }
       if (entry.collect && current.kind === "leaf" && admitted(current.subject, entry.guards)) origins.add(current.subject);
       if (current.kind === "unresolved") reason ??= current.reason;
       const filter = preserveValuePath ? relation.filter : undefined;

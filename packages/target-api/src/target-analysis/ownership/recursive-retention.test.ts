@@ -985,7 +985,7 @@ for (const depth of [2, 3]) for (const reverse of [false, true]) {
   });
 }
 
-for (const recursiveClass of ["MBase", "MDerived", "MLeaf"]) for (const producersFirst of [false, true]) {
+for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (const producersFirst of [false, true]) {
   test(`a recursive construction's field keeps its real write relation before D12 admission: ${recursiveClass}, producersFirst=${producersFirst}`, () => {
     const current = fixture(false, "self", `
       class MLeaf { readonly value: Lease;
@@ -996,7 +996,10 @@ for (const recursiveClass of ["MBase", "MDerived", "MLeaf"]) for (const producer
           this.value = count > 0 ? new ${recursiveClass}(borrow(owner), count - 1, owner).value : value;
         }
       }
-      class MDerived extends MBase {}
+      class MDerived extends MBase {}${recursiveClass === "MExplicit" ? `
+      class MExplicit extends MBase {
+        constructor(value: Lease, count: number, owner: { value: number }) { super(value, count, owner); }
+      }` : ""}
       async function fieldUse(owner: { value: number }): Promise<number> {
         const ownedLease: Lease = { value: 1 };
         const built = new MDerived(ownedLease, 2, owner);

@@ -290,3 +290,86 @@ test("formal interface calls distinguish whole-program producers from an unbound
     "An unbound formal does not invent either nominal implementation as its actual receiver.");
   assert.equal(storage.failureReason() === undefined, true, "Open formal correspondence is not budget exhaustion.");
 });
+
+test("an ungrounded constructor-field cycle cannot disappear beside an owned result branch", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    interface Lease { readonly value: number; }
+    class Cycle { readonly value: Lease; constructor() { this.value = new Cycle().value; } }
+    class Mixed {
+      readonly value: Lease;
+      constructor(flag: boolean) { this.value = flag ? new Cycle().value : { value: 1 }; }
+    }
+    export function inspect(flag: boolean): Lease { const instance = new Mixed(flag); return instance.value; }
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "The actual recursive field and owned sibling are checked source.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const inspect = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "inspect");
+  const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+    storage.enclosingRegionFor(node) === source.ast.body(inspect));
+  const subject = storage.subjectFor(access);
+  const activation = storage.bindingsForLexicalOwner(access);
+  assert.equal(subject.kind === "resolved" && activation.kind === "resolved", true,
+    "The query uses the original field expression and actual checked activation.");
+  const selected = storage.storageProducersFor(subject.subject, activation.bindings);
+  assert.equal(selected.kind, "unresolved", "An ownerless live branch never becomes an absent contribution.");
+  assert.equal(selected.reason, "A demanded source storage relation has no completed correlated producer or absence proof.");
+  assert.equal(storage.failureReason() === undefined, true, "An ungrounded relation is not a budget failure.");
+  const owned = storage.nodes.find(node => source.ast.is.IsObjectLiteralExpression(node));
+  const ownedSubject = storage.subjectFor(owned);
+  assert.equal(ownedSubject.kind, "resolved", "The independent owned sibling remains a checked value.");
+  const independent = storage.storageProducersFor(ownedSubject.subject, activation.bindings);
+  assert.equal(independent.kind === "complete" && independent.producers.length === 1 && independent.producers[0].subject.node === owned, true,
+    "An unresolved source relation does not poison a separately proved owner query.");
+});
+
+test("an explicitly empty source collection keeps its proved empty origin relation", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    interface Lease { readonly value: number; }
+    const values: Lease[] = [];
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "The empty native collection is valid checked source.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const array = storage.nodes.find(node => source.ast.is.IsArrayLiteralExpression(node));
+  const subject = storage.subject(array, "value", [{ kind: "array-element" }]);
+  assert.equal(subject.kind, "resolved", "The exact checked array-element projection is admitted.");
+  const selected = storage.boundOriginsFor(subject.subject, storage.emptyBindings);
+  assert.equal(selected.kind === "resolved" && selected.subjects.length === 0, true,
+    "Proved emptiness stays distinct from a provisional unproductive cycle.");
+  assert.equal(storage.failureReason() === undefined, true, "Known emptiness consumes no missing-owner fallback.");
+});
+
+for (const reverse of [false, true]) {
+  test(`constructor-owned writes and helper mutations retain distinct actual allocations, reverse=${reverse}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      interface Lease { readonly value: number; }
+      class Box { value: Lease; constructor(value: Lease) { this.value = value; } }
+      function allocate(value: Lease): Box { return new Box(value); }
+      function replace(box: Box, value: Lease): void { box.value = value; }
+      const initialLeft: Lease = { value: 1 }; const initialRight: Lease = { value: 2 };
+      const replacement: Lease = { value: 3 };
+      const left = allocate(initialLeft); const right = allocate(initialRight);
+      replace(right, replacement);
+      const leftRead = left.value; const rightRead = right.value;
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "Both allocations and the helper's actual receiver are checked.");
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const initializer = name => {
+      const declaration = storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
+        source.ast.text(source.ast.name(node)) === name);
+      return source.ast.as.AsVariableDeclaration(declaration).Initializer;
+    };
+    for (const name of reverse ? ["right", "left"] : ["left", "right"]) {
+      const subject = storage.subjectFor(initializer(`${name}Read`));
+      assert.equal(subject.kind, "resolved", `${name}: the exact instance field read.`);
+      const selected = storage.boundOriginsFor(subject.subject, storage.emptyBindings);
+      assert.equal(selected.kind, "resolved", `${name}: constructor and general mutations share one completed relation.`);
+      const expected = name === "left" ? [initializer("initialLeft")] : [initializer("initialRight"), initializer("replacement")];
+      assert.equal(selected.subjects.length === expected.length && expected.every(node => selected.subjects.some(subject => subject.node === node)), true,
+        `${name}: only its own allocation's initial and helper-written values are retained.`);
+    }
+    assert.equal(storage.failureReason() === undefined, true, "No same-AST allocation, helper or query-order fallback is used.");
+  });
+}
