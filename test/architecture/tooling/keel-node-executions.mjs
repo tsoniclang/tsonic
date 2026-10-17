@@ -5,7 +5,7 @@ const nodeBooleanOptions = new Set((
   "--allow-wasi --enable-source-maps --trace-tls --permission --experimental-sqlite --allow-inspector " +
   "--permission-audit --allow-ffi --experimental-addon-modules --allow-net --experimental-require-module " +
   "--preserve-symlinks-main --allow-child-process --inspect-brk --report-on-signal --inspect-wait " +
-  "--track-heap-objects --extra-info-on-fatal-exception --test-only --network-family-autoselection --allow-worker " +
+  "--track-heap-objects --extra-info-on-fatal-exception --test-only --network-family-autoselection --allow-worker --print " +
   "--inspect-brk-node --tls-min-v1.0 --experimental-ffi --experimental-vm-modules --inspect --check " +
   "--report-uncaught-exception --pending-deprecation --tls-min-v1.2 --experimental-import-meta-resolve " +
   "--experimental-import-text --trace-promises --test-force-exit --deprecation --test-update-snapshots " +
@@ -48,11 +48,13 @@ const nodeOptionAliases = new Map([["-C", "--conditions"], ["-r", "--require"], 
   ["--debug-port", "--inspect-port"], ["--report-directory", "--report-dir"],
   ["--security-reverts", "--security-revert"], ["--experimental-test-isolation", "--test-isolation"]]);
 const nodeBuiltinReporters = new Set(["dot", "junit", "lcov", "spec", "tap"]);
+const nodeNonStdinModes = new Set(["--help", "--version", "--check", "--test", "--v8-options", "--completion-bash", "--prof-process"]);
 const nativeOptionFields = {
   worker: new Set(["execArgv", "eval", "env"]),
-  fork: new Set(["execArgv", "env"]),
+  fork: new Set(["execArgv", "env", "execPath"]),
   process: new Set(["shell", "env"]),
   processSync: new Set(["shell", "env", "input"]),
+  foreignProcess: new Set(["shell"]),
 };
 
 export function createKeelNodeExecutions({ ast, importedApi, memberAccess, literal, transparent, sourceAddress,
@@ -75,8 +77,6 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
   function nodeExecution(node, member) {
     if (["exec", "execSync"].includes(member)) { computedModuleEntry(node); return; }
     const arguments_ = ast.arguments(node);
-    const controls = invocationControls(arguments_, node, ["spawnSync", "execFileSync"].includes(member) ? "processSync" : "process");
-    if (controls.shell) return;
     const executable = transparent(arguments_[0]);
     const executableApi = importedApi(executable);
     const argv = memberAccess(executable);
@@ -84,6 +84,9 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       ["node:process#execPath", "node:process#argv0"].includes(executableApi) ||
       ast.kindName(executable) === "KindElementAccessExpression" && ast.text(ast.children(executable)[1]) === "0" &&
         importedApi(argv?.receiver) === "node:process#argv";
+    const controls = invocationControls(arguments_, node, nativeNode
+      ? ["spawnSync", "execFileSync"].includes(member) ? "processSync" : "process" : "foreignProcess");
+    if (controls.shell) return;
     if (!nativeNode) {
       references.push({ external: true, environment: "external-process", offset: ast.pos(node) }); return;
     }
@@ -101,6 +104,8 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     const elements = ast.elements(values);
     let script = optionsOnly;
     let code = false;
+    let interactive = false;
+    const nonStdinModes = new Set();
     let afterFlags = false;
     let unresolvedScript = false;
     for (let index = 0; index < elements.length; index++) {
@@ -118,7 +123,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
         if (inlineCode || module || opaque || nodeValueOptions.has(option)) {
           if (option === "--print" && joined === undefined &&
             (elements[index + 1] === undefined || literal(elements[index + 1]) && ast.text(elements[index + 1]).startsWith("-"))) {
-            code = true; codeEntry(undefined, node); continue;
+            codeEntry(undefined, node); continue;
           }
           const value = joined === undefined ? elements[++index] : undefined;
           if (joined === undefined && (value === undefined || ast.kindName(value) === "KindSpreadElement")) {
@@ -137,6 +142,15 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
           option !== "--experimental-default-config-file" && option !== "--trace-events-enabled") {
           computedModuleEntry(node); return true;
         } else if (option === "--experimental-default-config-file") computedModuleEntry(node);
+        else {
+          const enabled = !option.startsWith("--no-");
+          const booleanOption = enabled ? option : `--${option.slice(5)}`;
+          if (booleanOption === "--interactive") interactive = enabled;
+          if (nodeNonStdinModes.has(booleanOption)) {
+            if (enabled) nonStdinModes.add(booleanOption);
+            else nonStdinModes.delete(booleanOption);
+          }
+        }
         continue;
       }
       if (optionsOnly) {
@@ -169,7 +183,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     if (!script && !code && !unresolvedScript && !elements.some(element => literal(element) && /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(ast.text(element)))) {
       references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
     }
-    return !script && !code;
+    return nonStdinModes.size === 0 && !script && (interactive || !code);
   }
 
   function invocationControls(arguments_, node, kind) {
@@ -213,6 +227,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       if (key === "execArgv") nodeArguments(argument, node, true);
       else if (key === "env") executionEnvironment(argument, node);
       else if (key === "input") controls.inputs.push(argument);
+      else if (key === "execPath") references.push({ external: true, environment: "fork-executable", offset: ast.pos(node) });
       else if (key === "eval") {
         if (ast.kindName(argument) === "KindTrueKeyword") controls.eval = true;
         else if (ast.kindName(argument) !== "KindFalseKeyword") computedModuleEntry(node);

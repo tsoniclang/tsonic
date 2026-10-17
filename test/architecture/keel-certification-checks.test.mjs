@@ -275,6 +275,87 @@ test("NS-T05: unchanged direct, cross-repo, package and computed first-party tes
   assert.equal(boundarySafety(declaration).findings.length, 0, "formal declaration inputs do not execute source includes or IO");
 });
 
+test("QRC-07: the existing physical edges close transitive test bridges before every incoming promotion", () => {
+  const chainInputs = (cycle = false, reverse = false) => {
+    const inputs = nativeBoundaryInputs();
+    const entries = [
+      ["test/observed.test.mjs", 'import test from "node:test"; export { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs";'],
+      ["test/bridge.test.mjs", 'import test from "node:test"; export { nativeAllocationSupport } from "./observed.test.mjs";'],
+    ];
+    if (cycle) entries[0][1] += '\nimport "./bridge.test.mjs";';
+    for (const [path, source] of reverse ? entries.toReversed() : entries) inputs.get("tsonic-rust").set(path, safetyFile(source));
+    return inputs;
+  };
+  for (const cycle of [false, true]) {
+    for (const reverse of [false, true]) {
+      const accepted = boundarySafety(chainInputs(cycle, reverse));
+      assert.equal(accepted.findings.length, 0, `test-only chain, cycle=${cycle}, reverse=${reverse}`);
+      assert.equal(accepted.nativeAllocationBoundary.consumers.filter(consumer => consumer.kind === "Node test writer consumer").length,
+        1, "transitive closure does not invent another direct writer consumer");
+      const product = chainInputs(cycle, reverse);
+      product.get("tsonic-rust").set("src/product.mjs", safetyFile('import { nativeAllocationSupport } from "../test/bridge.test.mjs"; export function prepare(root) { return nativeAllocationSupport(root); }'));
+      const result = boundarySafety(product);
+      assert.equal(result.nativeAllocationBoundary === undefined, true, `product chain, cycle=${cycle}, reverse=${reverse}`);
+      assert.equal(result.findings.some(finding => finding.file === "src/product.mjs" && finding.reason.includes("module inclusion")),
+        true, "the actual incoming product edge is rejected, not merely an unrelated fixture");
+      assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, "transitive promotion grants no unsafe credit");
+    }
+  }
+  for (const source of [
+    'export * from "../test/bridge.test.mjs";',
+    'await import("../test/bridge.test.mjs");',
+    'const root = new URL("../test/", import.meta.url); const load = entry => import(new URL(entry, root).href); load("bridge.test.mjs");',
+    'import { createRequire } from "node:module"; const require = createRequire(import.meta.url); require("../test/bridge.test.mjs");',
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("../test/bridge.test.mjs", import.meta.url));',
+    'import { fork } from "node:child_process"; fork(new URL("../test/bridge.test.mjs", import.meta.url), [], { execArgv: [] });',
+    'import { spawn } from "node:child_process"; spawn(process.execPath, [new URL("../test/bridge.test.mjs", import.meta.url).href]);',
+  ]) {
+    const inputs = chainInputs();
+    inputs.get("tsonic-rust").set("src/promotion.mjs", safetyFile(source));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, source);
+    assert.equal(result.findings.some(finding => finding.file === "src/promotion.mjs" && finding.reason.includes("test-only cut")), true, source);
+  }
+  for (const metadata of [
+    { main: "./test/bridge.test.mjs" }, { bin: { control: "./test/bridge.test.mjs" } },
+    { exports: { ".": "./test/bridge.test.mjs" } }, { exports: { "./*": "./test/*" } },
+    { imports: { "#entry": "./test/bridge.test.mjs" } },
+  ]) {
+    const inputs = chainInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/bridge", ...metadata })));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, JSON.stringify(metadata));
+    assert.equal(result.findings.some(finding => finding.file === "package.json" && finding.reason.includes("package entry")), true,
+      "metadata promotion is checked after transitive closure");
+  }
+  const crossRepo = chainInputs();
+  crossRepo.get("tsonic-csharp").set("test/bridge.test.mjs", safetyFile('import test from "node:test"; export { nativeAllocationSupport } from "../../tsonic-rust/test/bridge.test.mjs";'));
+  assert.equal(boundarySafety(crossRepo).findings.length, 0, "a real test-only cross-repository bridge stays test-only");
+  crossRepo.get("tsonic").set("src/product.mjs", safetyFile('import { nativeAllocationSupport } from "../../tsonic-csharp/test/bridge.test.mjs";'));
+  assert.equal(boundarySafety(crossRepo).findings.some(finding => finding.repo === "tsonic" && finding.file === "src/product.mjs"), true,
+    "the same destination authority crosses repositories");
+  const alias = chainInputs();
+  alias.get("tsonic-rust").set("src/alias.mjs", Object.freeze({ kind: "symlink", tracked: true, mode: "120000", target: "../test/bridge.test.mjs" }));
+  assert.equal(boundarySafety(alias).findings.some(finding => finding.file === "src/alias.mjs" && finding.reason.includes("symlink")), true,
+    "an indirect restricted bridge cannot be promoted by a physical alias");
+  const native = chainInputs();
+  native.get("rust-runtime").set("src/lib.rs", safetyFile('include!("../../tsonic-rust/test/bridge.test.mjs");'));
+  assert.equal(boundarySafety(native).findings.some(finding => finding.file === "src/lib.rs" && finding.reason.includes("native source inclusion")), true,
+    "native incoming inclusion uses the same transitive restricted set");
+  const nativeChain = nativeBoundaryInputs();
+  nativeChain.get("rust-runtime").set("tests/control.rs", safetyFile('#[path = "observed.rs"] mod observed;'));
+  nativeChain.get("rust-runtime").set("tests/observed.rs", safetyFile('#[path = "helpers/allocation_counts.rs"] mod allocation_counts;'));
+  assert.equal(boundarySafety(nativeChain).findings.length, 0, "the real Cargo test root retains its directly attached observer module");
+  nativeChain.get("rust-runtime").set("src/lib.rs", safetyFile('#[path = "../tests/control.rs"] mod promoted;'));
+  assert.equal(boundarySafety(nativeChain).findings.some(finding => finding.file === "src/lib.rs" && finding.reason.includes("native source inclusion")), true,
+    "native Cargo test bridges cannot be promoted into product");
+  const ordinary = nativeBoundaryInputs();
+  ordinary.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+  ordinary.get("tsonic-rust").set("src/bridge.mjs", safetyFile('export { value } from "./ordinary.mjs";'));
+  ordinary.get("tsonic-rust").set("src/product.mjs", safetyFile('import { value } from "./bridge.mjs";'));
+  assert.equal(boundarySafety(ordinary).findings.length, 0, "ordinary static module chains acquire no observer restriction");
+});
+
 test("canonical consumers require actual test entries and forbid incoming product promotions", () => {
   const entry = 'import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs"; test("cost", () => nativeAllocationSupport("private"));';
   const inputs = nativeBoundaryInputs();
@@ -1235,7 +1316,9 @@ test("QRC-02: complete overload, unknown-prefix and explicit environment-spread 
 test("QRC-02: native synchronous Node stdin uses nonliteral code evidence before entry or eval selection", () => {
   const code = 'import("../test/helpers/native-ownership-cost.mjs")';
   for (const method of ["spawnSync", "execFileSync"]) {
-    for (const args of [[], ["--input-type=module"], ["-"], ["--", "-"]]) {
+    for (const args of [[], ["--input-type=module"], ["-"], ["--", "-"], ["--print"], ["-p"],
+      ["-i"], ["--interactive"], ["--eval", "0", "--interactive"], ["--no-print"],
+      ["--test", "--no-test"], ["--check", "--no-check"], ["--version", "--no-version"]]) {
       const body = `import { ${method} } from "node:child_process"; ${method}(process.execPath, ${JSON.stringify(args)}, { input: ${JSON.stringify(code)} });`;
       const product = nativeBoundaryInputs();
       product.get("tsonic-rust").set("src/stdin.mjs", safetyFile(body));
@@ -1248,11 +1331,30 @@ test("QRC-02: native synchronous Node stdin uses nonliteral code evidence before
         consumer.kind === "Node test computed source entry"), true, `${body}: explicit input is recorded as source, not external filename data`);
     }
   }
+  const interactive = nativeBoundaryInputs();
+  interactive.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+  interactive.get("tsonic-rust").set("src/interactive.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath,
+    ["--interactive", new URL("./ordinary.mjs", import.meta.url).href], { input: ${JSON.stringify(code)} });`));
+  assert.equal(boundarySafety(interactive).findings.length, 0, "the pinned native target selects the script, not REPL stdin");
+  for (const flags of [["--interactive", "--no-interactive"], ["--no-interactive", "--interactive"],
+    ["--help", "--interactive"], ["--version", "--interactive"]]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    inputs.get("tsonic-rust").set("src/mode.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath,
+      [${flags.map(flag => JSON.stringify(flag)).join(",")}, new URL("./ordinary.mjs", import.meta.url).href], { input: ${JSON.stringify(code)} });`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${flags.join(" ")}: effective mode, not monotonic enablement`);
+  }
+  for (const mode of ["--help", "-h", "--version", "-v", "--check", "-c", "--test", "--v8-options", "--completion-bash"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/mode.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [${JSON.stringify(mode)}], { input: ${JSON.stringify(code)} });`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${mode}: stdin is not Node execution code`);
+  }
   for (const body of [
     `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [new URL("./ordinary.mjs", import.meta.url).href], { input: ${JSON.stringify(code)} });`,
     `import { execFileSync } from "node:child_process"; execFileSync(process.execPath, ["--eval", "0"], { input: ${JSON.stringify(code)} });`,
     `import { spawn } from "node:child_process"; spawn(process.execPath, [], { input: ${JSON.stringify(code)} });`,
     `import { spawnSync } from "node:child_process"; spawnSync("ordinary-program", [], { input: ${JSON.stringify(code)} });`,
+    `import { spawnSync } from "node:child_process"; spawnSync("ordinary-program", [], { env: { NODE_OPTIONS: ${JSON.stringify(code)} } });`,
   ]) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
@@ -1265,6 +1367,13 @@ test("QRC-02: native synchronous Node stdin uses nonliteral code evidence before
   assert.equal(result.findings.length, 0, "the existing oracle shape remains supported");
   assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "code-string"), true,
     "unknown stdin code remains explicitly unproved");
+  const override = nativeBoundaryInputs();
+  override.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+  override.get("tsonic-rust").set("src/fork.mjs", safetyFile('import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url), [], { execPath: executable });'));
+  const overridden = boundarySafety(override);
+  assert.equal(overridden.findings.length, 0, "an ordinary fork target with an unknown executable remains supported");
+  assert.equal(overridden.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "fork-executable"), true,
+    "an explicit executable override is not certified as native Node");
 });
 
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {

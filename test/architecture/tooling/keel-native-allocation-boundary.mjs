@@ -184,6 +184,31 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     if (!script.testEntry) reject(path, "observer reader is not a direct Node test entry");
     consumers.push(Object.freeze({ path, kind: usesWriter ? "Node test writer consumer" : readsObserver ? "Node test source witness" : "Node test computed source entry" }));
   }
+  const incomingEntries = new Map();
+  const recordIncoming = (sourcePath, target) => {
+    if (target === undefined) return;
+    if (!incomingEntries.has(target)) incomingEntries.set(target, new Set());
+    incomingEntries.get(target).add(sourcePath);
+  };
+  for (const [path, references] of nativeReferences) {
+    for (const reference of references) {
+      if (!reference.testOnly && !reference.unresolved) recordIncoming(path, reference.destination);
+    }
+  }
+  for (const [path, script] of scripts) {
+    for (const reference of script.references) {
+      if (!reference.module || reference.external || reference.unresolved) continue;
+      for (const target of destinations(path, reference)) recordIncoming(path, target);
+    }
+  }
+  const pendingRestricted = [...restricted];
+  for (let index = 0; index < pendingRestricted.length; index += 1) {
+    for (const sourcePath of incomingEntries.get(pendingRestricted[index]) ?? []) {
+      if (restricted.has(sourcePath)) continue;
+      restricted.add(sourcePath);
+      pendingRestricted.push(sourcePath);
+    }
+  }
   for (const [path, destination] of aliases) {
     if ([...restricted].some(entry => entry === destination || entry.startsWith(`${destination}/`))) {
       reject(path, "source symlink aliases the observer, writer or one of their test entries");
