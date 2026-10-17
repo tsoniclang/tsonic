@@ -159,6 +159,8 @@ function sourceStoredCallableValueIsUnobserved(
   navigation: Parameters<typeof sourceCallableDefinitionIsDiscarded>[2],
 ): boolean {
   if (!ast.is.IsVariableDeclaration(owner) || ast.variableDeclarationKind(owner) !== "const") return false;
+  const sourceFile = ast.getSourceFile(expression);
+  if (sourceFile === undefined || !navigation.sourceFiles.includes(sourceFile)) return false;
   const flow = navigation.expressionValueFlow(expression);
   if (flow.expression !== expression || !flow.aliasDeclarations.includes(owner) || flow.escapes ||
     flow.memberWritten || flow.receiverUsed || flow.identityCompared || flow.captured || flow.returned ||
@@ -168,9 +170,9 @@ function sourceStoredCallableValueIsUnobserved(
   for (const alias of flow.aliasDeclarations) {
     const name = ast.name(alias);
     if (aliases.has(alias) || !ast.is.IsVariableDeclaration(alias) || ast.variableDeclarationKind(alias) !== "const" ||
-      !ast.is.IsIdentifier(name)) return false;
+      !ast.is.IsIdentifier(name) || ast.getSourceFile(alias) !== sourceFile) return false;
     aliases.add(alias);
-    const symbol = navigation.declarationSymbol(alias);
+    const symbol = navigation.declarationSymbol(alias, sourceFile);
     const binding = navigation.sourceReferenceFor(name);
     const summary = navigation.declarationUseSummary(alias);
     if (symbol === undefined || binding?.declaration !== alias || binding.symbol !== symbol ||
