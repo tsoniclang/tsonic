@@ -118,7 +118,8 @@ export function inspectCarrierRegistrySource(files, signedDifferences) {
     if (declarations.length !== 1) { reject(); continue; }
     const selected = declarations[0];
     const qualifiedType = ast.typeNode(selected);
-    const arrayType = ast.kindName(qualifiedType) === "KindTypeOperator" ? ast.typeNode(qualifiedType) : qualifiedType;
+    const arrayType = ast.kindName(qualifiedType) === "KindTypeOperator" &&
+      ast.operatorKindName(qualifiedType) === "KindReadonlyKeyword" ? ast.typeNode(qualifiedType) : undefined;
     const entryType = arrayType !== undefined && ast.is.IsArrayTypeNode(arrayType)
       ? ast.as.AsArrayTypeNode(arrayType).ElementType : undefined;
     const entryName = entryType === undefined ? undefined : ast.children(entryType).find(child => ast.is.IsIdentifier(child));

@@ -183,6 +183,7 @@ for (const [name, change] of [
   ["foreign type-only import", text => `import type { Foreign } from "@tsonic/csharp";\n${text}`],
   ["additional executable statement", text => `${text}\nconsole.log("dotnet");`],
   ["mutable registry binding", text => text.replace("export const nativeEntries", "export let nativeEntries")],
+  ["a different type operator", text => text.replace("readonly TargetCarrierRegistryEntry", "keyof TargetCarrierRegistryEntry")],
   ["uninitialized declaration", text => text.slice(0, text.indexOf(" = Object.freeze")) + ";"],
   ["unfrozen registry array", text => text.replace("Object.freeze([", "[").replace("\n]);", "\n];")],
   ["plain function instead of freeze", text => text.replace("Object.freeze([", "freeze([")],
