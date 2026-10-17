@@ -213,6 +213,87 @@ for (const reverse of [false, true]) test(`recursive explicit super initializers
   assert.equal(storage.failureReason() === undefined, true, "Both query orders use the same finite correlated equations.");
 });
 
+for (const body of [false, true]) for (const reverse of [false, true]) {
+  test(`same-constructor recursive super entries retain their actual captures and arguments, body=${body}, reverse=${reverse}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+      compilerOptions: { strict: true, target: "es2022", module: "esnext" }, files: {
+        "/src/index.ts": `
+          interface Holder { readonly fromBase: number; }
+          type HolderConstructor = new (value: number, count: number) => Holder;
+          function makeBase(lease: number) {
+            return class Base {
+              readonly fromBase = lease;
+              ${body ? "readonly fromBody: number; readonly argument: number;" : ""}
+              constructor(value: number, count: number) {
+                ${body ? "this.fromBody = lease; this.argument = value;" : ""}
+                if (count > 0) new Second(${body ? "7" : "value"}, count - 1);
+              }
+            };
+          }
+          function makeDerived(Parent: HolderConstructor) {
+            return class Derived extends Parent {
+              constructor(value: number, count: number) { super(value, count); }
+            };
+          }
+          const BaseA = makeBase(11);
+          const BaseB = makeBase(22);
+          const First = makeDerived(BaseA);
+          const Second = makeDerived(BaseB);
+          const instance = new First(0, 2);
+          const actual = instance.fromBase;
+          if (actual !== 11) throw new Error("The first allocation must retain its own BaseA capture.");
+        `,
+      },
+    }).checkSource();
+    assert.equal(checked.diagnostics.length === 0, true, "The actual independently reviewed captured-base program checks.");
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const { ast } = source;
+    const allocation = name => storage.invocations.find(node => ast.is.IsNewExpression(node) &&
+      ast.text(ast.as.AsNewExpression(node).Expression) === name);
+    const superCall = storage.invocations.find(node => ast.is.IsCallExpression(node) &&
+      ast.kindName(ast.as.AsCallExpression(node).Expression) === "KindSuperKeyword");
+    const first = oneConstruction(storage.constructionFor(allocation("First")), "actual First entry");
+    const firstBase = oneConstruction(storage.constructionFor(superCall, first.implementation.selection.bindings), "actual BaseA super entry");
+    const second = oneConstruction(storage.constructionFor(allocation("Second"), firstBase.implementation.selection.bindings), "actual nested Second entry");
+    const secondBase = oneConstruction(storage.constructionFor(superCall, second.implementation.selection.bindings), "actual BaseB super entry");
+    assert.equal(firstBase.root === secondBase.root && firstBase.implementation.declaration === secondBase.implementation.declaration, true,
+      "The two selected captures belong to the identical source class and constructor, not different nominal ASTs.");
+    const observe = (selection, expected, expectedArgument, expectedAllocation) => {
+      assert.equal(selection.allocation === expectedAllocation, true, "Actual constructor entry and receiver allocation remain one relation.");
+      const property = ast.members(selection.root).find(node => node !== undefined && ast.is.IsPropertyDeclaration(node) &&
+        ast.text(ast.name(node)) === "fromBase");
+      const initializer = property === undefined ? undefined : ast.as.AsPropertyDeclaration(property).Initializer;
+      assert.equal(initializer !== undefined && selection.classes.length === 1 && selection.classes[0].owner === selection.root &&
+        selection.classes[0].regions.length === 1 && selection.classes[0].regions[0].node === initializer, true,
+      "Exactly the original Base/fromBase initializer is required; an empty class or region list is not a passing proof.");
+      for (const selectedClass of selection.classes) for (const region of selectedClass.regions) {
+        const subject = resolved(storage.subjectFor(region.node), "actual captured field initializer");
+        const producers = storage.storageProducersFor(subject.subject, region.selection.bindings);
+        assert.equal(producers.kind === "complete" && producers.producers.length === 1 &&
+          ast.is.IsNumericLiteral(producers.producers[0].subject.node) && ast.text(producers.producers[0].subject.node) === expected, true,
+        `Captured initializer keeps only ${expected}, not the other actual base's payload.`);
+      }
+      if (!body) return;
+      const constructor = selection.implementation.declaration;
+      for (const [name, expectedValue] of [["lease", expected], ["value", expectedArgument]]) {
+        const assignment = storage.nodes.find(node => ast.is.IsBinaryExpression(node) &&
+          ast.is.IsIdentifier(ast.as.AsBinaryExpression(node).Right) && ast.text(ast.as.AsBinaryExpression(node).Right) === name &&
+          storage.enclosingRegionFor(node) === ast.body(constructor));
+        assert.equal(assignment !== undefined, true, `${name}: the original constructor-body assignment exists.`);
+        const subject = resolved(storage.subjectFor(ast.as.AsBinaryExpression(assignment).Right), `${name}: actual body read`);
+        const producers = storage.storageProducersFor(subject.subject, selection.implementation.selection.bindings);
+        assert.equal(producers.kind === "complete" && producers.producers.length === 1 &&
+          ast.is.IsNumericLiteral(producers.producers[0].subject.node) && ast.text(producers.producers[0].subject.node) === expectedValue, true,
+        `${name}: the body retains ${expectedValue} from this actual capture/argument pair, never a sibling.`);
+      }
+    };
+    const entries = [[firstBase, "11", "0", allocation("First")], [secondBase, "22", "7", allocation("Second")]];
+    for (const entry of reverse ? entries.reverse() : entries) observe(...entry);
+    assert.equal(storage.failureReason() === undefined, true, "Same-equation entry selection closes without a larger key, ancestry unrolling or budget increase.");
+  });
+}
+
 test("finite factory and copied conditional class values preserve each Base and Derived captured environment", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
     export {}; declare const flag: boolean;
