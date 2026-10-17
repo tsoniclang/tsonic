@@ -253,7 +253,7 @@ test("shared value inputs never turn type queries or signature syntax into runti
   visit(file);
   assert.equal(typeQuery !== undefined && signature !== undefined, true, "both original metadata nodes exist");
   for (const node of [typeQuery!, signature!]) {
-    assert.equal(sourceExpressionValueInputs(source.ast, node), undefined, "metadata has no runtime expression inputs");
+    assert.equal(sourceExpressionValueInputs(source.ast, node) === undefined, true, "metadata has no runtime expression inputs");
     assert.equal(sourceConstructValueInputs(source.ast, node).length, 0, "metadata is not an executable construct root");
   }
 });
