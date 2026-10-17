@@ -170,6 +170,8 @@ export function analyzeSourceEnumNumericUses(
         const binary = ast.as.AsBinaryExpression(parent)!;
         if (equalityOperators.has(operator!) || bitwiseOperators.has(operator!)) {
           if (binary.Left !== undefined && binary.Right !== undefined && identicalEnum(enumValue(binary.Left), enumValue(binary.Right))) return undefined;
+          if (equalityOperators.has(operator!) && (absenceType(checkedType(binary.Left!)) ||
+            absenceType(checkedType(binary.Right!)))) return undefined;
         }
         if (operator === "KindEqualsToken" && (binary.Left === expression || admitsDestination(checkedType(binary.Left!), value))) return undefined;
       }
@@ -205,6 +207,14 @@ export function analyzeSourceEnumNumericUses(
         callParent !== undefined && ast.is.IsCallExpression(callParent) && ast.as.AsCallExpression(callParent)?.Expression === parent
         ? callParent : ast.is.IsTemplateSpan(parent) && callParent !== undefined ? callParent : parent;
       return { root, stringProjection: isStringProjection(expression, parent) };
+    }
+
+    function absenceType(type: Type | undefined): boolean {
+      if (type === undefined) return false;
+      if (types.isNullish(type)) return true;
+      if (!types.isUnion(type)) return false;
+      const parts = types.getUnionOrIntersectionTypes(type);
+      return parts.length !== 0 && parts.every(part => part !== undefined && absenceType(part));
     }
 
     function isStringProjection(expression: Node, parent: Node): boolean {
