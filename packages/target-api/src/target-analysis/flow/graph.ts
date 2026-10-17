@@ -56,7 +56,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const { ast } = source;
     const file = ast.getSourceFile(declaration);
     if (file === undefined || !source.sourceFiles.includes(file) ||
-      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) {
+      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
     if (options === null || typeof options !== "object" ||
@@ -122,8 +122,8 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
         ? owner.nested(node, () => sourceFlowExpression(build, node, next, context)) : next,
       statement: (node, next, context) => includes(node)
         ? owner.nested(node, () => sourceFlowStatement(build, node, next, context)) : next,
-      pattern: (node, next, context, initialization) => includes(node)
-        ? owner.nested(node, () => sourceFlowPattern(build, node, next, context, initialization)) : next,
+      pattern: (node, next, context, initialization, value) => includes(node)
+        ? owner.nested(node, () => sourceFlowPattern(build, node, next, context, initialization, value)) : next,
     };
     const exit = build.point(declaration, { kind: "exit" });
     const exceptionExit = build.point(declaration, { kind: "exception-exit" });
@@ -131,14 +131,14 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const completion = initialize(selectedEntry.completionInitializers, exit, context);
     const bodyContext = { ...context, returnTo: completion };
     let entry = owner.withExecution(bodyExecution, () => {
-      let entry = body === undefined ? completion : ast.is.IsBlock(body) ? build.statement(body, completion, bodyContext)
+      let entry = body === undefined ? completion : ast.is.IsBlock(body) || ast.is.IsSourceFile(body) ? build.statement(body, completion, bodyContext)
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
       const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      const receiver = implicit ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+      const receiver = implicit || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
-        if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true);
+        if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
       }
       return entry;
     });

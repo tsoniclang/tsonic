@@ -1,9 +1,15 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceFlowBooleanEdges } from "./conditions.js";
-import { sourceFlowResourceScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
+import { sourceFlowResourceScope, sourceFlowLexicalScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { SourceFlowFailure } from "./resources.js";
 
 export function sourceFlowLoop(build: SourceFlowConstruction, node: Node, next: number,
+  context: SourceFlowContext): number {
+  const scope = sourceFlowLexicalScope(build, node, next, context);
+  return sourceFlowLoopScope(build, node, scope.next, scope.context);
+}
+
+function sourceFlowLoopScope(build: SourceFlowConstruction, node: Node, next: number,
   context: SourceFlowContext): number {
   const { ast } = build.source;
   const initializer = ast.is.IsForStatement(node) ? ast.as.AsForStatement(node)?.Initializer : undefined;
@@ -45,16 +51,19 @@ function sourceFlowLoopBody(build: SourceFlowConstruction, node: Node, next: num
           (resource, continuation, acquisitionContext) => {
             const binding = ast.name(resource);
             if (binding === undefined) throw new SourceFlowFailure("Source flow requires an exact iteration resource binding.", resource);
-            return build.pattern(binding, continuation, acquisitionContext, true);
+            return build.pattern(binding, continuation, acquisitionContext, true,
+              { expression: selected.Expression!, projection: [resource] });
           })
-        : build.pattern(name, build.statement(selected.Statement, anchor, bodyContext), bodyContext, true);
-    } else body = build.pattern(selected.Initializer, build.statement(selected.Statement, anchor, bodyContext), bodyContext, false);
+        : build.pattern(name, build.statement(selected.Statement, anchor, bodyContext), bodyContext, true,
+          { expression: selected.Expression, projection: [declaration!] });
+    } else body = build.pattern(selected.Initializer, build.statement(selected.Statement, anchor, bodyContext), bodyContext, false,
+      { expression: selected.Expression, projection: [selected.Initializer] });
     const branch = build.point(node, { kind: "iteration" });
     build.edge(branch, body, "true");
     build.edge(branch, next, "false");
     build.edge(branch, context.throwTo, "exception");
     const step = selected.AwaitModifier === undefined ? branch
-      : build.emit(node, { kind: "await" }, branch, context, true, "resume");
+      : build.emit(node, { kind: "await", value: undefined }, branch, context, true, "resume");
     build.edge(anchor, step);
     return build.expression(selected.Expression, build.emit(node, { kind: "evaluate" }, anchor, context, true), context);
   }

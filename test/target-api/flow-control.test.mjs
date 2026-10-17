@@ -55,6 +55,42 @@ function reachable(graph, from, to, blocked = new Set(), exceptions = false) {
   return false;
 }
 
+test("lexical endpoints retain original scopes on normal, return, throw, break and continue routes", async () => {
+  const current = await fixture(`declare function observe(value: number): void;
+    function run(flag: boolean): number {
+      outer: while (flag) {
+        { let held = 1; if (flag) { observe(held); continue outer; } }
+        { let held = 2; if (flag) { observe(held); break outer; } }
+        { let held = 3; if (flag) return held; }
+        { let held = 4; if (flag) throw held; }
+      }
+      { const held = 5; observe(held); }
+      return 6;
+    }
+  `);
+  const endpoints = points(current, point => point.operation.kind === "scope-exit");
+  assert.equal(endpoints.length > 0, true, "the existing graph publishes generic lexical endpoints");
+  for (const point of endpoints) {
+    assert.equal(point.source === point.operation.owner, true, "a lexical endpoint retains its original source owner");
+    assert.equal(current.ast.getSourceFile(point.operation.owner) === current.ast.getSourceFile(current.declaration), true,
+      "all endpoint identities belong to the checked source");
+  }
+  const held = points(current, (point, ast) => point.operation.kind === "write" &&
+    ast.text(ast.name(point.operation.binding)) === "held");
+  assert.equal(held.length, 5, "all original storage declarations participate");
+  for (const point of held) {
+    const block = current.ast.parent(current.ast.parent(current.ast.parent(point.operation.binding)));
+    const exits = endpoints.filter(endpoint => endpoint.operation.owner === block);
+    assert.equal(exits.length > 0, true, "each checked block has its own lexical endpoint");
+    assert.equal(exits.some(exit => reachable(current.graph, point.id, exit.id, new Set(), true)), true,
+      "each initialized value reaches an original lexical endpoint");
+    assert.equal(reachable(current.graph, point.id, current.graph.exit, new Set(exits.map(exit => exit.id)), true), false,
+      "normal or abrupt function completion cannot bypass the owning block endpoint");
+    assert.equal(reachable(current.graph, point.id, current.graph.exceptionExit, new Set(exits.map(exit => exit.id)), true), false,
+      "exception propagation cannot bypass the owning block endpoint");
+  }
+});
+
 test("yield resumes, injected throws and generator closure all retain their cleanup paths", async () => {
   const current = await fixture(`declare function after(): void; declare function caught(): void; declare function cleanup(): void;
     function* run(value: string): Generator<string, void, unknown> {

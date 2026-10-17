@@ -32,7 +32,8 @@ export interface SourceFlowConstruction {
     context: SourceFlowContext, mayThrow?: boolean, kind?: SourceFlowEdgeKind) => number;
   readonly expression: (source: Node, next: number, context: SourceFlowContext) => number;
   readonly statement: (source: Node, next: number, context: SourceFlowContext) => number;
-  readonly pattern: (source: Node, next: number, context: SourceFlowContext, initialization: boolean) => number;
+  readonly pattern: (source: Node, next: number, context: SourceFlowContext, initialization: boolean,
+    value: Extract<SourceFlowOperation, { readonly kind: "write" }>["value"]) => number;
   readonly step: (source?: Node) => void;
 }
 
@@ -115,6 +116,22 @@ export interface SourceFlowCleanupScope {
   readonly context: SourceFlowContext;
 }
 
+export function sourceFlowLexicalScope(build: SourceFlowConstruction, owner: Node,
+  next: number, context: SourceFlowContext): SourceFlowCleanupScope {
+  const routes = new Map<number, number>();
+  const route = (destination: number): number => {
+    const existing = routes.get(destination);
+    if (existing !== undefined) return existing;
+    const point = build.point(owner, { kind: "scope-exit", owner });
+    build.edge(point, destination);
+    routes.set(destination, point);
+    return point;
+  };
+  return { next: route(next), context: { returnTo: route(context.returnTo), throwTo: route(context.throwTo),
+    breaks: new Map([...context.breaks].map(([target, destination]) => [target, route(destination)])),
+    continues: new Map([...context.continues].map(([target, destination]) => [target, route(destination)])) } };
+}
+
 export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaration: Node,
   next: number, context: SourceFlowContext): SourceFlowCleanupScope {
   if (!build.includes(declaration)) return { next, context };
@@ -130,7 +147,7 @@ export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaratio
     const existing = routes.get(destination);
     if (existing !== undefined) return existing;
     const completion = asynchronous
-      ? build.emit(declaration, { kind: "await" }, destination, context, true, "resume")
+      ? build.emit(declaration, { kind: "await", value: undefined }, destination, context, true, "resume")
       : destination;
     const disposal = build.emit(declaration, { kind: "dispose", declaration, asynchronous }, completion, context, true);
     const branch = build.point(declaration, { kind: "branch" });
@@ -155,7 +172,7 @@ export function sourceFlowResourceScope(build: SourceFlowConstruction, declarati
   next: number, context: SourceFlowContext,
   body: (next: number, context: SourceFlowContext) => number,
   acquire: (declaration: Node, next: number, context: SourceFlowContext) => number =
-    (declaration, continuation, acquisitionContext) => build.pattern(declaration, continuation, acquisitionContext, true),
+    (declaration, continuation, acquisitionContext) => build.pattern(declaration, continuation, acquisitionContext, true, undefined),
 ): number {
   const acquisitions: { readonly declaration: Node; readonly context: SourceFlowContext }[] = [];
   let completion = next;

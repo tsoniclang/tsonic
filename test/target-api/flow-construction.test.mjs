@@ -5,7 +5,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
-import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/transport/invocation-results.js";
+import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
   class Base {

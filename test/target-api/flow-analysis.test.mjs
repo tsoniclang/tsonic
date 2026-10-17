@@ -134,6 +134,115 @@ test("flow definite assignment intersects branches and distinguishes parameters 
   }
 });
 
+test("canonical writes retain each original RHS and destructuring projection, including default alternatives", async () => {
+  const current = await fixture(`function run(input: [number, number], flag: boolean) {
+    let value = input[0];
+    value = input[1];
+    value += 1;
+    value ||= 2;
+    const [first = 3, second] = input;
+    [value = 4] = input;
+    ({ value = 5 } = { value: flag ? 7 : undefined });
+    return value + first + second;
+  }`);
+  const writes = current.graph.points.filter(point => point.operation.kind === "write");
+  const assigned = writes.filter(point => current.ast.text(current.ast.name(point.operation.binding)) === "value");
+  assert.equal(assigned.some(point => current.ast.text(point.operation.value?.expression) === "input[0]"), true,
+    "declaration initializer uses its original expression");
+  assert.equal(assigned.some(point => current.ast.text(point.operation.value?.expression) === "input[1]"), true,
+    "ordinary assignment keeps the replacement rather than all historical inputs");
+  assert.equal(assigned.some(point => current.ast.text(point.operation.value?.expression) === "value += 1"), true,
+    "compound assignment names its produced result, not an uncomputed RHS");
+  assert.equal(assigned.some(point => current.ast.text(point.operation.value?.expression) === "2"), true,
+    "conditional assignment records its evaluated RHS only on the writing branch");
+  for (const spelling of ["3", "4", "5"]) {
+    const selected = writes.filter(point => current.ast.text(point.operation.value?.expression) === spelling);
+    assert.equal(selected.length, 1, `${spelling}: the default has its own exact write`);
+    assert.equal(selected[0].operation.value.projection.length, 0, `${spelling}: a default does not inherit the container projection`);
+  }
+  const projected = writes.filter(point => point.operation.value?.expression !== undefined &&
+    current.ast.text(point.operation.value.expression) === "input" && point.operation.value.projection.length > 0);
+  assert.equal(projected.length >= 3, true, "declaration and assignment patterns retain the original input");
+  for (const point of projected) {
+    for (const component of point.operation.value.projection) {
+      assert.equal(current.ast.getSourceFile(component) === current.file, true, "projection uses the original checked pattern node");
+    }
+  }
+});
+
+test("location writes preserve exact targets and incoming projections without becoming binding assignments", async () => {
+  const current = await fixture(`function run(box: { value: number }, values: number[], key: number, input: [number]) {
+    box.value = 1;
+    values[key] = 2;
+    box.value += 3;
+    values[key] ||= 4;
+    box.value++;
+    [box.value] = input;
+    return box.value + values[key];
+  }`);
+  const writes = current.graph.points.filter(point => point.operation.kind === "write-location");
+  assert.equal(writes.length, 6, "each actual location write has one canonical event");
+  for (const point of writes) {
+    assert.equal(current.ast.getSourceFile(point.operation.location) === current.file, true,
+      "the actual checked write target is preserved");
+    assert.equal(current.ast.getSourceFile(point.operation.value.expression) === current.file, true,
+      "the original incoming expression is preserved");
+  }
+  for (const spelling of ["1", "2", "box.value += 3", "4", "box.value++", "input"]) {
+    assert.equal(writes.filter(point => current.ast.text(point.operation.value.expression) === spelling).length, 1,
+      `${spelling}: one source value, without reconstructing its AST`);
+  }
+  const projected = writes.find(point => current.ast.text(point.operation.value.expression) === "input");
+  assert.equal(projected.operation.value.projection.length, 1, "the actual destructuring component remains attached");
+  assert.equal(current.ast.text(projected.operation.value.projection[0]), "box.value",
+    "the projection is the original checked pattern target");
+  for (const binding of current.ast.parameters(current.graph.declaration)) {
+    assert.equal(current.graph.points.filter(point => point.operation.kind === "write" && point.operation.binding === binding).length,
+      1, "mutating a property does not falsely assign its receiver binding");
+  }
+  assert.equal(resolved(analyzeSourceDefiniteAssignment(current.graph)).unassignedReads.size, 0,
+    "the existing binding-assignment owner still sees all initialized parameters");
+});
+
+test("iterator writes retain their original iterable and actual binding-pattern component", async () => {
+  const current = await fixture(`function run(inputs: [number, number][]) {
+    let result = 0;
+    for (const [left, right] of inputs) result += left + right;
+    return result;
+  }`);
+  for (const name of ["left", "right"]) {
+    const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
+      current.ast.text(current.ast.name(point.operation.binding)) === name);
+    assert.equal(writes.length, 1, `${name}: one original iteration write`);
+    assert.equal(current.ast.text(writes[0].operation.value.expression), "inputs", `${name}: actual iterator expression`);
+    assert.equal(writes[0].operation.value.projection.length, 2, `${name}: iteration and binding components remain distinct`);
+    assert.equal(current.ast.is.IsVariableDeclaration(writes[0].operation.value.projection[0]), true,
+      `${name}: actual iterator declaration identity`);
+    assert.equal(current.ast.is.IsBindingElement(writes[0].operation.value.projection[1]), true,
+      `${name}: actual destructuring element identity`);
+  }
+});
+
+test("module flow has an actual checked SourceFile root and keeps the same write and liveness owners", async () => {
+  const current = await fixture(`export let value = 1;
+    value = 2;
+    export function run() { return value; }
+  `);
+  const selected = createSourceControlFlow(current.source, current.file, { domain: { kind: "source" } });
+  assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked module graph");
+  const graph = selected.graph;
+  assert.equal(graph.declaration === current.file, true, "no synthetic callable replaces module identity");
+  const writes = graph.points.filter(point => point.operation.kind === "write" &&
+    current.ast.text(current.ast.name(point.operation.binding)) === "value");
+  assert.equal(writes.length, 2, "both actual module writes remain");
+  assert.equal(new Set(writes.map(point => current.ast.text(point.operation.value.expression))).size, 2,
+    "module initialization and replacement retain distinct actual RHS nodes");
+  assert.equal(analyzeSourceLiveness(graph).kind, "resolved", "the ordinary canonical liveness solver consumes the module graph");
+  const foreign = await fixture("export function run() { return 3; }");
+  assert.equal(createSourceControlFlow(current.source, foreign.file, { domain: { kind: "source" } }).kind,
+    "unresolved", "an unrelated checked SourceFile cannot become this program's module root");
+});
+
 test("flow definite assignment respects do-once versus possibly-empty loops", async () => {
   for (const [body, expected] of [["while (flag) { value = 1; }", 1], ["do { value = 1; } while (flag);", 0]]) {
     const current = await fixture(`function run(flag: boolean) { let value: number; ${body} return value; }`);

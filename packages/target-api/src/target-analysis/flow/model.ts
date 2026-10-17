@@ -15,12 +15,17 @@ export interface SourceFlowEdge {
 
 export type SourceFlowOperation =
   | { readonly kind: "entry" | "exit" | "exception-exit" | "merge" | "branch" |
-      "evaluate" | "iteration" | "catch" | "await" | "yield" | "return" | "throw" }
+      "evaluate" | "iteration" | "catch" | "yield" | "return" | "throw" }
+  | { readonly kind: "await"; readonly value: Node | undefined }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
   | { readonly kind: "dispose"; readonly declaration: Node; readonly asynchronous: boolean }
-  | { readonly kind: "write"; readonly binding: Node; readonly initialization: boolean };
+  | { readonly kind: "scope-exit"; readonly owner: Node }
+  | { readonly kind: "write-location"; readonly location: Node;
+      readonly value: { readonly expression: Node; readonly projection: readonly Node[] } }
+  | { readonly kind: "write"; readonly binding: Node; readonly initialization: boolean;
+      readonly value: { readonly expression: Node; readonly projection: readonly Node[] } | undefined };
 
 export interface SourceFlowPoint {
   readonly id: number;
