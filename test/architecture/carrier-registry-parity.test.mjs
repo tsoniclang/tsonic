@@ -23,6 +23,32 @@ test("both target registries are inert declared data without production consumer
   }
 });
 
+test("the native trait constructor has its actual named-contract counterpart and preserves native arguments", async () => {
+  const { rustNativeTraitRef } = await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
+  const { csharpTargetNamedType } = await import("../../../tsonic-csharp/dist/target-model/types/factories.js");
+  const value = { kind: "source-primitive", name: "int64" };
+  const lifetime = { kind: "parameter", identity: "checked:lifetime", name: "scope" };
+  const extent = { kind: "integer", value: "9007199254740993" };
+  const arguments_ = [{ kind: "type", type: value }, { kind: "lifetime", lifetime }, { kind: "const", value: extent }];
+  const native = rustNativeTraitRef("checked::Contract", arguments_);
+  assert.equal(native.kind, "trait-ref");
+  assert.equal(native.genericArguments === arguments_, true, "exact native arguments, without reclassification");
+  assert.equal(native.genericArguments[0].type === value, true);
+  assert.equal(native.genericArguments[1].lifetime === lifetime, true);
+  assert.equal(native.genericArguments[2].value === extent, true);
+  assert.equal(native.associatedConstraints.length, 0, "the actual constructor does not invent associated bindings");
+  const counterpart = csharpTargetNamedType("checked.Contract`1", [value], undefined,
+    { allowsRefLikeTypeArguments: [false], valueType: false });
+  assert.equal(counterpart.kind, "target-named");
+  assert.equal(counterpart.typeArguments[0] === value, true, "the CLR native named contract preserves its type argument");
+  const row = registries[1].rows.find(entry => entry.declaration.symbol === "rustNativeTraitRef");
+  assert.equal(row !== undefined, true, "the concrete native constructor must have one registry owner");
+  assert.equal(row.kinds.length, 1);
+  assert.equal(row.kinds[0], "trait-ref");
+  assert.equal(row.counterpart.module, "src/target-model/types/factories.ts");
+  assert.equal(row.counterpart.symbol, "csharpTargetNamedType");
+});
+
 test("built C# and Rust carrier registries share checked counterparts or signed native constraints", () => {
   assert.equal(signedDifferences.size > 0, true);
   assert.deepEqual(validateCarrierRegistrySymmetry(registries[0], registries[1], signedDifferences), []);
