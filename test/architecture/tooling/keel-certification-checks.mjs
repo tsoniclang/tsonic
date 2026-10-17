@@ -182,7 +182,9 @@ export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSou
     repo, path: canonicalNativeAllocationBoundary.path, sourceSha256: canonicalNativeAllocationBoundary.sourceSha256,
     reviewedUnsafeCount: canonicalNativeAllocationBoundary.windows.length,
     accountedAdditions: sortKeelFindings(accountedAdditions), workspaceInputsSha256: boundary.workspaceInputsSha256,
-    staticEntryCut: "Tracked first-party source, package and Cargo entries; arbitrary external dynamic IO is not proven.",
+    staticEntryCut: "Current canonical consumers and their incoming static source, package and Cargo entries; arbitrary external dynamic IO is not proven. This is not arbitrary dynamic IO soundness.",
+    consumers: boundary.consumers,
+    transcriptData: boundary.transcriptData,
     externalDynamicEntries: boundary.externalDynamicEntries,
   }) });
 }
@@ -190,8 +192,12 @@ export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSou
 function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   const boundary = canonicalNativeAllocationBoundary;
   const findings = [];
-  const fail = (repo, file, reason) => findings.push(keelFinding("AC12", repo, file,
-    "canonical native allocation boundary", reason, { approvalId: boundary.approvalId }));
+  const failureIds = new Set();
+  const fail = (repo, file, reason) => {
+    const finding = keelFinding("AC12", repo, file, "canonical native allocation boundary", reason, { approvalId: boundary.approvalId });
+    if (!failureIds.has(finding.id)) findings.push(finding);
+    failureIds.add(finding.id);
+  };
   const files = new Map();
   for (const [repo, entries] of workspaceInputs) {
     for (const [file, input] of entries) {
@@ -221,101 +227,193 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
   const packages = [];
   const nativeTestRoots = new Set();
+  const metadataEntries = [];
   const externalDynamicEntries = [];
+  const writerPath = `${boundary.writerRepo}/${boundary.writerPath}`;
+  const aliases = new Map();
+  const transcriptData = declaredTranscriptData(files);
+  const nativeReferences = new Map();
+  const scripts = new Map();
   for (const [path, input] of files) {
     const separator = path.indexOf("/");
     const repo = path.slice(0, separator);
     const file = path.slice(separator + 1);
     if (input.kind === "symlink") {
-      const destination = posix.normalize(posix.join(posix.dirname(path), input.target));
-      if (destination === canonicalPath || isTestEnclave(destination) && !isTestEnclave(path)) {
-        fail(repo, file, "A source symlink cannot alias the canonical allocator or introduce a product-to-test entry.");
-      }
+      const destination = resolveAlias(path);
+      if (destination !== undefined) aliases.set(path, destination);
       continue;
     }
     if (input.kind !== "file") continue;
     if (path !== canonicalPath && input.tracked && input.sha256 === boundary.sourceSha256) {
       fail(repo, file, "A second tracked canonical allocator implementation is forbidden.");
     }
-    if ((file === "package.json" || file.endsWith("/package.json")) && !isTestEnclave(path)) {
+    if (file === "package.json" || file.endsWith("/package.json")) {
       const metadata = JSON.parse(input.text);
       packages.push({ root: posix.dirname(path), metadata });
-      for (const entry of packageEntryStrings(metadata)) checkEntry(path, entry, false, "package entry");
+      for (const entry of packageEntryStrings(metadata)) metadataEntries.push({ path, entry, form: "package entry" });
     }
-    if (posix.basename(file) === "Cargo.toml" && !isTestEnclave(path)) {
+    if (posix.basename(file) === "Cargo.toml") {
       let testTarget = false;
       for (const line of input.text.split(/\r?\n/u)) {
         const header = /^\s*(\[\[?[^\]]+\]\]?)/u.exec(line)?.[1];
         if (header !== undefined) testTarget = header === "[[test]]";
         for (const match of line.matchAll(/\b(path|build)\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')/gu)) {
           const entry = nativeLiteral(match[2]);
-          if (testTarget && match[1] === "path") nativeTestRoots.add(posix.normalize(posix.join(posix.dirname(path), entry)));
-          else checkEntry(path, entry, false, "Cargo product/build entry");
+          if (testTarget && match[1] === "path") nativeTestRoots.add(resolveAlias(posix.normalize(posix.join(posix.dirname(path), entry))));
+          else metadataEntries.push({ path, entry, form: "Cargo product/build entry" });
         }
       }
     }
-  }
-  for (const [path, input] of files) {
-    if (input.kind !== "file" || input.text === undefined) continue;
     if (path.endsWith(".rs")) {
-      const references = nativeSourceReferences(input.text, path);
-      for (const reference of references) {
-        if (reference.implicit && !files.has(posix.normalize(posix.join(posix.dirname(path), reference.specifier)))) continue;
-        checkEntry(path, reference.specifier, reference.testOnly || isTestEnclave(path), "native source inclusion", false, reference.unresolved);
-      }
-      if (references.some(reference => !reference.testOnly && posix.normalize(posix.join(posix.dirname(path), reference.specifier)) === canonicalPath) &&
-        !nativeTestRoots.has(path) && ![...nativeTestRoots].some(root => posix.dirname(root) === posix.dirname(path) ||
-          files.get(root)?.text?.includes(`mod ${posix.basename(path, ".rs")};`))) {
-        const incoming = [...files].some(([parent, candidate]) => candidate.kind === "file" && parent.endsWith(".rs") &&
-          isTestEnclave(parent) && nativeSourceReferences(candidate.text, parent).some(reference =>
-            posix.normalize(posix.join(posix.dirname(parent), reference.specifier)) === path));
-        if (!incoming) fail(path.split("/")[0], path.slice(path.indexOf("/") + 1), "A native allocator consumer has no Cargo test entry or test-only module parent.");
-      }
-    } else if (path.endsWith(".cs") && !isTestEnclave(path)) {
-      const tokens = keelNativeTokens(input.text).filter(token => token.kind !== "comment");
-      for (let index = 0; index < tokens.length; index += 1) {
-        if (["ReadAllText", "ReadAllBytes", "ReadAllLines"].includes(tokens[index].text) && tokens[index + 1]?.text === "(" &&
-          tokens[index + 2]?.kind === "literal") checkEntry(path, nativeLiteral(tokens[index + 2].text), false, "native file-source inclusion");
-      }
-    } else if (/\.[cm]?[jt]sx?$/u.test(path) && !isTestEnclave(path)) {
-      for (const reference of scriptSourceReferences(path, input.text, packages)) {
-        if (reference.external) externalDynamicEntries.push(Object.freeze({ path, offset: reference.offset }));
-        else checkEntry(path, reference.specifier, false, reference.module ? "module inclusion" : "file-source inclusion", reference.module, reference.unresolved);
-      }
+      nativeReferences.set(path, nativeSourceReferences(input.text, path).map(reference => ({ ...reference,
+        destination: reference.unresolved ? undefined : resolveAlias(posix.normalize(posix.join(posix.dirname(path), reference.specifier))),
+      })).filter(reference => !reference.implicit || files.has(reference.destination)));
+    } else if (/\.[cm]?[jt]sx?$/u.test(path) && !transcriptData.has(path)) {
+      scripts.set(path, scriptSourceReferences(path, input.text));
     }
   }
-  return Object.freeze({ findings: sortKeelFindings(findings), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
+  const restricted = new Set([canonicalPath, writerPath, ...transcriptData]);
+  const consumers = [];
+  const nativeParents = new Map();
+  for (const [path, references] of nativeReferences) {
+    for (const reference of references.filter(candidate => candidate.destination === canonicalPath)) {
+      if (reference.testOnly) { consumers.push(Object.freeze({ path, kind: "cfg(test)" })); continue; }
+      const parent = nativeTestRoots.has(path) ? path : [...nativeTestRoots].find(root =>
+        nativeReferences.get(root)?.some(candidate => candidate.destination === path));
+      const guardedParent = [...nativeReferences].find(([_parent, entries]) =>
+        entries.some(candidate => candidate.destination === path && candidate.testOnly))?.[0];
+      if (parent === undefined && guardedParent === undefined) reject(path, "native observer consumer without a Cargo test entry or directly attached test parent");
+      else {
+        if (parent !== undefined) restricted.add(parent);
+        nativeParents.set(path, parent);
+      }
+      restricted.add(path);
+      consumers.push(Object.freeze({ path, kind: parent === undefined ? "cfg(test) module" : "Cargo test", parent: parent ?? guardedParent }));
+    }
+  }
+  for (const [path, script] of scripts) {
+    const usesWriter = script.references.some(reference => reference.module && destinations(path, reference).includes(writerPath));
+    const readsObserver = script.references.some(reference => reference.fileRead && destinations(path, reference).includes(canonicalPath));
+    if (path === writerPath || !usesWriter && !readsObserver) continue;
+    restricted.add(path);
+    if (!script.testEntry) reject(path, "observer reader is not a direct Node test entry");
+    consumers.push(Object.freeze({ path, kind: usesWriter ? "Node test writer consumer" : "Node test source witness" }));
+  }
+  for (const [path, destination] of aliases) {
+    if ([...restricted].some(entry => entry === destination || entry.startsWith(`${destination}/`))) {
+      reject(path, "source symlink aliases the observer, writer or one of their test entries");
+    }
+  }
+  for (const { path, entry, form } of metadataEntries) {
+    if (touchesRestricted(posix.normalize(posix.join(posix.dirname(path), entry)))) reject(path, `${form}: ${entry}`);
+  }
+  for (const [path, references] of nativeReferences) {
+    for (const reference of references) {
+      if (reference.testOnly) continue;
+      if (reference.unresolved || isAbsolute(reference.specifier) && [...restricted].some(entry => reference.specifier.endsWith(`/${entry}`))) {
+        reject(path, `unresolved first-party native source inclusion: ${reference.specifier}`);
+      } else if (restricted.has(reference.destination) && !(reference.destination === canonicalPath && nativeParents.has(path)) &&
+        nativeParents.get(reference.destination) !== path) reject(path, `native source inclusion: ${reference.specifier}`);
+    }
+  }
+  for (const [path, script] of scripts) {
+    for (const reference of script.references) {
+      if (reference.external) { externalDynamicEntries.push(Object.freeze({ path, offset: reference.offset })); continue; }
+      if (reference.unresolved) { reject(path, "unresolved executable source syntax"); continue; }
+      const targets = destinations(path, reference);
+      const hits = targets.some(touchesRestricted);
+      const ambiguous = reference.firstParty && targets.length === 0 &&
+        (reference.suffix === undefined || [...restricted, ...aliases.keys()].some(entry => entry.endsWith(reference.suffix)));
+      if (!hits && !ambiguous) continue;
+      const allowed = !transcriptData.has(targets[0]) && (script.testEntry || path === writerPath &&
+        reference.fileRead && targets.length === 1 && targets[0] === canonicalPath);
+      if (!allowed) reject(path, `${reference.module ? "module" : "observer file"} inclusion: ${reference.specifier ?? "unresolved first-party root"}`);
+    }
+  }
+  return Object.freeze({ findings: sortKeelFindings(findings), consumers: Object.freeze(consumers),
+    transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
       .sort(([left], [right]) => left.localeCompare(right)))) });
 
-  function checkEntry(sourcePath, specifier, testOnly, form, module = false, unresolved = false) {
-    if (testOnly) return;
-    let destinations = [];
-    if (specifier.startsWith(".") || !module) {
-      destinations.push(posix.normalize(posix.join(posix.dirname(sourcePath), specifier)));
-    } else {
-      for (const entry of packages) {
-        const name = entry.metadata.name;
-        if (typeof name !== "string" || specifier !== name && !specifier.startsWith(`${name}/`)) continue;
-        const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`;
-        const exports = entry.metadata.exports;
-        const target = typeof exports === "object" && exports !== null && Object.keys(exports).some(key => key.startsWith("."))
-          ? exports[subpath] : subpath === "." ? exports ?? entry.metadata.main : subpath;
-        destinations.push(...stringLeaves(target).map(value => posix.normalize(posix.join(entry.root, value))));
+  function reject(path, reason) {
+    const separator = path.indexOf("/");
+    fail(path.slice(0, separator), path.slice(separator + 1), `The canonical test-only cut rejects ${reason}.`);
+  }
+
+  function resolveAlias(path) {
+    const seen = new Set();
+    const links = new Set();
+    for (;;) {
+      if (!validPath(path) || !keelWorkspaceRepositories.includes(path.split("/")[0]) || seen.has(path)) {
+        if (seen.size > 0) reject([...seen][0], "unresolved or cyclic source symlink outside the snapshot");
+        return undefined;
       }
+      seen.add(path);
+      const segments = path.split("/");
+      const prefix = segments.map((_segment, index) => segments.slice(0, index + 1).join("/"))
+        .find(candidate => files.get(candidate)?.kind === "symlink");
+      if (prefix === undefined) {
+        if (seen.size > 1 && !files.has(path) && ![...files.keys()].some(file => file.startsWith(`${path}/`))) {
+          reject([...seen][0], "unresolved source symlink target in the snapshot");
+          return undefined;
+        }
+        return path;
+      }
+      const target = files.get(prefix).target;
+      if (links.has(prefix)) { reject([...seen][0], "cyclic source symlink in the snapshot"); return undefined; }
+      links.add(prefix);
+      if (isAbsolute(target)) { reject([...seen][0], "absolute source symlink outside the snapshot"); return undefined; }
+      path = posix.normalize(posix.join(posix.dirname(prefix), target, path.slice(prefix.length)));
     }
-    if (unresolved || isAbsolute(specifier) && [...files.keys()].some(path => isTestEnclave(path) && specifier.endsWith(`/${path}`)) ||
-      destinations.some(destination => isTestEnclave(destination) || destination.includes("*") && [...files.keys()]
-      .some(path => isTestEnclave(path) && new RegExp(`^${destination.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(path))) ||
-      destinations.length === 0 && /(?:^|\/)(?:test|tests)(?:\/|$)/u.test(specifier)) {
-      const separator = sourcePath.indexOf("/");
-      fail(sourcePath.slice(0, separator), sourcePath.slice(separator + 1), `The canonical test-only cut rejects ${form}: ${specifier}.`);
+  }
+
+  function touchesRestricted(path) {
+    if (path === undefined) return false;
+    if (path.includes("*")) return [...restricted, ...aliases.keys()].some(entry => new RegExp(
+      `^${path.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
+    return restricted.has(resolveAlias(path));
+  }
+
+  function destinations(sourcePath, reference) {
+    if (reference.path !== undefined) return [resolveAlias(reference.path)];
+    const specifier = reference.specifier;
+    if (specifier === undefined) return [];
+    if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`)).map(resolveAlias);
+    if (reference.fileRead) return [];
+    if (specifier.startsWith(".")) return [resolveAlias(posix.normalize(posix.join(posix.dirname(sourcePath), specifier)))];
+    const result = [];
+    for (const entry of packages) {
+      const name = entry.metadata.name;
+      if (typeof name !== "string" || specifier !== name && !specifier.startsWith(`${name}/`)) continue;
+      const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`;
+      const exports = entry.metadata.exports;
+      const target = typeof exports === "object" && exports !== null && Object.keys(exports).some(key => key.startsWith("."))
+        ? exports[subpath] : subpath === "." ? exports ?? entry.metadata.main : subpath;
+      result.push(...stringLeaves(target).map(value => resolveAlias(posix.normalize(posix.join(entry.root, value)))));
     }
+    return result;
   }
 }
 
-function isTestEnclave(path) {
-  return /^[^/]+\/(?:packages\/[^/]+\/)?(?:tests?\/|nodejs\/test\/|rust\/tests\/)/u.test(path);
+function declaredTranscriptData(files) {
+  const root = "tsts-legacy/packages/tsts/tools/tsgo-suite";
+  const manifest = files.get(`${root}/tsgo-accepted/manifest.json`);
+  const reader = files.get(`${root}/run.mjs`)?.text;
+  const writer = files.get(`${root}/capture-tsgo-accepted.mjs`)?.text;
+  if (manifest?.kind !== "file" || !reader?.includes('parseBaselineSections(readFileSync(overlayPath, "utf8"))') ||
+    !writer?.includes('join(overlayRoot, "manifest.json")')) return new Set();
+  const entries = JSON.parse(manifest.text);
+  if (!Array.isArray(entries)) throw new Error("Invalid declared TS-Go transcript data.");
+  return new Set(entries.map(entry => {
+    if (![entry.corpus, entry.suite, entry.artifact].every(validPath) || !Array.isArray(entry.sections)) {
+      throw new Error("Invalid declared TS-Go transcript data entry.");
+    }
+    const path = `${root}/tsgo-accepted/${entry.corpus}/${entry.suite}/${entry.artifact}`;
+    if (files.get(path)?.tracked !== true || !files.get(path)?.text?.startsWith("Generated by tools/tsgo-suite/capture-tsgo-accepted.mjs from pinned TS-Go ")) {
+      throw new Error(`Missing declared TS-Go transcript bytes: ${path}.`);
+    }
+    return path;
+  }));
 }
 
 function stringLeaves(value) {
@@ -376,7 +474,7 @@ function nativeSourceReferences(text, path) {
     if (["include", "include_str", "include_bytes"].includes(tokens[index].text) && tokens[index + 1]?.text === "!") {
       if (tokens[index + 3]?.kind === "literal" && tokens[index + 4]?.text === ")") {
         references.push({ specifier: nativeLiteral(tokens[index + 3].text), testOnly: pendingTest || testScopes.size > 0 });
-      } else if (tokens.slice(index + 2, index + 30).some(token => token.kind === "literal" && /(?:test|allocation_counts)/u.test(token.text))) {
+      } else if (tokens.slice(index + 2, index + 30).some(token => token.kind === "literal" && /(?:test|allocation_counts|CARGO_MANIFEST_DIR)/u.test(token.text))) {
         references.push({ specifier: "computed native test inclusion", testOnly: pendingTest || testScopes.size > 0, unresolved: true });
       }
     }
@@ -394,52 +492,143 @@ function nativeSourceReferences(text, path) {
   return references;
 }
 
-function scriptSourceReferences(path, text, packages) {
-  if (!/\b(?:import|export|require|URL|readFile|copyFile|resolve|join)\b/u.test(text)) return [];
+function scriptSourceReferences(path, text) {
+  if (!/\b(?:import|export|require|URL|readFile|copyFile)\b/u.test(text)) return { references: [], testEntry: false };
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?js$/u.test(path) ? ScriptKindJS : ScriptKindTS;
   const sourcePath = `/keel/${path}`;
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
-  if (source.IsDeclarationFile) return [];
-  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return [{ specifier: "unresolved executable source syntax", module: false, unresolved: true }];
+  if (source.IsDeclarationFile) return { references: [], testEntry: false };
+  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return { references: [{ unresolved: true }], testEntry: false };
   const references = [];
+  const nodes = [];
+  const imports = new Map();
+  const initializers = new Map();
   const visit = node => {
-    const kindName = ast.kindName(node);
-    if (["KindImportDeclaration", "KindExportDeclaration"].includes(kindName)) {
-      const literal = ast.children(node).find(child => ast.kindName(child) === "KindStringLiteral");
-      if (literal !== undefined) references.push({ specifier: ast.text(literal), module: true });
-    } else if (["KindCallExpression", "KindNewExpression"].includes(kindName)) {
-      const callee = ast.children(node)[0];
-      const name = ast.kindName(callee) === "KindIdentifier" ? ast.text(callee) : ast.text(ast.name(callee));
-      const module = name === "require" || ast.kindName(callee) === "KindImportKeyword";
-      if (module || /^(?:URL|readFile(?:Sync)?|copyFile(?:Sync)?|resolve|join)$/u.test(name)) {
-        const arguments_ = ast.arguments(node);
-        const literal = arguments_[0];
-        if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(literal))) {
-          references.push({ specifier: ast.text(literal), module });
-        } else {
-          const fragments = [];
-          const collect = child => {
-            if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindTemplateHead", "KindTemplateMiddle", "KindTemplateTail"].includes(ast.kindName(child))) fragments.push(ast.text(child));
-            ast.forEachChild(child, collect);
-          };
-          for (const argument of arguments_) collect(argument);
-          const base = arguments_[1];
-          const rooted = name === "URL" && ast.kindName(base) === "KindPropertyAccessExpression" && ast.text(ast.name(base)) === "url" &&
-            ast.kindName(ast.children(base)[0]) === "KindMetaProperty";
-          const firstParty = rooted || fragments.some(fragment => /(?:^|\/)(?:test|tests)(?:\/|$)/u.test(fragment) || module &&
-            (fragment.startsWith(".") || packages.some(entry => typeof entry.metadata.name === "string" && fragment.startsWith(entry.metadata.name))));
-          if (firstParty) references.push({ specifier: "unresolved computed first-party source entry", module, unresolved: true });
-          else if (module || name === "URL") references.push({ external: true, offset: ast.pos(node) });
-        }
-      }
-    }
+    nodes.push(node);
     ast.forEachChild(node, visit);
   };
   visit(NodeDefault_AsNode(source));
-  return references;
+  for (const node of nodes) {
+    const kindName = ast.kindName(node);
+    if (["KindImportDeclaration", "KindExportDeclaration"].includes(kindName)) {
+      const literal = ast.children(node).find(child => ast.kindName(child) === "KindStringLiteral");
+      if (literal === undefined) continue;
+      const specifier = ast.text(literal);
+      references.push({ specifier, module: true });
+      if (kindName !== "KindImportDeclaration") continue;
+      const collect = child => {
+        if (ast.kindName(child) === "KindImportSpecifier") {
+          const names = ast.children(child);
+          imports.set(ast.text(names.at(-1)), `${specifier}#${ast.text(names[0])}`);
+        } else if (["KindImportClause", "KindNamespaceImport"].includes(ast.kindName(child)) && ast.name(child) !== undefined) {
+          imports.set(ast.text(ast.name(child)), `${specifier}#*`);
+        }
+        ast.forEachChild(child, collect);
+      };
+      collect(node);
+    } else if (kindName === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindIdentifier" &&
+      ast.variableDeclarationKind(node) === "const") {
+      const name = ast.text(ast.name(node));
+      const children = ast.children(node);
+      const initializer = children.at(-1) === ast.name(node) ? undefined : children.at(-1);
+      initializers.set(name, initializers.has(name) ? undefined : initializer);
+    }
+  }
+  const testEntry = ["tsonic/test/", "tsonic-rust/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
+    path.endsWith(".test.mjs") && references.some(reference => reference.specifier === "node:test");
+  for (const node of nodes) {
+    if (["KindCallExpression", "KindNewExpression"].includes(ast.kindName(node))) {
+      const callee = ast.children(node)[0];
+      const module = api(callee) === "require" || ast.kindName(callee) === "KindImportKeyword";
+      const fileRead = /^node:fs(?:\/promises)?#(?:readFile(?:Sync)?|copyFile(?:Sync)?)$/u.test(api(callee));
+      if (!module && !fileRead) continue;
+      const address = sourceAddress(ast.arguments(node)[0]);
+      if (address.path !== undefined || address.specifier !== undefined || address.firstParty) {
+        references.push({ ...address, module, fileRead });
+      } else if (module) references.push({ external: true, offset: ast.pos(node) });
+    }
+  }
+  return { references, testEntry };
+
+  function api(node) {
+    if (ast.kindName(node) === "KindIdentifier") {
+      const name = ast.text(node);
+      return imports.get(name) ?? (!initializers.has(name) && ["URL", "require"].includes(name) ? name : "");
+    }
+    if (ast.kindName(node) === "KindPropertyAccessExpression") {
+      const receiver = ast.children(node)[0];
+      const imported = imports.get(ast.text(receiver));
+      if (imported?.endsWith("#*")) return `${imported.slice(0, -1)}${ast.text(ast.name(node))}`;
+    }
+    return "";
+  }
+
+  function sourceAddress(node, seen = new Set()) {
+    const kindName = ast.kindName(node);
+    if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kindName)) {
+      const specifier = ast.text(node);
+      return { specifier, suffix: specifier.replace(/^(?:\.\.?\/)+/u, ""),
+        firstParty: specifier.startsWith(".") || /(?:allocation_counts\.rs|native-ownership-cost\.mjs)/u.test(specifier) };
+    }
+    if (kindName === "KindIdentifier") {
+      const name = ast.text(node);
+      if (seen.has(name)) return { firstParty: true };
+      return initializers.has(name) ? sourceAddress(initializers.get(name), new Set([...seen, name])) : {};
+    }
+    if (kindName === "KindParenthesizedExpression" || kindName === "KindPropertyAccessExpression" && ast.text(ast.name(node)) === "href") {
+      return sourceAddress(ast.children(node)[0], seen);
+    }
+    if (kindName === "KindPropertyAccessExpression" && ast.text(ast.name(node)) === "url" &&
+      ast.kindName(ast.children(node)[0]) === "KindMetaProperty") return { path, firstParty: true };
+    if (["KindCallExpression", "KindNewExpression"].includes(kindName)) {
+      const name = api(ast.children(node)[0]);
+      const arguments_ = ast.arguments(node);
+      if (["node:url#pathToFileURL", "node:url#fileURLToPath"].includes(name)) return sourceAddress(arguments_[0], seen);
+      if (["URL", "node:url#URL"].includes(name)) {
+        const base = arguments_[1];
+        const rooted = ast.kindName(base) === "KindPropertyAccessExpression" && ast.text(ast.name(base)) === "url" &&
+          ast.kindName(ast.children(base)[0]) === "KindMetaProperty";
+        if (!rooted) return {};
+        const value = sourceAddress(arguments_[0], seen);
+        if (value.specifier !== undefined) {
+          if (value.specifier.startsWith("file:")) return { specifier: decodeURIComponent(new URL(value.specifier).pathname), firstParty: true };
+          if (/^[a-z][a-z0-9+.-]*:/iu.test(value.specifier)) return {};
+          if (isAbsolute(value.specifier)) return { specifier: value.specifier, firstParty: true };
+          return { path: posix.normalize(posix.join(posix.dirname(path), value.specifier)), firstParty: true };
+        }
+        return { firstParty: true, suffix: value.suffix };
+      }
+      if (["node:path#join", "node:path#resolve"].includes(name)) {
+        const values = arguments_.map(argument => sourceAddress(argument, seen));
+        if (values[0]?.path !== undefined && values.slice(1).every(value => value.specifier !== undefined && !isAbsolute(value.specifier))) {
+          return { path: posix.normalize(posix.join(values[0].path, ...values.slice(1).map(value => value.specifier))), firstParty: true };
+        }
+        const suffix = [];
+        for (const value of [...values].reverse()) {
+          if (value.specifier === undefined) break;
+          suffix.unshift(value.specifier);
+        }
+        return { firstParty: true, suffix: suffix.length > 0 ? posix.join(...suffix) : undefined };
+      }
+      if (name === "node:path#dirname") {
+        const value = sourceAddress(arguments_[0], seen);
+        return value.path === undefined ? {} : { path: posix.dirname(value.path), firstParty: true };
+      }
+    }
+    const fragments = [];
+    const collect = child => {
+      if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindTemplateHead", "KindTemplateMiddle", "KindTemplateTail"].includes(ast.kindName(child))) fragments.push(ast.text(child));
+      ast.forEachChild(child, collect);
+    };
+    collect(node);
+    const tail = kindName === "KindTemplateExpression" ? ast.children(ast.children(node).at(-1)).at(-1)
+      : kindName === "KindBinaryExpression" && ast.operatorKindName(node) === "KindPlusToken" ? ast.children(node).at(-1) : undefined;
+    const suffix = ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindTemplateTail"].includes(ast.kindName(tail)) ? ast.text(tail) : undefined;
+    return { firstParty: fragments.some(fragment => fragment.startsWith(".") || /(?:test|allocation_counts|native-ownership-cost)/u.test(fragment)), suffix };
+  }
 }
 
 export function createKeelViolationInventory(findings, origin) {
