@@ -9,7 +9,7 @@ import type { SourceStorageStore } from "../graph/stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
-  SourceStorageOperation } from "../graph/scoped-model.js";
+  SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
@@ -619,6 +619,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return budget.withRows((rows): SourceStorageReduction | undefined => {
         const pending: (readonly [SourceStorageActivation, SourceStorageActivation])[] = [[receiver, destination]];
         const visited = new Map<SourceStorageActivation, Set<SourceStorageActivation>>();
+        let expansion: SourceStorageVariable | undefined;
         while (pending.length !== 0) {
           if (!budget.step()) return undefined;
           const [receiver, destination] = pending.pop()!;
@@ -627,22 +628,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           const targets = visited.get(receiver) ?? new Set<SourceStorageActivation>();
           targets.add(destination);
           visited.set(receiver, targets);
-          if (receiver.invocation !== undefined && destination.invocation !== undefined &&
-            (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
-              receiver.nativeEntry !== destination.nativeEntry)) return absent;
-          if (receiver.invocation === undefined || destination.invocation === undefined) {
-            const variable = receiver.invocation === undefined ? receiver.variable : destination.variable;
-            if (variable !== undefined) return { kind: "expand", variable };
-            if (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
-              receiver.nativeEntry !== destination.nativeEntry) return absent;
-          } else pending.push([receiver.parent, destination.parent]);
+          if (receiver.variable !== undefined || destination.variable !== undefined) {
+            for (const variable of [receiver.variable, destination.variable]) {
+              if (variable !== undefined && (expansion === undefined ||
+                expansion.capture !== undefined && variable.capture === undefined)) expansion = variable;
+            }
+            continue;
+          }
+          if (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
+            receiver.nativeEntry !== destination.nativeEntry) return absent;
+          if (receiver.invocation !== undefined && destination.invocation !== undefined)
+            pending.push([receiver.parent, destination.parent]);
           if (receiver.creation.length !== destination.creation.length) return absent;
           for (const [index, creation] of receiver.creation.entries()) {
             if (!budget.step() || !rows.add(1)) return undefined;
             pending.push([creation, destination.creation[index]!]);
           }
         }
-        return { kind: "replace", terms: [term.value] };
+        return expansion === undefined ? { kind: "replace", terms: [term.value] } : { kind: "expand", variable: expansion };
       });
     }
     if (term.kind === "transition") {

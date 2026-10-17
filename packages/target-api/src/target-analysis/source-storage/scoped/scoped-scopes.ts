@@ -439,9 +439,11 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       let selected = activations.get(key);
       if (selected !== undefined) return selected;
       if (!rows.add(2 + creation.length)) return undefined;
+      const closed = variable === undefined && creation.every(value => value.closed) &&
+        (context === undefined || context.parent.closed);
       selected = Object.freeze(context === undefined
-        ? { key: `${activations.size}`, variable, owner, creation, invocation: undefined, parent: undefined }
-        : { key: `${activations.size}`, variable, owner, creation,
+        ? { key: `${activations.size}`, variable, closed, owner, creation, invocation: undefined, parent: undefined }
+        : { key: `${activations.size}`, variable, closed, owner, creation,
           invocation: context.invocation, parent: context.parent, nativeEntry: context.nativeEntry });
       activations.set(key, selected);
       return selected;
@@ -494,17 +496,14 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         continue;
       }
       const creation: SourceStorageActivation[] = [];
-      let variable: SourceStorageVariable | undefined;
       for (const captured of current.captures) {
         if (!budget.step()) return undefined;
         const selected = activationKeys.get(captured);
         if (selected === undefined) return undefined;
         creation.push(selected);
-        variable ??= selected.variable;
       }
       const parent = current.caller === undefined ? undefined : activationKeys.get(current.caller);
       if (current.caller !== undefined && parent === undefined) return undefined;
-      variable = parent?.variable ?? variable;
       const nativeEntry = current.frame.callback === undefined ? undefined : callbackKey(current.frame.callback);
       const owner = current.frame.owner;
       if (owner === undefined) return undefined;
@@ -513,7 +512,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (current.frame.invocation !== undefined && context === undefined) return undefined;
       const selected = intern(
         `${current.frame.invocation === undefined ? "d" : `f${identity(current.frame.invocation)}`}:${identity(owner)}:${nativeEntry ?? ""}:${parent?.key ?? ""}:${creation.map(value => value.key).join(":")}`,
-        variable, owner, Object.freeze(creation), context);
+        undefined, owner, Object.freeze(creation), context);
       if (selected === undefined || !remember(current.scope, selected)) return undefined;
       active.delete(current.scope);
     }

@@ -42,6 +42,7 @@ export type SourceStorageScope = SourceStorageFrame | SourceStorageVariable | So
 export type SourceStorageActivation = {
   readonly key: string;
   readonly variable: SourceStorageVariable | undefined;
+  readonly closed: boolean;
   readonly owner: Node | undefined;
   readonly creation: readonly SourceStorageActivation[];
   readonly nativeEntry?: string;

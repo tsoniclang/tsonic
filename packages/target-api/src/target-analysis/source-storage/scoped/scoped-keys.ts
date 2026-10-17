@@ -69,12 +69,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const birthKey = (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
