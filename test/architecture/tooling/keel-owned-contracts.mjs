@@ -50,7 +50,7 @@ export const keelOwnedTargets = Object.freeze({
     cloneFields: [{ file: "src/backend/target-ast/syntax/nodes.ts", symbol: "RustExpr.method" }],
     recordReaders: [
       { file: "src/analysis/control-flow/counted-loop-representations.ts", symbol: "RustCountedLoopRepresentationPlan.representationFor" },
-      { file: "src/analysis/declarations/enum-member-constants.ts", symbol: "RustEnumMemberConstantIndex.forMember" },
+      { file: "src/target-model/records/native-declaration-forms.ts", symbol: "RustNativeDeclarationForms.get" },
       { file: "src/analysis/numeric/representations.ts", symbol: "RustNumericRepresentations.usesInt32Remainder" },
       { file: "src/analysis/objects/class-values.ts", symbol: "RustClassValuePlan.forCarrier" },
       { file: "src/analysis/objects/class-values.ts", symbol: "RustClassValuePlan.forDeclaration" },
@@ -90,6 +90,7 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.owner" },
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.requiresMutableOwner" },
       { file: "src/analysis/storage/provider-mutable-inputs.ts", symbol: "RustProviderMutableInputPlan.forOperation" },
+      { file: "src/analysis/declarations/generic-requirements.ts", symbol: "RustDeclarationGenericRequirementIndex.contractForCarrier" },
       { file: "src/analysis/callables/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
       ...["contractFor", "parameterFor", "resolve", "allContracts"].map(name => ({
         file: "src/target-model/lifetimes/model.ts", symbol: `RustLifetimeIndex.${name}`,
