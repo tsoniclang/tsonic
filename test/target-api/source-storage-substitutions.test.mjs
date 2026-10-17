@@ -29,12 +29,13 @@ function fixture(limits = {}, length = 50) {
     parent: node => node === parameter ? outer : node === innerParameter ? inner : node === inner ? outer : undefined } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
-  const scopes = createSourceStorageScopes(source, budget, subject,
-    origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph, () => undefined);
+  const invocationInputs = origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(),
+    context: "caller", omitted: false });
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined);
   const transport = {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
     contextLocation: () => undefined,
-    storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
+    storedValuesFor: () => undefined, invocationEffects: new Map(), invocationInputs, regions: { enclosing: () => undefined },
     guardedValues: { appliesTo: () => false },
   };
   transport.bindingInputFor = createSourceStorageBindingInputs(source.ast, transport, budget);
@@ -160,7 +161,7 @@ test("key-local reference reuse retains independently selected scopes and cannot
   const current = fixture();
   const other = current.subject({});
   const frame = value => Object.freeze({ kind: "frame", entries: new Map([[current.formal,
-    [sourceStorageReference(value, current.scopes.empty)]]]), parents: [] });
+    { initialization: "actual", values: [sourceStorageReference(value, current.scopes.empty)] }]]), parents: [] });
   const left = sourceStorageReference(current.formal, frame(current.input));
   const right = sourceStorageReference(current.formal, frame(other));
   const combined = value => ({ kind: "store", destination: left, receiver: value, value });
@@ -170,7 +171,7 @@ test("key-local reference reuse retains independently selected scopes and cannot
   const entries = new Map();
   const cyclic = Object.freeze({ kind: "frame", entries, parents: [] });
   const reference = sourceStorageReference(current.formal, cyclic);
-  entries.set(current.formal, [reference]);
+  entries.set(current.formal, { initialization: "actual", values: [reference] });
   assert.equal(current.keys.encode(reference) === undefined, true, "a cycle is not a complete cached binding");
   assert.match(current.budget.failure(), /unfinished encoding/u);
 });
@@ -444,7 +445,7 @@ test("replacement selection intersects exact free variables on the smaller side 
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(current.source, budget, current.subject,
-    () => ({ subjects: new Set(), context: "caller" }), graph, () => undefined);
+    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined);
   const owners = Array.from({ length: 64 }, () => ({ parameters: [] }));
   const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
   const variables = owners.map(owner => scopes.variable(equation, owner));

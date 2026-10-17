@@ -32,6 +32,13 @@ export function sourceStorageFormalOwner(subject: SourceStorageSubject, ast: Ast
   return owner !== undefined && ast.parameters(owner).includes(subject.node) ? owner : undefined;
 }
 
+export function sourceStorageObjectRestOwner(node: Node, ast: AstReader): Node | undefined {
+  const element = ast.as.AsBindingElement(node);
+  const pattern = element?.DotDotDotToken === undefined ? undefined : ast.parent(node);
+  const owner = pattern === undefined || !ast.is.IsObjectBindingPattern(pattern) ? undefined : ast.parent(pattern);
+  return owner !== undefined && ast.name(owner) === pattern ? owner : undefined;
+}
+
 export function sourceStorageIsDataMember(node: Node, ast: AstReader): boolean {
   return ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ||
     ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node);

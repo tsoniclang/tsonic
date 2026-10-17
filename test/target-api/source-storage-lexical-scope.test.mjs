@@ -33,6 +33,7 @@ function fixture() {
   const scopes = createSourceStorageScopes(source, budget, subject, (origin, candidate) => ({
     subjects: new Set(origin.kind === "input" ? [subject(initializer(candidate === outer ? "first" : "second"))] : []),
     context: "caller",
+    omitted: false,
   }), graph, () => undefined);
   const parent = scopes.frameFor(outer, initializer("selected"), scopes.empty, scopes.empty);
   const callee = scopes.frameFor(foreign, initializer("result"), parent, scopes.empty);

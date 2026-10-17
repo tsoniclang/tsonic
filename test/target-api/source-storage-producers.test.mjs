@@ -42,6 +42,50 @@ function open(selected, kind) {
   assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === kind), true, kind);
 }
 
+for (const form of ["direct", "alias", "tuple", "helper"]) {
+  test("indexed storage producers retain every original and written actual: " + form, async () => {
+    const current = await fixture("indexed-written-producers-" + form, `
+      function mutate(values: number[], actual: number): void { values[0] = actual; }
+      export function run(): number {
+        let values${form === "tuple" ? ": [number, number]" : ""} = [1, 2];
+        ${form === "alias" ? "const alias = values; alias[0] = 1.5;" : form === "helper" ? "mutate(values, 1.5);" : "values[0] = 1.5;"}
+        return values[0];
+      }
+    `);
+    const component = form === "tuple" ? { kind: "tuple-element", index: 0 } : { kind: "array-element" };
+    const subject = current.storage.storageSubjectFor(current.variable("values"), [component]);
+    assert.equal(subject.kind, "resolved", "the exact mutable storage component remains admitted");
+    const selected = producers(current.storage.storageProducersFor(subject.subject));
+    const { ast } = current.source;
+    const texts = new Set(selected.map(value => ast.text(value.subject.node)));
+    assert.equal(texts.has("1.5"), true, "a recorded component write cannot disappear from a complete producer selection");
+    assert.equal(texts.has("1"), true, "the actual original component remains a possible source producer");
+    assert.equal(texts.has("2"), form !== "tuple", "a tuple write cannot contaminate its distinct second physical component");
+    assert.equal(texts.size, form === "tuple" ? 2 : 3, "only actual original and written values contribute, never an invented type value");
+    assert.equal(current.storage.failureReason() === undefined, true, "all contributors use the existing bounded source storage relation");
+  });
+}
+
+for (const reversed of [false, true]) {
+  test("indexed writes preserve independent actual receiver and value rows: " + reversed, async () => {
+    const current = await fixture("indexed-written-correlated-" + reversed, `
+      function make(original: {}, replacement: {}) {
+        const values = [original]; values[0] = replacement; return values;
+      }
+      const firstOriginal = {}; const firstReplacement = {}; const secondOriginal = {}; const secondReplacement = {};
+      const first = make(firstOriginal, firstReplacement); const second = make(secondOriginal, secondReplacement);
+      const firstValue = first[0]; const secondValue = second[0];
+    `);
+    for (const name of reversed ? ["second", "first"] : ["first", "second"]) {
+      const selected = producers(current.storage.storageProducersFor(current.subject(current.variable(name + "Value"))));
+      const originals = new Set([current.subject(current.initializer(name + "Original")), current.subject(current.initializer(name + "Replacement"))]);
+      assert.equal(selected.length === 2 && selected.every(value => originals.has(value.subject)), true,
+        "same array syntax never mixes two distinct factory receiver/replacement creations");
+    }
+    assert.equal(current.storage.failureReason() === undefined, true, "fresh/reverse queries use the same canonical activation keys");
+  });
+}
+
 test("stored invocation producers retain exact independent activation bindings", async () => {
   const current = await fixture("storage-producer-activation", `
     function retain(callback: () => {}): {} { return callback(); }
@@ -63,7 +107,8 @@ test("stored invocation producers retain exact independent activation bindings",
     const original = selected.producers.find(value => ast.is.IsCallExpression(value.subject.node) &&
       ast.text(Node_Expression(ast, value.subject.node)) === "callback");
     assert.equal(original !== undefined, true, "exact producer operation is retained");
-    assert.equal(Object.isFrozen(original.bindings) && Object.isFrozen(original.bindings.substitutions), true);
+    assert.equal(Object.isFrozen(original.bindings) && original.bindings.kind === "source-storage-bindings" &&
+      !Object.hasOwn(original.bindings, "substitutions"), true, "producer bindings preserve the actual immutable owned handle");
     const actual = current.storage.boundOriginsFor(formal.subject, original.bindings);
     assert.equal(actual.kind, "resolved");
     assert.equal(actual.subjects.length, 1);
@@ -189,7 +234,7 @@ test("producer queries reject forged and foreign subjects and bindings using the
   const binding = first.storage.bindingsForInvocation(identity, first.initializer("value"));
   assert.equal(binding.kind === "resolved", true);
   const formal = first.subject(first.source.ast.parameters(identity)[0]);
-  assert.equal(first.storage.storageProducersFor(formal, Object.freeze({ substitutions: binding.bindings.substitutions })).kind === "unresolved", true);
+  assert.equal(first.storage.storageProducersFor(formal, Object.freeze({ ...binding.bindings })).kind === "unresolved", true);
   assert.equal(second.storage.storageProducersFor(second.subject(second.variable("value")), binding.bindings).kind === "unresolved", true);
   assert.equal(first.storage.storageProducersFor(second.subject(second.variable("value"))).kind === "unresolved", true);
   assert.equal(first.storage.storageProducersFor(Object.freeze({ ...formal })).kind === "unresolved", true);

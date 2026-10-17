@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceErrorStorageDemandQueries } from "./error-storage-demands.js";
 
@@ -100,8 +101,11 @@ export function createSourceErrorInvalidationQuery(
         for (const candidate of implementations.nodes) resolved = appendCallableRegions(candidate, node, bindings) || resolved;
         if (ast.is.IsNewExpression(node)) {
           const regions = storage.instanceRegionsFor(node);
-          if (regions.kind === "unresolved") return regions;
-          for (const region of regions.regions) {
+          if (regions.kind === "unresolved") {
+            if (native?.kind !== "open" || failureReason() !== undefined) return regions;
+            unproven = regions.reason;
+          }
+          for (const region of regions.kind === "resolved" ? regions.regions : []) {
             const selected = storage.bindingsForInvocation(region.owner, node, bindings);
             if (selected.kind === "unresolved") return selected;
             pending.push({ node: region.node, bindings: selected.bindings });
@@ -121,7 +125,7 @@ export function createSourceErrorInvalidationQuery(
             if (affected.kind === "overlap")
               unproven = "An opaque native invocation can access the borrowed Error owner without an exact mutation footprint.";
             for (const candidate of origins.subjects) {
-              if (candidate.kind === "value") appendCallableRegions(candidate.node, undefined, bindings);
+              if (sourceStorageHasOriginalCallableValue(candidate, ast)) appendCallableRegions(candidate.node, undefined, bindings);
             }
           }
         }

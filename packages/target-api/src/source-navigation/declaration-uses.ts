@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
 import { Node_Expression, sourceTransparentExpressionOperand } from "./ast.js";
-import { isTypeSyntaxNode } from "./syntax.js";
+import { isTypeSyntaxNode, sourceReferenceMeaning } from "./syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 import { sourceClassFieldIsTypeOnly } from "./class-members.js";
 
@@ -212,7 +212,11 @@ function sourceDeclarationUseRole(
 function belongsToTypeSyntax(ast: AstReader, reference: Node): boolean {
   let current: Node | undefined = reference;
   while (current !== undefined) {
-    if (ast.is.IsInterfaceDeclaration(current) || ast.is.IsTypeLiteralNode(current) ||
+    const expression = ast.is.IsExpressionWithTypeArguments(current)
+      ? ast.as.AsExpressionWithTypeArguments(current)?.Expression : undefined;
+    if (sourceReferenceMeaning(ast, current) === "type" ||
+      expression !== undefined && sourceReferenceMeaning(ast, expression) === "type" ||
+      ast.is.IsInterfaceDeclaration(current) || ast.is.IsTypeLiteralNode(current) ||
       sourceClassFieldIsTypeOnly(ast, current) || isTypeSyntaxNode(ast, current)) {
       return true;
     }
@@ -262,6 +266,12 @@ function sourceReferenceIsStored(
   parent: Node,
   current: Node,
 ): boolean {
+  if (ast.is.IsExpressionWithTypeArguments(parent) &&
+    sourceNodesEqual(ast, ast.as.AsExpressionWithTypeArguments(parent)?.Expression, current)) {
+    const owner = ast.parent(ast.parent(parent));
+    return owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
+      ast.extendsHeritageElements(owner).some(heritage => sourceNodesEqual(ast, heritage, parent));
+  }
   if (ast.is.IsVariableDeclaration(parent)) {
     return sourceNodesEqual(ast, ast.as.AsVariableDeclaration(parent)?.Initializer, current);
   }
