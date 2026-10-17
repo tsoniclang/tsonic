@@ -407,7 +407,9 @@ for (const form of nativePayloadContinuationCases) for (const adopting of [false
       });
       const selected = current.query();
       assert.equal(selected.kind, adopting && !ordinary ? "unresolved" : "resolved",
-        "possible helper invocations retain their demanded owner, not a source-global argument union");
+        selected.kind === "unresolved"
+          ? `possible helper invocations retain their demanded owner, not a source-global argument union: ${selected.reason}`
+          : "possible helper invocations retain their demanded owner, not a source-global argument union");
       if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
         "ordinary identity or the actual observer/number inverse stays admitted");
       else assert.equal(current.textFor(selected.at), form.expression, "the relevant resolving helper demand owns uncertainty");

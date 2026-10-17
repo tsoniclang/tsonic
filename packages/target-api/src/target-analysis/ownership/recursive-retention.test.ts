@@ -492,7 +492,9 @@ for (const reverse of [false, true]) for (const inherited of [false, true]) {
     if (classBindings.kind !== "resolved" || depth.kind !== "resolved" || classSubject.kind !== "resolved" || input.kind !== "resolved") return;
     for (const [subject, bindings] of [[classSubject.subject, classBindings.bindings], [input.subject, depth.bindings]] as const) {
       const selected = storage.storageProducersFor(subject, bindings);
-      assert.equal(selected.kind, "complete", "the exact class or constructor producer relation closes");
+      assert.equal(selected.kind, "complete", selected.kind === "unresolved"
+        ? `the exact class or constructor producer relation closes: ${selected.reason}`
+        : "the exact class or constructor producer relation closes");
       if (selected.kind !== "complete") return;
       assert.equal(selected.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
         "a class/constructor entry never drops the borrowed branch's capture");
@@ -632,7 +634,9 @@ for (const reverse of [false, true]) for (const branches of ["owned", "borrowed"
     const contexts = reverse ? [depthTwo.bindings, depth.bindings, entry.bindings] : [entry.bindings, depth.bindings, depthTwo.bindings];
     for (const bindings of contexts) {
       const selected = storage.storageProducersFor(input.subject, bindings);
-      assert.equal(selected.kind, "complete", "each complete constructor context has its exact producer relation");
+      assert.equal(selected.kind, "complete", selected.kind === "unresolved"
+        ? `each complete constructor context has its exact producer relation: ${selected.reason}`
+        : "each complete constructor context has its exact producer relation");
       if (selected.kind !== "complete") return;
       const nodes = selected.producers.map(producer => producer.subject.node);
       assert.equal(nodes.every(node => node === borrowed || node === owned || node === local), true, "no unrelated activation supplies a constructor input");
