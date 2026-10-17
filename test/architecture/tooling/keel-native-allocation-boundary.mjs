@@ -154,7 +154,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       scripts.set(path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary, input.builtModule ? "native-entry" : "authored"));
     }
   }
-  let packageEntries = packageModuleEntries(packages, scripts, files);
+  let packageEntries = [];
   const incomingEntries = new Map();
   const recordIncoming = (sourcePath, target) => {
     if (target === undefined) return;
@@ -167,21 +167,32 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   const nativeScripts = new Set([...scripts].filter(([path, script]) => script.nativeJavaScript || files.get(path)?.builtModule).map(([path]) => path));
-  for (const entry of packageEntries) {
-    if (entry.external || entry.unresolvedReason !== undefined) continue;
-    const target = resolveAlias(entry.path, entry.source);
-    if (target === undefined) continue;
-    const format = nativeNodeModuleFormat(target);
-    if (format === "data") continue;
-    if (format === "binary") { reject(entry.source, "unproved first-party native package binary entry"); continue; }
-    const input = files.get(target);
-    if (input?.kind !== "file" || typeof input.text !== "string") { reject(entry.source, "uncaptured first-party native package module bytes"); continue; }
-    if (!scripts.has(target)) scripts.set(target, scriptSourceReferences(target, input.text, boundary, "native-entry"));
-    nativeScripts.add(target);
-  }
   const pendingScripts = [...scripts.keys()];
   const processedScripts = new Map();
-  for (let index = 0; index < pendingScripts.length; index += 1) {
+  const enqueuePackageEntries = () => {
+    packageEntries = packageModuleEntries(packages, scripts, files);
+    for (const entry of packageEntries) {
+      if (entry.external || entry.unresolvedReason !== undefined) continue;
+      const target = resolveAlias(entry.path, entry.source);
+      if (target === undefined) continue;
+      const format = nativeNodeModuleFormat(target);
+      if (format === "data") continue;
+      if (format === "binary") { reject(entry.source, "unproved first-party native package binary entry"); continue; }
+      const input = files.get(target);
+      if (input?.kind !== "file" || typeof input.text !== "string") { reject(entry.source, "uncaptured first-party native package module bytes"); continue; }
+      if (!scripts.has(target)) {
+        scripts.set(target, scriptSourceReferences(target, input.text, boundary, "native-entry"));
+        pendingScripts.push(target);
+      } else if (!nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
+      nativeScripts.add(target);
+    }
+  };
+  enqueuePackageEntries();
+  for (let index = 0; ; index += 1) {
+    if (index === pendingScripts.length) {
+      enqueuePackageEntries();
+      if (index === pendingScripts.length) break;
+    }
     const path = pendingScripts[index];
     const nativeScript = nativeScripts.has(path);
     if (processedScripts.has(path) && (processedScripts.get(path) || !nativeScript)) continue;
@@ -214,7 +225,6 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       }
     }
   }
-  packageEntries = packageModuleEntries(packages, scripts, files);
   for (const entry of packageEntries) metadataEntries.push({ path: entry.source, entry: entry.value, form: "package entry", moduleEntry: entry });
   const restricted = new Set([canonicalPath, writerPath, ...transcriptData]);
   const consumers = [];
@@ -466,10 +476,11 @@ function moduleEntryTargets(packages, sourcePath, specifier, nativeRequire = fal
     if (typeof name !== "string" || specifier !== name && !specifier.startsWith(`${name}/`)) continue;
     const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`;
     const exports = entry.metadata.exports;
+    const hasExports = exports !== undefined && exports !== null;
     const targets = typeof exports === "object" && exports !== null && Object.keys(exports).some(key => key.startsWith("."))
-      ? selectedPackageTargets(packageMappingSelection(exports, subpath)) : subpath === "." ? stringLeaves(exports ?? entry.metadata.main)
-        : exports === undefined ? [subpath] : [];
-    result.push(...targets.map(value => packageTargetPath(entry.root, value, exports === undefined && (subpath === "." || nativeRequire)))
+      ? selectedPackageTargets(packageMappingSelection(exports, subpath)) : subpath === "." ? stringLeaves(hasExports ? exports : entry.metadata.main)
+        : !hasExports ? [subpath] : [];
+    result.push(...targets.map(value => packageTargetPath(entry.root, value, !hasExports && (subpath === "." || nativeRequire)))
       .filter(path => path !== undefined));
   }
   return result;

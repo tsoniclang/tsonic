@@ -2001,6 +2001,7 @@ test("QRC-14: physical package names, URL targets and finite-pattern proof stay 
 test("QRC-14: bare packages and package-import aliases preserve the same physical main and URL export identity", () => {
   for (const [metadata, target] of [
     [{ main: "./src/ordinary.d.ts#literal" }, "src/ordinary.d.ts#literal"],
+    [{ main: "./src/ordinary.d.ts#literal", exports: null }, "src/ordinary.d.ts#literal"],
     [{ main: "./src/ordinary.d.ts?literal" }, "src/ordinary.d.ts?literal"],
     [{ main: "./src/ordinary.d.ts%23literal" }, "src/ordinary.d.ts%23literal"],
     [{ main: "./src/ordinary*name.d.ts" }, "src/ordinary*name.d.ts"],
@@ -2063,6 +2064,19 @@ test("QRC-14: private import patterns materialize every finite consumer and capt
   precedence.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#safe/ordinary"; import "#safe/specific/ordinary"; import "#safe/exact"; import "#safe/other";'));
   precedence.get("tsonic-rust").set("src/other.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
   assert.equal(boundarySafety(precedence).nativeAllocationBoundary === undefined, true, "precedence proof does not exempt a genuine broad-pattern writer target");
+  const late = nativeBoundaryInputs();
+  late.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ main: "./entry.d.cts", imports: { "#safe/*": "./src/*.d.cts" } })));
+  late.get("tsonic-rust").set("entry.d.cts", safetyFile('require("#safe/ordinary");'));
+  late.get("tsonic-rust").set("src/ordinary.d.cts", safetyFile("const ordinary: number = 2;"));
+  late.get("tsonic-rust").set("src/hidden.d.cts", safetyFile("const hidden: number = 3;"));
+  const complete = boundarySafety(late);
+  assert.equal(complete.findings.length, 0, "late native metadata strengthens every matching module through the same queue");
+  assert.equal(complete.nativeAllocationBoundary.builtModuleInputs.some(entry => entry.path === "tsonic-rust/src/hidden.d.cts"), true,
+    "late finite evidence publishes actual matching bytes, not merely an earlier harmless consumer");
+  late.get("tsonic-rust").set("src/hidden.d.cts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(boundarySafety(late).nativeAllocationBoundary === undefined, true, "late byte evidence must also be executable-scanned before publication");
+  late.get("tsonic-rust").delete("src/ordinary.d.cts");
+  assert.equal(boundarySafety(late).nativeAllocationBoundary === undefined, true, "a late explicit missing consumer target remains an exact byte refusal");
 });
 
 test("QRC-14: bound createRequire package imports use the proven factory origin instead of the caller's package scope", () => {
