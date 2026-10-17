@@ -222,6 +222,7 @@ test("NS-T05: unchanged direct, cross-repo, package and computed first-party tes
       ["rust-js", "test/bridge.mjs", 'export const bridge = 1;']],
     [["tsonic-rust", "src/emitter.mjs", 'const suffix = process.env.SUFFIX; const path = new URL("../test/" + suffix, import.meta.url);']],
     [["tsonic-rust", "src/emitter.mjs", 'const encoded = process.env.ENTRY; const path = new URL(encoded, import.meta.url);']],
+    [["tsonic-rust", "src/emitter.mjs", 'export const incomplete = ;']],
     [["rust-runtime", "src/lib.rs", 'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/control.rs"));']],
     [["rust-runtime", "src/lib.rs", '#[cfg(test)] #[path = "../tests/helpers/allocation_counts.rs"] mod observed;\n#[path = "../tests/helpers/allocation_counts.rs"] mod product;']],
     [["rust-runtime", "src/lib.rs", '#[cfg(test)] mod tests { #[path = "../tests/helpers/allocation_counts.rs"] mod observed; }\ninclude!("../tests/helpers/allocation_counts.rs");']],
