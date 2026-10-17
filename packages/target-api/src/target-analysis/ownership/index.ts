@@ -6,7 +6,7 @@ export { createSourceRetentionQuery } from "./retention.js";
 export { createSourceSuspensionQuery } from "./suspension.js";
 export type { SourceSuspensionQueries } from "./suspension.js";
 export { resolveSourceAsyncResultDisposition } from "./result-use.js";
-export { decideSourceAsyncResultUse, sourceAsyncResultUseIsRejected } from "./result-decision.js";
+export { decideSourceAsyncResultUse } from "./result-decision.js";
 export { createSourceOwnershipQuery } from "./query.js";
 export type { SourceOwnershipQueries } from "./query.js";
 export { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
