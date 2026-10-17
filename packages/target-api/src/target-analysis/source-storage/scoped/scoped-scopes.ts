@@ -342,7 +342,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (formal === undefined) return undefined;
       formals.add(formal);
     }
-    for (const slot of sourceStorageCallableInputSlots(source, candidate, budget.step) ?? []) {
+    const consumer = source.semantics.forNode(invocation);
+    const selection = consumer.operations.call(invocation);
+    for (const slot of sourceStorageCallableInputSlots(source, candidate, consumer,
+      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step) ?? []) {
       if (!budget.step()) return undefined;
       if (slot.projection === undefined || slot.projection.length === 0) continue;
       const formal = subject(slot.parameter, "input", slot.projection);
