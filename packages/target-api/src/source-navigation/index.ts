@@ -1,4 +1,5 @@
 export * from "./navigation.js";
+export { sourceDeclarationHasOnlyTypeUses } from "./declaration-use-summary.js";
 export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
