@@ -10,11 +10,11 @@ import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
 
 mkdirSync(".temp/guard-command-tests", { recursive: true });
 
-test("Node test launches explicitly use the memory-derived worker count", () => {
+test("Node test launches explicitly use the selected worker count", () => {
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["--test", "case.mjs"], 4), ["--test", "--test-concurrency=4", "case.mjs"]);
   assert.deepEqual(memoryBoundNodeTestArguments("/usr/bin/node", ["--test", "--test-concurrency=4", "case.mjs"], 4), ["--test", "--test-concurrency=4", "case.mjs"]);
-  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency=1", "case.mjs"], 4), /memory-derived/u);
-  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency", "23", "case.mjs"], 4), /memory-derived/u);
+  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency=1", "case.mjs"], 4), /selected worker/u);
+  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency", "23", "case.mjs"], 4), /selected worker/u);
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["script.mjs"], 4), ["script.mjs"]);
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["script.mjs", "--test"], 4), ["script.mjs", "--test"]);
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["--", "script.mjs", "--test"], 4), ["--", "script.mjs", "--test"]);

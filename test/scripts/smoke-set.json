@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "owners": [
+    { "scope": "tsonic", "source": "test", "tests": ["test"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "test/scripts", "tests": ["test/infrastructure/runner"], "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "scripts", "tests": ["test/architecture"] },
+    { "scope": "tsonic", "source": "packages/target-api/src", "tests": ["test/target-api", "packages/target-api/src"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "packages/source-core/src", "tests": ["test/source-core", "packages/source-core/src"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "packages/js-source-profile/src", "tests": ["test/js-source-profile"], "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "packages/host/src", "tests": ["test/host", "test/cli-build"], "readers": ["test/architecture"] },
+    { "scope": "tsonic", "source": "packages/cli/src", "tests": ["test/host/cli", "test/cli-build"], "readers": ["test/architecture"] },
+    { "scope": "tsonic-csharp", "source": "src", "tests": ["test"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic-csharp", "source": "test", "tests": ["test"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic-rust", "source": "src", "tests": ["test"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "tsonic-rust", "source": "test", "tests": ["test"], "mirror": true, "readers": ["test/architecture"] },
+    { "scope": "csharp-nodejs", "source": "nodejs", "tests": ["nodejs/test"] },
+    { "scope": "csharp-nodejs", "source": "csharp", "tests": ["csharp/test/Tsonic.CSharp.Node.Tests"], "mirror": true },
+    { "scope": "csharp-js", "source": "src", "tests": ["tests/Tsonic.CSharp.Js.Tests"] },
+    { "scope": "csharp-runtime", "source": "src", "tests": ["tests/Tsonic.CSharp.Runtime.Tests"] }
+  ],
+  "smoke": [
+    { "scope": "tsonic", "file": "test/infrastructure/runner/test-results.test.mjs" },
+    { "scope": "tsonic", "file": "test/infrastructure/runner/workspace-layout.test.mjs" },
+    { "scope": "tsonic-csharp", "file": "test/architecture/dependency-boundaries.test.mjs" },
+    { "scope": "tsonic-rust", "file": "test/architecture/dependency-boundaries.test.mjs" }
+  ]
+}

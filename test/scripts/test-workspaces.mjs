@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { appendFileSync, chmodSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, sep } from "node:path";
 import { after } from "node:test";
 
@@ -19,7 +19,16 @@ export function createTestWorkspace(parent, prefix) {
   }
   mkdirSync(parent, { recursive: true });
   const directory = mkdtempSync(join(realpathSync(parent), prefix));
+  chmodSync(directory, 0o700);
   workspaces.set(directory, lstatSync(directory, { bigint: true }));
+  if (process.env.TSONIC_TEST_WORKSPACE_MANIFEST !== undefined &&
+      process.env.TSONIC_TEST_TASK_ID !== undefined && process.env.TSONIC_TEST_TASK_CGROUP_PATH !== undefined) {
+    const identity = workspaces.get(directory);
+    appendFileSync(process.env.TSONIC_TEST_WORKSPACE_MANIFEST, `${JSON.stringify({ directory,
+      ownership: "fresh-task-mkdtemp", taskId: process.env.TSONIC_TEST_TASK_ID,
+      cgroupPath: process.env.TSONIC_TEST_TASK_CGROUP_PATH,
+      dev: String(identity.dev), ino: String(identity.ino) })}\n`);
+  }
   if (!cleanupRegistered) {
     process.once("exit", cleanupWorkspaces);
     cleanupRegistered = true;

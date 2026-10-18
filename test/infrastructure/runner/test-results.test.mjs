@@ -347,6 +347,26 @@ test("every new failure and incomplete outcome blocks comparison without erasing
   assert.throws(() => collectTestResults([report([result("unknown", "running")])]), /terminal outcome/u);
 });
 
+test("train resource gates accept only the canonical no-OOM or proved passing half-width recovery", () => {
+  const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 };
+  const base = { exitCode: 0, scopeDrained: true, swapMax: 0, calibration: false, scopeResult: "success", oomScope: "owned-cgroup",
+    oomBefore: 0, oomAfter: 0, measurement, memoryMiB: 4096, budget: { memoryMiB: 4096 },
+    admission: { admitted: true, requestedMiB: 4096, unit: "owned.scope" } };
+  const incident = { task: "fixture", first: { drained: true, oomKills: 1 }, retry: { drained: true, oomKills: 0 },
+    retryStatus: 0, retryCompleted: true, retryTests: 1, firstWidth: 4, retryWidth: 2, retryResultPath: "/evidence/retry.jsonl" };
+  const recovered = { ...base, scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomAfter: 1, oomRecovery: { verified: true, issue: null, accountedKills: 1,
+      incidents: [incident], victimTaskIds: ["fixture"], evidencePath: "/evidence/recovery.jsonl" } } };
+  assert.doesNotThrow(() => validateTrainInputs(completeReports(), [base, base]), "ordinary no-OOM proof is unchanged");
+  assert.doesNotThrow(() => validateTrainInputs(completeReports(), [base, recovered]), "the original raw counter and incident remain accepted evidence");
+  const unproven = structuredClone(recovered);
+  unproven.measurement.oomRecovery.verified = false;
+  assert.throws(() => validateTrainInputs(completeReports(), [base, unproven]), /own-cgroup/u);
+  const failedRetry = structuredClone(recovered);
+  failedRetry.measurement.oomRecovery.incidents[0].retryStatus = 1;
+  assert.throws(() => validateTrainInputs(completeReports(), [base, failedRetry]), /own-cgroup/u);
+});
+
 test("a train requires both complete banks and exact drained own-cgroup measurements", () => {
   const reports = completeReports();
   const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 };

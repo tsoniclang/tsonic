@@ -55,7 +55,8 @@ test("wait4 records CPU and maximum individual RSS without claiming aggregate pe
   assert.equal(measured.memory.exactAggregateMemoryPeakBytes, null);
   assert.equal(measured.memory.permitsAutomaticWeightReduction, false);
   assert.equal(measured.childJobs, 4);
-  assert.equal(measured.reservedMemoryMiB, 4096);
+  assert.equal(Object.hasOwn(measured, "reservedMemoryMiB"), false);
+  assert.equal(measured.memoryAdmission, "outer-job-cgroup-only");
   writeFileSync(path, JSON.stringify({ userSeconds: null, systemSeconds: "0.0", maximumResidentKiB: "1" }));
   assert.throws(() => readTaskResourceUsage(path, 1000, {}, {}), /Invalid task resource usage/u);
 });

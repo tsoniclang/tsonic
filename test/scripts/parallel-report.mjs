@@ -10,8 +10,9 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
   const failures = results.filter((result) => result.status !== 0);
   const testCounts = aggregateTestCounts(results);
   const missingTestCountResults = results.filter((result) => result.testCounts === undefined);
-  const measuredCpuSeconds = results.every(result => result.resources !== null)
-    ? results.reduce((total, result) => total + result.resources.cpu.userSeconds + result.resources.cpu.systemSeconds, 0) : null;
+  const attempts = results.flatMap(result => result.attempts ?? [result]);
+  const measuredCpuSeconds = attempts.every(result => result.resources !== null)
+    ? attempts.reduce((total, result) => total + result.resources.cpu.userSeconds + result.resources.cpu.systemSeconds, 0) : null;
   const averageTaskCores = measuredCpuSeconds === null || testDurationMs <= 0 ? null : measuredCpuSeconds * 1000 / testDurationMs;
   const report = {
     bank: suiteDefinition.bank,
@@ -33,12 +34,19 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
       investigationRequired: testCounts.total >= 24 && averageTaskCores !== null && averageTaskCores < 8,
       limits: { queuedFiles: results.length, workerSlots: resourceBudget.workers, memoryMiB: resourceBudget.memoryMiB,
         groupWorkerLimits: suiteDefinition.groupWorkerLimits, exclusiveFiles: exclusiveShardCount,
-        taskWeightsMiB: [...new Set(results.map(result => result.shard.memoryMiB ?? resourceBudget.workerMemoryMiB))].sort((left, right) => left - right) },
+        perTaskMemoryReservations: false, heapCapMiB: resourceBudget.heapMiB },
       exactWholeJobCgroupPeak: "available in the outer guard receipt, not a per-task measurement",
     },
     repos: snapshotParallelRepositories(repos),
     inventory,
     progress,
+    resourceIncidents: results.filter(result => result.attempts !== undefined).map(result => ({
+      id: result.shard.id, kind: "proved-task-oom", recovered: result.recovery !== null,
+      victimTaskId: result.shard.id, evidencePath: process.env.TSONIC_TEST_OOM_RECOVERY_REPORT ?? null,
+      retryResult: { status: result.status, summary: result.summary, resultPath: result.shard.resultPath },
+      firstWidth: result.attempts[0].workers, retryWidth: result.workers,
+      firstCgroup: result.attempts[0].cgroup, retryCgroup: result.cgroup,
+    })),
     preRuns: preRunResults,
     durationMs,
     taskCounts: {
@@ -65,6 +73,11 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
       log: testPath(relative(tsonicRoot, result.logPath)),
       resultPath: testPath(relative(tsonicRoot, result.shard.resultPath)),
       resultError: result.resultError, summary: result.summary, tests: result.tests, resources: result.resources,
+      attempt: result.attempt, workers: result.workers, timeoutMs: result.timeoutMs, cgroup: result.cgroup, cleanup: result.cleanup,
+      attempts: result.attempts?.map(attempt => ({ status: attempt.status, signal: attempt.signal, durationMs: attempt.durationMs,
+        log: testPath(relative(tsonicRoot, attempt.logPath)), resultPath: testPath(relative(tsonicRoot, attempt.shard.resultPath)),
+        resultError: attempt.resultError, summary: attempt.summary, tests: attempt.tests, resources: attempt.resources,
+        cgroup: attempt.cgroup, workers: attempt.workers, timeoutMs: attempt.timeoutMs, cleanup: attempt.cleanup })),
     })),
     slowestTasks: [...results]
       .sort((left, right) => right.durationMs - left.durationMs)
