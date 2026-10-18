@@ -191,6 +191,8 @@ test("store rows reserve canonical records and both indexes before insertion and
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
   assert.match(budget.failure(), /transport-row/u);
+  assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
+    "the same eleven-row record refuses atomically when only ten rows remain");
   assert.equal(inventory.storesFor(storage) === undefined, true, "no partial canonical record or empty location index is installed");
   assert.equal(inventory.storesIn(current.transport.regions.enclosing(occurrence)) === undefined, true);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
@@ -304,6 +306,9 @@ test("unproven computed destructuring retains its exact unresolved writer rather
   assert.equal(mutation !== undefined && mutation.reason !== undefined && mutation.values.length === 1 &&
     mutation.values[0].subjects.length === 0 && mutation.values[0].reason === mutation.reason, true,
   "missing exact checked projection evidence is explicitly unresolved, never a fabricated safe value");
+  assert.equal(mutation.reason,
+    "Source storage writes require their exact checked original value producer, iteration element and component projection.",
+    "the missing computed projection retains its exact producer refusal");
 });
 
 test("receiver resolution failure cannot publish a store or either secondary index", () => {
@@ -344,5 +349,29 @@ test("physical producer values and rejection reasons use the identical member-ve
     assert.equal(physical.length === (memberWrite ? 2 : 1) &&
       physical.includes(current.transport.subject(parameter, "input")), true,
       "the initialization remains exact and only an actual member write adds the checked iteration element");
+  }
+});
+
+test("unproven iteration-key writers retain exact refusal without confusing local and physical member storage", () => {
+  const expected = "Source storage writes require their exact checked original value producer, iteration element and component projection.";
+  for (const memberWrite of [false, true]) {
+    const current = fixture(`
+      class Box { constructor(public value: string, replacements: object) {
+        for (${memberWrite ? "this.value" : "value"} in replacements) {}
+      } }
+      const box = new Box("", {});
+    `);
+    const parameter = current.declaration("value", current.source.ast.is.IsParameterDeclaration);
+    const mutation = current.stores(parameter, memberWrite ? "member" : "value").find(store => store.kind === "mutation");
+    assert.equal(mutation?.reason, expected, "the still-unproven key producer is refused at the canonical occurrence");
+    assert.equal(mutation.values.length === 1 && mutation.values[0].source.kind === "iteration-key" &&
+      mutation.values[0].subjects.length === 0 && mutation.values[0].reason === expected, true,
+      "the original checked key occurrence remains explicit rather than fabricating a value");
+    const physical = current.transport.subject(parameter, "member");
+    assert.equal(current.transport.unresolvedStoredInputsFor(physical), memberWrite ? expected : undefined,
+      "only the actual physical member writer contributes its refusal");
+    const inputs = [...current.transport.storedInputsFor(physical)];
+    assert.equal(inputs.length === 1 && inputs[0] === current.transport.subject(parameter, "input"), true,
+      "the exact real initialization is retained independently of the unsupported writer");
   }
 });

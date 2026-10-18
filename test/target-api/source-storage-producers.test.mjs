@@ -169,6 +169,11 @@ test("unsupported delete and iteration-key producer evidence rejects rather than
     const selected = current.storage.storageProducersFor(current.subject(declaration));
     assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial producer claim");
   }
+  assert.equal(current.storage.storageProducersFor(current.subject(property)).reason,
+    "Source storage mutation requires its exact selected value producer.", "deletion keeps its precise unresolved producer");
+  assert.equal(current.storage.storageProducersFor(current.subject(current.variable("value"))).reason,
+    "Source storage writes require their exact checked original value producer, iteration element and component projection.",
+    "iteration keys keep their precise unresolved producer");
 });
 
 test("array iteration producers retain actual elements rather than the collection or a synthetic value", async () => {
