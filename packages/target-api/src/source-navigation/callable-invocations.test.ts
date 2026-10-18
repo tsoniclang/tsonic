@@ -16,6 +16,11 @@ function fixture(body: string) {
   assert.equal(file !== undefined, true);
   const visit = (node: Node): void => {
     if (source.ast.is.IsFunctionDeclaration(node)) declarations.set(source.ast.text(source.ast.name(node)), node);
+    if (source.ast.is.IsArrowFunction(node)) {
+      const binding = source.ast.parent(node);
+      if (binding !== undefined && source.ast.is.IsVariableDeclaration(binding) && source.ast.is.IsIdentifier(source.ast.name(binding)))
+        declarations.set(source.ast.text(source.ast.name(binding)), node);
+    }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file!);
@@ -44,6 +49,61 @@ return value;`);
   assert.equal(current.select("through"), true);
   assert.equal(current.select("outer"), false);
   assert.equal(current.select("read"), true);
+});
+
+test("a checked const-bound arrow shares the single-invocation owner with lexical declarations", () => {
+  for (const body of [
+    "const finish = () => 3; return finish();",
+    "const finish = () => 3; const relay = () => finish(); return relay();",
+    "function finish(): number { return 3; } const relay = () => finish(); return relay();",
+    "const finish = () => 3; function relay(): number { return finish(); } return relay();",
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.select("finish"), true, "the original binding and its one checked direct execution are retained");
+    assert.equal(current.select("finish"), true, "the completed owner selection remains stable");
+  }
+});
+
+test("bound-arrow invocation proof retains alias, repetition, escape, recursion and deferred negatives", () => {
+  for (const body of [
+    "const finish = () => 3; return finish() + finish();",
+    "const finish = () => 3; const alias = finish; return alias();",
+    "const finish = () => 3; const values = [finish]; return values[0]!();",
+    "const finish = () => 3; let result = 0; while (result < 3) result += finish(); return result;",
+    "const finish = (): number => finish(); return finish();",
+    "const finish = (): number => relay(); const relay = (): number => finish(); return relay();",
+    "const finish = () => 3; const relay = () => finish(); return relay() + relay();",
+    "const finish = () => 3; const relay = () => finish(); const alias = relay; return alias();",
+    "let finish = () => 3; finish = () => 4; return finish();",
+  ]) {
+    assert.equal(fixture(body).select("finish"), false, body);
+  }
+});
+
+test("bound-arrow invocation proof rejects foreign, missing and unresolved checked correspondence", () => {
+  const current = fixture("const finish = () => 3; return finish();");
+  const declaration = current.declaration("finish");
+  const binding = current.source.ast.parent(declaration)!;
+  const summary = current.source.navigation.declarationUseSummary(binding);
+  for (const mutation of [{ exported: true }, { bindingWritten: true }, { hasUnclassifiedValueUse: true },
+    { uses: summary.uses.map(use => ({ ...use, throughMember: true })) },
+  ]) {
+    const navigation = { ...current.source.navigation, declarationUseSummary: () => ({ ...summary, ...mutation }) };
+    assert.equal(createSourceSingleInvocationQuery(current.source.ast, navigation)(declaration), false,
+      "an unavailable or escaping original binding never proves one native execution");
+  }
+  for (const navigation of [
+    { ...current.source.navigation, sourceReferenceFor: () => undefined },
+    { ...current.source.navigation, declarationSymbol: () => undefined },
+    { ...current.source.navigation, callableImplementation: () => ({ kind: "unresolved" as const, reason: "missing" }) },
+    { ...current.source.navigation, sourceReferenceFor: (reference: Node) => {
+      const selected = current.source.navigation.sourceReferenceFor(reference);
+      return selected === undefined ? undefined : { ...selected, declaration };
+    } },
+  ]) {
+    assert.equal(createSourceSingleInvocationQuery(current.source.ast, navigation)(declaration), false,
+      "the exact original symbol, implementation, source file and binding are required");
+  }
 });
 
 test("unused lexical declarations retain every runtime use and module declaration", () => {
@@ -135,17 +195,18 @@ return left() + right();`,
   }
 });
 
-test("overloaded lexical usage retains repeated, escaped and deferred call negatives", () => {
-  for (const suffix of [
-    "return pass(1) + pass(2);",
-    "const alias = pass; return alias(3);",
-    "const deferred = () => pass(3); return deferred();",
-  ]) {
+test("overloaded lexical usage distinguishes repeated, escaped and exactly once closed deferred calls", () => {
+  for (const [suffix, expected] of [
+    ["return pass(1) + pass(2);", false],
+    ["const alias = pass; return alias(3);", false],
+    ["const deferred = () => pass(3); return deferred();", true],
+    ["const deferred = () => pass(3); return deferred() + deferred();", false],
+  ] as const) {
     const current = fixture(`function pass(value: number): number;
 function pass(value: number): number { return value; }
 ${suffix}`);
     assert.equal(current.unused("pass"), false, "an original runtime use is never erased");
-    assert.equal(current.select("pass"), false, "overload identity cannot turn repeated, escaped or deferred use into one direct invocation");
+    assert.equal(current.select("pass"), expected, "only the original single closed deferred execution proves one invocation");
   }
   const current = fixture("function pass(): number { return 3; } return pass();");
   const declaration = current.declaration("pass");
@@ -162,7 +223,7 @@ test("single lexical invocation rejects repeated, recursive, escaping and deferr
     `function read(): number { return 3; } for (let index = 0; index < 2; index++) { read(); } return 0;`,
     `function read(): number { return read(); } return read();`,
     `function read(): number { return through(); } function through(): number { return read(); } return 0;`,
-    `function read(): number { return 3; } const callback = () => read(); return callback();`,
+    `function read(): number { return 3; } const callback = () => read(); return callback() + callback();`,
     `function read(): number { return 3; } const alias = read; return alias();`,
     `function read(): number { return 3; } function through(): number { return read(); } return through() + through();`,
   ]) assert.equal(fixture(body).select("read"), false, body);
