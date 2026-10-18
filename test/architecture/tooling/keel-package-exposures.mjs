@@ -1,5 +1,5 @@
 import { isAbsolute, matchesGlob, posix, relative, resolve } from "node:path";
-import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isBuiltin } from "node:module";
 import { collectCompilerSourceExports, findInstalledPackageRoot, isCompilerSourceFile, isDeclarationFile, readDependencyNames, readPackageJson } from "../../../packages/host/dist/package-contract.js";
@@ -97,10 +97,10 @@ export function captureKeelPackageOwners(workspace, inputs) {
           !installedDeclarations.packages.some(entry => fileName.startsWith(`${entry.root}/`))) {
           throw new Error(`Compiler source package input leaves the complete workspace: ${fileName}.`);
         }
-        return Object.freeze({ fileName, path, sha256, text });
+        return Object.freeze({ fileName, path, realPath: actual, sha256, text });
       }
-      capturePackageFile(workspace, inputs, path, sourcePath, bytes);
-      return Object.freeze({ fileName, path, sourcePath, sha256 });
+      capturePackageFile(workspace, inputs, sourcePath, bytes);
+      return Object.freeze({ fileName, path, realPath: actual, sourcePath, sha256 });
     });
     const separator = owner.path.indexOf("/");
     const entries = inputs.get(owner.path.slice(0, separator));
@@ -149,24 +149,7 @@ export function captureKeelPackageOwners(workspace, inputs) {
   }
 }
 
-function capturePackageFile(workspace, inputs, path, sourcePath, bytes) {
-  let prefix = workspace;
-  for (const part of path.split("/").slice(0, -1)) {
-    prefix = resolve(prefix, part);
-    const status = lstatSync(prefix);
-    if (!status.isSymbolicLink()) continue;
-    const alias = relative(workspace, prefix);
-    const separator = alias.indexOf("/");
-    const target = readlinkSync(prefix);
-    if (isAbsolute(target)) throw new Error(`Unproved absolute package alias: ${alias}.`);
-    const entries = inputs.get(alias.slice(0, separator));
-    const file = alias.slice(separator + 1);
-    const previous = entries?.get(file);
-    if (entries === undefined || previous !== undefined && (previous.kind !== "symlink" || previous.target !== target)) {
-      throw new Error(`Inconsistent package alias: ${alias}.`);
-    }
-    entries.set(file, Object.freeze({ kind: "symlink", tracked: previous?.tracked ?? false, mode: "120000", target }));
-  }
+function capturePackageFile(workspace, inputs, sourcePath, bytes) {
   const separator = sourcePath.indexOf("/");
   const entries = inputs.get(sourcePath.slice(0, separator));
   const file = sourcePath.slice(separator + 1);
@@ -199,7 +182,9 @@ export function captureKeelNativePackageInputs(workspace, inputs, requests) {
     const resolutionDirectory = resolve(workspace, posix.dirname(origin));
     const installedRoot = findInstalledPackageRoot(resolutionDirectory, name);
     const physicalRoot = installedRoot === undefined ? undefined : realpathSync(installedRoot);
-    if (physicalRoot !== undefined && !lstatSync(resolve(physicalRoot, "package.json")).isFile()) {
+    const metadataRealPath = installedRoot === undefined ? undefined : realpathSync(resolve(installedRoot, "package.json"));
+    if (physicalRoot !== undefined && (metadataRealPath !== resolve(physicalRoot, "package.json") ||
+      !lstatSync(resolve(physicalRoot, "package.json")).isFile())) {
       throw new Error(`Unproved native package metadata source identity: ${origin}: ${name}.`);
     }
     const installedPath = installedRoot === undefined ? undefined : relative(workspace, installedRoot);
@@ -208,18 +193,18 @@ export function captureKeelNativePackageInputs(workspace, inputs, requests) {
     const bytes = installedRoot === undefined ? undefined : readFileSync(resolve(installedRoot, "package.json"));
     if (bytes !== undefined) readPackageJson(resolve(installedRoot, "package.json"));
     if (inside(installedPath) && inside(sourceRoot)) {
-      capturePackageFile(workspace, inputs, `${installedPath}/package.json`, `${sourceRoot}/package.json`, bytes);
+      capturePackageFile(workspace, inputs, `${sourceRoot}/package.json`, bytes);
     }
     const row = Object.freeze({ origin, name, resolutionDirectory, installedRoot: installedRoot ?? null, physicalRoot: physicalRoot ?? null,
       installedPath: inside(installedPath) ? installedPath : null, sourceRoot: inside(sourceRoot) ? sourceRoot : null,
-      metadataSha256: bytes === undefined ? null : keelDigest(bytes) });
+      metadataRealPath: metadataRealPath ?? null, metadataSha256: bytes === undefined ? null : keelDigest(bytes) });
     entries.set(file, Object.freeze({ ...entries.get(file), nativePackageInputs: Object.freeze([...(input.nativePackageInputs ?? []), row]) }));
     added += 1;
   }
   return added;
 }
 
-export function createKeelPackageExposures(packages, files, resolveAlias) {
+export function createKeelPackageExposures(packages, files) {
   const sources = [...files].filter(([path, input]) => input.kind === "file" && isCompilerSourceFile(path));
   const sourcePackages = new Map();
   const errors = [];
@@ -239,7 +224,8 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
   const compilerContexts = new Map();
   const authoredDeclarationInputs = new Map();
   for (const entry of sourcePackages.values()) {
-    const program = { files: new Map(compilerFiles), roots: entry.sourceFiles, originalDeclarationInputs: new Map() };
+    const program = { files: new Map(compilerFiles), sourcePaths: new Map([...compilerFiles.keys()].map(path => [path, path.slice(6)])),
+      roots: entry.sourceFiles, originalDeclarationInputs: new Map() };
     compilerContexts.set(entry.root, program);
     const context = files.get(`${entry.root}/package.json`)?.compilerPackage;
     if (context === undefined) {
@@ -253,13 +239,15 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
       errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent original compiler package context" }); continue;
     }
     program.roots = root.sourceFiles.map(fileName => `/keel/${context.files.find(file => file.fileName === fileName).path}`);
+    const workspacePrefix = metadataInput.fileName.slice(0, -metadataInput.path.length);
     for (const file of context.files) {
       const input = file.sourcePath === undefined ? undefined : files.get(file.sourcePath);
       const originalDeclaration = file.sourcePath === undefined && typeof file.text === "string" &&
         (isDeclarationFile(file.fileName) || posix.basename(file.fileName) === "package.json") &&
         context.installedDeclarations.packages.some(owner => file.fileName.startsWith(`${owner.root}/`)) && keelDigest(file.text) === file.sha256;
-      if ((!originalDeclaration && (resolveAlias(file.path) !== file.sourcePath || input?.kind !== "file" || input.sha256 !== file.sha256)) ||
-        !validLiteralFilePath(file.path) || file.fileName !== `${metadataInput.fileName.slice(0, -metadataInput.path.length)}${file.path}`) {
+      if ((!originalDeclaration && (!validLiteralFilePath(file.sourcePath) || file.realPath !== `${workspacePrefix}${file.sourcePath}` ||
+          input?.kind !== "file" || input.sha256 !== file.sha256)) || typeof file.realPath !== "string" || !isAbsolute(file.realPath) ||
+        !validLiteralFilePath(file.path) || file.fileName !== `${workspacePrefix}${file.path}`) {
         errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent original compiler package input bytes" }); continue;
       }
       const name = `/keel/${file.path}`;
@@ -268,6 +256,7 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
         errors.push({ path: `${entry.root}/package.json`, reason: "ambiguous original compiler package input identity" }); continue;
       }
       program.files.set(name, text);
+      if (!originalDeclaration) program.sourcePaths.set(name, file.sourcePath);
       if (isDeclarationFile(file.fileName)) program.originalDeclarationInputs.set(name, Object.freeze({ fileName: file.fileName, sha256: file.sha256,
         installedDeclarationFingerprint: context.installedDeclarations.fingerprint }));
     }
@@ -332,13 +321,15 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
         ? row.installedRoot.slice(0, -`/node_modules/${row.name}`.length) : undefined;
       const valid = !seen.has(identity) && barePackageName(row.name) === row.name &&
         validLiteralFilePath(row.origin) && packageOwner(packages, row.origin)?.root === entry.root && prefix !== undefined && isAbsolute(prefix) &&
-        (row.installedRoot === null ? row.physicalRoot === null && row.installedPath === null && row.sourceRoot === null && row.metadataSha256 === null :
+        (row.installedRoot === null ? row.physicalRoot === null && row.installedPath === null && row.sourceRoot === null &&
+          row.metadataRealPath === null && row.metadataSha256 === null :
           typeof row.installedRoot === "string" && isAbsolute(row.installedRoot) && typeof row.physicalRoot === "string" && isAbsolute(row.physicalRoot) &&
+          row.metadataRealPath === `${row.physicalRoot}/package.json` &&
           installedParent !== undefined && (row.resolutionDirectory === installedParent || row.resolutionDirectory.startsWith(`${installedParent}/`)) &&
           /^[a-f0-9]{64}$/u.test(row.metadataSha256) &&
           (row.sourceRoot === null || validLiteralFilePath(row.installedPath) && validLiteralFilePath(row.sourceRoot) &&
             row.installedRoot === `${prefix}${row.installedPath}` && row.physicalRoot === `${prefix}${row.sourceRoot}` &&
-            resolveAlias(`${row.installedPath}/package.json`) === `${row.sourceRoot}/package.json` &&
+            files.get(`${row.sourceRoot}/package.json`)?.kind === "file" &&
             files.get(`${row.sourceRoot}/package.json`)?.sha256 === row.metadataSha256));
       if (!valid) errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent actual native package input context" });
       seen.add(identity);
@@ -380,8 +371,8 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
               ...(originalDeclaration === undefined ? {} : { installedDeclarationFingerprint: originalDeclaration.installedDeclarationFingerprint }) });
             targets.set(absolute, Object.freeze({ kind: "declaration", input }));
           } else {
-            const path = absolute.startsWith("/keel/") ? resolveAlias(absolute.slice(6)) : undefined;
-            if (path !== undefined && files.has(path)) targets.set(absolute, Object.freeze({ kind: "source", path }));
+            const path = program.sourcePaths.get(absolute);
+            if (path !== undefined && files.get(path)?.kind === "file") targets.set(absolute, Object.freeze({ kind: "source", path }));
           }
         }
       }

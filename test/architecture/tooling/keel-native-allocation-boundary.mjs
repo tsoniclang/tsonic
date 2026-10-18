@@ -153,7 +153,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       })).filter(reference => !reference.implicit || files.has(reference.destination)));
     }
   }
-  const exposures = createKeelPackageExposures(packages, files, resolveAlias);
+  const exposures = createKeelPackageExposures(packages, files);
   for (const { path, reason } of exposures.errors) reject(path, reason);
   const moduleSpecifierTargets = (origin, specifier) => packageImportTargets(packages, origin, specifier);
   for (const [path, input] of files) {

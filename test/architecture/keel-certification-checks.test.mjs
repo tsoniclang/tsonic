@@ -2230,7 +2230,7 @@ test("QRC-14: original installed declaration snapshots preserve each compilation
   const captured = files();
   const packages = [...captured].filter(([path]) => posix.basename(path) === "package.json")
     .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
-  const exposures = createKeelPackageExposures(packages, captured, path => path);
+  const exposures = createKeelPackageExposures(packages, captured);
   assert.equal(exposures.errors.length, 0, "the original file/snapshot provenance is internally consistent");
   for (const root of roots) {
     const context = captured.get(`${root}/package.json`).compilerPackage;
@@ -2281,6 +2281,101 @@ test("QRC-14: original installed declaration snapshots preserve each compilation
   assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "installed declaration evidence cannot hide native writer execution");
 });
 
+test("QRC-14: logical compiler inputs capture exact real files without promoting an unread directory alias", () => {
+  const scratch = new URL("../../.temp/keel-Q109/", import.meta.url);
+  mkdirSync(scratch, { recursive: true });
+  const workspace = mkdtempSync(join(fileURLToPath(scratch), "logical-compiler-file-inputs-"));
+  const inputs = nativeBoundaryInputs();
+  const put = (path, text, tracked = true) => {
+    const absolute = join(workspace, path);
+    mkdirSync(posix.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, text);
+    const separator = path.indexOf("/");
+    inputs.get(path.slice(0, separator)).set(path.slice(separator + 1), safetyFile(text, tracked));
+  };
+  for (const { path, evidence } of keelPackageBuildResources()) {
+    put(path, readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8"));
+    for (const artifact of evidence.artifacts) put(artifact.path, readFileSync(new URL(`../../../${artifact.path}`, import.meta.url), "utf8"), false);
+  }
+  const target = "tsonic-rust";
+  const name = "@control/compiler";
+  const callers = ["tsumo-rust/packages/cli", "tsumo-csharp/packages/cli"];
+  put(`${target}/package.json`, JSON.stringify({ name, version: "1.0.0", type: "module", files: ["dist"],
+    exports: { "./provider": { types: "./dist/provider.d.ts", default: "./dist/provider.mjs" } } }));
+  put(`${target}/dist/provider.d.ts`, "export declare const value: 1;", false);
+  put(`${target}/dist/provider.mjs`, "export const value = 1;", false);
+  put(`${target}/test/helpers/native-ownership-cost.mjs`, inputs.get(target).get("test/helpers/native-ownership-cost.mjs").text);
+  for (const [index, root] of callers.entries()) {
+    const sourceRoot = `${posix.dirname(root)}/engine`;
+    put(`${sourceRoot}/package.json`, JSON.stringify({ name: "@control/source", version: "1.0.0", type: "module", files: ["src"],
+      exports: { "./index.js": "./src/index.ts" } }));
+    put(`${sourceRoot}/src/index.ts`, `export const value: number = ${index + 1};`);
+    put(`${root}/package.json`, JSON.stringify({ name: "@control/caller", type: "module",
+      dependencies: { [name]: "1.0.0", "@control/source": "1.0.0" } }));
+    put(`${root}/src/entry.ts`, `import { value } from "${name}/provider";
+      import { value as sourceValue } from "@control/source/index.js"; export const result: number = value + sourceValue;`);
+    const alias = join(workspace, root, "node_modules", name);
+    mkdirSync(posix.dirname(alias), { recursive: true });
+    symlinkSync(posix.relative(posix.dirname(alias), join(workspace, target)), alias, "dir");
+    const sourceAlias = join(workspace, root, "node_modules/@control/source");
+    symlinkSync(posix.relative(posix.dirname(sourceAlias), join(workspace, sourceRoot)), sourceAlias, "dir");
+  }
+  captureKeelPackageOwners(workspace, inputs);
+  const files = new Map([...inputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
+  const packages = [...files].filter(([path]) => posix.basename(path) === "package.json")
+    .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
+  const exposures = createKeelPackageExposures(packages, files);
+  for (const root of callers) {
+    const separator = root.indexOf("/");
+    const entries = inputs.get(root.slice(0, separator));
+    const relativeRoot = root.slice(separator + 1);
+    const context = entries.get(`${relativeRoot}/package.json`).compilerPackage;
+    assert.equal(entries.has(`${relativeRoot}/node_modules/${name}`), false,
+      `${root}: reading exact compiler inputs does not capture or grant their parent directory`);
+    const original = context.files.find(file => file.path === `${root}/node_modules/${name}/dist/provider.d.ts`);
+    assert.equal(original?.realPath, join(workspace, target, "dist/provider.d.ts"),
+      `${root}: the original read records its actual realpath identity`);
+    assert.equal(original?.sourcePath, `${target}/dist/provider.d.ts`, `${root}: the compiler input retains its physical source`);
+    assert.equal(original?.sha256, inputs.get(target).get("dist/provider.d.ts").sha256,
+      `${root}: the logical input and actual physical file have identical bytes`);
+    const source = exposures.authoredModule(`${root}/src/entry.ts`, { module: true, specifier: "@control/source/index.js" });
+    assert.equal(source?.kind, "source", `${root}: actual compiler-source imports keep their original non-declaration role`);
+    assert.equal(source?.path, `${posix.dirname(root)}/engine/src/index.ts`,
+      `${root}: logical installed-source names select only this caller's exact physical input, not the competing owner`);
+  }
+  assert.equal(boundarySafety(inputs).findings.length, 0,
+    "exact compiler-file transport does not turn an unread compiler directory containing tests into a native alias");
+  const wrongIdentity = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+  const owner = wrongIdentity.get("tsumo-rust").get("packages/cli/package.json");
+  wrongIdentity.get("tsumo-rust").set("packages/cli/package.json", Object.freeze({ ...owner,
+    compilerPackage: Object.freeze({ ...owner.compilerPackage, files: owner.compilerPackage.files.map(file =>
+      file.sourcePath === `${target}/dist/provider.d.ts` ? { ...file, realPath: join(workspace, "tsonic-csharp/dist/provider.d.ts") } : file) }) }));
+  assert.equal(boundarySafety(wrongIdentity).nativeAllocationBoundary === undefined, true,
+    "a changed physical identity cannot borrow an unrelated available compiler input");
+  const directory = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+  directory.get("tsumo-rust").set(`packages/cli/node_modules/${name}`, Object.freeze({ kind: "symlink", tracked: true,
+    mode: "120000", target: posix.relative(posix.dirname(`${callers[0]}/node_modules/${name}`), target) }));
+  assert.equal(boundarySafety(directory).nativeAllocationBoundary === undefined, true,
+    "an actually captured whole-directory alias still cannot expose the restricted compiler test tree");
+  put(`${callers[0]}/src/native.mjs`, `import "${name}/provider";`);
+  captureNativePackageInputs(workspace, inputs);
+  const nativeRows = inputs.get("tsumo-rust").get("packages/cli/package.json").nativePackageInputs;
+  assert.equal(nativeRows.some(row => row.metadataRealPath === join(workspace, target, "package.json") &&
+    row.sourceRoot === target && row.metadataSha256 === inputs.get(target).get("package.json").sha256), true,
+  "native incoming captures the actual metadata file and physical target from its own original finder");
+  assert.equal(inputs.get("tsumo-rust").has(`packages/cli/node_modules/${name}`), false,
+    "an exact native metadata read also does not fabricate a directory alias");
+  assert.equal(boundarySafety(inputs).findings.length, 0, "complete harmless physical native bytes remain admitted");
+  const missing = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+  missing.get(target).delete("dist/provider.mjs");
+  assert.equal(boundarySafety(missing).nativeAllocationBoundary === undefined, true,
+    "native incoming cannot substitute the logical declaration for missing physical executable bytes");
+  const harmful = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+  harmful.get(target).set("dist/provider.mjs", safetyFile('import "../test/helpers/native-ownership-cost.mjs";', false));
+  assert.equal(boundarySafety(harmful).nativeAllocationBoundary === undefined, true,
+    "native incoming still traces the actual physical executable to the restricted writer");
+});
+
 test("QRC-14: declared missing dependencies and unresolved installed exports reach the actual authored resolver", () => {
   const cases = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(field =>
     ["missing-installation", "missing-export", "declared-export"].flatMap(state =>
@@ -2323,7 +2418,7 @@ test("QRC-14: declared missing dependencies and unresolved installed exports rea
     const files = new Map([...inputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
     const packages = [...files].filter(([path]) => posix.basename(path) === "package.json")
       .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
-    const exposures = createKeelPackageExposures(packages, files, path => path);
+    const exposures = createKeelPackageExposures(packages, files);
     assert.equal(exposures.knownPackage(`${root}/src/index.ts`, name), true,
       `${field} ${state} ${exposure}: the original declaration remains known even when no installed graph node or declaration snapshot exists`);
     const selected = exposures.authoredModule(`${root}/src/index.ts`, { module: true, specifier: name });
