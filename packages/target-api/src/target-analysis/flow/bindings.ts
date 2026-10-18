@@ -3,6 +3,8 @@ import type { SourceFlowConstruction, SourceFlowContext } from "./construction.j
 import { SourceFlowFailure } from "./resources.js";
 import { sourceFlowUnwrap } from "./syntax.js";
 import type { SourceFlowOperation } from "./model.js";
+import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
+import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 
 const bindingKinds: ReadonlySet<string> = new Set(["KindVariableDeclaration", "KindBindingElement", "KindParameter",
   "KindFunctionDeclaration", "KindFunctionExpression", "KindClassDeclaration", "KindClassExpression", "KindEnumDeclaration"]);
@@ -20,7 +22,7 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
   if (ast.is.IsIdentifier(node)) {
     const binding = sourceFlowBinding(build, node);
     if (binding === undefined) throw new SourceFlowFailure("Source flow requires the checked binding of a write.", node);
-    return build.emit(node, { kind: "write", binding, value,
+    return build.emit(node, { kind: "write", binding, reference: node, value: sourceFlowWriteValue(build, node, value),
       initialization: initialization && ast.variableDeclarationKind(binding) !== "var" }, next, context);
   }
   if (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
@@ -37,7 +39,7 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
       if (ast.variableDeclarationKind(node) === "var") return next;
       return build.emit(node, { kind: "declare", binding: node }, next, context);
     }
-    const initialized = Object.freeze({ expression: initializer, projection: Object.freeze([]) });
+    const initialized = Object.freeze({ kind: "value" as const, expression: initializer, projection: Object.freeze([]) });
     const write = build.pattern(name, next, context, true, initialized);
     if (ast.is.IsVariableDeclaration(node)) return build.expression(initializer, write, context);
     const branch = build.point(node, { kind: "branch" });
@@ -49,13 +51,13 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
     const element = ast.as.AsBindingElement(node);
     const name = ast.name(node);
     if (name === undefined) throw new SourceFlowFailure("Source flow requires a checked destructuring binding.", node);
-    const projected = value === undefined ? undefined : Object.freeze({ expression: value.expression,
+    const projected = value === undefined ? undefined : Object.freeze({ ...value,
       projection: Object.freeze([...value.projection, node]) });
     let entry = build.pattern(name, next, context, initialization, projected);
     if (element?.Initializer !== undefined) {
       const branch = build.point(node, { kind: "branch" });
       const assigned = build.pattern(name, next, context, initialization,
-        Object.freeze({ expression: element.Initializer, projection: Object.freeze([]) }));
+        Object.freeze({ kind: "value", expression: element.Initializer, projection: Object.freeze([]) }));
       build.edge(branch, build.expression(element.Initializer, assigned, context), "default");
       build.edge(branch, entry, "present");
       entry = branch;
@@ -83,7 +85,7 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
       const target = ast.is.IsSpreadElement(element) ? ast.as.AsSpreadElement(element)?.Expression : element;
       if (target !== undefined) entry = build.emit(element, { kind: "evaluate" },
         build.pattern(target, entry, context, initialization, value === undefined ? undefined :
-          Object.freeze({ expression: value.expression, projection: Object.freeze([...value.projection, element]) })), context, true);
+          Object.freeze({ ...value, projection: Object.freeze([...value.projection, element]) })), context, true);
     }
     return entry;
   }
@@ -105,7 +107,7 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
         if (name !== undefined && initializer !== undefined) {
           const branch = build.point(property, { kind: "branch" });
           const assigned = build.pattern(name, entry, context, initialization,
-            Object.freeze({ expression: initializer, projection: Object.freeze([]) }));
+            Object.freeze({ kind: "value", expression: initializer, projection: Object.freeze([]) }));
           build.edge(branch, build.expression(initializer, assigned, context), "default");
           build.edge(branch, build.pattern(name, entry, context, initialization, projectedValue(property)), "present");
           entry = branch;
@@ -123,7 +125,7 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
     const binary = ast.as.AsBinaryExpression(node);
     if (binary?.Left === undefined || binary.Right === undefined) throw new SourceFlowFailure("Source flow requires both pattern operands.", node);
     const write = build.pattern(binary.Left, next, context, initialization,
-      Object.freeze({ expression: binary.Right, projection: Object.freeze([]) }));
+      Object.freeze({ kind: "value", expression: binary.Right, projection: Object.freeze([]) }));
     const branch = build.point(node, { kind: "branch" });
     build.edge(branch, build.expression(binary.Right, write, context), "default");
     build.edge(branch, build.pattern(binary.Left, next, context, initialization, value), "present");
@@ -131,15 +133,31 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
   }
   if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
     if (value === undefined) throw new SourceFlowFailure("Source location assignment requires its original incoming value.", node);
-    const write = build.emit(node, { kind: "write-location", location: node, value }, next, context, true);
+    const write = build.emit(node, { kind: "write-location", location: node,
+      value: sourceFlowWriteValue(build, node, value) }, next, context, true);
     return sourceFlowReference(build, node, write, context, false);
   }
   throw new SourceFlowFailure(`Source flow does not support the checked assignment pattern ${ast.kindName(node)}.`, node);
 
   function projectedValue(part: Node) {
-    return value === undefined ? undefined : Object.freeze({ expression: value.expression,
+    return value === undefined ? undefined : Object.freeze({ ...value,
       projection: Object.freeze([...value.projection, part]) });
   }
+}
+
+export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
+  value: SourceBindingWriteValue): SourceBindingWriteValue;
+export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
+  value: SourceBindingWriteValue | undefined): SourceBindingWriteValue | undefined;
+export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
+  value: SourceBindingWriteValue | undefined): SourceBindingWriteValue | undefined {
+  if (value === undefined) return undefined;
+  const selected = sourceBindingWriteAtReference(build.source.ast, reference)?.values.find(candidate =>
+    candidate.kind === value.kind && candidate.expression === value.expression &&
+    candidate.projection.length === value.projection.length &&
+    candidate.projection.every((part, index) => part === value.projection[index]));
+  if (selected === undefined) throw new SourceFlowFailure("Source flow requires the identical original checked write value and projection.", reference);
+  return selected;
 }
 
 export function sourceFlowReference(build: SourceFlowConstruction, node: Node, next: number,

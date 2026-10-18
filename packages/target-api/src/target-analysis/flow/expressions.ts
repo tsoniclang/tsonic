@@ -3,7 +3,7 @@ import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/i
 import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
-import { sourceFlowBinding, sourceFlowReference } from "./bindings.js";
+import { sourceFlowBinding, sourceFlowReference, sourceFlowWriteValue } from "./bindings.js";
 import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
 import { sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { SourceFlowFailure } from "./resources.js";
@@ -62,9 +62,11 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
     const operator = ast.operatorKindName(node);
     if (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") {
       const binding = ast.is.IsIdentifier(operand) ? sourceFlowBinding(build, operand) : undefined;
+      const value = sourceFlowWriteValue(build, operand, { kind: "value", expression: node, projection: [] });
       const write = build.emit(node, binding === undefined
-        ? { kind: "write-location", location: operand, value: { expression: node, projection: [] } }
-        : { kind: "write", binding, initialization: false, value: { expression: node, projection: [] } }, next, context, binding === undefined);
+        ? { kind: "write-location", location: operand, value }
+        : { kind: "write", binding, reference: operand, initialization: false,
+            value }, next, context, binding === undefined);
       return sourceFlowReference(build, operand, write, context, true);
     }
     return build.expression(operand, build.emit(node, { kind: "evaluate" }, next, context,
@@ -190,13 +192,14 @@ function binary(build: SourceFlowConstruction, node: Node, next: number, context
   const operator = ast.operatorKindName(node) ?? "";
   if (assignments.has(operator)) {
     if (ast.is.IsArrayLiteralExpression(left) || ast.is.IsObjectLiteralExpression(left)) {
-      return build.expression(right, build.pattern(left, next, context, false, { expression: right, projection: [] }), context);
+      return build.expression(right, build.pattern(left, next, context, false, { kind: "value", expression: right, projection: [] }), context);
     }
     const binding = ast.is.IsIdentifier(left) ? sourceFlowBinding(build, left) : undefined;
-    const assignedValue = { expression: operator === "KindEqualsToken" || operator === "KindAmpersandAmpersandEqualsToken" ||
-      operator === "KindBarBarEqualsToken" || operator === "KindQuestionQuestionEqualsToken" ? right : node, projection: [] };
+    const assignedValue = sourceFlowWriteValue(build, left, { kind: "value", expression: operator === "KindEqualsToken" ||
+      operator === "KindAmpersandAmpersandEqualsToken" || operator === "KindBarBarEqualsToken" ||
+      operator === "KindQuestionQuestionEqualsToken" ? right : node, projection: [] });
     const write = build.emit(node, binding === undefined ? { kind: "write-location", location: left, value: assignedValue }
-      : { kind: "write", binding, initialization: false, value: assignedValue }, next, context, binding === undefined);
+      : { kind: "write", binding, reference: left, initialization: false, value: assignedValue }, next, context, binding === undefined);
     let value = build.expression(right, write, context);
     if (operator === "KindAmpersandAmpersandEqualsToken" || operator === "KindBarBarEqualsToken" || operator === "KindQuestionQuestionEqualsToken") {
       const branch = build.point(node, { kind: "branch" });

@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
+import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection,
   SourceStorageQueries } from "../source-storage/model/types.js";
 
@@ -23,9 +24,9 @@ export type SourceFlowOperation =
   | { readonly kind: "dispose"; readonly declaration: Node; readonly asynchronous: boolean }
   | { readonly kind: "scope-exit"; readonly owner: Node }
   | { readonly kind: "write-location"; readonly location: Node;
-      readonly value: { readonly expression: Node; readonly projection: readonly Node[] } }
-  | { readonly kind: "write"; readonly binding: Node; readonly initialization: boolean;
-      readonly value: { readonly expression: Node; readonly projection: readonly Node[] } | undefined };
+      readonly value: SourceBindingWriteValue }
+  | { readonly kind: "write"; readonly binding: Node; readonly reference: Node; readonly initialization: boolean;
+      readonly value: SourceBindingWriteValue | undefined };
 
 export interface SourceFlowPoint {
   readonly id: number;

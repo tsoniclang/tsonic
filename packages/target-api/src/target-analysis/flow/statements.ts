@@ -77,8 +77,8 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
   if (ast.is.IsTryStatement(node)) return tryStatement(build, node, next, context);
   if (ast.is.IsFunctionDeclaration(node)) return sourceFlowClosure(build, node, next, context);
   if (ast.is.IsClassDeclaration(node)) {
-    const write = build.emit(node, { kind: "write", binding: node, initialization: true,
-      value: { expression: node, projection: [] } }, next, context);
+    const write = build.emit(node, { kind: "write", binding: node, reference: node, initialization: true,
+      value: { kind: "value", expression: node, projection: [] } }, next, context);
     return build.expression(node, write, context);
   }
   throw new SourceFlowFailure(`Source flow does not support checked statement ${ast.kindName(node)}.`, node);

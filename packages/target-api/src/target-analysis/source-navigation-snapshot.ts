@@ -82,7 +82,7 @@ export function snapshotTargetPlanningSourceNavigation(
       if (sourceReference !== undefined) {
         rememberDeclaration(sourceReference.declaration);
         const write = sourceBindingWriteAtReference(source.ast, node);
-        if (write !== undefined && sourceReference.symbol !== undefined) {
+        if (write !== undefined && write.kind !== "initialization" && sourceReference.symbol !== undefined) {
           const writes = writesBySymbol.get(sourceReference.symbol) ?? [];
           writes.push(write);
           writesBySymbol.set(sourceReference.symbol, writes);

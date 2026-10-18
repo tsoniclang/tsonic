@@ -150,9 +150,9 @@ export function createSourceStorageTransport(
     const projected = pattern !== undefined && (ast.is.IsArrayBindingPattern(pattern) || ast.is.IsObjectBindingPattern(pattern));
     const binding = selected === undefined || !projected ? undefined : projections.binding(selected);
     if (projected && binding === undefined) return undefined;
-    const value = qualified ? subject(node) : binding ?? subject(target);
+    const value = qualified ? subject(node) : subject(target);
     if (value === undefined) return undefined;
-    if (binding !== undefined) subjects.set(selected!, binding);
+    if (binding !== undefined) connect(binding, subject(selected));
     subjects.set(node, value);
     if (qualified) connect(binding ?? subjectFor(selected), value);
     return value;
@@ -218,6 +218,14 @@ export function createSourceStorageTransport(
       : ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined;
     return subjectFor(selected?.receiver.expression);
   });
+  const writeFor = (node: Node) => storedValues.writeFor(node, projections.writeValue, values => {
+    const selected = [...new Set(values)];
+    if (selected.length === 1) return selected[0];
+    if (selected.length === 0) return undefined;
+    const aggregate = subject(node);
+    for (const value of selected) connect(value, aggregate);
+    return aggregate;
+  });
   const recordThrow = (region: Node, origin: SourceStorageSubject): void => {
     const origins = thrownOrigins.get(region) ?? new Set<SourceStorageSubject>();
     if (origins.has(origin) || !budget.row()) return;
@@ -255,8 +263,12 @@ export function createSourceStorageTransport(
       storedValues.initialize(subject(node), initializer ?? node, original);
     }
     if (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-      const write = storedValues.writeFor(node, subjectFor);
-      if (write !== undefined) storedValues.recordWrite(locationFor(node), write);
+      const write = writeFor(node);
+      if (write !== undefined) {
+        const location = locationFor(node);
+        storedValues.recordWrite(location, write);
+        connect(write.value, location);
+      }
     }
     const parent = ast.parent(node);
     if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
@@ -286,10 +298,6 @@ export function createSourceStorageTransport(
     if (ast.is.IsArrowFunction(node)) {
       const body = ast.as.AsArrowFunction(node)?.Body;
       if (body !== undefined && !ast.is.IsBlock(body)) connect(subjectFor(body), subject(node, "return"));
-    }
-    if (ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindEqualsToken") {
-      const binary = ast.as.AsBinaryExpression(node);
-      if (binary?.Left !== undefined) connect(subjectFor(binary.Right), locationFor(binary.Left));
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
@@ -584,8 +592,9 @@ export function createSourceStorageTransport(
       const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
       if (selected === undefined) return;
-      const write = storedValues.writeFor(access, subjectFor)
-        ?? { reference: access, operation: parent ?? access, reason: "Source storage mutation requires its exact selected value producer." };
+      const write = writeFor(access)
+        ?? { reference: access, operation: parent ?? access, kind: "mutation" as const, values: Object.freeze([]),
+          reason: "Source storage mutation requires its exact selected value producer." };
       const storage = locationFor(access);
       storedValues.recordWrite(storage, write);
       for (const origin of originSubjects(owner) ?? []) {
@@ -869,11 +878,13 @@ export function createSourceStorageTransport(
   const opaqueInvocations = new Set(boundaries.map(boundary => boundary.invocation));
   regions.seal();
   graphQueries.seal();
+  storedValues.publish();
   sealed = true;
   return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
+    writeAt: storedValues.writeAt,
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,

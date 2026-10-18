@@ -207,13 +207,25 @@ test("unsupported delete and iteration producer evidence rejects rather than inv
     const box: { amount?: number } = { amount: 1 };
     delete box.amount;
     let value = 0;
-    for (value of [1, 2]) {}
+    function* entries() { yield 1; yield 2; }
+    for (value of entries()) {}
   `);
   const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node));
   for (const declaration of [property, current.variable("value")]) {
     const selected = current.storage.storageProducersFor(current.subject(declaration));
     assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial producer claim");
   }
+});
+
+test("array iteration retains every checked original element producer instead of the collection itself", async () => {
+  const current = await fixture("storage-producer-original-iteration-elements", `
+    let value = 0;
+    for (value of [1, 2]) {}
+  `);
+  const selected = producers(current.storage.storageProducersFor(current.subject(current.variable("value"))));
+  assert.equal(selected.length === 3 && selected.every(producer => current.source.ast.is.IsNumericLiteral(producer.subject.node)), true,
+    "the original initialization and both exact iteration element producers are preserved");
+  assert.deepEqual(selected.map(producer => current.source.ast.text(producer.subject.node)).sort(), ["0", "1", "2"]);
 });
 
 test("provider-only declarations and external formal members never acquire an authored producer inventory", async () => {

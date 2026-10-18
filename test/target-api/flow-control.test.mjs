@@ -287,6 +287,31 @@ test("flow finally preserves return completion instead of merging it with normal
   assert.equal(reachable(current.graph, current.graph.entry, call(current, "after")[0].id), true);
 });
 
+test("flow writes and the canonical store retain identical original nested default and iterator inputs", async () => {
+  const current = await fixture(`function run(source: { nested?: { value?: object } }, outer: { value?: object },
+    fallback: object, rows: [object?][]) {
+    let { nested: { value = fallback } = outer } = source;
+    ({ nested: { value = fallback } = outer } = source);
+    for (const [iterated = fallback] of rows) void iterated;
+    for ([value = fallback] of rows) void value;
+    return value;
+  }`);
+  const storage = createSourceStorageQuery(current.source, current.source.sourceFiles);
+  const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
+    point.operation.value !== undefined && ["value", "iterated"].includes(current.ast.text(current.ast.name(point.operation.binding))));
+  assert.equal(writes.length, 10, "every original incoming/default/iteration branch has its own exact checked write event");
+  for (const point of writes) {
+    const operation = point.operation;
+    const selected = storage.writeAt(operation.reference, storage.emptyBindings);
+    assert.equal(selected.kind === "resolved" && selected.write.reason === undefined, true,
+      "the actual CFG occurrence has complete canonical source-storage evidence");
+    assert.equal(selected.write.values.some(value => value.source.kind === operation.value.kind &&
+      value.source.expression === operation.value.expression && value.source.projection.length === operation.value.projection.length &&
+      value.source.projection.every((part, index) => part === operation.value.projection[index])), true,
+    "the source store and the same CFG consume identical original expression and full projection, not RHS-node coincidence");
+  }
+});
+
 test("flow return and throw in finally replace the original completion", async () => {
   for (const completion of ["return 2;", "throw 2;"]) {
     const current = await fixture(`function run() { try { return 1; } finally { ${completion} } }`);
