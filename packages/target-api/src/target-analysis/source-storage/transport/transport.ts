@@ -301,6 +301,8 @@ export function createSourceStorageTransport(
       sourceBindingWriteAtReference(ast, node) === undefined) {
       connect(subjectFor(ObjectLiteralProperty_Value(ast, node)), subject(node));
       storedValues.initialize(subject(node), ObjectLiteralProperty_Value(ast, node) ?? node, subjectFor(ObjectLiteralProperty_Value(ast, node)));
+      if (parent !== undefined && ast.is.IsObjectLiteralExpression(parent))
+        connect(subject(node), subject(parent, "value", [{ kind: "member", declaration: node }]));
     }
     if (ast.is.IsArrowFunction(node)) {
       const body = ast.as.AsArrowFunction(node)?.Body;
