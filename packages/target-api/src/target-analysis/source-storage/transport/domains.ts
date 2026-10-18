@@ -247,19 +247,20 @@ export function createSourceStorageDomains(
   };
   const closedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
     if (transport.unresolvedInvocations.has(invocation)) return false;
+    const region = transport.regions.enclosing(invocation);
+    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+    const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
+      : transport.substitutions.ownerScope(bindings, owner);
+    if (activation === undefined) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const selected = transport.invocationImplementationSelection(invocation,
-        origin => transport.substitutions.origins(origin, bindings));
+        origin => transport.substitutions.origins(origin, activation));
       return selected?.exact === true && selected.nodes.size !== 0 &&
         [...selected.nodes].every(declaration => ast.body(declaration) !== undefined);
     }
     if (sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
-    const region = transport.regions.enclosing(invocation);
-    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
-    const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.ownerScope(bindings, owner);
-    if (target === undefined || activation === undefined) return false;
+    if (target === undefined) return false;
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
       subjectFor: transport.subjectFor,
       valuesFor: transport.substitutions.values,

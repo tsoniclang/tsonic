@@ -62,6 +62,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const encode = (term: SourceStorageTerm, invocation = false) => {
     let closed = true;
     const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceWork>>();
+    const encodedKey = (value: Encoded | undefined): SourceStorageKey | undefined => value === undefined ? undefined
+      : value !== null && typeof value === "object" && "kind" in value && value.kind === "key" ? value : encoder.intern(value);
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
@@ -300,7 +302,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return encoder.intern(["reference", scopes.identity(selected.subject)]);
       if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined) {
         const encoded = encodeUncachedTerm(selected);
-        return encoded === undefined ? undefined : encoder.intern(encoded);
+        return encodedKey(encoded);
       }
       const completedSubjects = completedReferences.get(selected.scope);
       const completedEncodings = completedSubjects?.get(selected.subject);
@@ -327,7 +329,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         closed = true;
         try {
           const encoded = encodeUncachedTerm(selected);
-          const key = encoded === undefined ? undefined : encoder.intern(encoded);
+          const key = encodedKey(encoded);
           return key === undefined || budget.failure() !== undefined ? undefined : Object.freeze({ encoded: key, closed });
         } finally {
           delete encodings[selected.kind];

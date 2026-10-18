@@ -177,6 +177,18 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return original !== undefined && original.key === birth(allocation.subject, allocation.scope)?.key ? scope : undefined;
   };
   const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
+    const component = subject.projection[0];
+    const declaration = component !== undefined && sourceStorageIsMemberProjection(component) ? component.declaration : undefined;
+    const memberOwner = declaration === undefined ? undefined : sourceMemberOwner(ast, declaration);
+    if (declaration !== undefined && memberOwner !== undefined &&
+      (ast.is.IsClassDeclaration(memberOwner) || ast.is.IsClassExpression(memberOwner)) &&
+      (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration)) &&
+      ast.hasModifierKind(declaration, "readonly")) {
+      const member = sourceStorageMemberSubject(declaration, ast, transport.subject, subject.projection.slice(1));
+      if (member === undefined) return undefined;
+      return { kind: "replace", terms: [sourceStorageReference(member, scope)],
+        witnesses: [{ subject, bindings: scope, contributes: false }] };
+    }
     const terms: SourceStorageTerm[] = [leaf(subject, scope)];
     const owner = sourceStorageFormalOwner(subject, ast);
     const region = owner === undefined ? undefined : ast.body(owner);
@@ -693,7 +705,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved") {
-        if (transport.isOpaque(term.invocation)) {
+        if (transport.isOpaque(term.invocation) &&
+          (!ast.is.IsVariableDeclaration(node) || Node_Initializer(ast, node) !== undefined)) {
           const result = transport.subject(term.invocation, "value", term.projection);
           return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
             ? [leaf(result, term.scope)] : [], dependencies };
