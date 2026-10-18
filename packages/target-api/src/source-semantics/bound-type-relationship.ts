@@ -123,7 +123,7 @@ export function sourceBoundTypeRelationship(
       if (symbol !== undefined || otherSymbol !== undefined) {
         if (symbol === undefined || otherSymbol === undefined || declaration === undefined ||
           declarations.primarySymbolDeclaration(otherSymbol) !== declaration) return undefined;
-        const relation = types.structuralMembers(right, left);
+        const relation = types.structuralMembers(right, left, "read");
         if (relation.kind !== "available" || relation.members.length !== types.propertyInfos(right).length ||
           relation.source.indexes.length !== relation.destination.indexes.length) return undefined;
         return combine([

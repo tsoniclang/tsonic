@@ -120,7 +120,7 @@ test("virtual structural members transport aliases, fields and cross-file calls 
   const property = source.ast.properties(source.ast.as.AsVariableDeclaration(original).Initializer)[0];
   const record = storage.argumentTransportsFor(invocation(source, file, "record")).arguments[0].formal;
   const semantics = source.semantics.forFile(file);
-  const relation = semantics.types.structuralMembers(storage.typeFor(storage.subjectFor(original).subject).type, storage.typeFor(record).type);
+  const relation = semantics.types.structuralMembers(storage.typeFor(storage.subjectFor(original).subject).type, storage.typeFor(record).type, "read");
   assert.equal(relation.kind === "available" && relation.members.length === 1 && relation.members[0].kind === "present", true, "exact checked field correspondence");
   const field = storage.subjects.find(subject => subject.node === relation.members[0].destination.declarations[0]);
   assert.equal(field !== undefined, true, "checked structural relation interns the selected provider field");

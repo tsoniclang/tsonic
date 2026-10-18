@@ -134,7 +134,7 @@ export interface SourceFinalTypeQueries {
   ): SourceContextualTupleLiteralSelection;
   refinement(declaredType: Type, selectedType: Type): SourceTypeRefinement;
   relationship(left: Type, right: Type): SourceTypeRelationship;
-  structuralMembers(source: Type, destination: Type): import("./structural-members.js").SourceStructuralMemberCorrespondence;
+  structuralMembers(source: Type, destination: Type, purpose: "read" | "storage"): import("./structural-members.js").SourceStructuralMemberCorrespondence;
   standardTransformation(
     authoredTypeNode: Node,
     selectedType: Type,

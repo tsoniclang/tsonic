@@ -4,6 +4,7 @@ import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageMemberSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -22,25 +23,30 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       readonly classes: readonly SourceStorageClassValue<SourceStorageScope>[]; readonly complete: boolean;
     }[] | undefined;
   }) {
-  return (receiver: SourceStorageReference, target: Node, receiverType: Type): SourceStoragePhysicalMembers | undefined => {
+  return (receiver: SourceStorageReference, target: Node, receiverType: Type,
+    mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {
     const { ast, navigation, semantics } = source;
+    const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
+      : !ast.is.IsGetAccessorDeclaration(declaration);
     const allocation = receiver.subject.node;
     const construction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
       navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
         ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
     if (!construction) {
-      const declarations = transport.memberFlow.declarationsFor(receiver.subject, target, receiverType);
+      const declarations = transport.memberFlow.declarationsFor(queries.symbolic(receiver) ? view : receiver.subject,
+        target, receiverType);
       if (declarations === undefined) return { kind: "unresolved", reason: "Source storage members require exact checked correspondence." };
       const members: SourceStorageScopedSubject[] = [];
       for (const declaration of declarations) {
         if (!budget.step()) return undefined;
+        if (!admits(declaration)) continue;
         const subject = sourceStorageMemberSubject(declaration, ast, transport.subject);
         if (subject === undefined) return undefined;
         members.push(Object.freeze({ subject, bindings: receiver.scope }));
       }
-      const optional = queries.symbolic(receiver) && transport.memberFlow.membersFor(receiver.subject, receiverType)?.some(member =>
-        member.kind === "present" && member.destination.declarations.includes(target) && member.source.property.optional) === true;
-      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
+      if (declarations.length > 0 && members.length === 0) return { kind: "unresolved",
+        reason: "Source storage correspondence does not provide the actual checked member operation mode." };
+      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 };
     }
     const owner = sourceMemberOwner(ast, target);
     const selected = semantics.forNode(allocation);
@@ -78,8 +84,11 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
             sourceMemberOwner(ast, member) === captured.subject.node);
           if (physical.length === 0) continue;
           if (unknown) return { kind: "unresolved", reason: "A physical source member requires its complete actual override correspondence." };
+          if (!physical.some(admits)) return { kind: "unresolved",
+            reason: "A physical source member does not provide the actual checked member operation mode." };
           for (const member of physical) {
             if (!budget.step()) return undefined;
+            if (!admits(member)) continue;
             const subject = sourceStorageMemberSubject(member, ast, transport.subject);
             if (subject === undefined) return undefined;
             if (!members.some(previous => previous.subject === subject && previous.bindings === captured.bindings))

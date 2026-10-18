@@ -936,6 +936,83 @@ for (const reversed of [false, true]) for (const copied of [false, true]) {
   });
 }
 
+test("parameter object rest retains its fresh allocation and the original selected component", async () => {
+  const { ast, nodes, storage, declaration, source } = await fixture("parameter-object-rest-original-storage", `
+    export function read({ first, ...rest }: { first: number; second: number }): number {
+      const alias = rest;
+      const selected = rest.second;
+      return first + selected;
+    }
+    const original = { first: 3, second: 4 };
+    const result = read(original);
+  `);
+  const owner = declaration("read");
+  const parameter = ast.parameters(owner)[0];
+  const rest = ast.elements(ast.name(parameter)).find(node => node !== undefined &&
+    ast.is.IsBindingElement(node) && ast.as.AsBindingElement(node).DotDotDotToken !== undefined);
+  assert.equal(rest !== undefined, true, "the original checked rest element owns a fresh aggregate");
+  const root = resolved(storage.subjectFor(rest)).subject;
+  const bindings = resolved(storage.bindingsForDeclaration(owner)).bindings;
+  const input = resolved(storage.subject(parameter, "input")).subject;
+  const inputDomain = storage.closedOriginsFor(input, bindings);
+  assert.equal(inputDomain.kind === "open" && inputDomain.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "the original caller-owned aggregate remains external rather than inheriting its fresh rest allocation");
+  const variable = name => nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+  for (const node of [rest, variable("alias")]) {
+    const value = storage.closedOriginsFor(resolved(storage.subjectFor(node)).subject, bindings);
+    assert.equal(value.kind === "complete" && value.origins.length === 1 && value.origins[0].subject === root, true,
+      "an unknown external parameter does not replace the identity of its checked fresh rest allocation");
+  }
+  const type = resolved(storage.typeFor(root));
+  const properties = source.semantics.forFile(type.sourceFile).types.propertyInfos(type.type);
+  assert.equal(properties.length === 1 && properties[0].name === "second", true,
+    "the fresh aggregate excludes the destructured key without losing its actual checked component");
+  const selected = resolved(storage.subjectFor(variable("selected"))).subject;
+  const external = storage.closedOriginsFor(selected, bindings);
+  assert.equal(external.kind === "open" && external.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "fresh rest identity does not prove the contents of an external caller's original input");
+  const invocation = ast.as.AsVariableDeclaration(variable("result")).Initializer;
+  const actual = resolved(storage.bindingsForInvocation(owner, invocation, storage.emptyBindings)).bindings;
+  const value = storage.closedOriginsFor(selected, actual);
+  assert.equal(value.kind === "complete" && value.origins.length === 1 &&
+    ast.is.IsNumericLiteral(value.origins[0].subject.node) && ast.text(value.origins[0].subject.node) === "4", true,
+  "a real checked caller supplies the original second component, not the omitted first component or the container");
+  assert.equal(storage.failureReason() === undefined, true, "the same canonical allocation and component relation remain bounded");
+});
+
+test("parameter rest own writes preserve the caller aggregate and reject a foreign rest origin", async () => {
+  const text = `
+    const initial = {}; const replacement = {};
+    function copy({ first, ...rest }: { first: number; second: {} }) {
+      const alias = rest;
+      alias.second = replacement;
+      return rest;
+    }
+    const original = { first: 3, second: initial };
+    const copied = copy(original);
+    const selected = copied.second;
+    const untouched = original.second;
+    export {};
+  `;
+  const { ast, nodes, storage } = await fixture("parameter-rest-own-write", text);
+  const variable = name => nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+  const initial = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable("initial")).Initializer)).subject;
+  const replacement = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable("replacement")).Initializer)).subject;
+  const selected = storage.closedOriginsFor(resolved(storage.subjectFor(variable("selected"))).subject);
+  assert.equal(selected.kind === "complete" && selected.origins.length === 2 &&
+    [initial, replacement].every(subject => selected.origins.some(origin => origin.subject === subject)), true,
+  "flow-insensitive rest storage retains its actual snapshot and own replacement, never an unknown caller union");
+  const untouched = storage.closedOriginsFor(resolved(storage.subjectFor(variable("untouched"))).subject);
+  assert.equal(untouched.kind === "complete" && untouched.origins.length === 1 && untouched.origins[0].subject === initial, true,
+    "a fresh rest field mutation cannot write back through its original caller-owned aggregate");
+  const foreign = await fixture("parameter-rest-own-write-foreign", text);
+  const foreignRest = foreign.nodes.find(node => foreign.ast.is.IsBindingElement(node) &&
+    foreign.ast.as.AsBindingElement(node).DotDotDotToken !== undefined);
+  assert.equal(foreignRest !== undefined && storage.subjectFor(foreignRest).kind === "unresolved", true,
+    "another checked program's same-shaped rest cannot supply an original allocation");
+  assert.equal(storage.failureReason() === undefined, true, "a foreign query does not poison this exact rest provenance");
+});
+
 for (const setter of [false, true]) {
   test("an unrelated setter cannot contaminate a checked getter or passive method value: " + setter, async () => {
     const current = await fixture("spread-independent-getter-method-" + setter, `

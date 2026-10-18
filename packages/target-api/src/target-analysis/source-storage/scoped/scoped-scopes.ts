@@ -308,7 +308,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       sourceStorageFormalOwner(origin, source.ast) === scope.owner) return undefined;
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
-    const withInputs = scope.kind === "substitution" && scope.scope.entries.has(root) ? withQueryMemo : withTraversal;
+    const frame = scope.kind === "substitution" ? scope.scope : scope;
+    const withInputs = frame.kind === "frame" && frame.entries.has(root) ? withQueryMemo : withTraversal;
     return withInputs(memo => {
       const selections = memo.lookups.get(scope);
       const retained = selections?.get(origin);

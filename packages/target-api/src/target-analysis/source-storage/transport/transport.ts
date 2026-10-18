@@ -884,7 +884,7 @@ export function createSourceStorageTransport(
     storesIn: storedValues.storesIn,
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
-    sourceFileFor, retainCheckedContext, hasCheckedContext: (node: Node) => checkedSourceFiles.has(node), invocationTargets,
+    sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor,
     accessorTargets, invocationInputs, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,

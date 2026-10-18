@@ -42,7 +42,8 @@ test("recursive structural Error flow retains selected generic property types ev
   const semantics = { sourceFile: file,
     declarations: { declaredValueType: node => node === roots[0] ? outer[0] : node === roots[1] ? outer[1] : undefined },
     types: { expressionType: () => undefined, isUnion: () => false, isTuple: () => false, isArrayLike: () => false,
-      structuralMembers: (from, to) => {
+      structuralMembers: (from, to, purpose) => {
+      assert.equal(purpose, "storage");
       queries += 1;
       if (from === outer[0] && to === outer[1]) return { kind: "available", members: [member(fields[0], fields[1], inner[0], inner[1])] };
       assert.equal(from === inner[0] && to === inner[1], true, "exact selected inner types");

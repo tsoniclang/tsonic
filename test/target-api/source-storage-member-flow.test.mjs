@@ -18,7 +18,8 @@ function fixture(relation, limits = {}, context = () => true) {
         IsIdentifier: node => node.kind === "identifier" } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to) => {
+      types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to, purpose) => {
+        assert.equal(purpose, "storage");
         calls.push({ file, from, to });
         return relation(file, from, to);
       } },

@@ -40,9 +40,11 @@ const output = outer(left, right);
 `);
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, [file], budget);
-  const parent = transport.substitutions.forInvocation(declaration("outer"), call("outer"), transport.substitutions.empty, transport.substitutions.empty);
+  const parent = transport.substitutions.forInvocation(declaration("outer"), call("outer"), transport.substitutions.empty,
+    transport.substitutions.empty, transport.invocationTargets.get(call("outer")));
   assert.equal(parent !== undefined, true, "complete selected outer invocation");
-  const selected = transport.substitutions.forInvocation(declaration("consume"), call("consume"), parent, parent);
+  const selected = transport.substitutions.forInvocation(declaration("consume"), call("consume"), parent, parent,
+    transport.invocationTargets.get(call("consume")));
   assert.equal(selected !== undefined, true, "complete selected consumer invocation");
   const formal = transport.subject(source.ast.parameters(declaration("consume"))[0], "input");
   const binding = transport.substitutions.selection(formal, selected);

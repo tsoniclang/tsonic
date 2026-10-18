@@ -312,9 +312,14 @@ export function createSourceStorageDomains(
     return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
+    const bindings = transport.substitutions.forLexicalOwner(subject.node);
+    if (bindings === undefined) {
+      budget.reject("Source storage publication requires its completed original lexical creation bindings.");
+      return;
+    }
     const frontier = externalEntry || subject.kind === "value" && ast.is.IsIdentifier(subject.node);
-    const selected = !frontier ? transport.substitutions.provenance(subject, transport.substitutions.empty)
-      : transport.substitutions.walk(subject, transport.substitutions.empty, current => {
+    const selected = !frontier ? transport.substitutions.provenance(subject, bindings)
+      : transport.substitutions.walk(subject, bindings, current => {
       if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
         const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
         const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
@@ -333,7 +338,9 @@ export function createSourceStorageDomains(
     initialize();
     const selected = transport.substitutions.walk(subject, bindings, current => {
       if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
-      return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input");
+      const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
+      return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
+        (boundary.owner === undefined || stores === undefined));
     });
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),

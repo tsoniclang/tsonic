@@ -74,7 +74,8 @@ test("instance initializers and accessor writes/reads share the exact execution-
   const calls = [...current.transport.regions.invocationsIn(initializer) ?? []];
   assert.equal(calls.length === 1 && calls[0] === initializer, true, "initializer calls execute in the initializer region itself");
   const construction = current.transport.visitedNodes.find(ast.is.IsNewExpression);
-  assert.equal(current.transport.regions.instance(construction).some(region => region.node === initializer), true);
+  const instance = current.transport.regions.instance(construction);
+  assert.equal(instance?.exact === true && instance.regions.some(region => region.node === initializer), true);
   const file = ast.getSourceFile(field);
   const moduleInvocations = [...current.transport.regions.invocationsIn(file) ?? []];
   assert.equal(moduleInvocations.length === 4, true, "construction, RHS call, getter and setter all have original source identities");
@@ -90,13 +91,13 @@ test("execution index reservations reject atomically and cannot resume after con
   const invocation = [...current.transport.invocations][0];
   const file = current.source.ast.getSourceFile(invocation);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
-  const regions = createSourceStorageExecutionRegions(current.source, budget);
+  const regions = createSourceStorageExecutionRegions(current.source, budget, current.transport.constructionLineagesFor);
   assert.equal(regions.enclosing(invocation) === file, true, "one row is retained by the canonical lexical cache");
   regions.recordInvocation(invocation);
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(regions.invocationsIn(file) === undefined, true, "no partial region-to-invocation index is published");
   const sealedBudget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const sealed = createSourceStorageExecutionRegions(current.source, sealedBudget);
+  const sealed = createSourceStorageExecutionRegions(current.source, sealedBudget, current.transport.constructionLineagesFor);
   sealed.recordInvocation(invocation);
   sealed.recordInvocation(invocation);
   assert.equal([...sealed.invocationsIn(file)].length === 1, true, "repeated evidence is indexed once");

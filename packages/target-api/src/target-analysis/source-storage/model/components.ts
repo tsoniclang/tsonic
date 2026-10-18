@@ -66,7 +66,7 @@ export function sourceStorageOriginalComponents(
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
-    const correspondence = semantics.types.structuralMembers(from, to);
+    const correspondence = semantics.types.structuralMembers(from, to, "read");
     if (correspondence.kind !== "available") return [];
     return correspondence.members.flatMap(member => member.kind === "present" &&
       (component.kind === "method-value" ? member.destination.read === "method"
@@ -112,14 +112,16 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
     selected = sourceStorageReceiverType(source, value.node, semantics);
   } else {
     const name = source.ast.name(value.node);
-    const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
+    const bindingContainer = name !== undefined && (source.ast.is.IsVariableDeclaration(value.node) ||
+      source.ast.is.IsParameterDeclaration(value.node)) &&
       (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
     const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
     const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
       value.kind === "value" && source.ast.is.IsIdentifier(value.node);
     selected = bindingContainer ? containerType !== undefined ? semantics.types.authoredType(containerType)
-        : initializer === undefined ? undefined : semantics.types.expressionType(initializer)
+        : initializer !== undefined ? semantics.types.expressionType(initializer)
+          : source.ast.is.IsParameterDeclaration(value.node) ? semantics.types.expressionType(value.node) : undefined
       : expressionValue ? semantics.types.expressionType(value.node)
         : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
   }

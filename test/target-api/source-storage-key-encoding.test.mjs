@@ -59,6 +59,7 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
     } };
   const owner = { parameters: [...parameters] };
   const source = { ast: { parent: node => parameters.has(node) ? owner : undefined,
+    parameters: node => node === owner ? owner.parameters : [],
     is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
     as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } } };
   const keys = createSourceStorageScopedKeys(source, current, {

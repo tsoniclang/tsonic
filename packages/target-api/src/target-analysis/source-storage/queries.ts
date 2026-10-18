@@ -40,7 +40,7 @@ export function createSourceStorageQuery(
       if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
       declarations = new Set(transport.visitedNodes);
     }
-    if (!declarations.has(node)) return transport.hasCheckedContext(node);
+    if (!declarations.has(node)) return false;
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
   };

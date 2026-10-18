@@ -243,7 +243,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       ] : sourceStorageAccessDeclarations(source, access, "read")?.map(target => ({ target, read: true }));
     const declarations = selections?.map(selection => selection.target);
     const receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
-    if (receiverType === undefined || declarations === undefined || declarations.length === 0) {
+    const receiverView = term.selection.kind === "projection" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
+    if (receiverType === undefined || receiverView === undefined || declarations === undefined || declarations.length === 0) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
     if (term.receiver.kind !== "leaf") {
@@ -290,7 +291,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     for (const { target, read } of selections ?? []) {
       if (!budget.step()) return undefined;
       if (target === undefined) continue;
-      const members = physicalMembers(term.receiver, target, receiverType);
+      const members = physicalMembers(term.receiver, target, receiverType, read ? "read" : "write", receiverView);
       if (members === undefined) return undefined;
       if (members.kind === "pending") continue;
       if (members.kind === "unresolved") {
@@ -304,7 +305,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (!budget.step()) return undefined;
         const getter = ast.is.IsGetAccessorDeclaration(member.subject.node);
         const setter = ast.is.IsSetAccessorDeclaration(member.subject.node);
-        if (read && setter || !read && getter || term.mode === "execution" && !getter && !setter) continue;
+        if (term.mode === "execution" && !getter && !setter) continue;
         if (!originals.some(previous => previous.subject === member.subject && previous.bindings === member.bindings)) originals.push(member);
       }
     }
