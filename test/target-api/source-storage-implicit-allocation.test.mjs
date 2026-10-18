@@ -148,7 +148,14 @@ test("implicit constructor classification requires exact selected parameter decl
         call(call) { return call === invocation ? changed : scope.operations.call(call); } } };
     } } };
   });
-  open(current, "created", "opaque-result");
+  const selected = current.selection("created");
+  const reason = "Source storage argument transport requires the original checked selected signature parameter identity.";
+  assert.equal(selected.kind === "unresolved" && selected.reason === reason, true,
+    "a forged selected parameter identity is refused, never an open allocation certificate");
+  assert.equal(current.storage.boundaries.length === 1 &&
+    current.storage.boundaries[0].kind === "unresolved-transport" &&
+    current.storage.boundaries[0].invocation === current.initializer("created") &&
+    current.storage.boundaries[0].reason === reason, true, "one exact forged-metadata boundary");
 });
 
 test("foreign and externally selected constructors do not acquire source allocation ownership", async () => {

@@ -256,16 +256,18 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return Object.freeze({ kind: "replace", terms: Object.freeze(terms), initialization: entry.initialization });
   };
+  const variableIncludesOwner = (variable: SourceStorageVariable, owner: Node): boolean => {
+    let lexical = variable.capture === undefined ? variable.owner : source.ast.parent(variable.owner);
+    while (lexical !== undefined && lexical !== owner) {
+      if (!budget.step()) return false;
+      lexical = source.ast.parent(lexical);
+    }
+    return lexical === owner;
+  };
   const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageScopeBinding | undefined => {
     const owner = sourceStorageFormalOwner(origin, source.ast);
-    if (owner === undefined) return undefined;
-    let lexical = variable.capture === undefined ? variable.owner : source.ast.parent(variable.owner);
-    while (lexical !== undefined && lexical !== owner) {
-      if (!budget.step()) return undefined;
-      lexical = source.ast.parent(lexical);
-    }
-    if (lexical !== owner) return undefined;
+    if (owner === undefined || !variableIncludesOwner(variable, owner)) return undefined;
     const initial = entryInputFor(origin, variable);
     if (initial === undefined) return Object.freeze({ kind: "expand", variable });
     if (!retain(1)) return undefined;
@@ -416,7 +418,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (retained !== undefined) return retained ?? undefined;
     let selected: SourceStorageScope | undefined;
     for (const current of traverse(scope)) {
-      if (current.scope.owner !== owner) continue;
+      if (current.scope.owner !== owner && (current.scope.kind !== "variable" ||
+        current.scope.capture === undefined || !variableIncludesOwner(current.scope, owner))) continue;
       selected = current.scope;
       for (let path = current.path; path !== undefined; path = path.parent) {
         if (!budget.step() || selected === undefined) return undefined;

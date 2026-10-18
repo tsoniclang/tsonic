@@ -250,7 +250,7 @@ export function createSourceStorageDomains(
     const region = transport.regions.enclosing(invocation);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
     const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.ownerScope(bindings, owner);
+      : transport.substitutions.ownerScope(bindings, owner) ?? transport.substitutions.forLexicalOwner(invocation);
     if (activation === undefined) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const selected = transport.invocationImplementationSelection(invocation,

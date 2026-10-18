@@ -80,7 +80,7 @@ test("an empty substitution preserves a populated scope without traversing its b
 });
 
 test("context traversal reserves only its live frontier while interned binding evidence retains its own rows", () => {
-  const current = fixture({ maximumTransportRows: 80, maximumSteps: 4096 });
+  const current = fixture({ maximumTransportRows: 88, maximumSteps: 4096 });
   const { scopes, keys, budget } = current;
   const parent = scopes.frameFor(current.outer, {}, scopes.empty, scopes.empty);
   assert.equal(parent !== undefined, true, "exact initial parent binding");
@@ -101,10 +101,28 @@ test("context traversal reserves only its live frontier while interned binding e
   assert.equal(budget.failure() === undefined, true, "cumulative temporary allocations do not masquerade as retained memory");
   let retained = 0;
   while (budget.row()) retained += 1;
-  assert.equal(retained === 62, true,
-    "ten identity rows, six frame/entry/actual rows and two unified context-footprint rows remain charged");
+  assert.equal(retained === 8, true,
+    "80 retained rows: 10 identity + 6 frame/entry/actual + 2 footprint + 51 completed subject-index + 8 key-grammar + 3 completed-reference");
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(scopes.frameFor(current.inner, invocation, parent, parent) === undefined, true, "release never clears a failed owner");
+});
+
+test("the same complete context refuses its real encoding peak at an 80-row ceiling", () => {
+  const current = fixture({ maximumTransportRows: 80, maximumSteps: 4096 });
+  const { scopes, keys, budget } = current;
+  const parent = scopes.frameFor(current.outer, {}, scopes.empty, scopes.empty);
+  assert.equal(parent !== undefined, true, "exact initial parent binding");
+  const original = scopes.frameFor(current.inner, {}, parent, parent);
+  assert.equal(original !== undefined, true, "the frame fits before its canonical key is encoded");
+  const selected = scopes.lookup(current.subject(current.innerParameter, "input"), original);
+  const inherited = scopes.lookup(current.formal, selected.terms[0].scope);
+  assert.equal(selected.terms[0].subject === current.nodes[0] && inherited.terms[0].subject === current.input, true,
+    "the same exact enclosing input remains available before encoding");
+  assert.equal(keys.encode(sourceStorageReference(current.nodes[0], parent)) === undefined, true,
+    "the encoding's actual live peak refuses without publishing partial evidence");
+  assert.match(budget.failure(), /transport-row/u);
+  assert.equal(scopes.frameFor(current.inner, {}, parent, parent) === undefined, true,
+    "a failed encoding cannot publish another context");
 });
 
 test("an individually oversized context and exhausted work fail closed without certifying an empty invocation", () => {

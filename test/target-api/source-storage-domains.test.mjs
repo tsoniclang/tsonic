@@ -831,6 +831,23 @@ test("abstract external receivers remain open while selected concrete overrides 
       "the checked concrete invocation selects only its exact override");
   }
   const alias = current.storage.invocationImplementationsFor(current.initializer("aliased"), current.storage.emptyBindings);
-  assert.equal(alias.kind === "resolved" && alias.nodes.length === 2 && methods.every(method => alias.nodes.includes(method)), true,
-    "a receiver-unbound alias conservatively retains both observed native contracts, never just the last structural source");
+  assert.equal(alias.kind === "resolved" && alias.exact === true && alias.nodes.length === 1 &&
+    alias.nodes[0] === methods[0] && !alias.nodes.includes(methods[1]), true,
+    "the immutable First receiver retains exactly its own override, never the last unrelated Second source");
+  const unknown = await fixture("storage-domain-unknown-method-alias", `
+    abstract class Base { abstract value(): number; }
+    class First extends Base { override value(): number { return 1; } }
+    class Second extends Base { override value(): number { return 2; } }
+    export function pick(owner: Base): number { const alias = owner.value; return alias(); }
+  `);
+  const pick = namedDeclaration(unknown.source.ast, unknown.file, "pick");
+  const call = requiredNode(unknown.source.ast, pick, node => unknown.source.ast.is.IsCallExpression(node));
+  const implementation = unknown.storage.invocationImplementationsFor(call, unknown.storage.emptyBindings);
+  assert.equal(implementation.kind === "resolved" && !implementation.exact && implementation.nodes.length === 0, true,
+    "a genuinely unknown receiver does not certify any observed concrete override");
+  const selectedAlias = unknown.storage.storageProducersFor(unknown.subject(unknown.variable("alias")));
+  assert.equal(selectedAlias.kind === "open" && selectedAlias.boundaries.length === 1 &&
+    selectedAlias.boundaries[0].kind === "external-input", true, "unknown alias stays open for its exact external-input reason");
+  assert.equal(unknown.storage.failureReason() === undefined, true,
+    "an admitted open external input is not a transport refusal");
 });
