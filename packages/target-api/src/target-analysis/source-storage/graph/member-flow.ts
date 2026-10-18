@@ -122,8 +122,6 @@ export function createSourceStorageMemberFlow(
     } else {
       const index = selectedIndex(owner, destinationType);
       if (index === noMembers) return Object.freeze([]);
-      if (index?.members.some(member => member.kind === "absent" && member.destination.declarations.includes(declaration)))
-        return Object.freeze([]);
       declarations = index?.declarations.get(declaration);
     }
     if (declarations === undefined || declarations.length === 0) return undefined;

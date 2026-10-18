@@ -11,9 +11,9 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 
 type SourceStoragePhysicalMembers =
-  | { readonly kind: "known"; readonly members: readonly SourceStorageScopedSubject[]; readonly absent: boolean }
-  | { readonly kind: "pending" }
-  | { readonly kind: "unresolved"; readonly reason: string };
+  | { readonly kind: "known"; readonly members: readonly SourceStorageScopedSubject[]; readonly absent: boolean;
+      readonly reason?: string }
+  | { readonly kind: "pending" };
 
 export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: {
@@ -28,6 +28,8 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     const { ast, navigation, semantics } = source;
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
       : !ast.is.IsGetAccessorDeclaration(declaration);
+    const unresolved = (reason: string): SourceStoragePhysicalMembers =>
+      ({ kind: "known", members: Object.freeze([]), absent: false, reason });
     const allocation = receiver.subject.node;
     const construction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
       navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
@@ -36,7 +38,11 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
       const declarations = transport.memberFlow.declarationsFor(selectedView, target, receiverType);
-      if (declarations === undefined) return { kind: "unresolved", reason: "Source storage members require exact checked correspondence." };
+      const correspondence = symbolic || declarations === undefined
+        ? transport.memberFlow.membersFor(selectedView, receiverType) : undefined;
+      if (declarations === undefined) return correspondence?.some(member => member.kind === "absent" &&
+        member.destination.declarations.includes(target)) === true ? { kind: "known", members: Object.freeze([]), absent: true }
+        : unresolved("Source storage members require exact checked correspondence.");
       const members: SourceStorageScopedSubject[] = [];
       for (const declaration of declarations) {
         if (!budget.step()) return undefined;
@@ -45,11 +51,10 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         if (subject === undefined) return undefined;
         members.push(Object.freeze({ subject, bindings: receiver.scope }));
       }
-      if (declarations.length > 0 && members.length === 0) return { kind: "unresolved",
-        reason: "Source storage correspondence does not provide the actual checked member operation mode." };
-      const correspondence = symbolic ? transport.memberFlow.membersFor(selectedView, receiverType) : undefined;
-      if (symbolic && correspondence === undefined) return { kind: "unresolved",
-        reason: "A symbolic source member requires its exact checked presence correspondence." };
+      if (declarations.length > 0 && members.length === 0)
+        return unresolved("Source storage correspondence does not provide the actual checked member operation mode.");
+      if (symbolic && correspondence === undefined)
+        return unresolved("Source storage members require exact checked correspondence.");
       const optional = correspondence?.some(member => member.kind === "present" &&
         member.destination.declarations.includes(target) && member.source.property.optional) === true;
       return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
@@ -59,24 +64,27 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
       : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
     const operand = transport.invocationTargets.get(allocation);
-    if (contract === undefined || operand === undefined) return { kind: "unresolved",
-      reason: "Source storage members require their checked construction contract." };
+    if (contract === undefined || operand === undefined)
+      return unresolved("Source storage members require their checked construction contract.");
     const values = queries.read(sourceStorageReference(operand, receiver.scope));
     if (values === undefined) return undefined;
     const members: SourceStorageScopedSubject[] = [];
     let absent = false;
     let completed = false;
+    let reason: string | undefined;
     for (const value of values) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") return { kind: "unresolved", reason: value.reason };
+      if (value.kind === "unresolved") { reason ??= value.reason; continue; }
       if (value.kind !== "leaf") continue;
       const lineages = queries.lineages(value);
       if (lineages === undefined) return undefined;
       for (const lineage of lineages) {
         if (!budget.step()) return undefined;
         const root = lineage.classes[0];
-        if (!lineage.complete || root === undefined) return { kind: "unresolved",
-          reason: "Source storage members require their complete actual class lineage." };
+        if (!lineage.complete || root === undefined) {
+          reason ??= "Source storage members require exact checked correspondence.";
+          continue;
+        }
         let found = false;
         let knownAbsent = false;
         let unknown = false;
@@ -89,9 +97,12 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
           const physical = declarations.filter(member => !ast.hasModifierKind(member, "static") &&
             sourceMemberOwner(ast, member) === captured.subject.node);
           if (physical.length === 0) continue;
-          if (unknown) return { kind: "unresolved", reason: "A physical source member requires its complete actual override correspondence." };
-          if (!physical.some(admits)) return { kind: "unresolved",
-            reason: "A physical source member does not provide the actual checked member operation mode." };
+          if (unknown) { reason ??= "Source storage members require exact checked correspondence."; break; }
+          if (!physical.some(admits)) {
+            reason ??= "A physical source member does not provide the actual checked member operation mode.";
+            unknown = true;
+            break;
+          }
           for (const member of physical) {
             if (!budget.step()) return undefined;
             if (!admits(member)) continue;
@@ -103,12 +114,14 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
           found = true;
           break;
         }
-        if (!found && (unknown || !knownAbsent)) return { kind: "unresolved",
-          reason: "A physical source member requires its complete actual class correspondence." };
+        if (!found && (unknown || !knownAbsent)) {
+          reason ??= "Source storage members require exact checked correspondence.";
+          continue;
+        }
         completed = true;
         absent ||= !found;
       }
     }
-    return completed ? { kind: "known", members: Object.freeze(members), absent } : { kind: "pending" };
+    return completed || reason !== undefined ? { kind: "known", members: Object.freeze(members), absent, reason } : { kind: "pending" };
   };
 }

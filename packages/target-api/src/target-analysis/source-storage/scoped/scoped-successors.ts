@@ -294,11 +294,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const members = physicalMembers(term.receiver, target, receiverType, read ? "read" : "write", receiverView);
       if (members === undefined) return undefined;
       if (members.kind === "pending") continue;
-      if (members.kind === "unresolved") {
+      if (members.reason !== undefined) {
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind === "projection" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
-        return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject,
-          scope: term.scope, reason: members.reason })] };
+        if (subject === undefined) return undefined;
+        terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
       }
       if (members.absent) terms.push(Object.freeze({ kind: "empty", absence: term.receiver }));
       for (const member of members.members) {
@@ -744,7 +744,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return { kind: "project", inputs: values, select: value => sourceStorageInitializedValue(source, budget, scopes, term,
         sourceStorageReference(fallback, term.scope), value) };
     }
-    if (term.subject.kind === "value" && term.subject.projection.length !== 0 &&
+    const stores = term.subject.kind === "value" || term.subject.kind === "member" ? transport.storedValuesFor(term.subject) : undefined;
+    const storedBinding = stores !== undefined && term.subject.kind === "value" &&
+      (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node));
+    if (!storedBinding && term.subject.kind === "value" && term.subject.projection.length !== 0 &&
       (ast.is.IsVariableDeclaration(node) || ast.is.IsIdentifier(node) || ast.is.IsBindingElement(node))) {
       const root = transport.subject(node, term.subject.kind);
       return root === undefined ? undefined : materializeChild(sourceStorageReference(root, term.scope), value => {
@@ -754,7 +757,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const memberIndex = term.subject.projection.findIndex(sourceStorageIsMemberProjection);
     const component = term.subject.projection[memberIndex];
-    if (component !== undefined && sourceStorageIsMemberProjection(component)) {
+    if (!storedBinding && component !== undefined && sourceStorageIsMemberProjection(component)) {
       const receiver = transport.subject(node, term.subject.kind, term.subject.projection.slice(0, memberIndex));
       if (receiver === undefined) return undefined;
       return { kind: "replace", terms: [Object.freeze({ kind: "member",
@@ -788,7 +791,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const target = transport.invocationTargets.get(node);
       if (target !== undefined) return { kind: "replace", terms: [application(node, target, term.scope, term.subject.projection, { mode: "value" })] };
     }
-    const stores = term.subject.kind === "value" || term.subject.kind === "member" ? transport.storedValuesFor(term.subject) : undefined;
     if (stores !== undefined) {
       const terms: SourceStorageTerm[] = [];
       for (const input of transport.incomingFor(term.subject)) {

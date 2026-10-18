@@ -201,9 +201,9 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
       if (!budget.step()) return undefined;
       if (result.kind === "unresolved") terms.push(result);
       else if (result.kind === "leaf" && result.subject === selected)
-        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
+        terms.push(result, Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
       else if (result.kind === "effect" && result.store.region === demand)
-        terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
+        terms.push(result, Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
     }
     return budget.failure() === undefined ? Object.freeze(terms) : undefined;
   };

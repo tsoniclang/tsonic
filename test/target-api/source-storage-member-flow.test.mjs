@@ -4,8 +4,12 @@ import { createSourceStorageMemberFlow } from "../../packages/target-api/dist/ta
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const subject = type => ({ node: { type }, kind: "value", projection: [] });
+const member = (declarations, optional = false) => ({
+  property: { symbol: {}, rootSymbols: [], name: "checked-member", type: {}, optional, readonly: false },
+  declarations, getters: [], setters: [], read: "property",
+});
 const present = (destination, originals) => ({ kind: "present",
-  destination: { declarations: destination }, source: { declarations: originals } });
+  destination: member(destination), source: member(originals) });
 
 function fixture(relation, limits = {}, context = () => true) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -20,7 +24,10 @@ function fixture(relation, limits = {}, context = () => true) {
       declarations: { declaredValueType: node => node.type },
       types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to) => {
         calls.push({ file, from, to });
-        return relation(file, from, to);
+        const selected = relation(file, from, to);
+        return selected.kind !== "available" ? selected : { ...selected,
+          source: { type: from, calls: [], constructs: [], indexes: [] },
+          destination: { type: to, calls: [], constructs: [], indexes: [] } };
       } },
     }) },
   };
@@ -87,7 +94,7 @@ test("member indexes preserve exact order, optional absence, duplicates and decl
   const absent = {};
   const input = fixture(() => ({ kind: "available", members: [
     present([first, second], [original, original]),
-    { kind: "absent", destination: { declarations: [absent] } },
+    { kind: "absent", destination: member([absent], true) },
     present([first], [another, original]),
   ] }));
   const owner = subject({});
@@ -175,7 +182,7 @@ test("cached member correspondence cannot bypass selected checked-context reject
 test("direct member selection and recursive domain traversal consume one immutable indexed checked relationship", () => {
   const target = {}; const optional = {}; const original = {};
   const matched = present([target], [original]);
-  const absent = { kind: "absent", destination: { declarations: [optional] } };
+  const absent = { kind: "absent", destination: member([optional], true) };
   const members = [matched, absent];
   const input = fixture(() => ({ kind: "available", members }));
   const owner = subject({});
@@ -193,7 +200,7 @@ test("direct member selection and recursive domain traversal consume one immutab
 
 test("optional-only member inventories reserve every retained relationship before copying or publishing their index", () => {
   const input = fixture(() => ({ kind: "available", members: Array.from({ length: 20 }, () =>
-    ({ kind: "absent", destination: { declarations: [{}] } })) }), { maximumTransportRows: 8 });
+    ({ kind: "absent", destination: member([{}], true) })) }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.equal(input.flow.membersFor(owner, destination) === undefined, true);
   assert.equal(input.budget.failure() === "Source storage rows require a live owner and a finite positive reservation.", true,
@@ -205,12 +212,12 @@ test("optional-only member inventories reserve every retained relationship befor
 test("throwing member construction releases its unpublished rows before a complete bounded retry", () => {
   const declaration = {}; const original = {};
   let fail = true;
-  const sourceMember = { get declarations() {
+  const sourceMember = { ...member([]), get declarations() {
     if (fail) { fail = false; throw new Error("incomplete member evidence"); }
     return [original];
   } };
   const input = fixture(() => ({ kind: "available", members: [{ kind: "present",
-    destination: { declarations: [declaration] }, source: sourceMember }] }), { maximumTransportRows: 8 });
+    destination: member([declaration]), source: sourceMember }] }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.throws(() => input.flow.declarationsFor(owner, declaration, destination), /incomplete member evidence/);
   assert.equal(input.budget.failure() === undefined, true, "an exception is not a fabricated budget failure");

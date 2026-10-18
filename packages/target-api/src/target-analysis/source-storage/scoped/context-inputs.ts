@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, sourceLexicalCaptures } from "../../../source-navigation/index.js";
+import { Node_Expression, sourceLexicalCaptures } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -36,12 +36,19 @@ export function createSourceStorageContextInputs(
     if (cached !== undefined) return cached;
     const { ast, navigation, semantics } = source;
     const node = origin.node;
+    if ((origin.kind === "input" || origin.kind === "receiver") && origin.projection.length !== 0) {
+      const owner = queries.subject(node, origin.kind);
+      if (owner === undefined || !budget.row()) return undefined;
+      const inputs = new Set([owner]);
+      selections.set(origin, inputs);
+      return inputs;
+    }
     const invocation = queries.isInvocation(node);
     const access = origin.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
     const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
     if (access && member === undefined) return undefined;
-    const incoming = invocation || access || ast.is.IsBindingElement(node) ? undefined : queries.incomingFor(origin);
+    const incoming = invocation || access ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
     try {
@@ -54,14 +61,6 @@ export function createSourceStorageContextInputs(
         const receiver = queries.subjectFor(member.receiver.expression);
         if (receiver === undefined) return undefined;
         add(receiver);
-      }
-      if (ast.is.IsBindingElement(node)) {
-        const pattern = ast.parent(node);
-        const owner = pattern === undefined ? undefined : ast.parent(pattern);
-        const binding = queries.subjectFor(owner);
-        if (binding === undefined) return undefined;
-        add(binding);
-        add(queries.subjectFor(Node_Initializer(ast, node)));
       }
       if (origin.kind === "value" && origin.projection.length === 0) {
         if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {

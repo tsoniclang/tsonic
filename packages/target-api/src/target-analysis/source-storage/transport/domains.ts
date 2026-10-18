@@ -265,7 +265,8 @@ export function createSourceStorageDomains(
       valuesFor: transport.substitutions.values,
       nativeConstructorsFor: transport.nativeConstructorsFor,
     });
-    return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete);
+    return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete &&
+      lineage.classes.length !== 0 && lineage.classes.every(value => navigation.isProjectDeclaration(value.subject.node)));
   };
   const selectedMembers = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     const bound = transport.substitutions.selection(owner, bindings);
@@ -273,6 +274,10 @@ export function createSourceStorageDomains(
     const file = transport.sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (type === undefined) return undefined;
+    const component = subject.projection[0];
+    const target = component !== undefined && (component.kind === "member" || component.kind === "method-value")
+      ? component.declaration : subject.node;
+    const remaining = target === subject.node ? [] : subject.projection.slice(1);
     return budget.withRows(rows => {
       const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
       const pending = bound.map(input => ({ ...input, type }));
@@ -293,12 +298,17 @@ export function createSourceStorageDomains(
         for (const member of members ?? []) {
           if (!budget.step()) return undefined;
           if (member.kind !== "present") continue;
-          const matches = member.destination.declarations.includes(subject.node);
+          const matches = member.destination.declarations.includes(target);
           for (const declaration of member.source.declarations) {
             if (!budget.step() || !transport.retainCheckedContext(declaration, file)) return undefined;
             const original = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (original === undefined) continue;
-            if (matches) result.push({ subject: original, bindings: current.bindings });
+            if (matches) {
+              const projected = remaining.length === 0 ? original : transport.subject(original.node, original.kind,
+                [...original.projection, ...remaining]);
+              if (projected === undefined) return undefined;
+              result.push({ subject: projected, bindings: current.bindings });
+            }
             else pending.push({ subject: original, bindings: current.bindings, type: member.destination.property.type });
           }
         }

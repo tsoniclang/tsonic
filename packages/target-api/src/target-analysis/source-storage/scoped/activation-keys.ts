@@ -65,7 +65,7 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
     if (rootActivation === undefined) {
-      if (!rows.add(2)) return undefined;
+      if (!budget.step() || !rows.add(2)) return undefined;
       rootActivation = Object.freeze({ key: "root", variable: undefined, closed: true,
         owner: undefined, creation: Object.freeze([]), invocation: undefined, parent: undefined });
     }
