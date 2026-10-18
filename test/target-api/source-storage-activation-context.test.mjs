@@ -42,6 +42,12 @@ function resolved(selection) {
   return selection;
 }
 
+function callsIdentifier(ast, node, name) {
+  if (!ast.is.IsCallExpression(node)) return false;
+  const callee = ast.as.AsCallExpression(node).Expression;
+  return ast.is.IsIdentifier(callee) && ast.text(callee) === name;
+}
+
 for (const rejectedFirst of [false, true]) {
   test("bound creation queries retain their actual caller independently of a rejected source rest transport: " + rejectedFirst, async () => {
     const current = await fixture("bound-creation-local-rejection-" + rejectedFirst, `
@@ -95,7 +101,7 @@ test("argument closure frontier retains its caller's symbolic enclosing activati
   `);
   const owner = declaration("scoped");
   const callee = declaration("source");
-  const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "source");
+  const invocation = nodes.find(node => callsIdentifier(ast, node, "source"));
   const arrow = nodes.find(node => ast.is.IsArrowFunction(node));
   const independent = resolved(storage.bindingsForInvocation(callee, invocation)).bindings;
   resolved(storage.boundValueFrontierFor(subject(ast.parameters(callee)[0], "input"), independent, []));
@@ -247,7 +253,7 @@ for (const recursive of [false, true]) {
     assert.equal(producer !== undefined, true, "the actual source callback has its retained creation bindings");
     const resolver = subject(ast.parameters(entryNode)[0], "input");
     for (const owner of recursive ? [declaration("deliver"), declaration("bounce")] : [declaration("deliver")]) {
-      const callee = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback" &&
+      const callee = nodes.find(node => callsIdentifier(ast, node, "callback") &&
         storage.enclosingRegionFor(node) === ast.body(owner));
       const operand = resolved(storage.subjectFor(ast.as.AsCallExpression(callee).Expression)).subject;
       const value = resolved(storage.subjectFor(ast.arguments(callee)[0])).subject;
@@ -291,10 +297,10 @@ test("explicit callback entry preserves an annotated returned executor's real cr
     const first = make(7); const second = make("second");
   `);
   const arrow = nodes.find(node => ast.is.IsArrowFunction(node));
-  const invoked = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "resolve");
+  const invoked = nodes.find(node => callsIdentifier(ast, node, "resolve"));
   const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(invoked).Expression)).subject;
   const argument = resolved(storage.subjectFor(ast.arguments(invoked)[0])).subject;
-  const creations = nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "make");
+  const creations = nodes.filter(node => callsIdentifier(ast, node, "make"));
   const selectedBindings = [];
   for (const creation of creations) {
     const subject = resolved(storage.subjectFor(creation)).subject;
@@ -501,8 +507,7 @@ for (const reversed of [false, true]) {
     const unscoped = resolved(storage.originSubjectsFor(formal));
     assert.equal(unscoped.subjects.length === 1 && unscoped.subjects[0].node === original, true,
       "the selected overload and the source-body parameter share the exact original callable");
-    const invocations = nodes.filter(node => ast.is.IsCallExpression(node) &&
-      ast.text(ast.as.AsCallExpression(node).Expression) === "use");
+    const invocations = nodes.filter(node => callsIdentifier(ast, node, "use"));
     for (const invocation of reversed ? [...invocations].reverse() : invocations) {
       const selected = source.semantics.forNode(invocation).operations.call(invocation);
       assert.equal(source.semantics.forNode(invocation).declarations.signatureDeclaration(selected.selectedSignature) !== implementation, true,
@@ -563,7 +568,7 @@ for (const overloaded of [false, true]) for (const form of ["undefined", "option
     const { ast, nodes, storage } = current;
     const owner = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "use" && ast.body(node) !== undefined);
     const formal = resolved(storage.subject(ast.parameters(owner)[0], "input")).subject;
-    const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "use");
+    const invocation = nodes.find(node => callsIdentifier(ast, node, "use"));
     const bindings = resolved(storage.bindingsForInvocation(owner, invocation)).bindings;
     const expected = current.declaration(form === "optional-present" ? "replacement" : "fallback");
     const selected = storage.storageProducersFor(formal, bindings);
@@ -572,7 +577,7 @@ for (const overloaded of [false, true]) for (const form of ["undefined", "option
     const global = resolved(storage.originSubjectsFor(formal));
     assert.equal(global.subjects.every(subject => ast.is.IsFunctionDeclaration(subject.node)), true,
       "raw undefined transport is not an implementation input, including through a selected overload contract");
-    const callbackCall = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+    const callbackCall = nodes.find(node => callsIdentifier(ast, node, "callback"));
     const implementations = resolved(storage.invocationImplementationsFor(callbackCall, bindings));
     assert.equal(implementations.exact && implementations.nodes.length === 1 && implementations.nodes[0] === expected, true,
       "exact scoped execution agrees with initialized storage rather than mixing raw actual/default bodies");
@@ -1125,7 +1130,15 @@ test("writes to a copied getter result are writes to its new own field, not to t
   assert.equal(invocations.length === 2 && invocations.every(node => ast.is.IsSpreadAssignment(node) ||
     ast.is.IsPropertyAccessExpression(node) && ast.text(ast.as.AsPropertyAccessExpression(node).Expression) === "original"), true,
   "later copied-field reads/calls never execute the original getter");
-  const call = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "copied.read");
+  const call = nodes.find(node => {
+    if (!ast.is.IsCallExpression(node)) return false;
+    const callee = ast.as.AsCallExpression(node).Expression;
+    if (!ast.is.IsPropertyAccessExpression(callee)) return false;
+    const access = ast.as.AsPropertyAccessExpression(callee);
+    return ast.is.IsIdentifier(access.Expression) && ast.text(access.Expression) === "copied" &&
+      ast.is.IsIdentifier(access.Name) && ast.text(access.Name) === "read";
+  });
+  assert.equal(call !== undefined, true, "the original checked copied-field invocation exists");
   const implementations = resolved(storage.invocationImplementationsFor(call));
   assert.equal(implementations.exact && implementations.nodes.length === 2 && arrows.every(arrow => implementations.nodes.includes(arrow)), true,
     "the original accessor result and actual own-field write remain discoverable before source execution SCCs seal");
@@ -1254,7 +1267,7 @@ for (const timing of ["synchronous", "unknown", "none"]) for (const reversed of 
     });
     const { ast, nodes, storage, declaration } = current;
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.is.IsReturnStatement(ast.parent(node)));
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
     const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
     const produced = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
@@ -1326,9 +1339,8 @@ for (const reversed of [false, true]) for (const timing of ["synchronous", "defe
       }
     `, timing === undefined ? undefined : nativeContract(timing, [0, 1]));
     const { source, ast, nodes, storage, declaration } = current;
-    const native = nodes.find(node => ast.is.IsCallExpression(node) &&
-      ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const native = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(native));
     const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
@@ -1398,7 +1410,7 @@ test("source/native recursion closes in the existing finite callback equations",
     }
   `, nativeContract("synchronous"));
   const { ast, nodes, storage, declaration } = current;
-  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+  const use = nodes.find(node => callsIdentifier(ast, node, "callback"));
   const entryNode = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parameters(node).length === 1);
   const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
   const domain = storage.storageProducersFor(resolved(storage.subjectFor(entryNode)).subject, outer);
@@ -1431,8 +1443,8 @@ test("deferred callbacks retain captured locations rather than registration-time
     }
   `, nativeContract("deferred"));
   const { ast, nodes, storage, declaration } = current;
-  const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
-  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const invocation = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
+  const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
   const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(invocation));
   const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
   const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
@@ -1459,9 +1471,9 @@ test("a deferred store is not applied inline to an immediate native-owner read",
     run();
   `, nativeContract("deferred"));
   const { ast, nodes, storage, declaration } = current;
-  const read = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const read = nodes.find(node => callsIdentifier(ast, node, "observe"));
   const subject = resolved(storage.subjectFor(ast.arguments(read)[0])).subject;
-  const entry = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "run");
+  const entry = nodes.find(node => callsIdentifier(ast, node, "run"));
   const bindings = resolved(storage.bindingsForInvocation(declaration("run"), entry)).bindings;
   const origins = storage.storageProducersFor(subject, bindings);
   assert.equal(origins.kind, "complete", "the actual immediate invocation read has a closed scoped value domain");
@@ -1493,7 +1505,7 @@ for (const [name, parameters, used, inputs] of [
       } };
     });
     const { ast, nodes, storage, declaration } = current;
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) !== ast.body(callback));
     const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
@@ -1578,7 +1590,7 @@ for (const actual of ["present", "absent", "external"]) {
       } };
     });
     const { ast, nodes, storage, declaration } = current;
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node));
     const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
     const entry = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
@@ -1594,7 +1606,7 @@ for (const actual of ["present", "absent", "external"]) {
         : ast.as.AsParameterDeclaration(ast.parameters(declaration("deliver"))[0]).Initializer;
       assert.equal(selected.kind === "open" && selected.producers.length === 1 && selected.producers[0].subject.node === expected, true,
         "only the actual present argument or the actual checked absence chooses this value");
-      const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+      const invocation = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
       assert.equal(selected.boundaries.length, actual === "present" ? 2 : 1, "the complete set of genuine exposures is retained");
       assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === invocation), true,
         "synchronous callback metadata does not promise preservation of its actual input array");
@@ -1640,7 +1652,7 @@ test("native initialized inputs are complete with actual preserved storage and a
   const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "actual");
   const entry = storage.storageProducersFor(resolved(storage.subjectFor(execute)).subject);
   assert.equal(entry.kind === "complete" && entry.producers.length === 1, true, "one closed actual executor creation");
-  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
   const executions = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
     declaration("deliver"), entry.producers[0]);
   assert.equal(executions.kind === "complete" && executions.producers.length === 1, true, "one same-creation actual native callback execution");
@@ -1703,8 +1715,8 @@ for (const [name, definition, usesElement, values = "[value]"] of [
       } };
     });
     const { ast, nodes, storage, declaration } = current;
-    const native = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const native = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node));
     const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
     const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
@@ -1756,7 +1768,7 @@ for (const forwarded of [false, true]) for (const reversed of [false, true]) {
     const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
     assert.equal(domain.kind, "complete", "the actual entry creation is complete");
     assert.equal(domain.producers.length, 1, "one checked executor creation");
-    const uses = nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const uses = nodes.filter(node => callsIdentifier(ast, node, "observe"));
     assert.equal(uses.length, 2, "both original callback bodies are retained");
     for (const use of reversed ? [...uses].reverse() : uses) {
       const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
@@ -1803,7 +1815,7 @@ for (const mapped of [false, true]) for (const invoked of [false, true]) for (co
     const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
     assert.equal(domain.kind, "complete", "the actual executor creation is closed");
     assert.equal(domain.producers.length, 1, "one canonical creation binding");
-    const uses = nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const uses = nodes.filter(node => callsIdentifier(ast, node, "observe"));
     for (const use of reversed ? [...uses].reverse() : uses) {
       const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
       const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
@@ -1816,7 +1828,7 @@ for (const mapped of [false, true]) for (const invoked of [false, true]) for (co
       if (selected.kind === "open") {
         assert.equal(selected.boundaries.length > 0, true, "zero known producers must retain an explicit frontier");
         assert.equal(selected.boundaries.every(boundary => boundary.kind === "unclassified-exposure" &&
-          ast.text(ast.as.AsCallExpression(boundary.exposure).Expression) === "nativeInvoke"), true,
+          callsIdentifier(ast, boundary.exposure, "nativeInvoke")), true,
         "the actual native input invocation owns the local uncertainty");
       }
     }
@@ -1849,7 +1861,7 @@ for (const shape of ["direct", "spread", "nested-spread", "field", "getter-resul
           ] } : {}) }] : undefined;
       } };
     });
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const owner = nodes.find(node => ast.body(node) === storage.enclosingRegionFor(use));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parent(node) !== undefined &&
       ast.is.IsReturnStatement(ast.parent(node)) && ast.parent(ast.parent(node)) === ast.body(declaration("create")));
@@ -1902,7 +1914,7 @@ for (const sameValue of [false, true]) for (const reversed of [false, true]) {
     });
     const { ast, nodes, storage, declaration } = current;
     const make = declaration("make");
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+    const use = nodes.find(node => callsIdentifier(ast, node, "callback"));
     const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parent(node) !== undefined && ast.is.IsReturnStatement(ast.parent(node)) && node !== owner);
     const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
@@ -1966,10 +1978,10 @@ for (const nativeForward of [false, true]) for (const reversed of [false, true])
     });
     const { ast, nodes, storage, declaration } = current;
     const owner = declaration("send");
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
-    const forwarded = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "send" &&
+    const use = nodes.find(node => callsIdentifier(ast, node, "callback"));
+    const forwarded = nodes.find(node => callsIdentifier(ast, node, "send") &&
       ast.is.IsIdentifier(ast.arguments(node)[1]));
-    const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+    const invocation = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(invocation));
     const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
     const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
@@ -2020,8 +2032,8 @@ test("known helper execution follows the same complete scoped successor traversa
     export function create(value: number) { return () => { send(observe, value); }; }
   `);
   const owner = declaration("send");
-  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
-  const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "send");
+  const use = nodes.find(node => callsIdentifier(ast, node, "callback"));
+  const invocation = nodes.find(node => callsIdentifier(ast, node, "send"));
   const executor = nodes.find(node => ast.is.IsArrowFunction(node));
   const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
   const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
@@ -2051,8 +2063,8 @@ test("a known empty native execution fact does not become unknown or invoke an u
     } };
   });
   const { ast, nodes, storage, declaration } = current;
-  const native = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
-  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const native = nodes.find(node => callsIdentifier(ast, node, "nativeInvoke"));
+  const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
   const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
   const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(native));
   const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
@@ -2162,7 +2174,7 @@ for (const form of ["ordinary", "renamed", "default", "rest"]) for (const revers
       export const first = make(7); export const second = make(11);
     `);
     const { ast, nodes, storage, declaration } = current;
-    const observe = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const observe = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const demanded = resolved(storage.subjectFor(ast.as.AsCallExpression(observe).Expression)).subject;
     const getter = nodes.find(node => ast.is.IsGetAccessorDeclaration(node));
     const argument = resolved(storage.subjectFor(ast.arguments(observe)[0])).subject;
@@ -2210,7 +2222,7 @@ for (const shape of ["class", "inherited", "object"]) for (const mapped of [fals
           ] } : {}) }] : undefined;
       } };
     });
-    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const use = nodes.find(node => callsIdentifier(ast, node, "observe"));
     const owner = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
     const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parent(node) !== undefined &&
       ast.is.IsReturnStatement(ast.parent(node)) && ast.parent(ast.parent(node)) === ast.body(declaration("create")));
@@ -2222,7 +2234,7 @@ for (const shape of ["class", "inherited", "object"]) for (const mapped of [fals
     assert.equal(selected.kind, invoked && !mapped ? "open" : "complete", "uncertainty belongs only to a relevant actual native input");
     assert.equal(selected.producers.length > 0, invoked && mapped, "payload discovery is never a getter invocation license");
     if (selected.kind === "open") assert.equal(selected.boundaries.length > 0 && selected.boundaries.every(boundary =>
-      ast.is.IsCallExpression(boundary.exposure) && ast.text(ast.as.AsCallExpression(boundary.exposure).Expression) === "nativeInvoke"), true,
+      callsIdentifier(ast, boundary.exposure, "nativeInvoke")), true,
     "the real native invocation retains each actual creation frontier");
     assert.equal(storage.failureReason() === undefined, true, "a passive getter cannot poison unrelated source storage");
   });
