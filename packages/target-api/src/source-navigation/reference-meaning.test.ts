@@ -365,3 +365,45 @@ export const value = forwarded(1) + Library.read(2);
   assert.equal(source.navigation.referencesWithin(symbol, library).includes(source.ast.name(declaration)!), false,
     "the actual remote function definition remains indexed only as a definition");
 });
+
+for (const [label, parameterType, body, role, escapes] of [
+  ["returned array spread", "uint8[]", "return [...values];", "value", false],
+  ["local array spread", "uint8[]", "const copied = [...values]; return copied;", "value", false],
+  ["returned object spread", "{ readonly item: number }", "return { ...values };", "value", false],
+  ["returned container identity", "uint8[]", "return values;", "return", true],
+  ["stored container identity", "uint8[]", "return [values];", "storage", true],
+  ["call spread", "uint8[]", "forward(...values);", "value", false],
+  ["construction spread", "uint8[]", "new Container(...values);", "value", false],
+  ["wrapped array spread", "uint8[]", "return [...(values as uint8[])];", "value", false],
+] as const) {
+  test(`spread operand container identity: ${label}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+      "/src/index.ts": `
+type uint8 = number;
+declare function forward(...items: uint8[]): void;
+declare class Container { constructor(...items: uint8[]); }
+export function inspect(values: ${parameterType}) { ${body} }
+`,
+    }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0,
+      formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+    const source = createTargetSourceProgram(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    assert.ok(file !== undefined, label);
+    const declaration = source.ast.statements(file).find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "inspect");
+    assert.ok(declaration !== undefined, label);
+    const parameter = source.ast.parameters(declaration)[0];
+    assert.ok(parameter !== undefined, label);
+    const summary = source.navigation.parameterUseSummary(parameter);
+    assert.ok(summary !== undefined, label);
+    assert.equal(summary.uses.length, 1, label);
+    const use = summary.uses[0]!;
+    assert.equal(use.role, role, label);
+    assert.equal(use.throughMember, false, label);
+    assert.equal(use.captured, false, label);
+    const flow = source.navigation.expressionValueFlow(use.reference);
+    assert.equal(flow.escapes, escapes, label);
+    assert.equal(flow.storedOutsideBinding, role === "storage", label);
+  });
+}
