@@ -33,6 +33,9 @@ export const keelOwnedTargets = Object.freeze({
     })),
     invariantHelpers: [{ file: "src/backend/planner/diagnostics.ts", symbol: "failCsharpPlannerInvariant" }],
     recordReaders: [{
+      file: "src/target-model/records/source-callable-contract.ts",
+      symbol: "CsharpCallableTargetClassifications.entry",
+    }, {
       file: "src/target-model/records/operations.ts",
       symbol: "CsharpTargetOperationClassifications.operatorForm.usesExpectedResultType",
     }],
