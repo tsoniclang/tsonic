@@ -54,6 +54,7 @@ test("child kernel accounting validates every recovery against the original and 
     writeFileSync(resolve(group, "memory.events.local"), `oom_kill ${kills}\n`);
     writeFileSync(resolve(group, "memory.peak"), "123456\n");
     writeFileSync(resolve(group, "cgroup.events"), "populated 0\n");
+    writeFileSync(resolve(group, "cgroup.procs"), "");
     return group;
   };
   const firstGroup = make("task-first", 1);

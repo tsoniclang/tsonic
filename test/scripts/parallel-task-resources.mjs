@@ -1,5 +1,6 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, resolve, sep } from "node:path";
+import { readTaskCgroup } from "./guard-cgroup.mjs";
 
 export function taskTimeoutsFromBaseline(baseline) {
   if (!Array.isArray(baseline.results)) throw new Error("A file timeout baseline requires task results.");
@@ -18,52 +19,45 @@ export function taskTimeoutMilliseconds(task, timeouts = new Map()) {
   return timeouts.get(task.id) ?? 1_800_000;
 }
 
-export function activeWorkspaceReferences(directories, procRoot = "/proc") {
-  const active = new Set();
-  const within = (path, root) => path === root || path.startsWith(`${root}${sep}`);
-  for (const entry of readdirSync(procRoot)) {
-    if (!/^\d+$/u.test(entry) || Number(entry) === process.pid) continue;
-    const root = resolve(procRoot, entry);
-    try {
-      const status = readFileSync(resolve(root, "status"), "utf8");
-      if (Number(status.match(/^Uid:\s+(\d+)/mu)?.[1]) !== process.getuid()) continue;
-      const paths = [readlinkSync(resolve(root, "cwd")), readlinkSync(resolve(root, "exe")),
-        ...readFileSync(resolve(root, "cmdline"), "utf8").split("\0")];
-      for (const directory of directories) {
-        if (paths.some(path => within(path, directory))) active.add(directory);
-      }
-    } catch (error) {
-      if (["ENOENT", "ESRCH"].includes(error.code)) continue;
-      throw error;
-    }
-  }
-  return active;
-}
-
-export function cleanupFinishedCargoTargets(manifestPath, taskGroup, options = {}) {
+export function cleanupFinishedCargoTargets(manifestPath, taskGroup) {
   const result = { removed: [], retained: [], issue: null };
   if (!existsSync(manifestPath)) return result;
-  if (taskGroup?.drained !== true) return { ...result, issue: "Task descendants are not proven drained; Cargo binaries retained." };
   const workspaces = readFileSync(manifestPath, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+  if (taskGroup?.drained !== true || typeof taskGroup.path !== "string") {
+    return { ...result, retained: workspaces.map(entry => ({ directory: entry.directory, reason: "Task descendants are not proven drained." })),
+      issue: "Task descendants are not proven drained; Cargo binaries retained." };
+  }
+  const drain = readTaskCgroup(taskGroup.path);
+  if (!drain.drained) return { ...result, retained: workspaces.map(entry => ({ directory: entry.directory, reason: "Task child is populated or cgroup.procs is nonempty." })),
+    issue: "Task descendants are not proven drained; Cargo binaries retained." };
+  const registered = new Set();
+  const duplicates = new Set();
   for (const entry of workspaces) {
     if (typeof entry.directory !== "string" || !isAbsolute(entry.directory) ||
         !entry.directory.split(sep).some(part => part === ".temp" || part === ".tests") ||
         !/^\d+$/u.test(entry.dev ?? "") || !/^\d+$/u.test(entry.ino ?? "")) throw new Error("Invalid task-owned workspace identity.");
+    if (registered.has(entry.directory)) duplicates.add(entry.directory);
+    registered.add(entry.directory);
   }
-  const active = options.activePaths ?? activeWorkspaceReferences(workspaces.map(entry => entry.directory));
   for (const entry of workspaces) {
     if (!existsSync(entry.directory)) continue;
-    const actual = lstatSync(entry.directory, { bigint: true });
-    if (!actual.isDirectory() || String(actual.dev) !== entry.dev || String(actual.ino) !== entry.ino ||
-        realpathSync(entry.directory) !== entry.directory || active.has(entry.directory)) {
-      result.retained.push(entry.directory);
+    const retain = reason => result.retained.push({ directory: entry.directory, taskId: taskGroup.taskId, reason });
+    if (entry.ownership !== "fresh-task-mkdtemp" || entry.taskId !== taskGroup.taskId ||
+        entry.cgroupPath !== taskGroup.path || duplicates.has(entry.directory)) {
+      retain("Root was not registered as a fresh exclusive workspace for this task.");
       continue;
     }
-    visit(entry.directory);
+    const actual = lstatSync(entry.directory, { bigint: true });
+    if (!actual.isDirectory() || String(actual.dev) !== entry.dev || String(actual.ino) !== entry.ino ||
+        (actual.mode & 0o777n) !== 0o700n || realpathSync(entry.directory) !== entry.directory) {
+      retain("Registered workspace identity or private mode changed.");
+      continue;
+    }
+    visit(entry.directory, entry);
   }
   return result;
 
-  function visit(directory) {
+  function visit(directory, registration) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = resolve(directory, entry.name);
       if (!entry.isDirectory() || entry.name === "node_modules" || entry.name === ".git") continue;
@@ -75,12 +69,29 @@ export function cleanupFinishedCargoTargets(manifestPath, taskGroup, options = {
           for (const leaf of ["deps", "incremental"]) {
             const binary = resolve(profilePath, leaf);
             if (!existsSync(binary) || !lstatSync(binary).isDirectory() || realpathSync(binary) !== binary) continue;
+            const identity = lstatSync(registration.directory, { bigint: true });
+            const currentDrain = readTaskCgroup(taskGroup.path);
+            if (String(identity.dev) !== registration.dev || String(identity.ino) !== registration.ino || !currentDrain.drained) {
+              result.retained.push({ directory: binary, taskId: taskGroup.taskId, reason: "Workspace identity or task drain changed before deletion." });
+              continue;
+            }
+            const allocatedBytesRemoved = allocatedBytes(binary);
+            const startedAt = new Date().toISOString();
             rmSync(binary, { recursive: true });
-            result.removed.push(binary);
+            result.removed.push({ directory: binary, taskId: taskGroup.taskId,
+              workspace: registration.directory, dev: registration.dev, ino: registration.ino,
+              drain: currentDrain, startedAt, endedAt: new Date().toISOString(), allocatedBytesRemoved,
+              netPhysicalBytesFreed: null });
           }
         }
-      } else visit(path);
+      } else visit(path, registration);
     }
+  }
+
+  function allocatedBytes(path) {
+    const stat = lstatSync(path);
+    return stat.blocks * 512 + (stat.isDirectory()
+      ? readdirSync(path).reduce((total, name) => total + allocatedBytes(resolve(path, name)), 0) : 0);
   }
 }
 

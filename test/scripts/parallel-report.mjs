@@ -41,7 +41,7 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
     inventory,
     progress,
     resourceIncidents: results.filter(result => result.attempts !== undefined).map(result => ({
-      id: result.shard.id, kind: "proved-task-oom", recovered: result.status === 0 && result.summary?.completed === true,
+      id: result.shard.id, kind: "proved-task-oom", recovered: result.recovery !== null,
       victimTaskId: result.shard.id, evidencePath: process.env.TSONIC_TEST_OOM_RECOVERY_REPORT ?? null,
       retryResult: { status: result.status, summary: result.summary, resultPath: result.shard.resultPath },
       firstWidth: result.attempts[0].workers, retryWidth: result.workers,

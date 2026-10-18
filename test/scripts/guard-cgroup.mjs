@@ -69,13 +69,16 @@ export function readTaskCgroup(path) {
   const events = fields("memory.events.local");
   const population = fields("cgroup.events");
   const peak = readFileSync(resolve(path, "memory.peak"), "utf8").trim();
+  const processes = readFileSync(resolve(path, "cgroup.procs"), "utf8").trim();
   if (!/^\d+$/u.test(events.oom_kill ?? "") || !/^\d+$/u.test(peak) ||
       !["0", "1"].includes(population.populated) ||
+      (processes !== "" && !/^\d+(?:\s+\d+)*$/u.test(processes)) ||
       !Number.isSafeInteger(Number(events.oom_kill)) || !Number.isSafeInteger(Number(peak))) {
     throw new Error("Invalid exact task cgroup measurements.");
   }
   return { path, oomKills: Number(events.oom_kill), memoryPeakBytes: Number(peak),
-    drained: population.populated === "0", issue: null };
+    populated: Number(population.populated), processIds: processes === "" ? [] : processes.split(/\s+/u),
+    drained: population.populated === "0" && processes === "", observedAt: new Date().toISOString(), issue: null };
 }
 
 export async function drainTaskCgroup(path) {

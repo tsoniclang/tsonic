@@ -119,16 +119,8 @@ async function runShards(allShards) {
     groupWorkerLimits: suiteDefinition.groupWorkerLimits,
   }, runShard);
   for (const result of results) {
-    const first = result.attempts?.[0];
-    if (first !== undefined && result.status === 0 && result.summary?.completed === true &&
-        result.tests.length > 0 && result.cgroup.drained && result.cgroup.oomKills === 0 &&
-        process.env.TSONIC_TEST_OOM_RECOVERY_REPORT !== undefined) {
-      appendFileSync(process.env.TSONIC_TEST_OOM_RECOVERY_REPORT, `${JSON.stringify({
-        task: result.shard.id, firstGroup: first.cgroup.path, retryGroup: result.cgroup.path,
-        retryStatus: result.status, retryCompleted: result.summary.completed, retryTests: result.tests.length,
-        firstLog: first.logPath, retryLog: result.logPath, firstWidth: first.workers, retryWidth: result.workers,
-        firstResultPath: first.shard.resultPath, retryResultPath: result.shard.resultPath,
-      })}\n`);
+    if (result.recovery !== undefined && result.recovery !== null && process.env.TSONIC_TEST_OOM_RECOVERY_REPORT !== undefined) {
+      appendFileSync(process.env.TSONIC_TEST_OOM_RECOVERY_REPORT, `${JSON.stringify(result.recovery)}\n`);
     }
   }
   return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
@@ -150,6 +142,9 @@ function runShard(shard, attempt, workers) {
     taskEnvironment.TSONIC_TEST_WORKSPACE_MANIFEST = workspaceManifest;
     const timeoutMs = taskTimeoutMilliseconds(shard, timeouts);
     const taskGroup = createTaskCgroup(process.env.TSONIC_TEST_TASK_CGROUP_ROOT, `task-${randomUUID()}`);
+    taskEnvironment.TSONIC_TEST_TASK_ID = shard.id;
+    delete taskEnvironment.TSONIC_TEST_TASK_CGROUP_PATH;
+    if (taskGroup.path !== null) taskEnvironment.TSONIC_TEST_TASK_CGROUP_PATH = taskGroup.path;
     const logStream = createWriteStream(logPath, { flags: "w" });
     writeShardStatus(statusPath, {
       id: shard.id,
@@ -244,7 +239,7 @@ function runShard(shard, attempt, workers) {
       if (attempt === 1) progress.finishShard(shard, normalizedStatus, durationMs);
       logStream.end(() => {
         let cleanup;
-        try { cleanup = cleanupFinishedCargoTargets(workspaceManifest, cgroup); }
+        try { cleanup = cleanupFinishedCargoTargets(workspaceManifest, { ...cgroup, taskId: shard.id }); }
         catch (error) { cleanup = { removed: [], retained: [], issue: error.message }; }
         writeFileSync(resolve(statusRoot, `${shardSafeName}.cleanup.json`), `${JSON.stringify(cleanup, null, 2)}\n`);
         resolveResult({ shard, status: normalizedStatus, signal, durationMs, logPath, statusPath,

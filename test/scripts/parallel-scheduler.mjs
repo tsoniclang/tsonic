@@ -21,7 +21,15 @@ export async function runOomRetryQueue(tasks, options, execute) {
   const byId = new Map(retried.map(result => [result.shard.id, result]));
   return first.map(result => {
     const retry = byId.get(result.shard.id);
-    return retry === undefined ? result : { ...retry, attempts: [result, retry] };
+    if (retry === undefined) return result;
+    const recovery = retry.status === 0 && retry.summary?.completed === true && retry.tests?.length > 0 &&
+      retry.cgroup?.drained === true && retry.cgroup.oomKills === 0 &&
+      typeof result.cgroup.path === "string" && typeof retry.cgroup.path === "string"
+      ? { task: retry.shard.id, firstGroup: result.cgroup.path, retryGroup: retry.cgroup.path,
+        retryStatus: retry.status, retryCompleted: retry.summary.completed, retryTests: retry.tests.length,
+        firstLog: result.logPath, retryLog: retry.logPath, firstWidth: result.workers, retryWidth: retry.workers,
+        firstResultPath: result.shard.resultPath, retryResultPath: retry.shard.resultPath } : null;
+    return { ...retry, attempts: [result, retry], recovery };
   });
 }
 

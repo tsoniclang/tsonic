@@ -15,16 +15,41 @@ test("only individually drained task-owned Cargo binary leaves are pruned, prese
   const workspace = createTestWorkspace(root, "project-");
   const identity = lstatSync(workspace, { bigint: true });
   const manifest = join(root, "task.jsonl");
-  writeFileSync(manifest, `${JSON.stringify({ directory: workspace, dev: String(identity.dev), ino: String(identity.ino) })}\n`);
+  const group = join(root, "task-cgroup");
+  mkdirSync(group);
+  writeFileSync(join(group, "memory.events.local"), "oom_kill 0\n");
+  writeFileSync(join(group, "memory.peak"), "4096\n");
+  writeFileSync(join(group, "cgroup.events"), "populated 0\n");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  const task = { path: group, taskId: "owned-file", drained: true };
+  const registration = { directory: workspace, ownership: "fresh-task-mkdtemp", taskId: task.taskId,
+    cgroupPath: group, dev: String(identity.dev), ino: String(identity.ino) };
+  const register = entries => writeFileSync(manifest, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  register([registration]);
   for (const folder of ["target/debug/deps", "target/debug/incremental", "target/debug/build/native/out", "src"]) mkdirSync(join(workspace, folder), { recursive: true });
   for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(workspace, file), "retained evidence");
-  const waiting = cleanupFinishedCargoTargets(manifest, { drained: false });
+  const waiting = cleanupFinishedCargoTargets(manifest, { ...task, drained: false });
   assert.match(waiting.issue, /not proven drained/u);
   assert.equal(existsSync(join(workspace, "target/debug/deps/native")), true, "an active task keeps its binary");
-  const active = cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set([workspace]) });
-  assert.equal(active.removed.length, 0, "another active consumer keeps the shared target");
-  const finished = cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set() });
+  writeFileSync(join(group, "cgroup.procs"), "12345\n");
+  const active = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(active.removed.length, 0, "a nonempty cgroup.procs keeps the target even with populated zero");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  register([{ ...registration, ino: String(identity.ino + 1n) }]);
+  const changed = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(changed.removed.length, 0, "changed directory identity keeps the binaries");
+  assert.match(changed.retained[0].reason, /identity/u);
+  register([registration, registration]);
+  const reused = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(reused.removed.length, 0, "duplicate ownership cannot authorize deleting a reused root");
+  assert.match(reused.retained[0].reason, /fresh exclusive/u);
+  register([registration]);
+  const finished = cleanupFinishedCargoTargets(manifest, task);
   assert.equal(finished.removed.length, 2, "both finished binary leaves are removed immediately");
+  assert.equal(finished.removed.every(entry => entry.taskId === task.taskId && entry.dev === registration.dev &&
+    entry.ino === registration.ino && entry.drain.drained && entry.drain.processIds.length === 0 &&
+    entry.allocatedBytesRemoved > 0 && entry.netPhysicalBytesFreed === null &&
+    typeof entry.startedAt === "string" && typeof entry.endedAt === "string"), true, "deletions retain exact ownership, drain and honest footprint evidence");
   for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log"]) {
     assert.equal(readFileSync(join(workspace, file), "utf8"), "retained evidence", `${file}: source, configuration and failure evidence survive`);
   }
@@ -32,8 +57,14 @@ test("only individually drained task-owned Cargo binary leaves are pruned, prese
   mkdirSync(join(foreign, "debug/deps"), { recursive: true });
   writeFileSync(join(foreign, "debug/deps/native"), "foreign");
   symlinkSync(foreign, join(workspace, "nested"), "dir");
-  cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set() });
+  cleanupFinishedCargoTargets(manifest, task);
   assert.equal(readFileSync(join(foreign, "debug/deps/native"), "utf8"), "foreign", "a symlink cannot transfer deletion ownership");
+  const unregistered = createTestWorkspace(root, "unregistered-");
+  mkdirSync(join(unregistered, "target/debug/deps"), { recursive: true });
+  writeFileSync(join(unregistered, "Cargo.toml"), "unregistered");
+  writeFileSync(join(unregistered, "target/debug/deps/native"), "unregistered");
+  cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(readFileSync(join(unregistered, "target/debug/deps/native"), "utf8"), "unregistered", "unregistered roots are never traversed");
 });
 
 test("the real runner prunes a finished failing file's Cargo binaries after draining its log and native child", () => {
@@ -60,7 +91,7 @@ test("deliberate completed file failure", () => assert.fail("preserved original 
   assert.equal(run.status, 1, "the completed assertion remains failed, not silently repaired by cleanup");
   const [result] = JSON.parse(readFileSync(report, "utf8")).results;
   assert.equal(result.cgroup.drained, true, "the actual kernel proves the task empty");
-  assert.equal(result.cleanup.issue, null, "the actual process/reference scan completed");
+  assert.equal(result.cleanup.issue, null, "fresh ownership and exact kernel drain authorize cleanup without a global process scan");
   assert.equal(result.cleanup.removed.length, 2, "both generated binary leaves are pruned before the runner returns");
   const project = JSON.parse(readFileSync(record, "utf8"));
   for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log"]) {
