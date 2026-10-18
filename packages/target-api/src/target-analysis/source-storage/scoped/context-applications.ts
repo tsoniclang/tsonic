@@ -35,6 +35,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
   const rows = budget.createRows();
   const bindings = new Map<SourceStorageSubject, Map<Node, Map<Node, ContextBinding>>>();
   const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
+  const projections = new Map<ContextSubject, Map<Node, (value: SourceStorageSubject) => readonly ContextSelection[] | undefined>>();
   const isPort = (subject: SourceStorageSubject): boolean =>
     (subject.kind === "input" || subject.kind === "receiver") && subject.projection.length === 0;
   const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean => subject.kind === "receiver"
@@ -65,9 +66,28 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     }
     return budget.failure() === undefined ? result : undefined;
   };
+  const projectionFor = (current: ContextSubject, candidate: Node, invocation: Node):
+    ((value: SourceStorageSubject) => readonly ContextSelection[] | undefined) | undefined => {
+    const candidates = projections.get(current);
+    const cached = candidates?.get(candidate);
+    if (cached !== undefined) return cached;
+    if (!rows.add(candidates === undefined ? 2 : 1)) return undefined;
+    const projection = current.kind === "binding"
+      ? (value: SourceStorageSubject): readonly ContextSelection[] | undefined => ownsPort(value, candidate)
+        ? instantiate(value, candidate, invocation) : [{ kind: "value", value }]
+      : (value: SourceStorageSubject): readonly ContextSelection[] | undefined => isPort(value)
+        ? instantiate(value, candidate, invocation)
+        : queries.ownerFor(value.node) === candidate ? [{ kind: "value", value: current }] : [];
+    const selected = candidates ?? new Map<Node, typeof projection>();
+    selected.set(candidate, projection);
+    projections.set(current, selected);
+    return projection;
+  };
   const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>((current, _read, emit, forward) => {
-    if (current.kind === "binding") return forward(current.subject, value => ownsPort(value, current.candidate)
-      ? instantiate(value, current.candidate, current.invocation) : [{ kind: "value", value }]);
+    if (current.kind === "binding") {
+      const projection = projectionFor(current, current.candidate, current.invocation);
+      return projection !== undefined && forward(current.subject, projection);
+    }
     if (isPort(current)) return emit(current);
     const location = queries.locationFor(current);
     if (location !== undefined && !emit(current)) return false;
@@ -93,8 +113,8 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
       if (!budget.step()) return false;
       if (source.ast.hasModifierKind(candidate, "async")) continue;
       const result = queries.subject(candidate, "return", current.projection);
-      if (result === undefined || !forward(result, value => isPort(value) ? instantiate(value, candidate, current.node)
-        : queries.ownerFor(value.node) === candidate ? [{ kind: "value", value: current }] : [])) return false;
+      const projection = projectionFor(current, candidate, current.node);
+      if (result === undefined || projection === undefined || !forward(result, projection)) return false;
     }
     return budget.failure() === undefined;
   });

@@ -751,8 +751,16 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       (ast.is.IsVariableDeclaration(node) || ast.is.IsIdentifier(node) || ast.is.IsBindingElement(node))) {
       const root = transport.subject(node, term.subject.kind);
       return root === undefined ? undefined : materializeChild(sourceStorageReference(root, term.scope), value => {
-        const projected = transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, ...term.subject.projection]);
-        return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
+        const from = sourceStorageSubjectType(source, value.subject);
+        const to = sourceStorageSubjectType(source, root);
+        if (from === undefined || to === undefined) return undefined;
+        const selected: SourceStorageTerm[] = [];
+        sourceStorageProjectComponents(value.subject.projection, from, to, term.subject.projection,
+          semantics.forNode(value.subject.node), ast, budget, projection => {
+            const projected = transport.subject(value.subject.node, value.subject.kind, projection);
+            if (projected !== undefined) selected.push(sourceStorageReference(projected, value.scope));
+          });
+        return budget.failure() === undefined ? selected : undefined;
       });
     }
     const memberIndex = term.subject.projection.findIndex(sourceStorageIsMemberProjection);

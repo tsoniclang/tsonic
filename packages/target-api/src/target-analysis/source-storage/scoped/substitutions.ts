@@ -4,6 +4,7 @@ import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
+import type { SourceStorageForwardSelection } from "../graph/graph-queries.js";
 import { createSourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "./scoped-keys.js";
 import { createSourceStorageEquations } from "./scoped-equations.js";
@@ -29,6 +30,7 @@ interface SourceStorageRelation {
   readonly children: Map<SourceStorageRelation, number>;
   witnesses?: Map<SourceStorageScope, Map<SourceStorageSubject, number>>;
   filter?: { readonly reference: Node; readonly input: SourceStorageRelation };
+  projection?: (value: SourceStorageTerm) => readonly SourceStorageForwardSelection<SourceStorageRelation, SourceStorageTerm>[] | undefined;
   complete: boolean;
 }
 
@@ -255,9 +257,16 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     } finally { currentRead = previousRead; }
   });
   const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>((current, read, emit, forward) =>
-    derive(current, read, (relation, direct) => direct ? emit(relation.term) : forward(relation), (input, select) =>
-      forward(input, value => select(value)?.map(relation => relation.term.kind === "leaf" || relation.term.kind === "unresolved"
-        ? { kind: "value", value: relation.term } : { kind: "relation", key: relation }))));
+    derive(current, read, (relation, direct) => direct ? emit(relation.term) : forward(relation), (input, select) => {
+      let projection = current.projection;
+      if (projection === undefined) {
+        if (!rows.add(1)) return false;
+        projection = value => select(value)?.map(relation => relation.term.kind === "leaf" || relation.term.kind === "unresolved"
+          ? { kind: "value", value: relation.term } : { kind: "relation", key: relation });
+        current.projection = projection;
+      }
+      return forward(input, projection);
+    }));
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => withQuery(() => {
     const root = selectRoot(origin, scope);
