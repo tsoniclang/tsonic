@@ -39,11 +39,18 @@ export function keelFixtureGeneration() {
     target, family, id: `${family}/example`, sourceDigest: keelDigest(`${target}/${family}`),
     pins: { tsonic: "a".repeat(40), [target]: "b".repeat(40) },
   })));
-  const samples = programs.map(program => ({
-    ...program, first: new Map([["source.txt", Buffer.from("native source")]]),
-    second: new Map([["source.txt", Buffer.from("native source")]]),
-    firstGuard: keelFixtureGuard({ log: `.temp/test-runs/${program.target}-${program.family}-first.log` }),
-    secondGuard: keelFixtureGuard({ log: `.temp/test-runs/${program.target}-${program.family}-second.log` }),
-  }));
+  const samples = programs.map(program => {
+    const guard = side => {
+      const receipt = keelFixtureGuard();
+      const identity = `${program.target}-${program.family}-${side}`;
+      const unit = `${identity}.scope`;
+      return { ...receipt, log: `.temp/test-runs/${identity}.log`,
+        admission: { ...receipt.admission, unit },
+        measurement: { ...receipt.measurement, controlGroup: `/user.slice/${unit}` } };
+    };
+    return { ...program, first: new Map([["source.txt", Buffer.from("native source")]]),
+      second: new Map([["source.txt", Buffer.from("native source")]]),
+      firstGuard: guard("first"), secondGuard: guard("second") };
+  });
   return { programs, samples };
 }

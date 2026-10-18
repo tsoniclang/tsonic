@@ -14,7 +14,7 @@ if [[ "${1:-}" == "--train" ]]; then
     printf '%s\n' 'A complete previous result is required; the new output directory must not exist.' >&2
     exit 2
   fi
-  node test/scripts/test-results.mjs compare "$previous" "$previous" > /dev/null
+  node test/scripts/test-results.mjs validate-train "$previous"
   mkdir -p "$output"
   host_root="$PWD"
   host_status=0

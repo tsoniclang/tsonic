@@ -1,22 +1,20 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { availableParallelism, cpus } from "node:os";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { spawn } from "node:child_process";
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { readTestResourceBudget, testTaskEnvironment } from "./test-resource-budget.mjs";
 import { runBoundedTestQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
-import { createParallelSuiteDefinition, createRustParallelSuiteDefinition } from "./suite-definition.mjs";
-import { discoverTestFiles } from "./node-test-files.mjs";
+import { selectParallelSuiteDefinition } from "./suite-definition.mjs";
 import { readTaskResourceUsage, timedTaskArguments, trackTaskProcesses } from "./parallel-task-resources.mjs";
-import { readDotnetTestResults, readNodeTestResults } from "./test-results.mjs";
-import {
-  aggregateTestCounts,
-  parseTestCounts,
-} from "./parallel-test-counts.mjs";
+import { readDotnetTestResults, readNodeTestResults, testTaskExecutionIssue } from "./test-results.mjs";
+import { testResultCounts } from "./parallel-test-counts.mjs";
+import { createParallelShardPlan, scopeToRepoKey } from "./parallel-shards.mjs";
+import { requiredParallelPreRuns, runParallelPreRuns } from "./parallel-preruns.mjs";
+import { writeParallelReport } from "./parallel-report.mjs";
 import {
   testRepositoryRoots,
-  tsonicRoot,
+  tsonicRoot, testPath, testTaskName,
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
@@ -48,21 +46,17 @@ const env = {
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
 };
 
-const rustOnly = options.scopes.has("tsonic-rust");
-if (rustOnly && options.scopes.size !== 1) throw new Error("Run the Host and Rust entrypoints as separate bounded banks.");
-const suiteDefinition = rustOnly ? createRustParallelSuiteDefinition(repos) : createParallelSuiteDefinition(repos);
+const suiteDefinition = selectParallelSuiteDefinition(repos, options.scopes);
 
-const allShards = buildShards();
-validateShardCoverage(allShards);
-const inventory = createInventory(allShards);
+const { shards: allShards, inventory } = createParallelShardPlan(suiteDefinition, repos, { statusRoot, tsonicRoot });
 
 const shards = allShards.filter((shard) =>
   (options.scopes.size === 0 || options.scopes.has(shard.scope)) &&
   (options.groupPrefixes.length === 0 || options.groupPrefixes.some((prefix) => shard.group.startsWith(prefix))) &&
   (options.matches.length === 0 || options.matches.some((match) => shard.id.includes(match))) &&
-  (options.files.size === 0 || (shard.files ?? [shard.file]).some(file => options.files.has(toPosix(file))))
+  (options.files.size === 0 || (shard.files ?? [shard.file]).some(file => options.files.has(testPath(file))))
 );
-const representedRequests = new Set(shards.flatMap(shard => shard.files ?? [shard.file]).map(toPosix));
+const representedRequests = new Set(shards.flatMap(shard => shard.files ?? [shard.file]).map(testPath));
 const missingRequests = [...options.files].filter(file => !representedRequests.has(file));
 if (missingRequests.length > 0) {
   throw new Error(`Exact requested test files are missing or excluded by selection:\n${missingRequests.join("\n")}`);
@@ -91,7 +85,9 @@ validateBoundedTestQueue(shards, { ...resourceBudget, groupWorkerLimits: suiteDe
 console.log(`parallel-run: tasks=${shards.length} concurrency=${resourceBudget.workers} exclusive=${exclusiveShardCount} memoryMiB=${resourceBudget.memoryMiB} childJobs=${resourceBudget.childJobs}`);
 
 const startedAt = Date.now();
-const preRunResults = options.withPreruns ? runPreRuns(requiredPreRuns(shards)) : [];
+const preRunResults = options.withPreruns
+  ? runParallelPreRuns(requiredParallelPreRuns(suiteDefinition, shards),
+    { env, logRoot, runRoot, runId, repos, taskCount: shards.length, tsonicRoot }) : [];
 const testsStartedAt = Date.now();
 const progress = createProgressTracker(shards, options.progressIntervalMs);
 progress.start();
@@ -101,603 +97,11 @@ try {
 } finally {
   progress.stop();
 }
-const durationMs = Date.now() - startedAt;
-const failures = results.filter((result) => result.status !== 0);
-const testCounts = aggregateTestCounts(results);
-const missingTestCountResults = results.filter((result) => result.testCounts === undefined);
-const measuredCpuSeconds = results.every(result => result.resources !== null)
-  ? results.reduce((total, result) => total + result.resources.cpu.userSeconds + result.resources.cpu.systemSeconds, 0) : null;
-const testDurationMs = Date.now() - testsStartedAt;
-const averageTaskCores = measuredCpuSeconds === null || testDurationMs <= 0 ? null : measuredCpuSeconds * 1000 / testDurationMs;
-const report = {
-  bank: rustOnly ? "node" : "host",
-  selection: { complete: rustOnly ? options.withPreruns && shards.length === allShards.length :
-    options.withPreruns && options.scopes.size === 0 && options.matches.length === 0 &&
-      options.files.size === 0 && options.groupPrefixes.length === 0 },
-  runId,
-  createdAt: new Date().toISOString(),
-  command: {
-    cwd: toPosix(tsonicRoot),
-    argv: process.argv.slice(1),
-  },
-  host: {
-    platform: process.platform,
-    arch: process.arch,
-    cpus: typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
-  },
-  resourceBudget,
-  resourceObservations: {
-    cpuMethod: "sum-wait4-command-and-waited-descendants-over-test-wall", averageTaskCores,
-    investigationRequired: testCounts.total >= 24 && averageTaskCores !== null && averageTaskCores < 8,
-    limits: { queuedFiles: shards.length, workerSlots: resourceBudget.workers, memoryMiB: resourceBudget.memoryMiB,
-      groupWorkerLimits: suiteDefinition.groupWorkerLimits, exclusiveFiles: exclusiveShardCount,
-      taskWeightsMiB: [...new Set(shards.map(shard => shard.memoryMiB ?? resourceBudget.workerMemoryMiB))].sort((left, right) => left - right) },
-    exactWholeJobCgroupPeak: "available in the outer guard receipt, not a per-task measurement",
-  },
-  repos: repoSnapshot(),
-  inventory,
-  progress: progress.summary(),
-  preRuns: preRunResults,
-  durationMs,
-  taskCounts: {
-    total: results.length,
-    passed: results.length - failures.length,
-    failed: failures.length,
-  },
-  testCounts,
-  testCountReporting: {
-    required: results.length,
-    reported: testCounts.reportedShards,
-    missing: missingTestCountResults.length,
-    missingTasks: missingTestCountResults.map((result) => ({
-      id: result.shard.id,
-      group: result.shard.group,
-      scope: result.shard.scope,
-      log: toPosix(relative(tsonicRoot, result.logPath)),
-    })),
-  },
-  failuresByGroup: groupFailures(failures),
-  results: results.map(result => ({
-    id: result.shard.id, group: result.shard.group, scope: result.shard.scope,
-    status: result.status, signal: result.signal, durationMs: result.durationMs,
-    log: toPosix(relative(tsonicRoot, result.logPath)),
-    resultPath: toPosix(relative(tsonicRoot, result.shard.resultPath)),
-    resultError: result.resultError, tests: result.tests, resources: result.resources,
-  })),
-  slowestTasks: [...results]
-    .sort((left, right) => right.durationMs - left.durationMs)
-    .slice(0, 20)
-    .map((result) => ({
-      id: result.shard.id,
-      group: result.shard.group,
-      scope: result.shard.scope,
-      durationMs: result.durationMs,
-      status: result.status,
-      log: toPosix(relative(tsonicRoot, result.logPath)),
-    })),
-};
-writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
-if (suiteReportPath !== undefined) {
-  writeFileSync(suiteReportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
-}
+const report = writeParallelReport({ options, runId, tsonicRoot, resourceBudget, suiteDefinition, exclusiveShardCount,
+  inventory, progress: progress.summary(), repos, preRunResults, durationMs: Date.now() - startedAt,
+  testDurationMs: Date.now() - testsStartedAt, results, runRoot, suiteReportPath });
 
-console.log(`parallel-run: tasksPassed=${report.taskCounts.passed} tasksFailed=${report.taskCounts.failed} durationMs=${durationMs}`);
-if (testCounts.reportedShards > 0) {
-  console.log(`parallel-run: reportedTests=${testCounts.total} passed=${testCounts.passed} failed=${testCounts.failed} skipped=${testCounts.skipped} reportingTasks=${testCounts.reportedShards}`);
-}
-if (missingTestCountResults.length > 0) {
-  console.log(`parallel-run: missingTestCountTasks=${missingTestCountResults.length}`);
-  for (const result of missingTestCountResults) {
-    console.log(`  ${result.shard.id} log=${toPosix(relative(tsonicRoot, result.logPath))}`);
-  }
-}
-if (failures.length > 0) {
-  for (const [group, entries] of Object.entries(report.failuresByGroup)) {
-    console.log(`failure-group: ${group}`);
-    for (const entry of entries) {
-      console.log(`  ${entry.id} status=${entry.status} log=${entry.log}`);
-    }
-  }
-}
-console.log("slowest-tasks:");
-for (const shard of report.slowestTasks) {
-  console.log(`  ${shard.durationMs}ms ${shard.status === 0 ? "PASS" : "FAIL"} ${shard.id} (${shard.log})`);
-}
-console.log(`parallel-run: report=${toPosix(relative(tsonicRoot, resolve(runRoot, "report.json")))}`);
-if (rustOnly) {
-  for (const [name, value] of Object.entries({ tests: testCounts.total, pass: testCounts.passed,
-    fail: testCounts.failed, skipped: testCounts.skipped, todo: testCounts.todo, cancelled: testCounts.cancelled })) {
-    console.log(`# ${name} ${value}`);
-  }
-}
-
-process.exitCode = failures.length === 0 && missingTestCountResults.length === 0 ? 0 : 1;
-
-function buildShards() {
-  return [
-    ...suiteDefinition.nodeSuites.flatMap((testSuite) =>
-      (testSuite.recursive === false
-        ? discoverTestFiles(testSuite.directory, testSuite.suffix, testSuite.maxDepth ?? 0)
-        : discoverTestFiles(testSuite.directory, testSuite.suffix))
-        .filter((file) => !isIntentionallySkipped(testSuite, file))
-        .map((file) => nodeTestShard(testSuite.scope, groupForSuiteFile(testSuite, file), file,
-          testSuite.compiledDirectory === undefined ? file : resolve(testSuite.compiledDirectory, relative(testSuite.directory, file).replace(/\.ts$/u, ".js")),
-          testSuite.resourcesForFile?.(file), testSuite.nodeArguments))
-    ),
-    ...suiteDefinition.architectureSuites.flatMap((testSuite) =>
-      listExecutableArchitectureTests(testSuite.directory)
-        .flatMap((file) => nodeTestShards(testSuite.scope, testSuite.group, file))
-    ),
-    ...suiteDefinition.dotnetSuites.flatMap((testSuite) =>
-      dotnetTestShards(testSuite)
-    ),
-  ];
-}
-
-function validateShardCoverage(shardsToValidate) {
-  const representedFileCounts = new Map();
-  for (const shard of shardsToValidate) {
-    for (const file of shard.files ?? (shard.file === undefined ? [] : [shard.file])) {
-      const key = inventoryFileKey(shard.scope, file);
-      representedFileCounts.set(key, (representedFileCounts.get(key) ?? 0) + 1);
-    }
-  }
-  const representedFiles = new Set(representedFileCounts.keys());
-  const failures = [];
-  const representedGroups = new Set(shardsToValidate.map((shard) => shard.group));
-  for (const [group, limit] of Object.entries(
-    suiteDefinition.groupWorkerLimits ?? {},
-  )) {
-    if (!representedGroups.has(group)) {
-      failures.push(`parallel worker limit references unknown group: ${group}`);
-    }
-    if (!Number.isSafeInteger(limit) || limit <= 0) {
-      failures.push(
-        `parallel worker limit for '${group}' must be a positive safe integer`,
-      );
-    }
-  }
-  for (const [file, count] of representedFileCounts.entries()) {
-    if (count !== 1) {
-      failures.push(`test file is represented by ${count} parallel tasks: ${file}`);
-    }
-  }
-  for (const testSuite of suiteDefinition.nodeSuites) {
-    validateNodeSuiteCoverage(testSuite);
-  }
-  for (const testSuite of suiteDefinition.architectureSuites) {
-    validateDirectArchitectureCoverage(testSuite);
-  }
-  for (const testSuite of suiteDefinition.dotnetSuites) {
-    validateDotnetSuite(testSuite);
-  }
-  for (const testRoot of suiteDefinition.testRoots ?? []) {
-    const repoKey = scopeToRepoKey(testRoot.scope);
-    for (const file of discoverTestFiles(testRoot.directory, ".test.mjs")) {
-      const relativeFile = toPosix(relative(repos[repoKey], file));
-      if (!representedFiles.has(`${testRoot.scope}:${relativeFile}`)) {
-        failures.push(`${testRoot.scope} test file has no owning suite root: ${relativeFile}`);
-      }
-    }
-  }
-
-  if (failures.length > 0) {
-    console.error("FAIL: parallel test task coverage validation failed.");
-    for (const failure of failures) {
-      console.error(`  - ${failure}`);
-    }
-    process.exit(2);
-  }
-
-  function validateNodeSuiteCoverage(testSuite) {
-    const repoKey = scopeToRepoKey(testSuite.scope);
-    for (const file of discoverTestFiles(testSuite.directory, testSuite.suffix)) {
-      const relativeFile = toPosix(relative(repos[repoKey], file));
-      if (testSuite.intentionallySkipped?.has(relativeFile) === true) {
-        continue;
-      }
-      validateNoDisabledOrFocusedTests(file, relativeFile);
-      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
-        failures.push(`${testSuite.scope} test file has no parallel task: ${relativeFile}`);
-      }
-    }
-  }
-
-  function validateDirectArchitectureCoverage(testSuite) {
-    const repoKey = scopeToRepoKey(testSuite.scope);
-    for (const file of listExecutableArchitectureTests(testSuite.directory)) {
-      const relativeFile = toPosix(relative(repos[repoKey], file));
-      validateNoDisabledOrFocusedTests(file, relativeFile);
-      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
-        failures.push(`${testSuite.scope} architecture test module has no parallel task: ${relativeFile}`);
-      }
-    }
-  }
-
-  function validateDotnetSuite(testSuite) {
-    if (!existsSync(testSuite.projectOrSolution)) {
-      failures.push(`${testSuite.scope} dotnet project/solution does not exist: ${toPosix(testSuite.projectOrSolution)}`);
-      return;
-    }
-    const files = listDotnetTestFiles(testSuite.directory);
-    const exclusiveGroups = testSuite.exclusiveGroups ?? [];
-    if (exclusiveGroups.length > 0 && testSuite.taskMode !== "directory") {
-      failures.push(`${testSuite.scope} dotnet exclusive groups require directory task mode`);
-    }
-    const availableGroups = new Set(groupFilesByDirectory(testSuite.directory, files).keys());
-    const seenExclusiveGroups = new Set();
-    for (const group of exclusiveGroups) {
-      if (typeof group !== "string" || group.length === 0) {
-        failures.push(`${testSuite.scope} dotnet exclusive group must be a non-empty string`);
-      } else if (!availableGroups.has(group)) {
-        failures.push(`${testSuite.scope} dotnet exclusive group has no test task: ${group}`);
-      } else if (seenExclusiveGroups.has(group)) {
-        failures.push(`${testSuite.scope} dotnet exclusive group is duplicated: ${group}`);
-      }
-      seenExclusiveGroups.add(group);
-    }
-    for (const file of files) {
-      const relativeFile = toPosix(relative(testSuite.cwd, file));
-      if (extractDotnetTestClasses(file).length === 0) {
-        failures.push(`${testSuite.scope} dotnet test file has no test class task: ${relativeFile}`);
-      }
-      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
-        failures.push(`${testSuite.scope} dotnet test file has no parallel task: ${relativeFile}`);
-      }
-    }
-  }
-
-  function validateNoDisabledOrFocusedTests(file, relativeFile) {
-    const bannedTestModifiers = extractBannedTestModifiers(file);
-    if (bannedTestModifiers.length > 0) {
-      failures.push(`${relativeFile} contains disabled/focused tests: ${bannedTestModifiers.join(", ")}`);
-    }
-  }
-}
-
-function nodeTestShards(scope, group, file) {
-  return [nodeTestShard(scope, group, file)];
-}
-
-function nodeTestShard(scope, group, file, executableFile = file, resources, nodeArguments = []) {
-  const id = `${scope}:${toPosix(relative(repos[scopeToRepoKey(scope)], file))}`;
-  const resultPath = resolve(statusRoot, `${safeName(id)}.results.jsonl`);
-  return {
-    id,
-    scope,
-    group,
-    file,
-    files: [file],
-    preRunIds: preRunsForTask(scope, group),
-    memoryMiB: resources?.memoryMiB,
-    heapMiB: resources?.heapMiB,
-    cwd: repos[scopeToRepoKey(scope)],
-    command: process.execPath,
-    resultPath,
-    resultFormat: "node",
-    args: [...nodeArguments, "--test", "--test-concurrency=1", "--test-reporter=tap", "--test-reporter-destination=stdout",
-      `--test-reporter=${resolve(tsonicRoot, "test/scripts/test-result-reporter.mjs")}`,
-      `--test-reporter-destination=${resultPath}`,
-      toPosix(relative(repos[scopeToRepoKey(scope)], executableFile))],
-  };
-}
-
-function dotnetTestShards(testSuite) {
-  const files = listDotnetTestFiles(testSuite.directory);
-  if (testSuite.taskMode === "assembly") {
-    return [dotnetTestShard(testSuite, "assembly", files, undefined)];
-  }
-  if (testSuite.taskMode === "directory") {
-    return [...groupFilesByDirectory(testSuite.directory, files).entries()]
-      .map(([directory, directoryFiles]) => {
-        const classNames = directoryFiles.flatMap((file) => extractDotnetTestClasses(file));
-        return dotnetTestShard(testSuite, directory, directoryFiles, classNames);
-      });
-  }
-  throw new Error(`Unknown dotnet test task mode: ${testSuite.taskMode}`);
-}
-
-function dotnetTestShard(testSuite, groupName, files, classNames) {
-  const relativeGroup = groupName === "assembly" ? "assembly" : toPosix(groupName);
-  const id = `${testSuite.scope}:dotnet:${relativeGroup}`;
-  const resultPath = resolve(statusRoot, `${safeName(id)}.trx`);
-  return {
-    id,
-    scope: testSuite.scope,
-    group: testSuite.group,
-    exclusive: testSuite.exclusiveGroups?.includes(relativeGroup) === true,
-    files,
-    preRunIds: preRunsForTask(testSuite.scope, testSuite.group),
-    cwd: testSuite.cwd,
-    command: "dotnet",
-    memoryMiB: 4096,
-    heapMiB: 3072,
-    resultPath,
-    resultFormat: "dotnet",
-    args: [...dotnetTestArgs(testSuite.projectOrSolution, classNames), "--logger", `trx;LogFileName=${resultPath}`],
-  };
-}
-
-function preRunsForTask(scope, group) {
-  switch (scope) {
-    case "tsonic":
-      return [
-        "tsonic.build",
-        "tsonic-csharp.build",
-        "csharp-runtime.build",
-        "csharp-js.build",
-        "csharp-nodejs.install",
-        "csharp-nodejs.build",
-        "csharp-nodejs.test-build",
-        ...(group === "host-keel-inventory" ? ["rust-nodejs.build"] : []),
-        ...(group === "host-carrier-registry" ? ["tsonic-rust.build"] : []),
-      ];
-    case "tsonic-csharp":
-      return group === "csharp-provider"
-        ? ["tsonic.build", "tsonic-csharp.build", "tsonic-csharp.provider-fixtures"]
-        : ["tsonic.build", "tsonic-csharp.build"];
-    case "tsonic-rust":
-      return ["tsonic-rust.installed-layout"];
-    case "csharp-js":
-      return ["csharp-runtime.build", "csharp-js.build"];
-    case "csharp-runtime":
-      return ["csharp-runtime.build"];
-    case "csharp-nodejs":
-      return [
-        "tsonic.build",
-        "tsonic-csharp.build",
-        "csharp-runtime.build",
-        "csharp-js.build",
-        "csharp-nodejs.install",
-        "csharp-nodejs.build",
-        "csharp-nodejs.test-build",
-      ];
-    default:
-      throw new Error(`Unknown pre-run scope: ${scope}`);
-  }
-}
-
-function dotnetTestArgs(projectOrSolution, classNames) {
-  const args = [
-    "test",
-    projectOrSolution,
-    "--no-build",
-    "--no-restore",
-    "--verbosity",
-    "minimal",
-  ];
-  if (classNames !== undefined && classNames.length > 0) {
-    args.push("--filter", classNames.map((className) => `FullyQualifiedName~${className}`).join("|"));
-  }
-  return args;
-}
-
-function groupFilesByDirectory(rootDirectory, files) {
-  const groups = new Map();
-  for (const file of files) {
-    const relativeFile = toPosix(relative(rootDirectory, file));
-    const slash = relativeFile.lastIndexOf("/");
-    const group = slash === -1 ? "." : relativeFile.slice(0, slash);
-    const groupFiles = groups.get(group) ?? [];
-    groupFiles.push(file);
-    groups.set(group, groupFiles);
-  }
-  return new Map([...groups.entries()].sort(([left], [right]) => left.localeCompare(right)));
-}
-
-function listDotnetTestFiles(directory) {
-  return discoverTestFiles(directory, ".cs")
-    .filter((file) => {
-      const text = readFileSync(file, "utf8");
-      return /\[(?:Fact|Theory|Test)\]/u.test(text);
-    });
-}
-
-function extractDotnetTestClasses(file) {
-  const text = readFileSync(file, "utf8");
-  const namespaceName =
-    text.match(/^\s*namespace\s+(?<name>[A-Za-z_][A-Za-z0-9_.]*)\s*;/mu)?.groups.name ??
-    text.match(/^\s*namespace\s+(?<name>[A-Za-z_][A-Za-z0-9_.]*)\s*\{/mu)?.groups.name;
-  const classes = [];
-  const classPattern = /\b(?:public\s+|internal\s+)?(?:sealed\s+|abstract\s+|partial\s+)*class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b/gu;
-  for (const match of text.matchAll(classPattern)) {
-    classes.push(namespaceName === undefined ? match.groups.name : `${namespaceName}.${match.groups.name}`);
-  }
-  return classes;
-}
-
-function extractBannedTestModifiers(file) {
-  const text = readFileSync(file, "utf8");
-  const modifiers = [];
-  const pattern = /(?:^|\n)\s*test\.(?<modifier>todo|skip|only)\(\s*(["'])(?<title>(?:\\.|(?!\2).)+)\2/gu;
-  for (const match of text.matchAll(pattern)) {
-    modifiers.push(`${match.groups.modifier}:${unescapeJsString(match.groups.title)}`);
-  }
-  return modifiers;
-}
-
-function scopeToRepoKey(scope) {
-  switch (scope) {
-    case "tsonic":
-      return "tsonic";
-    case "tsonic-csharp":
-      return "tsonicCsharp";
-    case "tsonic-rust":
-      return "tsonicRust";
-    case "csharp-js":
-      return "csharpJs";
-    case "csharp-nodejs":
-      return "csharpNodejs";
-    case "csharp-runtime":
-      return "csharpRuntime";
-    default:
-      throw new Error(`Unknown scope: ${scope}`);
-  }
-}
-
-function repoForFile(file) {
-  const normalized = toPosix(file);
-  const matches = Object.entries(repos)
-    .filter(([_key, repoPath]) => normalized === toPosix(repoPath) || normalized.startsWith(`${toPosix(repoPath)}/`))
-    .sort((left, right) => right[1].length - left[1].length);
-  return matches[0]?.[1] ?? tsonicRoot;
-}
-
-function inventoryFileKey(scope, file) {
-  return `${scope}:${toPosix(relative(repoForFile(file), file))}`;
-}
-
-function isIntentionallySkipped(testSuite, file) {
-  if (testSuite.intentionallySkipped === undefined) {
-    return false;
-  }
-  const relativeFile = toPosix(relative(repos[scopeToRepoKey(testSuite.scope)], file));
-  return testSuite.intentionallySkipped.has(relativeFile);
-}
-
-function groupForSuiteFile(testSuite, file) {
-  if (testSuite.groupForFile !== undefined) {
-    return testSuite.groupForFile(file);
-  }
-  return testSuite.group;
-}
-
-function createInventory(shardsToInventory) {
-  const files = new Map();
-  for (const shard of shardsToInventory) {
-    for (const file of shard.files ?? (shard.file === undefined ? [] : [shard.file])) {
-      const repoPath = repoForFile(file);
-      const relativeFile = toPosix(relative(repoPath, file));
-      const existing = files.get(`${shard.scope}:${relativeFile}`);
-      const entry = {
-        scope: shard.scope,
-        group: shard.group,
-        exclusive: shard.exclusive === true,
-        path: relativeFile,
-        taskId: shard.id,
-        preRunIds: shard.preRunIds ?? [],
-        runner: shard.command === "dotnet" ? "dotnet" : "node",
-        memoryMiB: shard.memoryMiB,
-        heapMiB: shard.heapMiB,
-      };
-      if (existing !== undefined) {
-        existing.tasks.push(entry);
-      } else {
-        files.set(`${shard.scope}:${relativeFile}`, { ...entry, tasks: [entry] });
-      }
-    }
-  }
-  const entries = [...files.values()]
-    .map((entry) => ({
-      scope: entry.scope,
-      group: entry.group,
-      exclusive: entry.exclusive,
-      path: entry.path,
-      runner: entry.runner,
-      memoryMiB: entry.memoryMiB,
-      heapMiB: entry.heapMiB,
-      taskIds: entry.tasks.map((task) => task.taskId).sort(),
-      preRunIds: [...new Set(entry.tasks.flatMap((task) => task.preRunIds))].sort(),
-    }))
-    .sort((left, right) => `${left.scope}:${left.path}`.localeCompare(`${right.scope}:${right.path}`));
-  const filesByScope = {};
-  const filesByGroup = {};
-  for (const entry of entries) {
-    filesByScope[entry.scope] = (filesByScope[entry.scope] ?? 0) + 1;
-    filesByGroup[entry.group] = (filesByGroup[entry.group] ?? 0) + 1;
-  }
-  return {
-    fileCount: entries.length,
-    taskCount: shardsToInventory.length,
-    preRuns: suiteDefinition.preRuns.map((preRun) => ({
-      id: preRun.id,
-      dependsOn: preRun.dependsOn ?? [],
-      cwd: toPosix(preRun.cwd),
-      command: preRun.command,
-      args: preRun.args,
-    })),
-    filesByScope,
-    filesByGroup,
-    files: entries,
-  };
-}
-
-function requiredPreRuns(shardsToRun) {
-  const byId = new Map(suiteDefinition.preRuns.map((preRun) => [preRun.id, preRun]));
-  const required = new Set();
-  for (const shard of shardsToRun) {
-    for (const id of shard.preRunIds ?? []) {
-      addWithDependencies(id);
-    }
-  }
-  return suiteDefinition.preRuns.filter((preRun) => required.has(preRun.id));
-
-  function addWithDependencies(id) {
-    if (required.has(id)) {
-      return;
-    }
-    const preRun = byId.get(id);
-    if (preRun === undefined) {
-      throw new Error(`Unknown pre-run id: ${id}`);
-    }
-    for (const dependency of preRun.dependsOn ?? []) {
-      addWithDependencies(dependency);
-    }
-    required.add(id);
-  }
-}
-
-function runPreRuns(preRuns) {
-  const results = [];
-  for (const preRun of preRuns) {
-    const startedAt = Date.now();
-    const logPath = resolve(logRoot, `${safeName(`prerun:${preRun.id}`)}.log`);
-    console.log(`PRERUN ${preRun.id}`);
-    const result = spawnSync(preRun.command, preRun.args, {
-      cwd: preRun.cwd,
-      env: { ...env, ...(preRun.env ?? {}) },
-      encoding: "utf8",
-    });
-    writeFileSync(logPath, `${result.stdout ?? ""}${result.stderr ?? ""}`);
-    const durationMs = Date.now() - startedAt;
-    const status = result.status ?? 1;
-    const entry = {
-      id: preRun.id,
-      status,
-      durationMs,
-      command: preRun.command,
-      args: preRun.args,
-      cwd: toPosix(preRun.cwd),
-      log: toPosix(relative(tsonicRoot, logPath)),
-    };
-    results.push(entry);
-    console.log(`${status === 0 ? "PRERUN PASS" : "PRERUN FAIL"} ${preRun.id} ${durationMs}ms log=${entry.log}`);
-    if (status !== 0) {
-      writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify({
-        runId,
-        createdAt: new Date().toISOString(),
-        command: {
-          cwd: toPosix(tsonicRoot),
-          argv: process.argv.slice(1),
-        },
-        repos: repoSnapshot(),
-        preRuns: results,
-        taskCounts: {
-          total: shards.length,
-          passed: 0,
-          failed: shards.length,
-        },
-      }, null, 2)}\n`);
-      process.exit(status);
-    }
-  }
-  return results;
-}
-
-function listExecutableArchitectureTests(directory) {
-  return discoverTestFiles(directory, ".mjs")
-    .filter((file) => readFileSync(file, "utf8").includes("node:test"));
-}
+process.exitCode = report.taskCounts.failed === 0 && report.testCountReporting.missing === 0 ? 0 : 1;
 
 async function runShards(allShards) {
   const results = await runBoundedTestQueue(allShards, {
@@ -711,7 +115,7 @@ function runShard(shard) {
   return new Promise((resolveResult) => {
     const taskEnvironment = testTaskEnvironment(env, resourceBudget, shard);
     const startedAt = Date.now();
-    const shardSafeName = safeName(shard.id);
+    const shardSafeName = testTaskName(shard.id);
     const logPath = resolve(logRoot, `${shardSafeName}.log`);
     const statusPath = resolve(statusRoot, `${shardSafeName}.json`);
     const usagePath = resolve(statusRoot, `${shardSafeName}.usage.json`);
@@ -724,8 +128,8 @@ function runShard(shard) {
       startedAt: new Date(startedAt).toISOString(),
       command: shard.command,
       args: shard.args,
-      cwd: toPosix(shard.cwd),
-      log: toPosix(relative(tsonicRoot, logPath)),
+      cwd: testPath(shard.cwd),
+      log: testPath(relative(tsonicRoot, logPath)),
     });
     progress.startShard(shard, startedAt);
     const child = spawn("/usr/bin/time", timedTaskArguments(usagePath, shard.command, shard.args), {
@@ -734,35 +138,36 @@ function runShard(shard) {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const finishProcesses = trackTaskProcesses(child.pid);
-    const chunks = [];
     child.stdout.on("data", (chunk) => {
-      chunks.push(chunk);
       logStream.write(chunk);
     });
     child.stderr.on("data", (chunk) => {
-      chunks.push(chunk);
       logStream.write(chunk);
     });
     child.on("error", (error) => {
       const chunk = Buffer.from(`Could not start test task: ${error.message}\n`);
-      chunks.push(chunk);
       logStream.write(chunk);
     });
     child.on("close", (status, signal) => {
       const durationMs = Date.now() - startedAt;
-      const logText = Buffer.concat(chunks).toString("utf8");
       let normalizedStatus = status ?? 1;
       let tests = [];
+      let summary = null;
+      let testCounts;
       let resources = null;
       let resultError = null;
       const processObservations = finishProcesses();
       try {
         const named = shard.resultFormat === "node"
-          ? readNodeTestResults(shard.resultPath, shard.cwd, toPosix(relative(shard.cwd, shard.file)))
+          ? readNodeTestResults(shard.resultPath, shard.cwd, testPath(relative(shard.cwd, shard.file)))
           : readDotnetTestResults(readFileSync(shard.resultPath, "utf8"), shard.id);
         tests = named.tests;
+        summary = named.summary;
+        if (summary.completed) testCounts = testResultCounts(tests);
+        const executionIssue = testTaskExecutionIssue({ status: normalizedStatus, signal, summary, tests });
+        if (executionIssue !== null) throw new Error(executionIssue);
         resources = readTaskResourceUsage(usagePath, durationMs, processObservations,
-          { childJobs: resourceBudget.childJobs, memoryMiB: shard.memoryMiB ?? resourceBudget.workerMemoryMiB });
+          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS), memoryMiB: shard.memoryMiB ?? resourceBudget.workerMemoryMiB });
         if (processObservations.errorMessage !== null) throw new Error(processObservations.errorMessage);
       } catch (error) {
         resultError = error.message;
@@ -781,10 +186,11 @@ function runShard(shard) {
         signal,
         command: shard.command,
         args: shard.args,
-        cwd: toPosix(shard.cwd),
-        log: toPosix(relative(tsonicRoot, logPath)),
-        testCounts: parseTestCounts(logText),
+        cwd: testPath(shard.cwd),
+        log: testPath(relative(tsonicRoot, logPath)),
+        testCounts,
         tests,
+        summary,
         resources,
         resultError,
       });
@@ -792,7 +198,7 @@ function runShard(shard) {
       progress.finishShard(shard, normalizedStatus, durationMs);
       logStream.end(() => {
         resolveResult({ shard, status: normalizedStatus, signal, durationMs, logPath, statusPath,
-          testCounts: parseTestCounts(logText), tests, resources, resultError });
+          testCounts, tests, summary, resources, resultError });
       });
     });
   });
@@ -800,41 +206,6 @@ function runShard(shard) {
 
 function writeShardStatus(statusPath, status) {
   writeFileSync(statusPath, `${JSON.stringify(status, null, 2)}\n`);
-}
-
-function groupFailures(failures) {
-  const groups = {};
-  for (const failure of failures) {
-    const group = failure.shard.group;
-    groups[group] ??= [];
-    groups[group].push({
-      id: failure.shard.id,
-      status: failure.status,
-      durationMs: failure.durationMs,
-      log: toPosix(relative(tsonicRoot, failure.logPath)),
-    });
-  }
-  return groups;
-}
-
-function repoSnapshot() {
-  return Object.fromEntries(Object.entries(repos).map(([name, repoPath]) => [
-    name,
-    {
-      path: toPosix(repoPath),
-      head: commandOutput(repoPath, "git", ["rev-parse", "HEAD"]),
-      branch: commandOutput(repoPath, "git", ["branch", "--show-current"]),
-      dirty: (commandOutput(repoPath, "git", ["status", "--porcelain"]) ?? "").length > 0,
-    },
-  ]));
-}
-
-function commandOutput(cwd, command, args) {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    return undefined;
-  }
-  return result.stdout.trim();
 }
 
 function parseArgs(args) {
@@ -861,7 +232,7 @@ function parseArgs(args) {
     } else if (arg === "--file") {
       const file = args[++index];
       if (file === undefined) throw new Error("--file requires an exact file path.");
-      files.add(toPosix(resolve(file)));
+      files.add(testPath(resolve(file)));
     } else if (arg === "--repository-root") {
       const root = args[++index];
       if (repositoryRoot !== undefined || root === undefined || !isAbsolute(root)) {
@@ -891,17 +262,6 @@ function parseArgs(args) {
   return { concurrency, progressIntervalMs, scopes, groupPrefixes, matches, files, repositoryRoot, list, inventory, withPreruns };
 }
 
-function safeName(value) {
-  return value.replaceAll(/[^A-Za-z0-9._-]+/g, "-");
-}
-
-function unescapeJsString(value) {
-  return value
-    .replaceAll(/\\"/g, "\"")
-    .replaceAll(/\\'/g, "'")
-    .replaceAll(/\\\\/g, "\\");
-}
-
 function timestamp() {
   const now = new Date();
   return [
@@ -913,8 +273,4 @@ function timestamp() {
     String(now.getUTCMinutes()).padStart(2, "0"),
     String(now.getUTCSeconds()).padStart(2, "0"),
   ].join("");
-}
-
-function toPosix(path) {
-  return path.split(sep).join("/");
 }

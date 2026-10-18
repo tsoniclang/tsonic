@@ -53,7 +53,7 @@ export function focusedCertificationEntry(check, wave) {
     inputs: [...new Set(wave.certification.flatMap(entry => entry.inputs))],
     tools: ["node", "npm"], skipped: 0,
     command: ["node", "--test", ...tests],
-    worker: ["node", "scripts/certification/capture-tests.mjs", "node", "node", "--test", "--test-reporter=tap", ...tests],
+    worker: ["node", "scripts/certification/capture-tests.mjs", "node", "node", "--test", ...tests],
   });
 }
 

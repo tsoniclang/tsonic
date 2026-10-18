@@ -60,6 +60,20 @@ test("a memory-scoped task inherits every CPU without multiplying its memory bud
   assert.equal(inherited.heapMiB, 2048);
 });
 
+test("per-task native child counts remain explicit without reducing memory-derived outer width", () => {
+  const budget = testResourceBudget(machine, { TSONIC_TEST_CHILD_JOBS: "1" });
+  const selected = testTaskEnvironment({ NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` }, budget,
+    { id: "measured-native-task", memoryMiB: 4096, heapMiB: 2048, childJobs: 3 });
+  assert.equal(budget.workers, Math.floor(budget.memoryMiB / budget.workerMemoryMiB));
+  assert.equal(readTestResourceBudget(selected).childJobs, 3);
+  for (const name of ["CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "DOTNET_PROCESSOR_COUNT", "TSONIC_TEST_CHILD_JOBS"]) {
+    assert.equal(selected[name], "3", name);
+  }
+  assert.equal(readTestResourceBudget(selected).cpuBudget, 24);
+  assert.throws(() => testTaskEnvironment({ NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` }, budget,
+    { id: "invalid", childJobs: 0 }), /positive/u);
+});
+
 test("a guard passes one validated budget without reserving memory twice", () => {
   const budget = testResourceBudget(machine);
   const environment = { TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(budget) };

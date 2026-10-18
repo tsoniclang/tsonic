@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { readCertificationOptions, validateCertificationEntry } from "../../scripts/certification/contract.mjs";
-import { parallelReportCounts, parseBankCounts } from "../../scripts/certification/counts.mjs";
+import { parallelReportCounts, parseCargoBankCounts, nodeReportCounts } from "../../scripts/certification/counts.mjs";
 import { snapshotCertificationInputs, sameCertificationInputs } from "../../scripts/certification/inputs.mjs";
 import { describeEvidence, latestCertification, validateCertification, writeImmutableJson } from "../../scripts/certification/records.mjs";
 import { selectCertification } from "../../scripts/certification/select.mjs";
@@ -133,13 +133,16 @@ test("every incomplete, unsafe, malformed and mutated certification is rejected"
 });
 
 test("count adapters reject truncation and retain ignored or filtered native tests", () => {
-  const output = "# tests 2\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n";
-  assert.deepEqual(parseBankCounts("node", output), [count]);
-  assert.throws(() => parseBankCounts("node", output.replace("# todo 0\n", "")), /complete/u);
-  assert.throws(() => parseBankCounts("node", output + output), /complete/u);
-  const cargo = parseBankCounts("cargo", "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
+  const named = { summary: { completed: true }, tests: [
+    { type: "test", status: "passed" }, { type: "test", status: "passed" },
+    { type: "suite", status: "passed" },
+  ] };
+  assert.deepEqual(nodeReportCounts(named), [count]);
+  assert.throws(() => nodeReportCounts({ ...named, summary: { completed: false } }), /complete/u);
+  assert.throws(() => nodeReportCounts({ ...named, summary: undefined }), /complete/u);
+  const cargo = parseCargoBankCounts("test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
   assert.deepEqual(cargo, [{ ...count, total: 3, skipped: 1, filtered: 3 }]);
-  assert.deepEqual(parseBankCounts("cargo", "running 3 tests\n"), []);
+  assert.deepEqual(parseCargoBankCounts("running 3 tests\n"), []);
   assert.throws(() => parallelReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
 });
 
@@ -219,9 +222,14 @@ test("new test captures produce structured counts and preserve failure status", 
     const path = resolve(root, `${passes}.test.mjs`);
     writeFileSync(path, `import test from 'node:test'; import assert from 'node:assert/strict'; test('case', () => assert.equal(${passes}, true));\n`);
     const result = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
-      "--test", "--test-reporter=tap", path], { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+      "--test", path], { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
     assert.equal(result.status, passes ? 0 : 1, result.stdout + result.stderr);
   }
+  const removed = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
+    "--test", "--test-reporter=tap", resolve(root, "true.test.mjs")],
+  { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+  assert.equal(removed.status !== 0, true);
+  assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
 });
 
 function makeFixture(guardOverrides = {}) {

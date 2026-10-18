@@ -30,6 +30,23 @@ test("AC11 covers both targets and complete independent artifact sets with guard
   assert.throws(() => evaluateKeelDeterminism([{ ...samples[0], first: new Map([["../escape", Buffer.from("x")]]) }], programs), /path/u);
 });
 
+test("AC11 distinguishes actual guarded runs even when copied receipts have different log names", () => {
+  const { programs, samples } = keelFixtureGeneration();
+  const sample = samples[0];
+  assert.notEqual(sample.firstGuard.admission.unit, sample.secondGuard.admission.unit);
+  assert.notEqual(sample.firstGuard.measurement.controlGroup, sample.secondGuard.measurement.controlGroup);
+  for (const secondGuard of [
+    { ...sample.firstGuard, log: sample.secondGuard.log },
+    { ...sample.firstGuard, log: sample.secondGuard.log,
+      measurement: { ...sample.firstGuard.measurement,
+        controlGroup: `/another.slice/${sample.firstGuard.admission.unit}` } },
+  ]) {
+    assert.equal(guardSucceeded(secondGuard), true, "the copied receipt is individually valid");
+    assert.equal(keelFixtureHas(evaluateKeelDeterminism([{ ...sample, secondGuard }, ...samples.slice(1)], programs),
+      "AC11", "distinct admitted units"), true, "renaming a log or parent cgroup does not create a second run");
+  }
+});
+
 test("AC11 guard proof requires finite aggregate limits, zero swap, no OOM and a drained scope", () => {
   assert.equal(guardSucceeded(keelFixtureGuard()), true);
   const owned = keelFixtureGuard();
@@ -72,6 +89,7 @@ test("AC11 retains exact unavailable-surface controls without treating native fa
     { ...proof, secondRejection: { ...observation, diagnostics: [{ ...diagnostic, message: "Changed diagnostic." }] } },
     { ...proof, firstGuard: undefined },
     { ...proof, firstGuard: { ...proof.firstGuard, exitCode: 0 } },
+    { ...proof, secondGuard: { ...proof.firstGuard, log: proof.secondGuard.log } },
   ]) assert.equal(keelFixtureHas(check(changed), "AC11"), true);
   assert.equal(keelFixtureHas(evaluateKeelDeterminism([proof, ...samples.slice(1)], programs), "AC11", "nonempty"), true);
 });

@@ -1,27 +1,17 @@
-import { parseTestCounts } from "../../test/scripts/parallel-test-counts.mjs";
+import { aggregateTestCounts, testResultCounts } from "../../test/scripts/parallel-test-counts.mjs";
 
-export function parseBankCounts(kind, output) {
-  if (kind === "cargo") {
-    return [...output.matchAll(/^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;(?: finished in .+)?\s*$/gmu)]
-      .map(match => ({
-        total: Number(match[1]) + Number(match[2]) + Number(match[3]),
-        passed: Number(match[1]), failed: Number(match[2]), skipped: Number(match[3]),
-        todo: 0, cancelled: 0, filtered: Number(match[4]) + Number(match[5]),
-      }));
-  }
-  if (kind !== "node") throw new Error(`Unknown test bank '${kind}'.`);
-  const counts = parseTestCounts(output);
-  if (counts === undefined) return [];
-  for (const field of ["tests", "pass", "fail", "skipped", "todo", "cancelled"]) {
-    if ([...output.matchAll(new RegExp(`^# ${field} (\\d+)\\s*$`, "gmu"))].length !== 1) {
-      throw new Error(`Node bank requires one complete '${field}' count.`);
-    }
-  }
-  return [{
-    total: counts.total, passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
-    todo: Number(output.match(/^# todo (\d+)\s*$/mu)[1]),
-    cancelled: Number(output.match(/^# cancelled (\d+)\s*$/mu)[1]), filtered: 0,
-  }];
+export function parseCargoBankCounts(output) {
+  return [...output.matchAll(/^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;(?: finished in .+)?\s*$/gmu)]
+    .map(match => ({
+      total: Number(match[1]) + Number(match[2]) + Number(match[3]),
+      passed: Number(match[1]), failed: Number(match[2]), skipped: Number(match[3]),
+      todo: 0, cancelled: 0, filtered: Number(match[4]) + Number(match[5]),
+    }));
+}
+
+export function nodeReportCounts(named) {
+  if (named.summary?.completed !== true) throw new Error("Node counts require one complete event summary.");
+  return [{ ...testResultCounts(named.tests), filtered: 0 }];
 }
 
 export function parallelReportCounts(report) {
@@ -33,7 +23,11 @@ export function parallelReportCounts(report) {
       report.preRuns.some(run => run.status !== 0)) {
     throw new Error("Parallel report is failed, incomplete or missing test counts.");
   }
-  const counts = report.testCounts;
+  const counts = aggregateTestCounts(report.results);
+  if (counts.reportedShards !== report.taskCounts.total || ["total", "passed", "failed", "skipped", "todo", "cancelled"]
+    .some(field => report.testCounts?.[field] !== counts[field])) {
+    throw new Error("Parallel counts must equal the complete per-test results.");
+  }
   return [{ total: counts.total, passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
     todo: counts.todo, cancelled: counts.cancelled, filtered: 0 }];
 }

@@ -1,9 +1,32 @@
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
+
+export const fullTestTrainBanks = Object.freeze([
+  { bank: "host", scopes: ["tsonic", "tsonic-csharp", "csharp-nodejs", "csharp-runtime", "csharp-js"] },
+  { bank: "node", scopes: ["tsonic-rust"] },
+]);
+
+export function selectParallelSuiteDefinition(repos, scopes) {
+  const definitions = [createParallelSuiteDefinition(repos), createRustParallelSuiteDefinition(repos)];
+  const definition = scopes.size === 0 ? definitions.find(candidate => candidate.default) :
+    definitions.find(candidate => [...scopes].every(scope => candidate.scopes.includes(scope)));
+  if (definition === undefined) throw new Error("Selected scopes must belong to one canonical bank; run separate banks independently.");
+  return definition;
+}
 
 export function createParallelSuiteDefinition(repos) {
   const rustTarget = resolve(repos.tsonicCsharp, "../tsonic-rust");
   const rustNodejs = resolve(repos.tsonicCsharp, "../rust-nodejs");
+  const hostPreRuns = ["tsonic.build", "tsonic-csharp.build", "csharp-runtime.build", "csharp-js.build",
+    "csharp-nodejs.install", "csharp-nodejs.build", "csharp-nodejs.test-build"];
+  const targetPreRuns = ["tsonic.build", "tsonic-csharp.build"];
+  const providerPreRuns = [...targetPreRuns, "tsonic-csharp.provider-fixtures"];
+  const nativeResources = { memoryMiB: 4096, heapMiB: 3072 };
+  const hostSuite = (group, path, metadata = {}) => nodeSuite(repos.tsonic, "tsonic", group, path,
+    { preRunIds: hostPreRuns, ...metadata });
+  const targetSuite = (group, path, metadata = {}) => nodeSuite(repos.tsonicCsharp, "tsonic-csharp", group, path,
+    { preRunIds: targetPreRuns, resources: nativeResources, ...metadata });
   return {
+    bank: "host", default: true, scopes: fullTestTrainBanks[0].scopes,
     preRuns: [
       {
         id: "tsonic.build",
@@ -89,48 +112,48 @@ export function createParallelSuiteDefinition(repos) {
     ],
     nodeSuites: [
       {
-        ...nodeSuite(repos.tsonic, "tsonic", "host-architecture", "test/architecture"),
-        groupForFile: file => basename(file) === "carrier-registry-parity.test.mjs" ? "host-carrier-registry"
-          : ["keel-violations.test.mjs", "keel-node-registry.test.mjs"].includes(basename(file))
-            ? "host-keel-inventory" : "host-architecture",
-        resourcesForFile: file => basename(file) === "keel-violations.test.mjs"
-          ? { memoryMiB: 4096, heapMiB: 3072 } : undefined,
+        ...hostSuite("host-architecture", "test/architecture"),
+        fileMetadata: {
+          "test/architecture/carrier-registry-parity.test.mjs": { preRunIds: [...hostPreRuns, "tsonic-rust.build"] },
+          "test/architecture/keel-node-registry.test.mjs": { preRunIds: [...hostPreRuns, "rust-nodejs.build"] },
+        },
       },
-      nodeSuite(repos.tsonic, "tsonic", "host-ledger-inventory", "test/host/capabilities"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/config"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/dependencies"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/publication"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/cli"),
-      nodeSuite(repos.tsonic, "tsonic", "host-source-core", "test/source-core"),
-      packageUnitSuite(repos.tsonic, "host-source-core", "source-core"),
-      nodeSuite(repos.tsonic, "tsonic", "host-js-source-profile", "test/js-source-profile"),
-      nodeSuite(repos.tsonic, "tsonic", "host-target-api", "test/target-api"),
-      packageUnitSuite(repos.tsonic, "host-target-api", "target-api"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-build-core", "test/cli-build/core"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-build-provider", "test/cli-build/providers"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-build-runtime", "test/cli-build/runtime"),
-      nodeSuite(repos.tsonic, "tsonic", "host-cli-build-toolchain", "test/cli-build/toolchain"),
-      nodeSuite(repos.tsonic, "tsonic", "host-test-infrastructure", "test/infrastructure/runner"),
-      nodeSuite(repos.tsonic, "tsonic", "host-test-infrastructure", "test/fixtures/node-oracle"),
-      nodeSuite(repos.tsonic, "tsonic", "host-ledger-inventory", "test/infrastructure/historical-inventory"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "host-architecture", "test/architecture"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/helpers"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/source"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-provider", "test/providers"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/policy"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/analysis"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/target-model"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-backend-toolchain", "test/backend"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-backend-toolchain", "test/toolchain"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-provider", "test/integration/provider-selection"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-provider", "test/integration/source-profile"),
-      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-backend-toolchain", "test/integration/generated-csharp"),
+      hostSuite("host-ledger-inventory", "test/host/capabilities"),
+      hostSuite("host-cli-config", "test/host/config"),
+      hostSuite("host-cli-config", "test/host/dependencies"),
+      hostSuite("host-cli-config", "test/host/publication"),
+      hostSuite("host-cli-config", "test/host/cli"),
+      hostSuite("host-source-core", "test/source-core"),
+      packageUnitSuite(repos.tsonic, "host-source-core", "source-core", hostPreRuns),
+      hostSuite("host-js-source-profile", "test/js-source-profile"),
+      hostSuite("host-target-api", "test/target-api"),
+      packageUnitSuite(repos.tsonic, "host-target-api", "target-api", hostPreRuns),
+      hostSuite("host-cli-build-core", "test/cli-build/core"),
+      hostSuite("host-cli-build-provider", "test/cli-build/providers"),
+      hostSuite("host-cli-build-runtime", "test/cli-build/runtime"),
+      hostSuite("host-cli-build-toolchain", "test/cli-build/toolchain"),
+      hostSuite("host-test-infrastructure", "test/infrastructure/runner"),
+      hostSuite("host-test-infrastructure", "test/fixtures/node-oracle"),
+      hostSuite("host-ledger-inventory", "test/infrastructure/historical-inventory"),
+      targetSuite("host-architecture", "test/architecture"),
+      targetSuite("csharp-source-semantics", "test/helpers"),
+      targetSuite("csharp-source-semantics", "test/source"),
+      targetSuite("csharp-provider", "test/providers", { preRunIds: providerPreRuns }),
+      targetSuite("csharp-source-semantics", "test/policy"),
+      targetSuite("csharp-source-semantics", "test/analysis"),
+      targetSuite("csharp-source-semantics", "test/target-model"),
+      targetSuite("csharp-backend-toolchain", "test/backend"),
+      targetSuite("csharp-backend-toolchain", "test/toolchain"),
+      targetSuite("csharp-provider", "test/integration/provider-selection", { preRunIds: providerPreRuns }),
+      targetSuite("csharp-provider", "test/integration/source-profile", { preRunIds: providerPreRuns }),
+      targetSuite("csharp-backend-toolchain", "test/integration/generated-csharp"),
       {
         scope: "csharp-nodejs",
         group: "node-provider",
         directory: resolve(repos.csharpNodejs, "nodejs/test"),
         suffix: ".test.mjs",
-        resourcesForFile: () => ({ memoryMiB: 4096, heapMiB: 3072 }),
+        resources: nativeResources,
+        preRunIds: hostPreRuns,
       },
     ],
     testRoots: [
@@ -147,6 +170,8 @@ export function createParallelSuiteDefinition(repos) {
         cwd: repos.csharpRuntime,
         projectOrSolution: resolve(repos.csharpRuntime, "Tsonic.CSharp.Runtime.sln"),
         directory: resolve(repos.csharpRuntime, "tests/Tsonic.CSharp.Runtime.Tests"),
+        resources: nativeResources,
+        preRunIds: ["csharp-runtime.build"],
       },
       {
         scope: "csharp-js",
@@ -155,6 +180,8 @@ export function createParallelSuiteDefinition(repos) {
         cwd: repos.csharpJs,
         projectOrSolution: resolve(repos.csharpJs, "Tsonic.CSharp.Js.sln"),
         directory: resolve(repos.csharpJs, "tests/Tsonic.CSharp.Js.Tests"),
+        resources: nativeResources,
+        preRunIds: ["csharp-runtime.build", "csharp-js.build"],
       },
       {
         scope: "csharp-nodejs",
@@ -164,6 +191,8 @@ export function createParallelSuiteDefinition(repos) {
         cwd: repos.csharpNodejs,
         projectOrSolution: resolve(repos.csharpNodejs, "Tsonic.CSharp.Node.slnx"),
         directory: resolve(repos.csharpNodejs, "csharp/test/Tsonic.CSharp.Node.Tests"),
+        resources: nativeResources,
+        preRunIds: hostPreRuns,
       },
     ],
     groupWorkerLimits: Object.freeze({
@@ -174,6 +203,7 @@ export function createParallelSuiteDefinition(repos) {
 
 export function createRustParallelSuiteDefinition(repos) {
   return {
+    bank: "node", default: false, scopes: fullTestTrainBanks[1].scopes,
     preRuns: [
       { id: "tsonic-rust.build", cwd: repos.tsonicRust, command: "npm", args: ["run", "build"] },
       {
@@ -185,6 +215,8 @@ export function createRustParallelSuiteDefinition(repos) {
     ],
     nodeSuites: [{
       ...nodeSuite(repos.tsonicRust, "tsonic-rust", "rust-compiler", "test"),
+      preRunIds: ["tsonic-rust.installed-layout"],
+      resources: { memoryMiB: 4096, heapMiB: 3072 },
       nodeArguments: ["--import", resolve(repos.tsonicRust, "scripts/register-tsonic-root-loader.mjs")],
     }],
     testRoots: [{ scope: "tsonic-rust", directory: resolve(repos.tsonicRust, "test") }],
@@ -194,22 +226,23 @@ export function createRustParallelSuiteDefinition(repos) {
   };
 }
 
-function packageUnitSuite(repository, group, name) {
+function packageUnitSuite(repository, group, name, preRunIds) {
   return {
     scope: "tsonic",
     group,
     directory: resolve(repository, "packages", name, "src"),
     compiledDirectory: resolve(repository, "packages", name, "dist"),
     suffix: ".test.ts",
+    preRunIds,
   };
 }
 
-function nodeSuite(repository, scope, group, path) {
+function nodeSuite(repository, scope, group, path, metadata = {}) {
   return {
     scope,
     group,
     directory: resolve(repository, path),
     suffix: ".test.mjs",
-    ...(scope === "tsonic" ? {} : { resourcesForFile: () => ({ memoryMiB: 4096, heapMiB: 3072 }) }),
+    ...metadata,
   };
 }

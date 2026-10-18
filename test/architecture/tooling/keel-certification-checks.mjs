@@ -61,6 +61,9 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
     }
     if (!guardSucceeded(sample.firstGuard, sourceRejected ? 1 : 0) || !guardSucceeded(sample.secondGuard, sourceRejected ? 1 : 0)) {
       fail("Each generation needs its own complete successful process-group guard receipt.");
+    } else if (sample.firstGuard.admission.unit === sample.secondGuard.admission.unit ||
+      sample.firstGuard.measurement.controlGroup === sample.secondGuard.measurement.controlGroup) {
+      fail("Double generation requires distinct admitted units and owned control groups, not one guarded run copied twice.");
     }
   }
   for (const program of requiredPrograms) {

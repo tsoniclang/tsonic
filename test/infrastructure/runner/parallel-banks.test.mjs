@@ -14,7 +14,7 @@ test("Rust explicitly selects the same weighted queue without entering the Host 
   assert.equal(rust.nodeSuites[0].scope, "tsonic-rust");
   assert.deepEqual(rust.preRuns.map(run => run.id), ["tsonic-rust.build", "tsonic-rust.installed-layout"],
     "the existing queue validates selection before its one build and installed layout");
-  assert.deepEqual(rust.nodeSuites[0].resourcesForFile("a.test.mjs"), { memoryMiB: 4096, heapMiB: 3072 });
+  assert.deepEqual(rust.nodeSuites[0].resources, { memoryMiB: 4096, heapMiB: 3072 });
   assert.deepEqual(rust.nodeSuites[0].nodeArguments,
     ["--import", resolve(testRepositoryRoots.tsonicRust, "scripts/register-tsonic-root-loader.mjs")]);
   const inventory = spawnSync(process.execPath, ["test/scripts/run-parallel.mjs", "--scope", "tsonic-rust", "--inventory"],
@@ -88,16 +88,25 @@ test("the complete train refuses malformed previous evidence before builds or ou
   mkdirSync(".temp/train-entry-tests", { recursive: true });
   const root = mkdtempSync(resolve(".temp/train-entry-tests/case-"));
   const before = resolve(root, "before.json");
-  const output = resolve(root, "new-run");
-  writeFileSync(before, "{}");
-  const run = spawnSync("bash", ["test/scripts/run-all.sh", "--train", before, output], {
-    encoding: "utf8", timeout: 60_000, maxBuffer: 65_536,
-  });
-  assert.equal(run.status !== 0, true);
-  assert.equal(existsSync(output), false, "bad evidence never starts a train");
-  assert.doesNotMatch(run.stdout, /PRERUN/u);
+  for (const [index, previous] of [
+    {},
+    { schemaVersion: 1, inventory: [], tasks: [], tests: [], architecture: [] },
+    { schemaVersion: 1, banks: [], inventory: [], tasks: [], tests: [], architecture: [] },
+    { schemaVersion: 1, banks: [{ bank: "host", selection: { complete: false } }],
+      inventory: [], tasks: [], tests: [], architecture: [] },
+  ].entries()) {
+    const output = resolve(root, `new-run-${index}`);
+    writeFileSync(before, JSON.stringify(previous));
+    const run = spawnSync("bash", ["test/scripts/run-all.sh", "--train", before, output], {
+      encoding: "utf8", timeout: 60_000, maxBuffer: 65_536,
+    });
+    assert.equal(run.status !== 0, true);
+    assert.equal(existsSync(output), false, "empty or partial evidence never creates output");
+    assert.doesNotMatch(run.stdout, /PRERUN/u, "preflight fails before every build");
+  }
   const source = readFileSync("test/scripts/run-all.sh", "utf8");
   assert.match(source, /bash test\/scripts\/run-parallel\.sh --with-preruns/u);
   assert.match(source, /bash scripts\/test\.sh "\$\{rust_files\[@\]\}"/u);
   assert.match(source, /node test\/scripts\/test-results\.mjs train/u);
+  assert.match(source, /node test\/scripts\/test-results\.mjs validate-train/u);
 });

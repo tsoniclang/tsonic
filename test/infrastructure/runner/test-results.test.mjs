@@ -4,8 +4,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import reportTestResults from "../../scripts/test-result-reporter.mjs";
-import { collectTestResults, compareTestResults, readDotnetTestResults, readNodeTestResults, validateTrainInputs } from "../../scripts/test-results.mjs";
+import { collectTestResults, compareTestResults, readDotnetTestResults, readNodeTestResults, validateTrainInputs, validateTrainResults } from "../../scripts/test-results.mjs";
 import { parallelReportCounts } from "../../../scripts/certification/counts.mjs";
+import { fullTestTrainBanks } from "../../scripts/suite-definition.mjs";
+import { testScopeRepositoryKeys } from "../../scripts/workspace-layout.mjs";
+import { aggregateTestCounts, testResultCounts } from "../../scripts/parallel-test-counts.mjs";
 
 mkdirSync(".temp/test-result-tests", { recursive: true });
 
@@ -29,9 +32,9 @@ test("the Node adapter retains exact nested names and only scalar failure eviden
   const root = mkdtempSync(resolve(".temp/test-result-tests/node-"));
   const path = resolve(root, "results.jsonl");
   writeFileSync(path, records.map(row => JSON.stringify(row)).join("\n") + "\n");
-  assert.equal(readNodeTestResults(path, "/repo", "test/fallback.mjs").tests[0].file, "test/file.mjs");
+  assert.equal(readNodeTestResults(path, "/repo", "test/shard.mjs").tests[0].file, "test/file.mjs");
   writeFileSync(path, JSON.stringify(records[0]) + "\n");
-  assert.throws(() => readNodeTestResults(path, "/repo", "test/fallback.mjs"), /completed summary/u);
+  assert.throws(() => readNodeTestResults(path, "/repo", "test/shard.mjs"), /completed summary/u);
 });
 
 test("empty skip and todo reasons never become passing identities", async () => {
@@ -78,7 +81,7 @@ test("TRX names preserve escaped arguments and all pass, failure and skipped out
   const text = '<TestRun><Results><UnitTestResult testName="N.Type.value(a: &quot;&lt;x&gt;&amp;&quot;)" outcome="Passed" />' +
     '<UnitTestResult testName="N.Type.fail" outcome="Failed" />' +
     '<UnitTestResult testName="N.Type.skip" outcome="NotExecuted" /></Results>' +
-    '<ResultSummary><Counters total="3" passed="1" failed="1" notExecuted="1" /></ResultSummary></TestRun>';
+    '<ResultSummary outcome="Failed"><Counters total="3" passed="1" failed="1" notExecuted="1" /></ResultSummary></TestRun>';
   const result = readDotnetTestResults(text, "dotnet:net");
   assert.equal(result.tests[0].name, 'N.Type.value(a: "<x>&")');
   assert.deepEqual(result.tests.map(row => row.status), ["passed", "failed", "skipped"]);
@@ -90,6 +93,7 @@ function report(tests) {
   return { bank: "host", selection: { complete: true }, taskCounts: { total: 1 },
     inventory: { taskCount: 1, files: [{ scope: "tsonic", path: "test/architecture/rules.test.mjs", taskIds: ["architecture"] }] },
     results: [{ id: "architecture", group: "architecture", scope: "tsonic", status: tests.some(row => ["failed", "cancelled"].includes(row.status)) ? 1 : 0,
+      signal: null, summary: { completed: true, success: !tests.some(test => ["failed", "cancelled"].includes(test.status)) },
       resultError: null, tests, log: "logs/architecture.log" }] };
 }
 
@@ -130,6 +134,45 @@ test("infrastructure failures, omitted files and unaccounted task exits cannot p
   assert.equal(compareTestResults(before, collectTestResults([currentReport])).pass, false);
 });
 
+test("a known named failure cannot conceal an abnormal task exit, signal or native run", () => {
+  const baseline = report([result("known failure", "failed")]);
+  const before = collectTestResults([baseline]);
+  assert.equal(compareTestResults(before, before).pass, true, "completed assertion exit 1 remains ordinary evidence");
+  for (const changed of [
+    { status: 137 }, { status: 23 }, { status: null },
+    { signal: "SIGKILL" }, { signal: "SIGTERM" }, { signal: undefined },
+    { summary: { completed: false, success: false, outcome: "Aborted" } },
+    { summary: undefined },
+  ]) {
+    const after = collectTestResults([{ ...baseline, results: [{ ...baseline.results[0], ...changed }] }]);
+    const compared = compareTestResults(before, after);
+    assert.equal(compared.pass, false, Object.keys(changed).join(","));
+    assert.equal(compared.infrastructureFailures.length, 1, "run completion is independent of assertion identity");
+    assert.equal(after.tasks[0].signal, Object.hasOwn(changed, "signal") ? changed.signal : baseline.results[0].signal,
+      changed.signal === undefined && Object.hasOwn(changed, "signal") ? "unrecorded signal remains visible" : "signal is retained");
+  }
+});
+
+test("native run-level aborts and errors stay visible beside unchanged failed test identities", () => {
+  const trx = '<TestRun><Results><UnitTestResult testName="N.Type.knownFailure" outcome="Failed" /></Results>' +
+    '<ResultSummary outcome="Failed"><Counters total="1" executed="1" failed="1" />RUN_INFOS</ResultSummary></TestRun>';
+  const nativeReport = named => ({ ...report(named.tests), results: [{ ...report(named.tests).results[0], summary: named.summary }] });
+  const before = collectTestResults([nativeReport(readDotnetTestResults(trx.replace("RUN_INFOS", ""), "native"))]);
+  assert.equal(compareTestResults(before, before).pass, true);
+  for (const text of [
+    trx.replace('outcome="Failed"><Counters', 'outcome="Aborted"><Counters').replace("RUN_INFOS", ""),
+    trx.replace('outcome="Failed"><Counters', 'outcome="Error"><Counters').replace("RUN_INFOS", ""),
+    trx.replace("RUN_INFOS", '<RunInfos><RunInfo outcome="Error"><Text>The testhost crashed.</Text></RunInfo></RunInfos>'),
+    trx.replace("RUN_INFOS", "<ErrorInfo><Message>The run failed.</Message></ErrorInfo>"),
+  ]) {
+    const named = readDotnetTestResults(text, "native");
+    assert.equal(named.summary.completed, false);
+    const after = collectTestResults([nativeReport(named)]);
+    assert.equal(compareTestResults(before, after).pass, false, "identical failed assertions do not excuse native execution failure");
+    assert.equal(after.tasks[0].summary.completed, false);
+  }
+});
+
 test("every new failure and incomplete outcome blocks comparison without erasing known failures", () => {
   for (const status of ["passed", "skipped", "todo"]) {
     const before = collectTestResults([report([result("baseline failure", "failed"), result("changed", status)])]);
@@ -149,7 +192,7 @@ test("every new failure and incomplete outcome blocks comparison without erasing
 });
 
 test("a train requires both complete banks and exact drained own-cgroup measurements", () => {
-  const reports = [report([result("one")]), { ...report([result("two")]), bank: "node" }];
+  const reports = completeReports();
   const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 };
   const guard = { exitCode: 0, scopeDrained: true, swapMax: 0, calibration: false, scopeResult: "success",
     oomScope: "owned-cgroup",
@@ -163,21 +206,70 @@ test("a train requires both complete banks and exact drained own-cgroup measurem
   assert.throws(() => validateTrainInputs([{ ...reports[0], selection: { complete: false } }, reports[1]], [guard, guard]), /complete/u);
   assert.throws(() => validateTrainInputs([reports[0], reports[0]], [guard, guard]), /complete/u);
   assert.throws(() => validateTrainInputs([reports[0], { ...reports[1], results: [] }], [guard, guard]), /scheduled task/u);
-  assert.throws(() => validateTrainInputs([reports[0], { ...report([result("unfinished", "cancelled")]), bank: "node" }],
-    [guard, guard]), /cancelled/u);
+  const cancelled = structuredClone(reports);
+  cancelled[1].results[0].tests[0].status = "cancelled";
+  assert.throws(() => validateTrainInputs(cancelled, [guard, guard]), /cancelled/u);
   assert.doesNotThrow(() => validateTrainInputs(reports, [guard, { ...guard,
     userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } }]), "foreign OOM has no admission authority");
+});
+
+function completeReports() {
+  const repos = Object.fromEntries(Object.values(testScopeRepositoryKeys).map(key => [key,
+    { path: `/repos/${key}`, head: "a".repeat(40), dirty: false }]));
+  return fullTestTrainBanks.map(({ bank, scopes }) => {
+    const results = scopes.map(scope => ({ ...report([result(`${scope} example`)]).results[0], id: `${scope}:example`, scope }));
+    const files = results.map(task => ({ scope: task.scope, path: "test/architecture/rules.test.mjs",
+      taskIds: [task.id], preRunIds: ["build"] }));
+    return { bank, runId: `${bank}-run`, createdAt: "2026-10-18T00:00:00Z", repos, selection: { complete: true },
+      taskCounts: { total: results.length }, inventory: { fileCount: files.length, taskCount: results.length, files },
+      preRuns: [{ id: "build", status: 0 }], results };
+  });
+}
+
+test("complete train validation retains and checks bank provenance, inventory and execution on both sides", () => {
+  const reports = completeReports();
+  const collected = collectTestResults(reports);
+  assert.doesNotThrow(() => validateTrainResults(collected));
+  assert.equal(collected.banks[0].selection.complete, true);
+  assert.deepEqual(collected.banks[1].inventory, reports[1].inventory);
+  for (const mutate of [
+    current => { current.banks = []; },
+    current => { current.banks[0].selection.complete = false; },
+    current => { current.banks[1].selection.complete = false; },
+    current => { current.banks[0].repos.tsonic.head = "unknown"; },
+    current => { current.banks[1].repos.tsonicRust.dirty = true; },
+    current => { delete current.banks[0].runId; },
+    current => { current.banks[0].inventory.files.pop(); },
+    current => { current.banks[1].preRuns = []; },
+    current => { current.tasks.pop(); },
+    current => { current.tasks[0].status = 137; },
+    current => { current.tests.pop(); },
+    current => { current.inventory.pop(); },
+  ]) {
+    const current = structuredClone(collected);
+    mutate(current);
+    assert.throws(() => validateTrainResults(current), /train|bank|provenance|execution|task|prerequisite/u);
+  }
+  const partial = collectTestResults([{ ...reports[0], selection: { complete: false } }]);
+  assert.equal(compareTestResults(partial, partial).pass, true, "owner-level partial comparisons remain legitimate");
+  assert.throws(() => validateTrainResults(partial), /complete/u, "a partial owner proof is not a whole-train baseline");
+  assert.throws(() => validateTrainResults({ schemaVersion: 1, inventory: [], tasks: [], tests: [], architecture: [] }), /provenance/u);
 });
 
 test("one parallel count contract covers Host and Rust without losing cancellation or todo", () => {
   const counts = { total: 2, passed: 2, failed: 0, skipped: 0, todo: 0, cancelled: 0 };
   const base = { selection: { complete: true }, taskCounts: { total: 1, passed: 1, failed: 0 },
-    testCountReporting: { missing: 0, reported: 1 }, testCounts: counts };
+    testCountReporting: { missing: 0, reported: 1 }, testCounts: counts,
+    results: [{ summary: { completed: true }, tests: [result("one"), result("two")] }] };
   assert.equal(parallelReportCounts({ ...base, bank: "host", preRuns: [{ status: 0 }] })[0].total, 2);
   assert.equal(parallelReportCounts({ ...base, bank: "node", preRuns: [] })[0].total, 2);
   assert.throws(() => parallelReportCounts({ ...base, bank: "host", preRuns: [] }), /incomplete/u);
   assert.throws(() => parallelReportCounts({ ...base, bank: "node", selection: { complete: false }, preRuns: [] }), /incomplete/u);
-  const actual = parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: { ...counts, cancelled: 1, todo: 1 } });
+  const changedTests = [result("cancelled", "cancelled"), result("todo", "todo")];
+  const actual = parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: testResultCounts(changedTests),
+    results: [{ summary: { completed: true }, tests: changedTests }] });
   assert.equal(actual[0].cancelled, 1, "certification receives rather than erases a cancelled result");
   assert.equal(actual[0].todo, 1);
+  assert.deepEqual(aggregateTestCounts(base.results), { reportedShards: 1, ...counts });
+  assert.throws(() => parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: { ...counts, passed: 1 } }), /per-test/u);
 });
