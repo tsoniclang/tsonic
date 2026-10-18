@@ -101,8 +101,8 @@ test("context traversal reserves only its live frontier while interned binding e
   assert.equal(budget.failure() === undefined, true, "cumulative temporary allocations do not masquerade as retained memory");
   let retained = 0;
   while (budget.row()) retained += 1;
-  assert.equal(retained === 62, true,
-    "ten identity rows, six frame/entry/actual rows and two unified context-footprint rows remain charged");
+  assert.equal(retained === 50, true,
+    "thirty necessary identity, frame, canonical demanded-footprint and completed-key index rows remain charged");
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(scopes.frameFor(current.inner, invocation, parent, parent) === undefined, true, "release never clears a failed owner");
 });

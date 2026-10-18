@@ -130,7 +130,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand), selected.deferred === true ? 1 : 0];
       if (selected.kind === "guarded") {
-        return budget.withRows(rows => {
+        const guarded = budget.withRows(rows => {
           const references = new Set<number>();
           let current: SourceStorageTerm = selected;
           while (current.kind === "guarded") {
@@ -140,9 +140,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
             references.add(reference);
             current = current.value;
           }
-          const value = encodeTerm(current);
-          return value === undefined ? undefined : [selected.kind, [...references].sort((left, right) => left - right), value];
+          const guards = encoder.intern([...references].sort((left, right) => left - right));
+          references.clear();
+          return guards === undefined ? undefined : { guards, value: current };
         });
+        if (guarded === undefined) return undefined;
+        const value = encodeTerm(guarded.value);
+        return value === undefined ? undefined : [selected.kind, guarded.guards, value];
       }
       if (selected.kind === "transition") {
         const guards: Extract<SourceStorageTerm, { readonly kind: "transition" }>[] = [];

@@ -702,7 +702,7 @@ test("overwritten unrelated own fields do not lose an exact spread method creati
     function make<Value>(value: Value) { return { read(): Value { return value; } }; }
     const value = {};
     const original = make(value);
-    const copied = { ...original, noise: 1, ...{ noise: 2 } };
+    const copied = { ...original, ...{ noise: 1 }, ...{ noise: 2 } };
     export const selected = copied.read;
   `);
   const { ast, nodes, storage } = current;

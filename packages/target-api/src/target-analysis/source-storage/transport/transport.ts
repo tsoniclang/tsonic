@@ -353,7 +353,8 @@ export function createSourceStorageTransport(
         for (const parameter of selected.sourceSelectedSignatureParameters) {
           if (!step()) break;
           const symbol = checkedParameters[parameter.parameterIndex];
-          if (symbol === undefined || !consumer.declarations.symbolDeclarations(symbol).includes(parameter.parameterDeclaration))
+          if (symbol === undefined || parameter.parameterDeclaration === undefined ||
+            !consumer.declarations.symbolDeclarations(symbol).includes(parameter.parameterDeclaration))
             unresolvedInvocations.set(node, "Source storage argument transport requires the original checked selected signature parameter identity.");
         }
         for (const binding of selected.sourceArgumentBindings) {
