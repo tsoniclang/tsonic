@@ -1135,8 +1135,9 @@ test("writes to a copied getter result are writes to its new own field, not to t
     const callee = ast.as.AsCallExpression(node).Expression;
     if (!ast.is.IsPropertyAccessExpression(callee)) return false;
     const access = ast.as.AsPropertyAccessExpression(callee);
+    const name = ast.name(callee);
     return ast.is.IsIdentifier(access.Expression) && ast.text(access.Expression) === "copied" &&
-      ast.is.IsIdentifier(access.Name) && ast.text(access.Name) === "read";
+      ast.is.IsIdentifier(name) && ast.text(name) === "read";
   });
   assert.equal(call !== undefined, true, "the original checked copied-field invocation exists");
   const implementations = resolved(storage.invocationImplementationsFor(call));
