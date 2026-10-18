@@ -45,6 +45,14 @@ export function processStartIdentity(status) {
   return fields[19];
 }
 
+export function admittedScopeCgroup(membership, unit) {
+  if (!/^tsonic-[a-zA-Z0-9_-]+\.scope$/u.test(unit)) throw new Error("Invalid admitted scope identity.");
+  const parts = guardCgroupPath(membership).split("/");
+  const position = parts.indexOf(unit);
+  if (position < 0 || parts.lastIndexOf(unit) !== position) throw new Error("The process is not within its admitted scope.");
+  return parts.slice(0, position + 1).join("/");
+}
+
 export function reservationIsLive(reservation, scopes, readProcess, bootId) {
   if (scopes.some(scope => scope.unit === reservation.unit)) return true;
   if (reservation.bootId !== bootId) return false;
@@ -116,7 +124,7 @@ function memoryAdmissionCommand(arguments_) {
   const state = readState(statePath);
   if (action === "activate") {
     const owned = state.reservations.find(entry => entry.unit === unit);
-    const group = guardCgroupPath(readFileSync("/proc/self/cgroup", "utf8"));
+    const group = admittedScopeCgroup(readFileSync("/proc/self/cgroup", "utf8"), unit);
     if (owned === undefined || owned.pid !== pid || !group.endsWith(`/${unit}`) ||
       Number(readFileSync(resolve(group, "memory.max"), "utf8")) !== owned.memoryMiB * 1_048_576) {
       throw new Error("The running test scope differs from its pending memory reservation.");

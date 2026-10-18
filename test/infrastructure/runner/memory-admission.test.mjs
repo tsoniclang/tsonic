@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planTestMemoryAdmission, processStartIdentity, reservationIsLive } from "../../scripts/memory-admission.mjs";
+import { admittedScopeCgroup, planTestMemoryAdmission, processStartIdentity, reservationIsLive } from "../../scripts/memory-admission.mjs";
 
 const machine = { totalMemoryMiB: 61_440, availableMemoryMiB: 57_344 };
 const scope = (unit, memoryMiB) => ({ unit, memoryMiB });
 const status = (start, name = "test guard") => `123 (${name}) ${["S", ...Array(18).fill("0"), String(start)].join(" ")}`;
+
+test("reservation activation binds the exact outer scope, including its delegated runner and task children", () => {
+  const scope = "/sys/fs/cgroup/user.slice/tsonic-host-tests-control.scope";
+  for (const suffix of ["", "/runner", "/task-123"]) {
+    assert.equal(admittedScopeCgroup(`0::/user.slice/tsonic-host-tests-control.scope${suffix}\n`, "tsonic-host-tests-control.scope"), scope);
+  }
+  assert.throws(() => admittedScopeCgroup("0::/user.slice/foreign.scope/runner", "tsonic-host-tests-control.scope"), /not within/u);
+  assert.throws(() => admittedScopeCgroup("0::/user.slice/tsonic-host-tests-control.scope-extra/runner", "tsonic-host-tests-control.scope"), /not within/u);
+});
 
 test("memory reservations admit the entire safe remainder without fixed worker slots", () => {
   const running = Array.from({ length: 7 }, (_, index) => scope(`worker-${index}`, 4096));
