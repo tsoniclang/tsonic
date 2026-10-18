@@ -161,6 +161,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   let packageEntries = [];
+  const requiredNativeModulePaths = new Set();
   const incomingEntries = new Map();
   const recordIncoming = (sourcePath, target) => {
     if (target === undefined) return;
@@ -185,6 +186,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       const format = entry.executionRoot ? "script" : nativeNodeModuleFormat(target);
       if (format === "data") continue;
       if (format === "binary") { reject(entry.source, "unproved first-party native package binary entry"); continue; }
+      requiredNativeModulePaths.add(target);
       const input = files.get(target);
       if (input?.kind !== "file" || typeof input.text !== "string") { reject(entry.source, "uncaptured first-party native package module bytes"); continue; }
       nativeScripts.add(target);
@@ -213,18 +215,20 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         role === 2 ? "native-test-entry" : "native-entry", moduleSpecifierTargets);
       scripts.set(path, script);
     }
+    if (nativeScript) for (const target of script.finiteModuleTargets) requiredNativeModulePaths.add(target);
     for (const reference of script.references) {
       if (!reference.module || reference.external || reference.unresolved) continue;
       const nativeEntry = nativeScript;
       for (const target of destinations(path, reference)) {
         recordIncoming(path, target);
         if (transcriptData.has(target)) continue;
+        const format = reference.executionEntry ? "script" : nativeNodeModuleFormat(target);
+        if (nativeEntry && format === "script") requiredNativeModulePaths.add(target);
         const input = files.get(target);
         if (input?.kind !== "file") {
           if (nativeEntry) reject(path, "uncaptured first-party native module entry");
           continue;
         }
-        const format = reference.executionEntry ? "script" : nativeNodeModuleFormat(target);
         if (format === "data") continue;
         if (format === "binary") { reject(path, "unproved first-party native binary module entry"); continue; }
         if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
@@ -354,9 +358,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   const builtModuleInputs = new Map();
-  const pendingModules = [...scripts].filter(([path]) => nativeScripts.has(path)).flatMap(([_path, script]) => script.finiteModuleTargets);
-  pendingModules.push(...packageEntries.filter(entry => !entry.openBoundary && !entry.external && entry.unresolvedReason === undefined &&
-    (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")).map(entry => entry.path));
+  const pendingModules = [...requiredNativeModulePaths];
   while (pendingModules.length > 0) {
     const target = resolveAlias(pendingModules.pop());
     if (target === undefined || builtModuleInputs.has(target)) continue;
@@ -366,13 +368,18 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
     builtModuleInputs.set(target, Object.freeze({ path: target, sha256: input.sha256 }));
     for (const reference of scripts.get(target)?.references ?? []) {
-      if (reference.module && !reference.unresolved && !reference.external) pendingModules.push(...destinations(target, reference).filter(value => value !== undefined));
+      if (reference.module && !reference.unresolved && !reference.external) for (const path of destinations(target, reference)) {
+        if (transcriptData.has(path)) continue;
+        requiredNativeModulePaths.add(path);
+        pendingModules.push(path);
+      }
     }
   }
   return Object.freeze({ findings: sortKeelFindings(findings), consumers: Object.freeze(consumers),
     literalUrlLoaders: Object.freeze([...scripts].flatMap(([path, script]) => script.literalUrlLoaders
       .map(loader => Object.freeze({ path, ...loader })))),
     builtModuleInputs: Object.freeze([...builtModuleInputs.values()].sort((left, right) => left.path.localeCompare(right.path))),
+    requiredNativeModulePaths: Object.freeze([...requiredNativeModulePaths].sort()),
     transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
       .sort(([left], [right]) => left.localeCompare(right)))),
@@ -538,34 +545,7 @@ function moduleEntryTargets(packages, sourcePath, specifier, nativeRequire = fal
 }
 
 export function keelSafetyBuiltModuleEntries(workspaceInputs) {
-  const packages = [...workspaceInputs].flatMap(([repo, files]) => [...files].filter(([file, input]) =>
-    input.kind === "file" && posix.basename(file) === "package.json").map(([file, input]) =>
-    ({ root: posix.dirname(`${repo}/${file}`), metadata: JSON.parse(input.text) })));
-  const files = new Map([...workspaceInputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
-  const transcriptData = declaredTranscriptData(files);
-  const moduleSpecifierTargets = (origin, specifier) => packageImportTargets(packages, origin, specifier);
-  const scripts = new Map([...files].filter(([path, input]) => input.kind === "file" &&
-    (/\.[cm]?[jt]sx?$/u.test(path) || input.builtModule) && !transcriptData.has(path)).map(([path, input]) =>
-    [path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary,
-      input.builtModule ? "native-entry" : "authored", moduleSpecifierTargets)]));
-  const targets = new Set();
-  const nativeSources = new Set([...scripts].filter(([_path, script]) => script.nativeJavaScript || script.nativeEntry).map(([path]) => path));
-  for (const entry of packageModuleEntries(packages, scripts, files)) {
-    if (!entry.openBoundary && !entry.external && entry.unresolvedReason === undefined && (entry.executionRoot || nativeNodeModuleFormat(entry.path) === "script")) {
-      targets.add(entry.path);
-      nativeSources.add(entry.path);
-    }
-  }
-  for (const [path, script] of scripts) {
-    if (!nativeSources.has(path)) continue;
-    for (const target of script.finiteModuleTargets) targets.add(target);
-    for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
-      for (const target of moduleReferencePaths(packages, files, path, reference)) {
-        if (reference.executionEntry || nativeNodeModuleFormat(target) === "script") targets.add(target);
-      }
-    }
-  }
-  return Object.freeze([...targets].sort());
+  return validateCanonicalNativeAllocationBoundary(workspaceInputs).requiredNativeModulePaths;
 }
 
 export function keelSafetyNativeTestGlobs(workspaceInputs) {

@@ -2475,7 +2475,9 @@ test("QRC-17: actual native Node test-glob membership matches the complete hashe
     .map(path => ({ path, sha256: keelDigest(readFileSync(join(root, path))) }));
   const before = snapshot();
   const arguments_ = ["--test", "--test-reporter=tap", "--test-concurrency=1", ...patterns];
-  const child = spawnSync(process.execPath, arguments_, { cwd: root, encoding: "utf8" });
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const child = spawnSync(process.execPath, arguments_, { cwd: root, encoding: "utf8", env: environment });
   const after = snapshot();
   context.diagnostic(JSON.stringify({ nativeNode: process.version, command: [process.execPath, ...arguments_],
     root, before, beforeSha256: keelDigest(JSON.stringify(before)), after, afterSha256: keelDigest(JSON.stringify(after)),
@@ -2549,7 +2551,8 @@ test("QRC-18: effective native execution modes distinguish positionals, code and
       inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ scripts: { inspect: "node " + args.join(" ") } })));
       assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, active.includes(option), `${mode}/${option}/${joined}: actual native metadata module role`);
       inputs.get("tsonic-rust").delete("package.json");
-      const astArgs = [...prefix, ...(joined ? [`${option}=../${writer}`] : [option, "../" + writer]), "../" + path];
+      const nativeWriter = "/keel/tsonic-rust/" + writer;
+      const astArgs = [...prefix, ...(joined ? [`${option}=${nativeWriter}`] : [option, nativeWriter]), "/keel/tsonic-rust/" + path];
       inputs.get("tsonic-rust").set("src/inspect.mjs", safetyFile(`import { spawnSync } from "node:child_process"; spawnSync(process.execPath, ${JSON.stringify(astArgs)});`));
       assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, active.includes(option), `${mode}/${option}/${joined}: actual native AST module role`);
     }
