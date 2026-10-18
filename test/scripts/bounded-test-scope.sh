@@ -128,6 +128,7 @@ launch_started=true
     --expand-environment=no \
     --unit="${unit%.scope}" \
     --property="MemoryMax=${memory_max}" \
+    --property="Delegate=yes" \
     --property="MemorySwapMax=0" \
     --property="TasksMax=${tasks_max}" \
     env -u TSONIC_TEST_GUARD_REPORT node "$script_root/guard-command.mjs" "$measurement_file" "$timeout_seconds" \
@@ -291,11 +292,6 @@ if (( test_status != 0 )); then
   printf '\n' >&2
 fi
 
-if [[ "${scope_result}" == "oom-kill" ]]; then
-  printf 'Bounded test scope exhausted its memory ceiling; inspect %s.\n' "${log_file}" >&2
-  test_status=137
-fi
-
 if [[ -f "$measurement_file" ]]; then
   if ! node --input-type=module -e 'import {readFileSync} from "node:fs"; const {guardMeasurementSucceeded}=await import(process.argv[2]); const measured=JSON.parse(readFileSync(process.argv[1], "utf8")); process.exit(guardMeasurementSucceeded(measured) ? 0 : 1)' "$measurement_file" "file://$script_root/guard-cgroup.mjs"; then
     printf 'Bounded command exhausted its memory ceiling or used swap; inspect %s.\n' "$measurement_file" >&2
@@ -304,6 +300,10 @@ if [[ -f "$measurement_file" ]]; then
 elif (( test_status == 0 )); then
   printf 'Bounded command did not publish its resource measurements.\n' >&2
   test_status=1
+fi
+if [[ "${scope_result}" == "oom-kill" && ! -f "$measurement_file" ]]; then
+  printf 'Bounded test scope exhausted its memory ceiling without recovery evidence; inspect %s.\n' "${log_file}" >&2
+  test_status=137
 fi
 
 if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" && "$test_status" != 137 && "$test_status" != 153 ]]; then

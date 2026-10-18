@@ -171,7 +171,6 @@ export function createParallelShardPlan(suiteDefinition, repos, { statusRoot, ts
       file,
       files: [file],
       preRunIds: resources?.preRunIds ?? [],
-      memoryMiB: resources?.memoryMiB,
       heapMiB: resources?.heapMiB,
       childJobs: resources?.childJobs,
       cwd: repos[scopeToRepoKey(scope)],
@@ -230,7 +229,6 @@ export function createParallelShardPlan(suiteDefinition, repos, { statusRoot, ts
           taskId: shard.id,
           preRunIds: shard.preRunIds ?? [],
           runner: shard.command === "dotnet" ? "dotnet" : "node",
-          memoryMiB: shard.memoryMiB,
           heapMiB: shard.heapMiB,
           childJobs: shard.childJobs,
         };
@@ -248,7 +246,6 @@ export function createParallelShardPlan(suiteDefinition, repos, { statusRoot, ts
         exclusive: entry.exclusive,
         path: entry.path,
         runner: entry.runner,
-        memoryMiB: entry.memoryMiB,
         heapMiB: entry.heapMiB,
         childJobs: entry.childJobs,
         taskIds: entry.tasks.map((task) => task.taskId).sort(),

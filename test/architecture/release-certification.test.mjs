@@ -10,6 +10,7 @@ import { describeEvidence, latestCertification, validateCertification, writeImmu
 import { selectCertification } from "../../scripts/certification/select.mjs";
 import { hostRoot, loadNpmWave, resolveWaveLayout } from "../../scripts/release/npm-wave.mjs";
 import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
+import { keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
 
 const entry = validateCertificationEntry({
   repository: "tsonic", command: ["npm", "test"], worker: ["node", "test.mjs"],
@@ -35,7 +36,7 @@ test("all release banks explicitly close over their real sibling dependencies", 
   const entries = loadNpmWave().certification;
   for (const suite of entries) assert.doesNotThrow(() => validateCertificationEntry(suite));
   assert.deepEqual(entries.find(suite => suite.repository === "tsonic").inputs,
-    ["tsonic", "tsonic-csharp", "csharp-runtime", "csharp-js", "csharp-nodejs", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"]);
+    keelWorkspaceRepositories);
   assert.deepEqual(entries.find(suite => suite.repository === "tsonic-rust").inputs,
     ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs", "tsonic-csharp"]);
   assert.deepEqual(entries.find(suite => suite.repository === "rust-nodejs").inputs,
@@ -256,6 +257,24 @@ test("new test captures produce structured counts and preserve failure status", 
   assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
 });
 
+test("certification resource gates share exact no-OOM and passing half-width recovery rules", () => {
+  const noOom = makeFixture();
+  assert.doesNotThrow(() => validate(noOom), "no-OOM exit, counts and immutable evidence remain required");
+  const incident = { task: "fixture", first: { drained: true, oomKills: 1 }, retry: { drained: true, oomKills: 0 },
+    retryStatus: 0, retryCompleted: true, retryTests: 2, firstWidth: 4, retryWidth: 2, retryResultPath: "/evidence/retry.jsonl" };
+  const recovery = { verified: true, issue: null, accountedKills: 1, incidents: [incident], victimTaskIds: ["fixture"],
+    evidencePath: "/evidence/recovery.jsonl" };
+  const measurement = { ...noOom.record.guard.measurement, oomAfter: 1, oomRecovery: recovery };
+  const recovered = makeFixture({ scopeResult: "oom-kill", oomAfter: 1, measurement });
+  assert.doesNotThrow(() => validate(recovered), "a proved retry retains the exact original incident and raw counters");
+  const unproven = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, verified: false } } });
+  assert.throws(() => validate(unproven), /owned resource guard/u);
+  const failedRetry = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, incidents: [{ ...incident, retryStatus: 1 }] } } });
+  assert.throws(() => validate(failedRetry), /owned resource guard/u);
+});
+
 function makeFixture(guardOverrides = {}, bankOverrides = {}) {
   const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
   const root = resolve(workspace, "record");
@@ -270,7 +289,7 @@ function makeFixture(guardOverrides = {}, bankOverrides = {}) {
     measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
     admission: { admitted: true, unit: "fixture.scope", requestedMiB: 4096 },
     scopeResult: "success", memoryMiB: 4096, tasksMax: 2048, timeoutSeconds: 60, logMaxBytes: 65536,
-    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 },
+    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, childJobs: 1, workers: 2, heapMiB: 1536 },
     ...guardOverrides };
   const guardPath = resolve(root, "guard.json");
   const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");

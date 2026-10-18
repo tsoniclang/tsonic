@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { guardReceiptHasOwnedMeasurements } from "./guard-cgroup.mjs";
+import { guardReceiptHasOwnedMeasurements, guardScopeResultAccepted } from "./guard-cgroup.mjs";
 import { fullTestTrainBanks } from "./suite-definition.mjs";
 import { testScopeRepositoryKeys } from "./workspace-layout.mjs";
 
@@ -168,7 +168,7 @@ export function validateTrainInputs(reports, guards) {
   if (!Array.isArray(guards) || guards.length !== fullTestTrainBanks.length) throw new Error("A train requires both resource receipts.");
   for (const guard of guards) {
     if (![0, 1].includes(guard.exitCode) || guard.swapMax !== 0 || guard.calibration !== false ||
-      !(guard.exitCode === 1 ? [null, "success", "exit-code"] : [null, "success"]).includes(guard.scopeResult) ||
+      !guardScopeResultAccepted(guard) ||
       !guardReceiptHasOwnedMeasurements(guard)) {
       throw new Error("A train requires its complete, drained, own-cgroup resource receipts.");
     }
