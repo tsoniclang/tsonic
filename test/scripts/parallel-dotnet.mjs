@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path";
 import { discoverTestFiles } from "./node-test-files.mjs";
 import { testPath, testTaskName } from "./workspace-layout.mjs";
 
-export function createDotnetTestShards(testSuite, { statusRoot, tsonicRoot }) {
+export function createDotnetTestShards(testSuite, { statusRoot }) {
   const files = listDotnetTestFiles(testSuite.directory);
   if (testSuite.taskMode === "assembly") {
     return [dotnetTestShard(testSuite, "assembly", files, undefined)];

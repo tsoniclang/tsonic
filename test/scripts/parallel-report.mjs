@@ -58,7 +58,7 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
         log: testPath(relative(tsonicRoot, result.logPath)),
       })),
     },
-    failuresByGroup: groupFailures(failures),
+    failuresByGroup: groupFailures(failures, tsonicRoot),
     results: results.map(result => ({
       id: result.shard.id, group: result.shard.group, scope: result.shard.scope,
       status: result.status, signal: result.signal, durationMs: result.durationMs,
@@ -116,7 +116,7 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
   return report;
 }
 
-function groupFailures(failures) {
+function groupFailures(failures, tsonicRoot) {
   const groups = {};
   for (const failure of failures) {
     const group = failure.shard.group;

@@ -35,7 +35,7 @@ export function createParallelShardPlan(suiteDefinition, repos, { statusRoot, ts
             { ...testSuite.resources, preRunIds: testSuite.preRunIds }, testSuite.nodeArguments))
       ),
       ...suiteDefinition.dotnetSuites.flatMap((testSuite) =>
-        createDotnetTestShards(testSuite, { statusRoot, tsonicRoot })
+        createDotnetTestShards(testSuite, { statusRoot })
       ),
     ];
   }
