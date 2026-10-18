@@ -337,7 +337,8 @@ export function createSourceStorageDomains(
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings, current => {
-      if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
+      if (transport.substitutions.isBound(current.subject, current.bindings) ||
+        receiverBinding(current.subject, current.bindings)) return false;
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
         (boundary.owner === undefined || stores === undefined));

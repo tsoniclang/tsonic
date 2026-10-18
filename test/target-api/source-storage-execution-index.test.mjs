@@ -86,6 +86,32 @@ test("instance initializers and accessor writes/reads share the exact execution-
   assert.equal([...current.transport.regions.invocationsIn(ast.body(constructor)) ?? []].length === 1, true);
 });
 
+for (const form of ["spread", "binding", "rest"]) {
+  test("checked getter evaluation retains its actual source kind and original receiver: " + form, () => {
+    const current = fixture(`
+      const token = {};
+      const original = { ignored: 1, get read(): object { return token; } };
+      ${form === "spread" ? "const copied = { ...original };"
+        : form === "binding" ? "const { read: selected } = original;" : "const { ignored, ...copied } = original;"}
+    `);
+    const { ast } = current.source;
+    const getter = current.transport.visitedNodes.find(ast.is.IsGetAccessorDeclaration);
+    const original = current.named("original", ast.is.IsVariableDeclaration);
+    const evaluation = form === "spread" ? current.transport.visitedNodes.find(ast.is.IsSpreadAssignment)
+      : current.named(form === "binding" ? "selected" : "copied", ast.is.IsBindingElement);
+    assert.equal(getter !== undefined && evaluation !== undefined, true, "the original checked getter and operation exist");
+    assert.equal(ast.is.IsBindingElement(evaluation), form !== "spread", "an unchecked node cast cannot reinterpret a spread as a binding");
+    const targets = current.transport.accessorTargets.get(evaluation);
+    assert.equal(targets?.length === 1 && targets[0].declaration === getter &&
+      current.source.navigation.sourceReferenceFor(targets[0].receiver)?.declaration === original, true,
+    "the real operation retains exactly its selected getter and original receiver, not a fabricated call or an unrelated field");
+    const file = ast.getSourceFile(original);
+    assert.equal([...current.transport.regions.invocationsIn(file) ?? []].filter(node => node === evaluation).length, 1,
+      "the existing execution index records the identical real getter operation once");
+    assert.equal(current.budget.failure() === undefined, true, "ordinary getter input transport remains bounded");
+  });
+}
+
 test("execution index reservations reject atomically and cannot resume after construction is sealed", () => {
   const current = fixture("function read(): object { return {}; } const value = read();");
   const invocation = [...current.transport.invocations][0];

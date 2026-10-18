@@ -158,7 +158,7 @@ export function createSourceStorageMemberFlow(
     const rest = sourceStorageObjectRestOwner(evaluation, source.ast) !== undefined;
     const excluded = rest ? restExcludedKeys(evaluation) : undefined;
     if (rest && excluded === undefined) return undefined;
-    const binding = !rest ? source.ast.as.AsBindingElement(evaluation) : undefined;
+    const binding = !rest && source.ast.is.IsBindingElement(evaluation) ? source.ast.as.AsBindingElement(evaluation) : undefined;
     const name = binding === undefined ? undefined : binding.PropertyName ?? source.ast.name(evaluation);
     const selected = name === undefined ? undefined : queries.operations.propertyName(name);
     if (binding !== undefined && selected === undefined) return undefined;
@@ -194,7 +194,7 @@ export function createSourceStorageMemberFlow(
     | { readonly kind: "absent" }
     | undefined => {
     const file = sourceFileFor(owner);
-    const object = source.ast.as.AsObjectLiteralExpression(owner.node);
+    const object = source.ast.is.IsObjectLiteralExpression(owner.node) ? source.ast.as.AsObjectLiteralExpression(owner.node) : undefined;
     const rest = sourceStorageObjectRestOwner(owner.node, source.ast);
     if (file === undefined || object === undefined && rest === undefined || owner.projection.length !== 0) return undefined;
     const queries = source.semantics.forFile(file);

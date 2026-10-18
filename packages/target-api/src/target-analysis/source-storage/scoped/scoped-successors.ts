@@ -820,10 +820,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           } else terms.push(sourceStorageReference(value, local));
           continue;
         }
-        const execution: SourceStorageTerm | undefined = store.destination === "element" && region !== undefined && ast.is.IsArrayLiteralExpression(node)
-          ? Object.freeze({ kind: "region", region, scope: creatorScope(node, term.scope), demand: store.region, deferred: scopes.isDeferred(term.scope) })
-          : undefined;
-        const effects = readEffects(store, { kind: "general", execution }, scopes.isDeferred(term.scope), term.scope);
+        const effects = readEffects(store, { kind: "general" }, scopes.isDeferred(term.scope), term.scope);
         for (const effect of effects) {
           if (!budget.step()) return undefined;
           if (effect.kind === "unresolved") { terms.push(effect); continue; }
