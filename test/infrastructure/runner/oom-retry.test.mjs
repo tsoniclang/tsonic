@@ -96,11 +96,11 @@ test("an actual bounded OOM victim retries once without rewriting the first atte
   mkdirSync(".temp/oom-native-proof", { recursive: true });
   const root = mkdtempSync(resolve(".temp/oom-native-proof/case-"));
   const repository = resolve(root, "native-fixture");
-  mkdirSync(resolve(repository, "test"), { recursive: true });
+  mkdirSync(resolve(repository, "test/infrastructure/runner"), { recursive: true });
   mkdirSync(resolve(repository, "scripts"));
   writeFileSync(resolve(repository, "scripts/register-tsonic-root-loader.mjs"), "export {};\n");
   const marker = resolve(root, "first-attempt-marker");
-  writeFileSync(resolve(repository, "test/native.test.mjs"), `
+  writeFileSync(resolve(repository, "test/infrastructure/runner/native.test.mjs"), `
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import test from "node:test";
@@ -117,7 +117,7 @@ test("actual native victim control", () => {
   const guardPath = resolve(root, "guard.json");
   const reportPath = resolve(root, "report.json");
   const run = spawnSync("bash", ["test/scripts/bounded-run.sh", "host", process.execPath, "test/scripts/run-parallel.mjs",
-    "--scope", "tsonic-rust", "--repository-root", repository, "--file", resolve(repository, "test/native.test.mjs"), "--concurrency", "2"],
+    "--scope", "tsonic", "--repository-root", repository, "--file", resolve(repository, "test/infrastructure/runner/native.test.mjs"), "--concurrency", "2"],
   { encoding: "utf8", timeout: 85_000, maxBuffer: 131_072,
     env: { ...process.env, TSONIC_TEST_GUARD_REPORT: guardPath, TSONIC_TEST_SUITE_REPORT: reportPath,
       TSONIC_TEST_MEMORY_MIB: "256", TSONIC_TEST_HEAP_MIB: "32", TSONIC_TEST_WORKERS: "2",
