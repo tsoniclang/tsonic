@@ -164,11 +164,14 @@ test("rest creation retains its exact original value and checked projected input
   const firstField = current.transport.visitedNodes.find(node => ast.is.IsPropertySignatureDeclaration(node) && ast.text(ast.name(node)) === "first");
   const remaining = current.transport.subject(rest.node, rest.kind, [{ kind: "member", declaration: secondField }]);
   assert.equal(current.transport.incomingFor(remaining).size > 0, true, "the retained field has its checked source-member edge");
-  const retained = current.transport.storedValuesFor(remaining);
-  const originalRest = current.stores(binding("rest"))[0];
-  assert.equal(retained.length > 0 && retained.every(input => input.store === originalRest &&
-    originalRest.birth.some(component => component.origin === input.value && component.destination === remaining)), true,
-  "stored rest projection consumes the original checked component mapping, not its self-value or later incoming writes");
+  const selectedRest = query.subjectFor(binding("rest"));
+  const selectedRemaining = query.subject(selectedRest.subject.node, selectedRest.subject.kind, remaining.projection);
+  assert.equal(selectedRemaining.kind, "resolved", "the retained rest member is an exact checked component");
+  const retained = query.closedOriginsFor(selectedRemaining.subject);
+  const originalSecond = Node_Initializer(ast, current.variable("second"));
+  assert.equal(retained.kind === "complete" && retained.origins.length === 1 &&
+    retained.origins[0].subject.node === originalSecond, true,
+  "the retained rest component has exactly its original checked producer, not its self-value or later incoming edges");
   const excluded = current.transport.subject(rest.node, rest.kind, [{ kind: "member", declaration: firstField }]);
   assert.equal(current.transport.incomingFor(excluded).size, 0, "the removed field is not copied to the original rest value");
   const selectedTail = query.subjectFor(binding("tail"));
