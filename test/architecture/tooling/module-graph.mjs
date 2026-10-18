@@ -1,4 +1,5 @@
 import { dirname, extname, posix } from "node:path";
+import { sourceTransparentExpressionOperand } from "../../../packages/target-api/dist/source-navigation/ast.js";
 import { readArchitectureTypeScript } from "./typescript-source.mjs";
 
 const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".cts"]);
@@ -92,21 +93,35 @@ function collectModuleSpecifiers(ast, sourceFile) {
       if (moduleNode !== undefined) {
         specifiers.push(ast.text(moduleNode));
       }
+    } else if (kind === "KindImportType") {
+      const specifier = literalModuleSpecifier(ast, ast.as.AsImportTypeNode(node).Argument);
+      if (specifier !== undefined) specifiers.push(specifier);
     } else if (kind === "KindCallExpression") {
       const children = ast.children(node);
       if (
         children.some((child) => ast.kindName(child) === "KindImportKeyword")
       ) {
         const [argument] = ast.arguments(node);
-        if (argument !== undefined && ast.kindName(argument) === "KindStringLiteral") {
-          specifiers.push(ast.text(argument));
-        }
+        const specifier = literalModuleSpecifier(ast, argument);
+        if (specifier !== undefined) specifiers.push(specifier);
       }
     }
     ast.forEachChild(node, visit);
   };
   visit(sourceFile);
   return Object.freeze(specifiers);
+}
+
+function literalModuleSpecifier(ast, node) {
+  let literal = node;
+  while (literal !== undefined) {
+    const operand = ast.is.IsLiteralTypeNode(literal) ? ast.as.AsLiteralTypeNode(literal).Literal
+      : sourceTransparentExpressionOperand(ast, literal);
+    if (operand === undefined) break;
+    literal = operand;
+  }
+  return ast.kindName(literal) === "KindStringLiteral" || ast.kindName(literal) === "KindNoSubstitutionTemplateLiteral"
+    ? ast.text(literal) : undefined;
 }
 
 function compareEdges(left, right) {
