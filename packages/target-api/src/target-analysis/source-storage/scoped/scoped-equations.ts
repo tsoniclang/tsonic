@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageHasOriginalCallableValue } from "../model/subjects.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageEquation, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -77,7 +78,8 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
         let sourceOnly = true;
         for (const supplier of suppliers) {
           if (!budget.step()) return undefined;
-          const selected = supplier.kind === "leaf" ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
+          const selected = supplier.kind === "leaf" && sourceStorageHasOriginalCallableValue(supplier.subject, source.ast)
+            ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
           if (selected?.kind !== "resolved" || source.ast.body(selected.implementation.declaration) === undefined) {
             sourceOnly = false;
             break;
