@@ -14,7 +14,7 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   const totalMemoryMiB = positiveInteger(machine.totalMemoryMiB, "total memory");
   const availableMemoryMiB = positiveInteger(machine.availableMemoryMiB, "available memory");
   if (availableMemoryMiB > totalMemoryMiB) throw new Error("Available memory exceeds total memory.");
-  const reserveMiB = Math.min(12_288, Math.max(512, Math.floor(totalMemoryMiB / 5)));
+  const reserveMiB = 16_384;
   const memoryMiB = configuredInteger(environment.TSONIC_TEST_MEMORY_MIB, "TSONIC_TEST_MEMORY_MIB")
     ?? Math.min(40_960, availableMemoryMiB - reserveMiB);
   if (memoryMiB <= 0 || memoryMiB > availableMemoryMiB) {
@@ -91,7 +91,6 @@ export function readTestResourceBudget(environment = process.env, profile = "hos
 }
 
 export function testTaskEnvironment(environment, budget, task) {
-  if (task.memoryMiB === undefined && task.heapMiB === undefined) return environment;
   const memoryMiB = task.memoryMiB ?? budget.workerMemoryMiB;
   const heapMiB = task.heapMiB ?? budget.heapMiB;
   if (memoryMiB > budget.memoryMiB) throw new Error(`Test task ${task.id} cannot fit the memory budget.`);

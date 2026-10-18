@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { readCertificationOptions, validateCertificationEntry } from "../../scripts/certification/contract.mjs";
-import { hostReportCounts, parseBankCounts } from "../../scripts/certification/counts.mjs";
+import { parallelReportCounts, parseBankCounts } from "../../scripts/certification/counts.mjs";
 import { snapshotCertificationInputs, sameCertificationInputs } from "../../scripts/certification/inputs.mjs";
 import { describeEvidence, latestCertification, validateCertification, writeImmutableJson } from "../../scripts/certification/records.mjs";
 import { selectCertification } from "../../scripts/certification/select.mjs";
@@ -140,7 +140,21 @@ test("count adapters reject truncation and retain ignored or filtered native tes
   const cargo = parseBankCounts("cargo", "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
   assert.deepEqual(cargo, [{ ...count, total: 3, skipped: 1, filtered: 3 }]);
   assert.deepEqual(parseBankCounts("cargo", "running 3 tests\n"), []);
-  assert.throws(() => hostReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
+  assert.throws(() => parallelReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
+});
+
+test("parallel runner evidence is canonical and the superseded host evidence role is rejected", () => {
+  const fixture = makeFixture();
+  const path = resolve(fixture.root, "suite.json");
+  writeImmutableJson(path, { bank: "node", selection: { complete: true },
+    taskCounts: { total: 1, passed: 1, failed: 0 }, testCountReporting: { missing: 0, reported: 1 },
+    preRuns: [], testCounts: { ...count } });
+  const record = structuredClone(fixture.record);
+  record.evidence[2] = describeEvidence(path, "parallel");
+  assert.doesNotThrow(() => validate(fixture, record), "the same complete report proves the declared Node bank");
+  record.evidence[2] = describeEvidence(path, "host");
+  assert.throws(() => validate(fixture, record), /Unknown certification evidence role/u,
+    "there is no legacy Host report route alongside the current parallel contract");
 });
 
 test("a newer incomplete or malformed run never falls back to an older success", () => {

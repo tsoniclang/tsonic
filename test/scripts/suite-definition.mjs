@@ -130,6 +130,7 @@ export function createParallelSuiteDefinition(repos) {
         group: "node-provider",
         directory: resolve(repos.csharpNodejs, "nodejs/test"),
         suffix: ".test.mjs",
+        resourcesForFile: () => ({ memoryMiB: 4096, heapMiB: 3072 }),
       },
     ],
     testRoots: [
@@ -171,6 +172,20 @@ export function createParallelSuiteDefinition(repos) {
   };
 }
 
+export function createRustParallelSuiteDefinition(repos) {
+  return {
+    preRuns: [],
+    nodeSuites: [{
+      ...nodeSuite(repos.tsonicRust, "tsonic-rust", "rust-compiler", "test"),
+      nodeArguments: ["--import", resolve(repos.tsonicRust, "scripts/register-tsonic-root-loader.mjs")],
+    }],
+    testRoots: [{ scope: "tsonic-rust", directory: resolve(repos.tsonicRust, "test") }],
+    architectureSuites: [],
+    dotnetSuites: [],
+    groupWorkerLimits: Object.freeze({}),
+  };
+}
+
 function packageUnitSuite(repository, group, name) {
   return {
     scope: "tsonic",
@@ -187,5 +202,6 @@ function nodeSuite(repository, scope, group, path) {
     group,
     directory: resolve(repository, path),
     suffix: ".test.mjs",
+    ...(scope === "tsonic" ? {} : { resourcesForFile: () => ({ memoryMiB: 4096, heapMiB: 3072 }) }),
   };
 }

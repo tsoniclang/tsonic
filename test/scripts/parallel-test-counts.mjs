@@ -13,6 +13,8 @@ export function aggregateTestCounts(results) {
       passed: counts.passed + result.testCounts.passed,
       failed: counts.failed + result.testCounts.failed,
       skipped: counts.skipped + result.testCounts.skipped,
+      todo: counts.todo + (result.testCounts.todo ?? 0),
+      cancelled: counts.cancelled + (result.testCounts.cancelled ?? 0),
     };
   }, {
     reportedShards: 0,
@@ -20,12 +22,14 @@ export function aggregateTestCounts(results) {
     passed: 0,
     failed: 0,
     skipped: 0,
+    todo: 0,
+    cancelled: 0,
   });
 }
 
 function parseNodeTestCounts(logText) {
   const counts = {};
-  for (const key of ["tests", "pass", "fail", "skipped"]) {
+  for (const key of ["tests", "pass", "fail", "skipped", "todo", "cancelled"]) {
     const matches = [
       ...logText.matchAll(new RegExp(`^# ${key} (\\d+)\\s*$`, "gmu")),
     ];
@@ -45,6 +49,8 @@ function parseNodeTestCounts(logText) {
     passed: counts.pass ?? 0,
     failed: counts.fail ?? 0,
     skipped: counts.skipped ?? 0,
+    todo: counts.todo ?? 0,
+    cancelled: counts.cancelled ?? 0,
     source: "node",
   };
 }
@@ -63,6 +69,8 @@ function parseDotnetTestCounts(logText) {
     passed: Number(match[2]),
     failed: Number(match[1]),
     skipped: Number(match[3]),
+    todo: 0,
+    cancelled: 0,
     source: "dotnet",
   };
 }

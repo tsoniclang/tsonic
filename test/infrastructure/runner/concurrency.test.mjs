@@ -8,17 +8,18 @@ const machine = { cpus: 24, availableMemoryMiB: 49_152, totalMemoryMiB: 61_440 }
 test("test budgets expose every CPU and admit workers by memory", () => {
   const host = testResourceBudget(machine);
   assert.equal(host.cpuBudget, 24);
-  assert.equal(host.memoryMiB, 36_864);
-  assert.equal(host.workers, 18);
+  assert.equal(host.memoryMiB, 32_768);
+  assert.equal(host.workers, 16);
   const rust = testResourceBudget(machine, {}, "rust");
-  assert.equal(rust.workers, 9);
+  assert.equal(rust.workers, 8);
   assert.equal(rust.childJobs, 2);
   assert(rust.workers * rust.childJobs <= rust.cpuBudget);
   assert(rust.workers * rust.workerMemoryMiB <= rust.memoryMiB);
   const native = testResourceBudget(machine, {}, "native");
-  assert.equal(native.workers, 9);
+  assert.equal(native.workers, 8);
   assert.equal(native.childJobs, 1);
-  assert.equal(testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }).workers, 2);
+  assert.throws(() => testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }), /memory budget/u,
+    "a default job cannot consume the required 16 GiB machine headroom");
 });
 
 test("explicit test budgets remain finite and bounded", () => {
@@ -67,6 +68,17 @@ test("a guard passes one validated budget without reserving memory twice", () =>
   for (const value of [null, [], {}, { ...budget, heapMiB: budget.workerMemoryMiB }, { ...budget, extra: true }]) {
     assert.throws(() => readTestResourceBudget({ TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(value) }));
   }
+});
+
+test("a default job fits the unchanged physical-headroom admission check at the sampled free memory", () => {
+  const budget = testResourceBudget(machine);
+  assert.equal(budget.memoryMiB + 16_384 <= machine.availableMemoryMiB, true,
+    "the default does not wait for four GiB more memory than the machine has");
+  const selected = testTaskEnvironment({ NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` }, budget, { id: "ordinary" });
+  const task = readTestResourceBudget(selected);
+  assert.equal(task.memoryMiB, budget.workerMemoryMiB, "ordinary files also get only their admitted task weight");
+  assert.equal(task.workers, 1, "one file cannot inherit every outer queue slot");
+  assert.equal(task.availableCpus, 24, "there is no CPU quota on the task");
 });
 
 test("one suite fills idle slots across classification groups and collects failures", async () => {

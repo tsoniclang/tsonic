@@ -48,11 +48,15 @@ test("only the inventory and exact registry tasks acquire the Rust provider buil
     assert.equal(inventory.files.filter(entry => entry.scope === scope && entry.path === path).length, 1,
       `${scope}:${path} has exactly one scheduled owner`);
   }
-  const heavy = inventory.files.filter(entry => entry.memoryMiB !== undefined);
+  const heavy = inventory.files.filter(entry => entry.scope === "tsonic" && entry.memoryMiB !== undefined);
   assert.equal(heavy.length, 1);
   assert.equal(heavy[0].path, "test/architecture/keel-violations.test.mjs");
   assert.equal(heavy[0].memoryMiB, 4096);
   assert.equal(heavy[0].heapMiB, 3072);
+  const native = inventory.files.filter(entry => entry.scope !== "tsonic");
+  assert.equal(native.length > 0, true, "the native task inventory is represented");
+  assert.equal(native.every(entry => entry.memoryMiB === 4096 && entry.heapMiB === 3072), true,
+    "native tasks retain provisional per-file weights instead of borrowing the whole job budget");
 });
 
 test("the existing queue weights the heavy inventory task without lowering ordinary useful parallelism", async () => {
@@ -94,7 +98,10 @@ test("one admitted task gets its own finite heap and worker budget while other N
   assert.equal(local.heapMiB, 3072);
   assert.equal(local.workers, 1);
   assert.equal(local.childJobs, 2);
-  assert.equal(testTaskEnvironment(environment, budget, { id: "simple" }) === environment, true);
+  const ordinary = readTestResourceBudget(testTaskEnvironment(environment, budget, { id: "simple" }));
+  assert.equal(ordinary.memoryMiB, budget.workerMemoryMiB);
+  assert.equal(ordinary.workers, 1);
+  assert.equal(ordinary.availableCpus, budget.availableCpus);
   assert.throws(() => testTaskEnvironment(environment, budget, { id: "invalid", memoryMiB: 4096, heapMiB: 4096 }), /leave room/u);
   assert.throws(() => testTaskEnvironment({}, budget, { id: "missing-guard", memoryMiB: 4096 }), /guard-owned/u);
 });

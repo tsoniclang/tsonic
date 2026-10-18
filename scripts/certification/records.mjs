@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { digest, sameCertificationInputs } from "./inputs.mjs";
-import { hostReportCounts } from "./counts.mjs";
+import { parallelReportCounts } from "./counts.mjs";
 import { readTestResourceBudget } from "../../test/scripts/test-resource-budget.mjs";
 
 export function describeEvidence(path, role) {
@@ -102,10 +102,11 @@ export function validateCertification(record, entry, current, root, now = Date.n
       const repositoryRoot = current.repositories.find(input => input.repository === entry.repository).root;
       const logPath = relative(resolve(repositoryRoot, ".temp/test-runs"), evidence.path);
       if (!/^\d{8}T\d{6}Z-\d+\.log$/u.test(logPath) || evidence.path !== guard.log || evidence.bytes > guard.logMaxBytes) throw new Error("Relocated or oversized certification log.");
-    } else if (evidence.role === "host") {
-      if (evidence.path !== resolve(root, "suite.json")) throw new Error("Relocated host report.");
-      observedCounts.push(...hostReportCounts(readEvidenceJson(evidence.path)));
-      banks.push("host");
+    } else if (evidence.role === "parallel") {
+      if (evidence.path !== resolve(root, "suite.json")) throw new Error("Relocated parallel report.");
+      const report = readEvidenceJson(evidence.path, 128 * 1024 * 1024);
+      observedCounts.push(...parallelReportCounts(report));
+      banks.push(report.bank);
     } else if (evidence.role === "counts") {
       const bank = readEvidenceJson(evidence.path);
       if (bank.exitCode !== 0 || !new RegExp(`^counts[\\\\/]${bank.kind}-[a-f0-9-]{36}\\.json$`, "u").test(within)) throw new Error("Invalid test bank evidence.");
@@ -119,7 +120,7 @@ export function validateCertification(record, entry, current, root, now = Date.n
   return { total, passed: total - skipped, skipped };
 }
 
-function readEvidenceJson(path) {
-  if (lstatSync(path).size > 4 * 1024 * 1024) throw new Error("Certification metadata exceeds its size bound.");
+function readEvidenceJson(path, maximumBytes = 4 * 1024 * 1024) {
+  if (lstatSync(path).size > maximumBytes) throw new Error("Certification metadata exceeds its size bound.");
   return JSON.parse(readFileSync(path, "utf8"));
 }

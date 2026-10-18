@@ -72,17 +72,17 @@ export function createProgressTracker(allShards, progressIntervalMs) {
       failed: state.failed,
       running: runningShards.length,
       queued: Math.max(0, state.total - state.completed - runningShards.length),
-      cpuAllCoresPercent: cpu?.allCoresPercent,
+      machineCpuAllCoresPercent: cpu?.allCoresPercent,
       longestRunning: runningShards.slice(0, 10),
     };
     samples.push(sample);
-    const cpuText = sample.cpuAllCoresPercent === undefined
+    const cpuText = sample.machineCpuAllCoresPercent === undefined
       ? "unknown"
-      : `${sample.cpuAllCoresPercent.toFixed(1)}%`;
+      : `${sample.machineCpuAllCoresPercent.toFixed(1)}%`;
     console.log(
       `parallel-progress: reason=${reason} completed=${sample.completed}/${sample.total} ` +
         `passed=${sample.passed} failed=${sample.failed} running=${sample.running} queued=${sample.queued} ` +
-        `cpu=${cpuText} elapsedMs=${sample.elapsedMs}`,
+        `machineCpu=${cpuText} elapsedMs=${sample.elapsedMs}`,
     );
     for (const shard of runningShards.slice(0, 5)) {
       console.log(`  running ${shard.elapsedMs}ms ${shard.id}`);

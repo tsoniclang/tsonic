@@ -24,15 +24,16 @@ export function parseBankCounts(kind, output) {
   }];
 }
 
-export function hostReportCounts(report) {
-  if (report.selection?.complete !== true || report.taskCounts?.failed !== 0 ||
+export function parallelReportCounts(report) {
+  if (!["host", "node"].includes(report.bank) || report.selection?.complete !== true || report.taskCounts?.failed !== 0 ||
       report.taskCounts?.total !== report.taskCounts?.passed || report.taskCounts.total < 1 ||
       report.testCountReporting?.missing !== 0 ||
       report.testCountReporting?.reported !== report.taskCounts.total ||
-      !Array.isArray(report.preRuns) || report.preRuns.length === 0 || report.preRuns.some(run => run.status !== 0)) {
-    throw new Error("Host report is failed, incomplete or missing test counts.");
+      !Array.isArray(report.preRuns) || report.bank === "host" && report.preRuns.length === 0 ||
+      report.preRuns.some(run => run.status !== 0)) {
+    throw new Error("Parallel report is failed, incomplete or missing test counts.");
   }
   const counts = report.testCounts;
   return [{ total: counts.total, passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
-    todo: 0, cancelled: 0, filtered: 0 }];
+    todo: counts.todo, cancelled: counts.cancelled, filtered: 0 }];
 }

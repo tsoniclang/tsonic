@@ -27,6 +27,7 @@ test("test workspace layout honors one explicit absolute repository root", () =>
   assert.deepEqual(JSON.parse(result.stdout), {
     tsonic: repositoryRoot,
     tsonicCsharp: resolve(workspaceRoot, "tsonic-csharp"),
+    tsonicRust: resolve(workspaceRoot, "tsonic-rust"),
     csharpJs: resolve(workspaceRoot, "csharp-js"),
     csharpNodejs: resolve(workspaceRoot, "csharp-nodejs"),
     csharpRuntime: resolve(workspaceRoot, "csharp-runtime"),

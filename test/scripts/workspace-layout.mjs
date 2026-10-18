@@ -15,6 +15,7 @@ export const testWorkspaceRoot = configuredWorkspaceRoot === undefined
 export const testRepositoryRoots = Object.freeze({
   tsonic: tsonicRoot,
   tsonicCsharp: resolve(testWorkspaceRoot, "tsonic-csharp"),
+  tsonicRust: resolve(testWorkspaceRoot, "tsonic-rust"),
   csharpJs: resolve(testWorkspaceRoot, "csharp-js"),
   csharpNodejs: resolve(testWorkspaceRoot, "csharp-nodejs"),
   csharpRuntime: resolve(testWorkspaceRoot, "csharp-runtime"),
