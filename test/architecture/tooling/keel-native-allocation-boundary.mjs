@@ -392,6 +392,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       .map(loader => Object.freeze({ path, ...loader })))),
     builtModuleInputs: Object.freeze([...builtModuleInputs.values()].sort((left, right) => left.path.localeCompare(right.path))),
     requiredNativeModulePaths: Object.freeze([...requiredNativeModulePaths].sort()),
+    nativePackageRequests: Object.freeze([...exposures.nativePackageRequests.values()].sort((left, right) =>
+      left.origin.localeCompare(right.origin) || left.name.localeCompare(right.name))),
     authoredDeclarationInputs: Object.freeze([...exposures.authoredDeclarationInputs.values()].sort((left, right) => left.fileName.localeCompare(right.fileName))),
     transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
@@ -457,7 +459,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     if (!reference.module || !reference.specifier?.startsWith("#")) return undefined;
     const targets = packageImportTargets(packages, reference.moduleOrigin ?? path, reference.specifier);
     return targets.length > 0 && targets.every(target => !target.startsWith(".") && !target.startsWith("#") &&
-      !packages.some(entry => typeof entry.metadata.name === "string" && (target === entry.metadata.name || target.startsWith(`${entry.metadata.name}/`))))
+      !exposures.knownPackage(reference.moduleOrigin ?? path, target))
       ? Object.freeze(targets) : undefined;
   }
 
@@ -466,7 +468,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     const authored = !nativeScripts.has(path) && reference.module ? exposures.authoredModule(path, reference) : undefined;
     if (authored !== undefined) return authored.kind === "unresolved";
     if (externalPackageImportTargets(path, reference) !== undefined) return false;
-    if (reference.module && reference.specifier !== undefined && exposures.knownPackage(path, reference.specifier) && destinations(path, reference).length === 0) return true;
+    if (reference.module && reference.specifier !== undefined && exposures.knownPackage(reference.moduleOrigin ?? path, reference.specifier) &&
+      destinations(path, reference).length === 0) return true;
     if (reference.fileRead && reference.observerEvidence && destinations(path, reference).filter(value => value !== undefined).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("file:") && destinations(path, reference).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("#") && destinations(path, reference).length === 0) return true;
@@ -478,7 +481,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
 
   function destinations(sourcePath, reference) {
     const authored = !nativeScripts.has(sourcePath) && reference.module ? exposures.authoredModule(sourcePath, reference) : undefined;
-    return (authored === undefined ? moduleReferencePaths(packages, files, sourcePath, reference) : authored.kind === "source" ? [authored.path] : [])
+    return (authored === undefined ? moduleReferencePaths(packages, files, sourcePath, reference, exposures.nativePackageRequests) : authored.kind === "source" ? [authored.path] : [])
       .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
   }
 }
@@ -492,7 +495,7 @@ export function keelSafetyNativeTestGlobs(workspaceInputs) {
   const packages = [...files].filter(([path, input]) => input.kind === "file" && posix.basename(path) === "package.json")
     .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
   const globs = new Map();
-  for (const entry of nativeNodeEntries(packages, files)) {
+  for (const entry of nativeNodeEntries(packages, files, new Map())) {
     if (entry.testGlob !== undefined) globs.set(`${entry.source}\0${entry.testGlob.pattern}`,
       Object.freeze({ source: entry.source, ...entry.testGlob }));
   }

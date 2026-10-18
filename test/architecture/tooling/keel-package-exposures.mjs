@@ -1,6 +1,7 @@
 import { isAbsolute, matchesGlob, posix, relative, resolve } from "node:path";
 import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { isBuiltin } from "node:module";
 import { collectCompilerSourceExports, findInstalledPackageRoot, isCompilerSourceFile, isDeclarationFile, readDependencyNames, readPackageJson } from "../../../packages/host/dist/package-contract.js";
 import { collectTargetSourcePackageGraph } from "../../../packages/host/dist/source-package-inputs.js";
 import { appendInstalledDeclarationPackageFiles } from "../../../packages/host/dist/declaration-package-inputs.js";
@@ -98,33 +99,7 @@ export function captureKeelPackageOwners(workspace, inputs) {
         }
         return Object.freeze({ fileName, path, sha256, text });
       }
-      let prefix = workspace;
-      for (const part of path.split("/").slice(0, -1)) {
-        prefix = resolve(prefix, part);
-        if (!lstatSync(prefix).isSymbolicLink()) continue;
-        const alias = relative(workspace, prefix);
-        const separator = alias.indexOf("/");
-        const target = readlinkSync(prefix);
-        if (isAbsolute(target)) throw new Error(`Unproved absolute compiler package alias: ${alias}.`);
-        const entries = inputs.get(alias.slice(0, separator));
-        const file = alias.slice(separator + 1);
-        const previous = entries.get(file);
-        if (previous !== undefined && (previous.kind !== "symlink" || previous.target !== target)) {
-          throw new Error(`Inconsistent compiler package alias: ${alias}.`);
-        }
-        entries.set(file, Object.freeze({
-          kind: "symlink", tracked: previous?.tracked ?? false, mode: "120000", target,
-        }));
-      }
-      const separator = sourcePath.indexOf("/");
-      const entries = inputs.get(sourcePath.slice(0, separator));
-      const file = sourcePath.slice(separator + 1);
-      const previous = entries.get(file);
-      if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== sha256)) {
-        throw new Error(`Inconsistent compiler package input: ${sourcePath}.`);
-      }
-      entries.set(file, Object.freeze({ ...previous, kind: "file", tracked: previous?.tracked ?? false,
-        mode: lstatSync(actual).mode & 0o111 ? "100755" : "100644", sha256, text }));
+      capturePackageFile(workspace, inputs, path, sourcePath, bytes);
       return Object.freeze({ fileName, path, sourcePath, sha256 });
     });
     const separator = owner.path.indexOf("/");
@@ -174,6 +149,76 @@ export function captureKeelPackageOwners(workspace, inputs) {
   }
 }
 
+function capturePackageFile(workspace, inputs, path, sourcePath, bytes) {
+  let prefix = workspace;
+  for (const part of path.split("/").slice(0, -1)) {
+    prefix = resolve(prefix, part);
+    const status = lstatSync(prefix);
+    if (!status.isSymbolicLink()) continue;
+    const alias = relative(workspace, prefix);
+    const separator = alias.indexOf("/");
+    const target = readlinkSync(prefix);
+    if (isAbsolute(target)) throw new Error(`Unproved absolute package alias: ${alias}.`);
+    const entries = inputs.get(alias.slice(0, separator));
+    const file = alias.slice(separator + 1);
+    const previous = entries?.get(file);
+    if (entries === undefined || previous !== undefined && (previous.kind !== "symlink" || previous.target !== target)) {
+      throw new Error(`Inconsistent package alias: ${alias}.`);
+    }
+    entries.set(file, Object.freeze({ kind: "symlink", tracked: previous?.tracked ?? false, mode: "120000", target }));
+  }
+  const separator = sourcePath.indexOf("/");
+  const entries = inputs.get(sourcePath.slice(0, separator));
+  const file = sourcePath.slice(separator + 1);
+  const sha256 = keelDigest(bytes);
+  const previous = entries?.get(file);
+  if (entries === undefined || previous !== undefined && (previous.kind !== "file" || previous.sha256 !== sha256)) {
+    throw new Error(`Inconsistent package input: ${sourcePath}.`);
+  }
+  entries.set(file, Object.freeze({ ...previous, kind: "file", tracked: previous?.tracked ?? false,
+    mode: lstatSync(resolve(workspace, sourcePath)).mode & 0o111 ? "100755" : "100644", sha256, text: bytes.toString("utf8") }));
+}
+
+export function captureKeelNativePackageInputs(workspace, inputs, requests) {
+  const packages = [...inputs].flatMap(([repo, entries]) => [...entries].filter(([file, input]) =>
+    input.kind === "file" && posix.basename(file) === "package.json")
+    .map(([file, input]) => ({ root: posix.dirname(`${repo}/${file}`), metadata: JSON.parse(input.text) })));
+  let added = 0;
+  for (const { origin, name } of requests) {
+    if (!validLiteralFilePath(origin) || !keelWorkspaceRepositories.includes(origin.split("/")[0]) || barePackageName(name) !== name) {
+      throw new Error("Invalid native package input request.");
+    }
+    const owner = packageOwner(packages, origin);
+    if (owner === undefined) continue;
+    const separator = owner.root.indexOf("/");
+    const repo = separator < 0 ? owner.root : owner.root.slice(0, separator);
+    const file = separator < 0 ? "package.json" : `${owner.root.slice(separator + 1)}/package.json`;
+    const entries = inputs.get(repo);
+    const input = entries.get(file);
+    if (input.nativePackageInputs?.some(row => row.origin === origin && row.name === name)) continue;
+    const resolutionDirectory = resolve(workspace, posix.dirname(origin));
+    const installedRoot = findInstalledPackageRoot(resolutionDirectory, name);
+    const physicalRoot = installedRoot === undefined ? undefined : realpathSync(installedRoot);
+    if (physicalRoot !== undefined && !lstatSync(resolve(physicalRoot, "package.json")).isFile()) {
+      throw new Error(`Unproved native package metadata source identity: ${origin}: ${name}.`);
+    }
+    const installedPath = installedRoot === undefined ? undefined : relative(workspace, installedRoot);
+    const sourceRoot = physicalRoot === undefined ? undefined : relative(workspace, physicalRoot);
+    const inside = path => validLiteralFilePath(path) && keelWorkspaceRepositories.includes(path.split("/")[0]);
+    const bytes = installedRoot === undefined ? undefined : readFileSync(resolve(installedRoot, "package.json"));
+    if (bytes !== undefined) readPackageJson(resolve(installedRoot, "package.json"));
+    if (inside(installedPath) && inside(sourceRoot)) {
+      capturePackageFile(workspace, inputs, `${installedPath}/package.json`, `${sourceRoot}/package.json`, bytes);
+    }
+    const row = Object.freeze({ origin, name, resolutionDirectory, installedRoot: installedRoot ?? null, physicalRoot: physicalRoot ?? null,
+      installedPath: inside(installedPath) ? installedPath : null, sourceRoot: inside(sourceRoot) ? sourceRoot : null,
+      metadataSha256: bytes === undefined ? null : keelDigest(bytes) });
+    entries.set(file, Object.freeze({ ...entries.get(file), nativePackageInputs: Object.freeze([...(input.nativePackageInputs ?? []), row]) }));
+    added += 1;
+  }
+  return added;
+}
+
 export function createKeelPackageExposures(packages, files, resolveAlias) {
   const sources = [...files].filter(([path, input]) => input.kind === "file" && isCompilerSourceFile(path));
   const sourcePackages = new Map();
@@ -194,8 +239,7 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
   const compilerContexts = new Map();
   const authoredDeclarationInputs = new Map();
   for (const entry of sourcePackages.values()) {
-    const program = { files: new Map(compilerFiles), roots: entry.sourceFiles,
-      installedDeclarationNames: new Set(), originalDeclarationInputs: new Map() };
+    const program = { files: new Map(compilerFiles), roots: entry.sourceFiles, originalDeclarationInputs: new Map() };
     compilerContexts.set(entry.root, program);
     const context = files.get(`${entry.root}/package.json`)?.compilerPackage;
     if (context === undefined) {
@@ -209,7 +253,6 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
       errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent original compiler package context" }); continue;
     }
     program.roots = root.sourceFiles.map(fileName => `/keel/${context.files.find(file => file.fileName === fileName).path}`);
-    for (const owner of context.installedDeclarations.packages) program.installedDeclarationNames.add(owner.name);
     for (const file of context.files) {
       const input = file.sourcePath === undefined ? undefined : files.get(file.sourcePath);
       const originalDeclaration = file.sourcePath === undefined && typeof file.text === "string" &&
@@ -277,12 +320,31 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
   };
   const checkedSources = new Map();
   const resolutions = new Map();
-  const knownPackage = (path, specifier) => {
-    const owner = packageOwner(packages, path);
-    const names = [...packages.flatMap(entry => typeof entry.metadata.name === "string" ? [entry.metadata.name] : []),
-      ...(compilerContexts.get(owner?.root)?.installedDeclarationNames ?? [])];
-    return names.some(name => specifier === name || specifier.startsWith(`${name}/`));
-  };
+  const nativePackageRequests = new Map();
+  for (const entry of packages) {
+    const seen = new Set();
+    for (const row of files.get(`${entry.root}/package.json`)?.nativePackageInputs ?? []) {
+      const identity = `${row.origin}\0${row.name}`;
+      const directory = typeof row.origin === "string" ? posix.dirname(row.origin) : undefined;
+      const prefix = typeof row.resolutionDirectory === "string" && row.resolutionDirectory.endsWith(`/${directory}`)
+        ? row.resolutionDirectory.slice(0, -directory.length) : undefined;
+      const installedParent = typeof row.installedRoot === "string" && row.installedRoot.endsWith(`/node_modules/${row.name}`)
+        ? row.installedRoot.slice(0, -`/node_modules/${row.name}`.length) : undefined;
+      const valid = !seen.has(identity) && barePackageName(row.name) === row.name &&
+        validLiteralFilePath(row.origin) && packageOwner(packages, row.origin)?.root === entry.root && prefix !== undefined && isAbsolute(prefix) &&
+        (row.installedRoot === null ? row.physicalRoot === null && row.installedPath === null && row.sourceRoot === null && row.metadataSha256 === null :
+          typeof row.installedRoot === "string" && isAbsolute(row.installedRoot) && typeof row.physicalRoot === "string" && isAbsolute(row.physicalRoot) &&
+          installedParent !== undefined && (row.resolutionDirectory === installedParent || row.resolutionDirectory.startsWith(`${installedParent}/`)) &&
+          /^[a-f0-9]{64}$/u.test(row.metadataSha256) &&
+          (row.sourceRoot === null || validLiteralFilePath(row.installedPath) && validLiteralFilePath(row.sourceRoot) &&
+            row.installedRoot === `${prefix}${row.installedPath}` && row.physicalRoot === `${prefix}${row.sourceRoot}` &&
+            resolveAlias(`${row.installedPath}/package.json`) === `${row.sourceRoot}/package.json` &&
+            files.get(`${row.sourceRoot}/package.json`)?.sha256 === row.metadataSha256));
+      if (!valid) errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent actual native package input context" });
+      seen.add(identity);
+    }
+  }
+  const knownPackage = (path, specifier) => knownPackageIdentity(packages, files, path, specifier);
   const authoredModule = (path, reference) => {
     const owner = packageOwner(packages, path);
     if (!sourcePackages.has(owner?.root) || !isCompilerSourceFile(path) || reference.specifier === undefined ||
@@ -336,10 +398,11 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
     return owner === undefined ? [] : collectCompilerSourceExports(`/keel/${root}`, { exports: { [key]: value } }, owner.sourceFiles)
       .map(entry => Object.freeze({ path: entry.sourceFile.slice(6), sourceFile: entry.sourceFile.slice(6), role: "compiler-source" }));
   };
-  return Object.freeze({ select, resourceFacet, authoredModule, authoredDeclarationInputs, knownPackage, compilerPattern, externalPackageRoot, externalPath, errors: Object.freeze(errors) });
+  return Object.freeze({ select, resourceFacet, authoredModule, authoredDeclarationInputs, knownPackage, nativePackageRequests,
+    compilerPattern, externalPackageRoot, externalPath, errors: Object.freeze(errors) });
 }
 
-export function moduleReferencePaths(packages, files, sourcePath, reference) {
+export function moduleReferencePaths(packages, files, sourcePath, reference, nativePackageRequests) {
   if (reference.path !== undefined) {
     const path = reference.module && !reference.nativeRequire && !reference.urlAddress
       ? staticFileAddress("", `./${reference.path}`).path : reference.path;
@@ -355,7 +418,7 @@ export function moduleReferencePaths(packages, files, sourcePath, reference) {
   }
   if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`));
   if (reference.fileRead || reference.executionEntry) return [];
-  return moduleEntryTargets(packages, reference.moduleOrigin ?? sourcePath, specifier, reference.nativeRequire);
+  return moduleEntryTargets(packages, files, reference.moduleOrigin ?? sourcePath, specifier, reference.nativeRequire, nativePackageRequests);
 }
 
 function packageOwner(packages, sourcePath) {
@@ -390,7 +453,25 @@ function packageTargetPath(root, value, physical) {
     keelWorkspaceRepositories.includes(address.path.split("/")[0]) ? address.path : undefined;
 }
 
-function moduleEntryTargets(packages, sourcePath, specifier, nativeRequire = false) {
+function barePackageName(specifier) {
+  if (typeof specifier !== "string" || isBuiltin(specifier) || specifier.startsWith(".") || specifier.startsWith("#") ||
+    isAbsolute(specifier) || /^[a-z][a-z0-9+.-]*:/iu.test(specifier)) return undefined;
+  const parts = specifier.split("/");
+  const name = parts.slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+  return validLiteralFilePath(name) && (!specifier.startsWith("@") || parts.length > 1 && parts[1].length > 0) ? name : undefined;
+}
+
+function knownPackageIdentity(packages, files, sourcePath, specifier) {
+  const owner = packageOwner(packages, sourcePath);
+  if (owner === undefined || isBuiltin(specifier)) return false;
+  const input = files.get(`${owner.root}/package.json`);
+  const names = [owner.metadata.name, ...readDependencyNames(owner.metadata, true),
+    ...(input?.compilerPackage?.installedDeclarations.packages ?? []).map(entry => entry.name),
+    ...(input?.nativePackageInputs ?? []).filter(row => row.origin === sourcePath && row.installedRoot !== null).map(row => row.name)];
+  return names.some(name => typeof name === "string" && (specifier === name || specifier.startsWith(`${name}/`)));
+}
+
+function moduleEntryTargets(packages, files, sourcePath, specifier, nativeRequire, nativePackageRequests) {
   if (specifier.startsWith(".")) {
     const path = nativeRequire ? posix.normalize(posix.join(posix.dirname(sourcePath), specifier)) : staticFileAddress(sourcePath, specifier).path;
     return path === undefined ? [] : [path];
@@ -399,22 +480,29 @@ function moduleEntryTargets(packages, sourcePath, specifier, nativeRequire = fal
     const owner = packageOwner(packages, sourcePath);
     return packageImportTargets(packages, sourcePath, specifier).flatMap(target => target.startsWith(".")
       ? [packageTargetPath(owner.root, target, false)].filter(path => path !== undefined)
-      : target.startsWith("#") ? [] : moduleEntryTargets(packages, sourcePath, target, nativeRequire));
+      : target.startsWith("#") ? [] : moduleEntryTargets(packages, files, sourcePath, target, nativeRequire, nativePackageRequests));
   }
-  const result = [];
-  for (const entry of packages) {
-    const name = entry.metadata.name;
-    if (typeof name !== "string" || specifier !== name && !specifier.startsWith(`${name}/`)) continue;
-    const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`;
-    const exports = entry.metadata.exports;
-    const hasExports = exports !== undefined && exports !== null;
-    const targets = typeof exports === "object" && exports !== null && Object.keys(exports).some(key => key.startsWith("."))
-      ? selectedPackageTargets(packageMappingSelection(exports, subpath)) : subpath === "." ? stringLeaves(hasExports ? exports : entry.metadata.main)
-        : !hasExports ? [subpath] : [];
-    result.push(...targets.map(value => packageTargetPath(entry.root, value, !hasExports && (subpath === "." || nativeRequire)))
-      .filter(path => path !== undefined));
+  const name = barePackageName(specifier);
+  if (name === undefined) return [];
+  const owner = packageOwner(packages, sourcePath);
+  let entry = owner?.metadata.name === name && owner.metadata.exports !== undefined && owner.metadata.exports !== null ? owner : undefined;
+  if (entry === undefined) {
+    nativePackageRequests.set(`${sourcePath}\0${name}`, Object.freeze({ origin: sourcePath, name }));
+    const inputs = files.get(`${owner?.root}/package.json`)?.nativePackageInputs ?? [];
+    const input = inputs.find(row => row.origin === sourcePath && row.name === name);
+    if (input?.sourceRoot === null || input === undefined) return [];
+    entry = packages.find(candidate => candidate.root === input.sourceRoot &&
+      files.get(`${candidate.root}/package.json`)?.sha256 === input.metadataSha256);
   }
-  return result;
+  if (entry === undefined) return [];
+  const subpath = specifier === name ? "." : `.${specifier.slice(name.length)}`;
+  const exports = entry.metadata.exports;
+  const hasExports = exports !== undefined && exports !== null;
+  const targets = typeof exports === "object" && exports !== null && Object.keys(exports).some(key => key.startsWith("."))
+    ? selectedPackageTargets(packageMappingSelection(exports, subpath)) : subpath === "." ? stringLeaves(hasExports ? exports : entry.metadata.main)
+      : !hasExports ? [subpath] : [];
+  return targets.map(value => packageTargetPath(entry.root, value, !hasExports && (subpath === "." || nativeRequire)))
+    .filter(path => path !== undefined);
 }
 
 export function nativeNodeModuleFormat(path) {
@@ -426,7 +514,7 @@ function stringLeaves(value) {
   return value !== null && typeof value === "object" ? Object.values(value).flatMap(stringLeaves) : [];
 }
 
-export function nativeNodeEntries(packages, files) {
+export function nativeNodeEntries(packages, files, nativePackageRequests) {
   const entries = [];
   const nodeLaunch = (source, command, program, packageName, scriptName) => {
     const details = { source, command, package: typeof packageName === "string" ? packageName : posix.dirname(source), scriptName };
@@ -458,9 +546,9 @@ export function nativeNodeEntries(packages, files) {
       if (program !== undefined && (value.startsWith(".") || value.startsWith("#") || !isAbsolute(value) && !value.startsWith("file:"))) {
         return { unresolvedReason: "unproved current directory for a native interpreter preload" };
       }
-      const targets = moduleReferencePaths(packages, files, source, { module: true, specifier: value, nativeRequire: option === "--require" });
+      const targets = moduleReferencePaths(packages, files, source, { module: true, specifier: value, nativeRequire: option === "--require" }, nativePackageRequests);
       if (targets.length > 0) return { paths: targets };
-      return value.startsWith(".") || value.startsWith("#") || value.startsWith("file:") || isAbsolute(value)
+      return value.startsWith(".") || value.startsWith("#") || value.startsWith("file:") || isAbsolute(value) || knownPackageIdentity(packages, files, source, value)
         ? { unresolvedReason: "unresolved first-party native Node preload entry" } : { external: true };
     })) {
       if (entry.packageScript !== undefined) {
@@ -490,7 +578,7 @@ export function nativeNodeEntries(packages, files) {
   return entries;
 }
 export function packageModuleEntries(packages, scripts, files, exposures) {
-  const entries = nativeNodeEntries(packages, files).flatMap(entry => {
+  const entries = nativeNodeEntries(packages, files, exposures.nativePackageRequests).flatMap(entry => {
     if (entry.testGlob === undefined) return [entry];
     const { prefix, pattern } = entry.testGlob;
     const captures = files.get(entry.source)?.nodeTestGlobs;
@@ -521,9 +609,8 @@ export function packageModuleEntries(packages, scripts, files, exposures) {
         if (!imports || value.startsWith("#")) {
           entries.push({ source, value, unresolvedReason: "unresolved first-party package module target" }); return;
         }
-        const targets = moduleEntryTargets(packages, source, value);
-        if (targets.length === 0 && !packages.some(entry => typeof entry.metadata.name === "string" &&
-          (value === entry.metadata.name || value.startsWith(`${entry.metadata.name}/`)))) entries.push({ source, value, external: true });
+        const targets = moduleEntryTargets(packages, files, source, value, false, exposures.nativePackageRequests);
+        if (targets.length === 0 && !exposures.knownPackage(source, value)) entries.push({ source, value, external: true });
         else if (targets.length === 0) entries.push({ source, value, unresolvedReason: "unresolved first-party package module target" });
         else for (const path of targets) entries.push({ source, value, path, role: "native-execution" });
         return;

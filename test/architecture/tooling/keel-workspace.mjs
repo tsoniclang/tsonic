@@ -13,8 +13,8 @@ import {
   evaluateKeelSkeleton, evaluateKeelStorageStages, evaluateKeelTestSkeleton, keelRuntimeRoots,
 } from "./keel-structure-checks.mjs";
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
-import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./keel-native-allocation-boundary.mjs";
-import { captureKeelPackageOwners } from "./keel-package-exposures.mjs";
+import { validateCanonicalNativeAllocationBoundary, keelSafetyNativeTestGlobs } from "./keel-native-allocation-boundary.mjs";
+import { captureKeelNativePackageInputs, captureKeelPackageOwners } from "./keel-package-exposures.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
@@ -293,7 +293,9 @@ function readKeelSafetyWorkspaceInputs(workspace) {
   }
   const requestedModules = new Set();
   for (;;) {
-    const pending = keelSafetyBuiltModuleEntries(inputs).filter(path => {
+    const boundary = validateCanonicalNativeAllocationBoundary(inputs);
+    if (captureKeelNativePackageInputs(workspace, inputs, boundary.nativePackageRequests) > 0) continue;
+    const pending = boundary.requiredNativeModulePaths.filter(path => {
       const separator = path.indexOf("/");
       return !requestedModules.has(path) && !inputs.get(path.slice(0, separator))?.get(path.slice(separator + 1))?.builtModule;
     });
