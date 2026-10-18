@@ -16,6 +16,24 @@ export function sourcePresentStorageType(type: Type, semantics: SourceFileSemant
   return present.length === 1 ? present[0] : undefined;
 }
 
+export function sourceStorageAccessDeclarations(source: TargetSourceProgram, access: Node,
+  mode: "read" | "write"): readonly Node[] | undefined {
+  const { ast } = source;
+  const semantics = source.semantics.forNode(access);
+  const property = ast.is.IsPropertyAccessExpression(access) ? semantics.operations.propertyAccess(access) : undefined;
+  const selected = property ?? (ast.is.IsElementAccessExpression(access) ? semantics.operations.elementAccess(access) : undefined);
+  if (selected === undefined) return undefined;
+  if (mode === "read" ? selected.accessMode === "write" : selected.accessMode === "read") return Object.freeze([]);
+  const direct = mode === "read" ? property?.selectedReadDeclaration ?? selected.selectedDeclaration
+    : property?.selectedWriteDeclaration ?? selected.selectedDeclaration;
+  const readable = (node: Node): boolean => sourceStorageIsDataMember(node, ast) || sourceStorageIsMethodMember(node, ast) ||
+    (mode === "read" ? ast.is.IsGetAccessorDeclaration(node) : ast.is.IsSetAccessorDeclaration(node));
+  if (direct !== undefined && readable(direct)) return Object.freeze([direct]);
+  if (selected.selectedSymbol === undefined) return undefined;
+  const declarations = [...new Set(semantics.declarations.symbolDeclarations(selected.selectedSymbol).filter(readable))];
+  return declarations.length === 0 ? undefined : Object.freeze(declarations);
+}
+
 export function sourceStorageComponentType(
   type: Type,
   component: SourceStorageProjection,
@@ -51,8 +69,9 @@ export function sourceStorageOriginalComponents(
     const correspondence = semantics.types.structuralMembers(from, to);
     if (correspondence.kind !== "available") return [];
     return correspondence.members.flatMap(member => member.kind === "present" &&
-      member.destination.read === (component.kind === "member" ? "property" : "method") &&
-      (member.source.read === "property" || member.source.read === "method") &&
+      (component.kind === "method-value" ? member.destination.read === "method"
+        : member.destination.read === "property" || member.destination.read === "accessor") &&
+      member.source.read !== "unavailable" &&
       member.destination.declarations.includes(component.declaration)
       ? member.source.declarations.map(declaration => ({
           kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,

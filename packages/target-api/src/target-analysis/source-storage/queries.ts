@@ -10,6 +10,8 @@ import type { SourceStorageSubject } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection,
   sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
+import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
+import { Node_Initializer } from "../../source-navigation/index.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
@@ -171,19 +173,27 @@ export function createSourceStorageQuery(
   const originSubjectsFor: SourceStorageQueries["originSubjectsFor"] = subject => {
     const reason = ancestryReason(subject);
     if (reason !== undefined) return unresolved(reason);
-    const ancestors = transport.ancestorSubjects(subject);
-    if (ancestors === undefined || budget.failure() !== undefined)
-      return unresolved(budget.failure() ?? "Source storage ancestry exceeds its finite query budget.");
+    let failure: string | undefined;
+    const ancestors = createSourceStorageAncestorQuery(budget, origin => {
+      if (origin.kind !== "input" || Node_Initializer(source.ast, origin.node) === undefined)
+        return transport.incomingFor(origin);
+      const selected = transport.substitutions.walk(origin, transport.substitutions.empty);
+      if (selected === undefined || selected.reason !== undefined) {
+        failure ??= selected?.reason ?? budget.failure() ?? "An initialized source input requires its completed value correspondence.";
+        return new Set();
+      }
+      return selected.origins;
+    });
     const origins: SourceStorageSubject[] = [];
     let terminal = false;
-    for (const owner of ancestors) {
-      if (!budget.step()) return unresolved(budget.failure()!);
-      const parents = transport.incomingFor(owner);
+    for (const owner of ancestors(subject, (owner, parents) => {
+      if (!budget.step()) return false;
       if (parents.size === 0) terminal = true;
-      if (sourceStorageHasOriginalValue(owner, source.ast, parents.size !== 0)) origins.push(owner);
-    }
-    return origins.length === 0 && !terminal
-      ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
+      return sourceStorageHasOriginalValue(owner, source.ast, parents.size !== 0);
+    })) origins.push(owner);
+    return failure !== undefined || budget.failure() !== undefined
+      ? unresolved(failure ?? budget.failure()!) : origins.length === 0 && !terminal
+        ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
   };
   const typedOrigins = (subjects: readonly SourceStorageSubject[]): SourceStorageOriginsSelection => {
     const origins: SourceStorageTypedSubject[] = [];

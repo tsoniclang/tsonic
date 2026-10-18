@@ -44,9 +44,11 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
   const current = budget({ maximumSteps: 512, maximumTransportRows: 1024 });
   const empty = {}; const scope = {};
   const identities = new Map(); const bindings = new Map();
+  const parameters = new Set();
   let term = { kind: "leaf", subject: { kind: "value", node: {} }, scope: empty };
   for (let depth = 0; depth < 20; depth += 1) {
     const subject = { kind: "input", node: {} };
+    parameters.add(subject.node);
     bindings.set(subject, { kind: "replace", terms: [term, term] });
     term = { kind: "reference", subject, scope };
   }
@@ -55,7 +57,9 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const keys = createSourceStorageScopedKeys({}, current, {
+  const source = { ast: { is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
+    as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } } };
+  const keys = createSourceStorageScopedKeys(source, current, {
     contextualInputs: () => new Set(),
     bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),
   }, scopes, { footprints: createSourceStorageContextFootprints(current, () => new Set(), () => undefined),

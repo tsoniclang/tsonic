@@ -8,6 +8,7 @@ import { sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../mod
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
+import { sourceStorageAccessDeclarations } from "../model/components.js";
 import type { SourceStorageAccessorInvocation } from "../graph/scoped-model.js";
 
 interface SourceStorageAccessorQueries {
@@ -63,10 +64,8 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
         if (members === undefined) return;
         for (const member of members) for (const declaration of member.declarations) selected.push({ declaration, read: true });
       } else if (operation !== undefined) {
-        const read = operation.accessMode === "write" ? undefined : property?.selectedReadDeclaration ?? operation.selectedDeclaration;
-        const write = operation.accessMode === "read" ? undefined : property?.selectedWriteDeclaration ?? operation.selectedDeclaration;
-        if (read !== undefined) selected.push({ declaration: read, read: true });
-        if (write !== undefined) selected.push({ declaration: write, read: false });
+        for (const declaration of sourceStorageAccessDeclarations(source, access, "read") ?? []) selected.push({ declaration, read: true });
+        for (const declaration of sourceStorageAccessDeclarations(source, access, "write") ?? []) selected.push({ declaration, read: false });
       }
       for (const { declaration, read: readAccess } of selected) {
         for (const accessor of declarationsFor(declaration) ?? []) {

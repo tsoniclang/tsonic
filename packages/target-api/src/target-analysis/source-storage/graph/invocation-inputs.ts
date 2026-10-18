@@ -369,8 +369,11 @@ export function createSourceStorageInvocationInputs(
             ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
       }
     } else {
+      const contract = selected?.sourceSelectedSignatureKind === "resolved"
+        ? consumer.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
       const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
-        { kind: "source-implementation", signature: selected?.selectedSignature }, budget.step);
+        { kind: contract === candidate && ast.body(candidate) === undefined ? "selected-signature" : "source-implementation",
+          signature: selected?.selectedSignature }, budget.step);
       const owned = slots?.filter(slot => slot.parameter === formal.node);
       if (owned === undefined || owned.length === 0) subjects.add(formal);
       else {

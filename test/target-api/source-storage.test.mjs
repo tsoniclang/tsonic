@@ -452,7 +452,7 @@ export function make(): (value: number) => number {
 });
 
 test("opaque and unproved argument boundaries expose exact nodes without inventing an implementation", async () => {
-  const { source, storage, subject, call, provider } = await checked("source-storage-native-boundaries", `
+  const { source, storage, subject, call, provider, initializer } = await checked("source-storage-native-boundaries", `
 const callback = (): number => 3;
 native(callback);
 spread(callback);
@@ -474,15 +474,55 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
   assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(callbackRead), true);
   const rest = call("spread");
-  assert.equal(storage.argumentTransportsFor(rest).kind, "unresolved", "unsupported rest transport is explicit, never guessed");
   const restDeclaration = namedDeclaration(source.ast, provider, "spread");
-  const restFormal = resolvedSubject(storage.subject(source.ast.parameters(restDeclaration)[0]), "rest formal");
-  assert.equal(storage.bindingsForInvocation(restDeclaration, rest).kind, "unresolved", "unsupported bindings cannot manufacture an exact context");
-  assert.equal(storage.invocationOriginsFor(restFormal, restDeclaration, rest).kind, "unresolved", "unsupported bindings cannot manufacture scalar origins");
+  const restParameter = source.ast.parameters(restDeclaration)[0];
+  const restFormal = resolvedSubject(storage.subject(restParameter, "input", element), "rest formal element");
+  const restActual = resolvedSubject(storage.subjectFor(source.ast.arguments(rest)[0]), "rest actual callback read");
+  const transports = storage.argumentTransportsFor(rest);
+  assert.equal(transports.kind, "resolved", "the actual selected rest signature proves its ABI element correspondence");
+  assert.equal(transports.arguments.length, 1, "one original actual argument");
+  const transport = transports.arguments[0];
+  assert.equal(transport.actual === restActual && transport.formal === restFormal &&
+    transport.selectedParameterDeclaration === restParameter, true, "exact caller and original authored formal element");
+  assert.equal(transport.binding.sourceArgumentIndex, 0, "original source argument position");
+  assert.equal(transport.binding.sourceParameterIndex, 0, "original source formal position");
+  assert.equal(transport.binding.effectiveArgumentIndex, 0, "original effective element position");
+  assert.equal(transport.binding.sourceForm, "value", "the caller supplies one scalar callback");
+  assert.equal(transport.binding.sourceParameterForm, "rest-element", "the selected ABI consumes one repeated rest element");
+  const bindings = storage.bindingsForInvocation(restDeclaration, rest);
+  assert.equal(bindings.kind, "resolved", "ABI-only bindings do not require an invented source body");
+  const bound = storage.boundOriginsFor(restFormal, bindings.bindings);
+  assert.equal(bound.kind === "resolved" && bound.subjects.length === 1 && bound.subjects[0].node === initializer("callback"), true,
+    "the exact original caller callback survives the formal-element substitution");
+  const invocation = storage.invocationOriginsFor(restFormal, restDeclaration, rest);
+  assert.equal(invocation.kind === "resolved" && invocation.subjects.length === 1 && invocation.subjects[0] === restActual, true,
+    "the ABI origin is the identical original callback read");
+  assert.equal(source.navigation.callableImplementation(restDeclaration).kind, "unresolved", "the signature is not a callee implementation");
   assert.equal(storage.originSubjectsFor(subject("unprovedCatch")).kind, "unresolved", "unsupported throw argument transport is never guessed");
   assert.equal(storage.originSubjectsFor(subject("forwardedUnprovedCatch")).kind, "unresolved", "unproved throw transport survives callable forwarding");
-  assert.equal(storage.boundaries.some(boundary => boundary.invocation === rest && boundary.kind === "unresolved-transport"), true);
+  assert.equal(storage.boundaries.some(boundary => boundary.invocation === rest && boundary.kind === "opaque-invocation" &&
+    boundary.declaration === restDeclaration), true, "ABI element correspondence does not prove invocation or retention");
   assert.equal(storage.failureReason() === undefined, true, "local boundary does not contaminate independent graph ownership");
+});
+
+test("a repeated rest call with an erased original signature keeps its exact unresolved ABI boundary", async () => {
+  const { source, storage, call, provider } = await checked("source-storage-unselected-rest-boundary", `
+const callback = (): number => 3;
+const unchecked: any = spread;
+unchecked(callback);
+`, `export declare function spread(...callbacks: (() => number)[]): void;`, ["spread"]);
+  const invocation = call("unchecked");
+  const consumer = source.semantics.forNode(invocation);
+  const selected = consumer.operations.call(invocation);
+  assert.equal(selected?.sourceSelectedSignatureKind, "untyped", "the native checker genuinely has no original selected signature");
+  assert.equal(selected === undefined || consumer.declarations.signatureDeclaration(selected.selectedSignature) === undefined, true,
+    "the original rest declaration cannot be inferred from the untyped call");
+  assert.equal(storage.argumentTransportsFor(invocation).kind, "unresolved", "no guessed formal-element ABI correspondence");
+  const declaration = namedDeclaration(source.ast, provider, "spread");
+  assert.equal(storage.bindingsForInvocation(declaration, invocation).kind, "unresolved", "alias provenance is not selected-signature evidence");
+  const boundary = storage.boundaries.find(boundary => boundary.invocation === invocation);
+  assert.equal(boundary?.kind, "unresolved-transport", "the identical actual unselected call owns the unresolved boundary");
+  assert.equal(storage.failureReason() === undefined, true, "an untyped call remains a local source boundary");
 });
 
 test("neutral graph results are immutable and Error consumes the identical graph rather than constructing another", async () => {

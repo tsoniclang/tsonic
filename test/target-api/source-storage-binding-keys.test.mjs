@@ -19,7 +19,8 @@ function fixture(limits = {}) {
     IsIdentifier: node => node.syntax === "identifier",
     IsVariableDeclaration: node => node.syntax === "variable",
     IsParameterDeclaration: node => node.syntax === "parameter",
-  }, variableDeclarationKind: node => node.declarationKind, kindName: node => node.syntax };
+  }, as: { AsParameterDeclaration: node => node.syntax === "parameter" ? { Initializer: undefined } : undefined },
+  variableDeclarationKind: node => node.declarationKind, kindName: node => node.syntax };
   const transport = { incomingFor: value => inputs.get(value) ?? new Set(),
     contextualInputs: value => value === destination ? new Set([formal]) : new Set(),
     contextLocation: () => undefined, regions: { enclosing: () => undefined },

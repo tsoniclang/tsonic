@@ -106,11 +106,11 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
   const owner = sourceStorageFormalOwner(term.subject, source.ast);
   const bound = scopes.lookup(term.subject, term.scope);
-  if (bound === undefined || bound.kind === "expand") return bound;
+  if (bound?.kind === "expand") return bound;
   const unresolved = (reason: string): Extract<SourceStorageReduction, { readonly kind: "replace" }> => ({ kind: "replace", terms: [Object.freeze({
     kind: "unresolved", subject: term.subject, scope: term.scope, reason,
   })] });
-  if (bound.initialization === "initialized") return bound;
+  if (bound?.initialization === "initialized") return bound;
   if (initializer !== undefined && term.subject.projection.length !== 0) {
     const root = transport.subject(term.subject.node, "input");
     return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)], select: value => {
@@ -120,11 +120,18 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
     } };
   }
   if (initializer === undefined) return bound;
+  const fallback = transport.subjectFor(initializer);
+  if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
+  if (bound === undefined) {
+    const inputs = transport.incomingFor(term.subject);
+    if (inputs.size === 0) return undefined;
+    const defaultValue = sourceStorageReference(fallback, term.scope);
+    return { kind: "project", inputs: [...inputs].map(value => sourceStorageReference(value, term.scope)),
+      select: value => sourceStorageInitializedValue(source, budget, scopes, term, defaultValue, value) };
+  }
   const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   if (activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
     return bound;
-  const fallback = transport.subjectFor(initializer);
-  if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
   const defaultValue = sourceStorageReference(fallback, activation.scope);
   if (bound.initialization === "absent") return { kind: "replace", terms: [defaultValue] };
   return { kind: "project", inputs: bound.terms,

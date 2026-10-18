@@ -34,7 +34,7 @@ function fixture(count = 4, limits = {}) {
     } },
   };
   const scopes = { empty, owningScope: (scope, selected) => scope.owners.get(selected),
-    activation: scope => ({ key: scope.key, variable: scope.variable }), lookup: () => undefined,
+    activation: scope => ({ key: scope.key, variable: scope.variable, closed: scope.variable === undefined }), lookup: () => undefined,
     identity: value => {
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
@@ -64,8 +64,8 @@ test("context owner sharing preserves caller identity and distinct physical allo
   const [left, right] = current.locations;
   const leaf = selected => ({ kind: "leaf", subject: selected, scope: current.first });
   assert.equal(current.keys.encode(leaf(left)) === current.keys.encode(leaf(right)), false, "different sites are never one allocation");
-  assert.equal(current.keys.birthKey(left, current.first) === current.keys.birthKey(right, current.first), false);
-  assert.equal(current.keys.birthKey(left, current.first) === current.keys.birthKey(left, current.second), false);
+  assert.equal(current.keys.birth(left, current.first).key === current.keys.birth(right, current.first).key, false);
+  assert.equal(current.keys.birth(left, current.first).key === current.keys.birth(left, current.second).key, false);
 });
 
 test("each independent lexical owner retains its own selected captured activation", () => {

@@ -495,7 +495,7 @@ for (const form of ["omitted", "optional-empty", "undefined", "present"]) {
     const origins = resolved(storage.boundOriginsFor(formal, bindings));
     assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
       "omission contributes the original callee default; a required present tuple contributes only its actual value");
-    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "result");
     const selected = storage.closedOriginsFor(resolved(storage.subjectFor(result)).subject);
     assert.equal(selected.kind === "complete" && selected.origins.length === 1 && selected.origins[0].subject === expected, true,
       "default initializer execution and input VALUE correspond through the same source body");
@@ -707,7 +707,7 @@ test("overwritten unrelated own fields do not lose an exact spread method creati
   `);
   const { ast, nodes, storage } = current;
   const method = nodes.find(node => ast.is.IsMethodDeclaration(node));
-  const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+  const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
   const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
   assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === method, true,
     "an unrelated overridden field has no final object-element row and cannot erase this checked method contribution");
@@ -736,7 +736,7 @@ for (const reversed of [false, true]) for (const nested of [false, true]) {
     const scopes = new Set();
     const rows = reversed ? [["secondReader", "right"], ["firstReader", "left"]] : [["firstReader", "left"], ["secondReader", "right"]];
     for (const [name, value] of rows) {
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
       const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
       assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === arrow, true,
         name + ": an actual getter result is copied, not an unexecuted getter declaration");
@@ -772,7 +772,7 @@ for (const shape of ["prototype-method", "prototype-getter", "own-field"]) {
       export const selected = copied.read;
     `);
     const { ast, nodes, storage } = current;
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
     const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
     const expected = shape === "own-field" ? nodes.find(node => ast.is.IsArrowFunction(node))
       : nodes.find(node => ast.is.IsMethodDeclaration(node));
@@ -796,7 +796,7 @@ for (const view of ["View", "{ read(): {} }"]) for (const shape of ["prototype-m
       const copied = copy(new Other());
       export const selected = copied.read;
     `);
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
     const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
     const expected = shape === "own-field" ? nodes.find(node => ast.is.IsArrowFunction(node))
       : nodes.find(node => ast.is.IsMethodDeclaration(node) && ast.is.IsObjectLiteralExpression(ast.parent(node)));
@@ -817,7 +817,7 @@ for (const form of ["absent", "undefined", "present"]) {
       const { read = fallback }: { read?: () => number } = ${input};
       export const selected = read;
     `);
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "selected");
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
     const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
     const expected = declaration(form === "present" ? "actual" : "fallback");
     assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === expected, true,
@@ -905,7 +905,7 @@ for (const setter of [false, true]) {
     `);
     const { ast, nodes, storage } = current;
     for (const [name, predicate] of [["read", ast.is.IsArrowFunction], ["method", ast.is.IsMethodDeclaration]]) {
-      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
       const expected = nodes.find(predicate);
       const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
       assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
@@ -929,7 +929,7 @@ test("a spread getter is evaluated even when its copied result is overwritten", 
   const { ast, nodes, storage } = current;
   const replacement = nodes.filter(node => ast.is.IsArrowFunction(node)).at(-1);
   for (const name of ["first", "second"]) {
-    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
     const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
     assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === replacement, true,
       name + ": the definite own override is the only resulting callable");
@@ -1334,11 +1334,51 @@ for (const [name, parameters, used, inputs] of [
   });
 }
 
+for (const reversed of [false, true]) {
+  test("inherited physical getters retain their own factory capture rather than the derived factory: " + reversed, async () => {
+    const { ast, nodes, storage, declaration } = await fixture("inherited-getter-original-factory-" + reversed, `
+      interface View { readonly read: () => number; }
+      type Factory = new () => View;
+      function makeBase(value: number) { return class Base { get read(): () => number { return () => value; } }; }
+      function makeDerived(Parent: Factory, value: number) { return class Derived extends Parent { readonly other = value; }; }
+      const First = makeDerived(makeBase(1), 9);
+      const Second = makeDerived(makeBase(2), 10);
+      const first = new First().read;
+      const second = new Second().read;
+      export {};
+    `);
+    const getter = nodes.find(node => ast.is.IsGetAccessorDeclaration(node));
+    assert.equal(getter !== undefined, true, "the actual authored base getter is retained");
+    const returned = nodes.find(node => ast.is.IsArrowFunction(node) && ast.is.IsReturnStatement(ast.parent(node)) &&
+      ast.parent(ast.parent(node)) === ast.body(getter));
+    assert.equal(returned !== undefined, true, "the original physical base getter returns one original authored arrow");
+    const capturedValue = resolved(storage.subjectFor(ast.body(returned))).subject;
+    const captures = new Set();
+    for (const name of reversed ? ["second", "first"] : ["first", "second"]) {
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+      assert.equal(variable !== undefined, true, "the actual inherited getter read has its original source binding");
+      const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable)).subject);
+      assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === returned, true,
+        "the getter's actual class owner determines the returned original arrow");
+      const producer = selected.producers[0];
+      const values = resolved(storage.boundOriginsFor(capturedValue, producer.bindings));
+      assert.equal(values.subjects.length === 1 && ast.is.IsNumericLiteral(values.subjects[0].node) &&
+        ast.text(values.subjects[0].node) === (name === "first" ? "1" : "2"), true,
+      "the base factory value never becomes the derived factory value or another instance's capture");
+      const activation = resolved(storage.boundActivationsFor(declaration("makeBase"), producer.bindings));
+      assert.equal(activation.activations.length, 1, "one real original base factory activation");
+      captures.add(activation.activations[0].bindings);
+    }
+    assert.equal(captures.size, 2, "one base-class AST retains both distinct actual factory activations");
+    assert.equal(storage.failureReason() === undefined, true, "inherited getter selection uses the existing bounded capture equations");
+  });
+}
+
 for (const actual of ["present", "absent", "external"]) {
   test("native initialized inputs select actual values before optional contextual bounds: " + actual, async () => {
     const current = await fixture("native-initialized-presence-" + actual, `
       declare function observe(value: number): void;
-      declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part | undefined) => void): void;
+      declare function nativeInvoke<Part>(values: (Part | undefined)[], callback: (actual: Part | undefined) => void): void;
       declare const external: (number | undefined)[];
       export function create(value: number) {
         function deliver(actual: number = 99): void { observe(actual); }
@@ -1371,6 +1411,32 @@ for (const actual of ["present", "absent", "external"]) {
         "only the actual present argument or the actual checked absence chooses this value");
     }
     assert.equal(storage.failureReason(), undefined, "unknown input presence is not a budget failure");
+  });
+}
+
+for (const [actual, code] of [["[undefined]", 2322], ["external", 2345]]) {
+  test("native initialized input declarations do not admit absent elements in Part[]: " + code, async () => {
+    const checked = await checkedSource("native-initialized-invalid-elements-" + code, {
+      "globals.d.ts": `
+        interface Object {} interface Function {} interface CallableFunction extends Function {}
+        interface NewableFunction extends Function {} interface IArguments {} interface Boolean {}
+        interface Number {} interface String {} interface RegExp {}
+        interface Array<T> { [index: number]: T; length: number; }
+        interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: number; }
+      `,
+      "src/index.ts": `
+        declare function observe(value: number): void;
+        declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part | undefined) => void): void;
+        declare const external: (number | undefined)[];
+        export function create(value: number) {
+          function deliver(actual: number = 99): void { observe(actual); }
+          return () => { nativeInvoke(${actual}, deliver); };
+        }
+      `,
+    });
+    assert.equal(checked.diagnostics.length, 1, "the original authored input contract remains invalid");
+    assert.equal(checked.diagnostics[0].code, code, "the native checker retains its exact element incompatibility");
+    assert.equal(checked.extensionDiagnostics.length, 0, "storage admission does not bypass source checking");
   });
 }
 

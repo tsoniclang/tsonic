@@ -30,10 +30,25 @@ export function createSourceStorageDomains(
       ancestor.subject.projection.length >= current.subject.projection.length ||
       transport.subject(current.subject.node, current.subject.kind,
         current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;
-    return witnesses.forSubject(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
+    if (witnesses.forSubject(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
       (boundary.kind === "external-input" && (boundary.owner === current.inputOwner ||
         boundary.owner === undefined && ancestor.subject === current.inputOwner) ||
-        boundary.kind === "external-write" || boundary.kind === "opaque-write"));
+        boundary.kind === "external-write" || boundary.kind === "opaque-write"))) return true;
+    const types = semantics.forFile(current.sourceFile).types;
+    const original = sourceStorageSubjectType(source, ancestor.subject, transport.sourceFileFor(ancestor.subject));
+    const repeated = sourceStorageSubjectType(source, current.subject, transport.sourceFileFor(current.subject));
+    if (original === undefined || repeated === undefined || !types.isIdentical(original, repeated) ||
+      types.isAny(original) || types.isUnknown(original) || types.couldContainTypeVariables(original)) return false;
+    const present = sourcePresentStorageType(current.type, semantics.forFile(current.sourceFile));
+    if (present === undefined || types.isAny(present) || types.isUnknown(present) || types.couldContainTypeVariables(present) ||
+      types.callSignatures(present).length !== 0 || types.constructSignatures(present).length !== 0) return false;
+    const indexes = types.indexInfos(present);
+    const properties = types.propertyInfos(present);
+    if (indexes.length === 0 && properties.length === 0) return false;
+    return indexes.every(index => index.readonly) && properties.every(property =>
+      property.readonly && [property.symbol, ...property.rootSymbols].every(symbol =>
+        semantics.forFile(current.sourceFile).declarations.symbolDeclarations(symbol).every(declaration =>
+          sourceStorageIsDataMember(declaration, ast))));
   });
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
   let initialized = false;

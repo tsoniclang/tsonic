@@ -36,7 +36,7 @@ import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
 import { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -294,11 +294,14 @@ export function createSourceStorageTransport(
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
       const selected = property ?? semantics.forNode(node).operations.elementAccess(node);
-      const declaration = property?.selectedReadDeclaration ?? selected?.selectedDeclaration;
-      if (declaration !== undefined && !ast.is.IsGetAccessorDeclaration(declaration) &&
-        (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast)))
-        connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node));
-      if (selected?.selectedDeclaration !== undefined) memberAccessors.record(node);
+      const declarations = sourceStorageAccessDeclarations(source, node, "read");
+      for (const declaration of declarations ?? []) {
+        if (!step()) break;
+        if (!ast.is.IsGetAccessorDeclaration(declaration) &&
+          (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast)))
+          connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node));
+      }
+      if ((declarations?.length ?? 0) !== 0 || selected?.selectedDeclaration !== undefined) memberAccessors.record(node);
       if (selected !== undefined && selected.accessMode !== "read") {
         const owner = subjectFor(selected.receiver.expression);
         if (owner !== undefined) mutationOwners.set(node, owner);
@@ -333,6 +336,8 @@ export function createSourceStorageTransport(
       }
       const signature = selected === undefined ? undefined
         : consumer.declarations.signatureDeclaration(selected.selectedSignature);
+      if (selected?.sourceSelectedSignatureKind !== "resolved" || signature === undefined && !ast.is.IsNewExpression(node))
+        unresolvedInvocations.set(node, "Source storage argument transport requires its original checked selected signature.");
       if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
         if (signature !== undefined) invocationDeclarations.set(node, signature);
         const target = subjectFor(Node_Expression(ast, node));
@@ -344,6 +349,13 @@ export function createSourceStorageTransport(
           ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
         ]));
         const arguments_: SourceStorageArgumentTransport[] = [];
+        const checkedParameters = consumer.declarations.signatureParameters(selected.selectedSignature);
+        for (const parameter of selected.sourceSelectedSignatureParameters) {
+          if (!step()) break;
+          const symbol = checkedParameters[parameter.parameterIndex];
+          if (symbol === undefined || !consumer.declarations.symbolDeclarations(symbol).includes(parameter.parameterDeclaration))
+            unresolvedInvocations.set(node, "Source storage argument transport requires the original checked selected signature parameter identity.");
+        }
         for (const binding of selected.sourceArgumentBindings) {
           if (!step()) break;
           const formal = selected.sourceSelectedSignatureParameters.find(parameter =>
@@ -361,7 +373,7 @@ export function createSourceStorageTransport(
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
           const projection = binding.sourceParameterForm === "parameter" ? []
-            : rest?.length === 1 && !rest[0]!.repeated ? rest[0]!.projection : undefined;
+            : rest?.length === 1 ? rest[0]!.projection : undefined;
           if (formal === undefined || actual === undefined || projection === undefined) {
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
@@ -789,6 +801,9 @@ export function createSourceStorageTransport(
     const operands: { readonly subject: SourceStorageSubject; readonly callback?: SourceStorageCallbackEntry }[] = [];
     const target = invocationTargets.get(invocation);
     if (target !== undefined) operands.push({ subject: target });
+    const checked = semantics.forNode(invocation).operations.call(invocation);
+    const receiver = subjectFor(checked?.sourceReceiver?.expression ?? checked?.sourceCalleeAccess?.receiver.expression);
+    if (receiver !== undefined && receiver !== target) operands.push({ subject: receiver });
     for (const callback of callbackEntriesFor(invocation)) operands.push({ subject: callback.argument.actual, callback });
     for (const operand of operands) {
       const origins = originSubjects(operand.subject);

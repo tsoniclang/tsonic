@@ -2,14 +2,15 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageReference } from "../graph/scoped-model.js";
+import type { SourceStorageReference, SourceStorageScopedSubject } from "../graph/scoped-model.js";
+import { sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 
 type SourceStoragePhysicalMembers =
-  | { readonly kind: "known"; readonly declarations: readonly Node[]; readonly absent: boolean }
+  | { readonly kind: "known"; readonly members: readonly SourceStorageScopedSubject[]; readonly absent: boolean }
   | { readonly kind: "pending" }
   | { readonly kind: "unresolved"; readonly reason: string };
 
@@ -28,11 +29,18 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
     if (!construction) {
       const declarations = transport.memberFlow.declarationsFor(receiver.subject, target, receiverType);
-      return declarations === undefined ? { kind: "unresolved", reason: "Source storage members require exact checked correspondence." }
-        : { kind: "known", declarations, absent: declarations.length === 0 };
+      if (declarations === undefined) return { kind: "unresolved", reason: "Source storage members require exact checked correspondence." };
+      const members: SourceStorageScopedSubject[] = [];
+      for (const declaration of declarations) {
+        if (!budget.step()) return undefined;
+        const subject = sourceStorageMemberSubject(declaration, ast, transport.subject);
+        if (subject === undefined) return undefined;
+        members.push(Object.freeze({ subject, bindings: receiver.scope }));
+      }
+      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 };
     }
     const owner = sourceMemberOwner(ast, target);
-    const selected = semantics.forNode(target);
+    const selected = semantics.forNode(allocation);
     const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
       : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
     const operand = transport.invocationTargets.get(allocation);
@@ -40,7 +48,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       reason: "Source storage members require their checked construction contract." };
     const values = queries.read(sourceStorageReference(operand, receiver.scope));
     if (values === undefined) return undefined;
-    const members = new Set<Node>();
+    const members: SourceStorageScopedSubject[] = [];
     let absent = false;
     let completed = false;
     for (const value of values) {
@@ -54,21 +62,35 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         const root = lineage.classes[0];
         if (!lineage.complete || root === undefined) return { kind: "unresolved",
           reason: "Source storage members require their complete actual class lineage." };
-        const instance = transport.subject(root.subject.node, "receiver");
-        const declarations = instance === undefined ? undefined : transport.memberFlow.declarationsFor(instance, target, contract);
-        if (declarations === undefined) return { kind: "unresolved",
-          reason: "Source storage members require exact checked correspondence." };
-        completed = true;
-        absent ||= declarations.length === 0;
-        for (const member of declarations) {
+        let found = false;
+        let knownAbsent = false;
+        let unknown = false;
+        for (const captured of lineage.classes) {
           if (!budget.step()) return undefined;
-          const declaredOwner = sourceMemberOwner(ast, member);
-          if (ast.hasModifierKind(member, "static") || !lineage.classes.some(captured => captured.subject.node === declaredOwner))
-            return { kind: "unresolved", reason: "A physical source member requires its actual class owner." };
-          members.add(member);
+          const instance = transport.subject(captured.subject.node, "receiver");
+          const declarations = instance === undefined ? undefined : transport.memberFlow.declarationsFor(instance, target, contract);
+          if (declarations === undefined) { unknown = true; continue; }
+          knownAbsent ||= declarations.length === 0;
+          const physical = declarations.filter(member => !ast.hasModifierKind(member, "static") &&
+            sourceMemberOwner(ast, member) === captured.subject.node);
+          if (physical.length === 0) continue;
+          if (unknown) return { kind: "unresolved", reason: "A physical source member requires its complete actual override correspondence." };
+          for (const member of physical) {
+            if (!budget.step()) return undefined;
+            const subject = sourceStorageMemberSubject(member, ast, transport.subject);
+            if (subject === undefined) return undefined;
+            if (!members.some(previous => previous.subject === subject && previous.bindings === captured.bindings))
+              members.push(Object.freeze({ subject, bindings: captured.bindings }));
+          }
+          found = true;
+          break;
         }
+        if (!found && (unknown || !knownAbsent)) return { kind: "unresolved",
+          reason: "A physical source member requires its complete actual class correspondence." };
+        completed = true;
+        absent ||= !found;
       }
     }
-    return completed ? { kind: "known", declarations: Object.freeze([...members]), absent } : { kind: "pending" };
+    return completed ? { kind: "known", members: Object.freeze(members), absent } : { kind: "pending" };
   };
 }

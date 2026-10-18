@@ -33,6 +33,8 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
   const activations = new Map<string, SourceStorageActivation>();
   const noCreation: readonly SourceStorageActivation[] = Object.freeze([]);
+  const root: SourceStorageActivation = Object.freeze({ key: "root", variable: undefined, closed: true,
+    owner: undefined, creation: noCreation, invocation: undefined, parent: undefined });
   const creationScopes = (scope: SourceStorageScope, frame: SourceStorageFrame): readonly SourceStorageScope[] | undefined => {
     if (frame.owner === undefined) return undefined;
     const subject = queries.subject(frame.owner);
@@ -64,6 +66,7 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
   };
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
+    if (scope === queries.empty) return root;
     const cached = activationKeys.get(scope);
     if (cached !== undefined) return cached;
     const intern = (key: string, variable: SourceStorageVariable | undefined, owner: Node | undefined,
@@ -102,11 +105,10 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
           budget.reject("Source storage activation ownership must be acyclic."); return undefined;
         }
         const frame = current.scope.kind === "substitution" ? current.scope.scope : current.scope;
-        if (frame.kind === "variable" || current.scope === queries.empty) {
-          const selected = frame.kind === "variable"
-            ? intern(`v${frame.equation.identity}:${queries.identity(frame.owner)}:${frame.capture === undefined ? "" : queries.identity(frame.capture)}:${queries.callbackKey(frame.callback)}`,
-              frame, frame.owner, noCreation, undefined)
-            : intern("root", undefined, undefined, noCreation, undefined);
+        if (current.scope === queries.empty) continue;
+        if (frame.kind === "variable") {
+          const selected = intern(`v${frame.equation.identity}:${queries.identity(frame.owner)}:${frame.capture === undefined ? "" : queries.identity(frame.capture)}:${queries.callbackKey(frame.callback)}`,
+              frame, frame.owner, noCreation, undefined);
           if (selected === undefined || !remember(current.scope, selected)) return undefined;
           continue;
         }
@@ -126,11 +128,11 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
       const creation: SourceStorageActivation[] = [];
       for (const captured of current.captures) {
         if (!budget.step()) return undefined;
-        const selected = activationKeys.get(captured);
+        const selected = captured === queries.empty ? root : activationKeys.get(captured);
         if (selected === undefined) return undefined;
         creation.push(selected);
       }
-      const parent = current.caller === undefined ? undefined : activationKeys.get(current.caller);
+      const parent = current.caller === undefined ? undefined : current.caller === queries.empty ? root : activationKeys.get(current.caller);
       if (current.caller !== undefined && parent === undefined) return undefined;
       const nativeEntry = current.frame.callback === undefined ? undefined : queries.callbackKey(current.frame.callback);
       const owner = current.frame.owner;
