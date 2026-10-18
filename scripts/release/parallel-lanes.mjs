@@ -7,23 +7,22 @@ import { runBoundedTestQueue } from "../../test/scripts/parallel-scheduler.mjs";
 export function releaseLaneBudget(budget, count) {
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("Release lanes require a positive count.");
   if (!Number.isSafeInteger(budget.childJobs) || budget.childJobs < 1) throw new Error("Release lanes require the guard-selected native child count.");
-  const workers = Math.min(count, budget.workers ?? count, Math.floor(budget.memoryMiB / 4096));
-  if (workers < 1) throw new Error("Release acceptance requires at least 4096 MiB per native lane.");
+  const workers = Math.min(count, budget.workers ?? count);
+  if (!Number.isSafeInteger(workers) || workers < 1) throw new Error("Release lanes require a positive worker count.");
+  if (!Number.isSafeInteger(budget.memoryMiB) || budget.memoryMiB < 1) throw new Error("Release lanes require a finite positive outer memory budget.");
   return {
     workers, memoryMiB: budget.memoryMiB,
-    workerMemoryMiB: Math.floor(budget.memoryMiB / workers),
     childJobs: budget.childJobs,
   };
 }
 
 export async function runReleaseLanes(lanes, root, execute = runLane, budget = readTestResourceBudget()) {
   const selected = releaseLaneBudget(budget, lanes.length);
-  process.stdout.write(`Release acceptance: ${selected.workers} independent lanes, ${selected.childJobs} native jobs per lane, ${selected.workerMemoryMiB} MiB per lane.\n`);
+  process.stdout.write(`Release acceptance: ${selected.workers} independent lanes, ${selected.childJobs} native jobs per lane, one ${selected.memoryMiB} MiB outer group.\n`);
   await runBoundedTestQueue(lanes, selected, lane => execute(lane, {
     root,
     environment: testTaskEnvironment(process.env, budget, {
-      id: lane.id, memoryMiB: selected.workerMemoryMiB,
-      heapMiB: Math.min(budget.heapMiB, Math.floor(selected.workerMemoryMiB * 0.75)),
+      id: lane.id,
       childJobs: selected.childJobs,
     }),
   }));

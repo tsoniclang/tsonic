@@ -11,9 +11,10 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
   if (!positive(requestedMiB) || !positive(machine.totalMemoryMiB) || !positive(machine.availableMemoryMiB)) {
     throw new Error("Memory admission requires positive finite machine and job sizes.");
   }
-  const reserveMiB = 16_384;
+  const reserveMiB = machine.reserveMiB ?? 6144;
+  if (!positive(reserveMiB)) throw new Error("The memory reserve must be a positive integer.");
   const capacityMiB = machine.totalMemoryMiB - reserveMiB;
-  if (requestedMiB > capacityMiB) throw new Error("The job cannot fit alongside the 16 GiB memory reserve.");
+  if (requestedMiB > capacityMiB) throw new Error(`The job cannot fit alongside the ${reserveMiB} MiB memory reserve.`);
   const claims = new Map();
   for (const claim of reservations) {
     if (typeof claim.unit !== "string" || !positive(claim.memoryMiB) || claims.has(claim.unit)) {
@@ -42,6 +43,14 @@ export function processStartIdentity(status) {
   const fields = closing < 0 ? [] : status.slice(closing + 1).trim().split(/\s+/u);
   if (!/^\d+$/u.test(fields[19] ?? "")) throw new Error("Cannot identify the reservation's owning process.");
   return fields[19];
+}
+
+export function admittedScopeCgroup(membership, unit) {
+  if (!/^tsonic-[a-zA-Z0-9_-]+\.scope$/u.test(unit)) throw new Error("Invalid admitted scope identity.");
+  const parts = guardCgroupPath(membership).split("/");
+  const position = parts.indexOf(unit);
+  if (position < 0 || parts.lastIndexOf(unit) !== position) throw new Error("The process is not within its admitted scope.");
+  return parts.slice(0, position + 1).join("/");
 }
 
 export function reservationIsLive(reservation, scopes, readProcess, bootId) {
@@ -115,7 +124,7 @@ function memoryAdmissionCommand(arguments_) {
   const state = readState(statePath);
   if (action === "activate") {
     const owned = state.reservations.find(entry => entry.unit === unit);
-    const group = guardCgroupPath(readFileSync("/proc/self/cgroup", "utf8"));
+    const group = admittedScopeCgroup(readFileSync("/proc/self/cgroup", "utf8"), unit);
     if (owned === undefined || owned.pid !== pid || !group.endsWith(`/${unit}`) ||
       Number(readFileSync(resolve(group, "memory.max"), "utf8")) !== owned.memoryMiB * 1_048_576) {
       throw new Error("The running test scope differs from its pending memory reservation.");
@@ -142,7 +151,8 @@ function memoryAdmissionCommand(arguments_) {
   const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
   const retained = state.reservations.filter(entry => reservationIsLive(entry, scopes, readProcess, bootId));
   if (retained.some(entry => entry.unit === unit)) throw new Error("A test job cannot reserve memory twice.");
-  const result = planTestMemoryAdmission(readTestHostResources(), retained, scopes, Number(memoryText));
+  const machine = { ...readTestHostResources(), reserveMiB: Number(process.env.TSONIC_TEST_RESERVE_MIB ?? 6144) };
+  const result = planTestMemoryAdmission(machine, retained, scopes, Number(memoryText));
   if (!result.admitted) {
     writeState(statePath, { ...state, reservations: retained });
     return 75;

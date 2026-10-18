@@ -58,55 +58,54 @@ test("only the exact registry task acquires the Rust provider build; the full ce
   }
   const native = inventory.files.filter(entry => entry.scope !== "tsonic");
   assert.equal(native.length > 0, true, "the native task inventory is represented");
-  assert.equal(native.every(entry => entry.memoryMiB === 4096 && entry.heapMiB === 3072), true,
-    "native tasks retain provisional per-file weights instead of borrowing the whole job budget");
+  assert.equal(native.every(entry => !Object.hasOwn(entry, "memoryMiB") && entry.heapMiB === 3072), true,
+    "native tasks have heap caps and no per-file memory reservation");
 });
 
-test("the existing queue weights the heavy inventory task without lowering ordinary useful parallelism", async () => {
+test("the existing queue admits all explicit worker slots without per-task memory weights", async () => {
   const tasks = [
-    { id: "inventory", memoryMiB: 4096 }, { id: "simple-one" }, { id: "simple-two" },
+    { id: "inventory" }, { id: "simple-one" }, { id: "simple-two" },
   ];
-  const budget = { workers: 3, memoryMiB: 6144, workerMemoryMiB: 2048 };
+  const budget = { workers: 3 };
   let current = 0;
   let peak = 0;
   let count = 0;
   let overlap = false;
   const results = await runBoundedTestQueue(tasks, budget, async task => {
-    const memory = task.memoryMiB ?? budget.workerMemoryMiB;
-    current += memory;
+    current += 1;
     count += 1;
     peak = Math.max(peak, current);
     overlap ||= count > 1;
     await new Promise(completed => setTimeout(completed, 5));
-    current -= memory;
+    current -= 1;
     count -= 1;
     return task.id;
   });
   assert.equal(results.length, 3);
-  assert.equal(peak, 6144);
+  assert.equal(peak, 3);
   assert.equal(overlap, true);
-  assert.throws(() => validateBoundedTestQueue(tasks, { ...budget, memoryMiB: 3072 }), /cannot fit the memory budget/u);
+  assert.throws(() => validateBoundedTestQueue(tasks, { ...budget, workers: 0 }), /finite positive/u);
 });
 
 test("one admitted task gets its own finite heap and worker budget while other Node options remain exact", () => {
   const budget = testResourceBudget({ cpus: 8, totalMemoryMiB: 16384, availableMemoryMiB: 16384 }, {
-    TSONIC_TEST_CPUS: "8", TSONIC_TEST_MEMORY_MIB: "8192", TSONIC_TEST_WORKERS: "2", TSONIC_TEST_CHILD_JOBS: "2",
+    TSONIC_TEST_CPUS: "8", TSONIC_TEST_MEMORY_MIB: "8192", TSONIC_TEST_WORKERS: "2", TSONIC_TEST_CHILD_JOBS: "2", TSONIC_TEST_HEAP_MIB: "1536",
   });
   const environment = { NODE_OPTIONS: '--trace-warnings --require "/path with spaces/hook.mjs" --max-old-space-size=1536' };
-  const selected = testTaskEnvironment(environment, budget, { id: "inventory", memoryMiB: 4096, heapMiB: 3072 });
+  const selected = testTaskEnvironment(environment, budget, { id: "inventory", heapMiB: 3072 });
   assert.equal(selected.NODE_OPTIONS, '--trace-warnings --require "/path with spaces/hook.mjs" --max-old-space-size=3072');
   const local = readTestResourceBudget(selected);
-  assert.equal(local.memoryMiB, 4096);
-  assert.equal(local.workerMemoryMiB, 4096);
+  assert.equal(local.memoryMiB, budget.memoryMiB);
+  assert.equal(Object.hasOwn(local, "workerMemoryMiB"), false);
   assert.equal(local.heapMiB, 3072);
   assert.equal(local.workers, 1);
   assert.equal(local.childJobs, 2);
   const ordinary = readTestResourceBudget(testTaskEnvironment(environment, budget, { id: "simple" }));
-  assert.equal(ordinary.memoryMiB, budget.workerMemoryMiB);
+  assert.equal(ordinary.memoryMiB, budget.memoryMiB);
   assert.equal(ordinary.workers, 1);
   assert.equal(ordinary.availableCpus, budget.availableCpus);
-  assert.throws(() => testTaskEnvironment(environment, budget, { id: "invalid", memoryMiB: 4096, heapMiB: 4096 }), /leave room/u);
-  assert.throws(() => testTaskEnvironment({}, budget, { id: "missing-guard", memoryMiB: 4096 }), /guard-owned/u);
+  assert.throws(() => testTaskEnvironment(environment, budget, { id: "invalid", heapMiB: 8192 }), /leave room/u);
+  assert.throws(() => testTaskEnvironment({}, budget, { id: "missing-guard" }), /guard-owned/u);
 });
 
 test("the moved full census cannot start through a routine bank or execute its prerequisites", () => {

@@ -1,5 +1,99 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, resolve, sep } from "node:path";
+import { readTaskCgroup } from "./guard-cgroup.mjs";
+
+export function taskTimeoutsFromBaseline(baseline) {
+  if (!Array.isArray(baseline.results)) throw new Error("A file timeout baseline requires task results.");
+  const timeouts = new Map();
+  for (const task of baseline.results) {
+    if (typeof task.id !== "string" || task.id.length === 0 || timeouts.has(task.id) ||
+        !Number.isFinite(task.durationMs) || task.durationMs < 0) {
+      throw new Error("File timeout baselines require unique task identities and measured file wall times.");
+    }
+    timeouts.set(task.id, Math.max(300_000, Math.ceil(task.durationMs * 10)));
+  }
+  return timeouts;
+}
+
+export function taskTimeoutMilliseconds(task, timeouts = new Map()) {
+  return timeouts.get(task.id) ?? 1_800_000;
+}
+
+export function cleanupFinishedCargoTargets(manifestPath, taskGroup) {
+  const result = { removed: [], retained: [], issue: null };
+  if (!existsSync(manifestPath)) return result;
+  const workspaces = readFileSync(manifestPath, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+  if (taskGroup?.drained !== true || typeof taskGroup.path !== "string") {
+    return { ...result, retained: workspaces.map(entry => ({ directory: entry.directory, reason: "Task descendants are not proven drained." })),
+      issue: "Task descendants are not proven drained; Cargo binaries retained." };
+  }
+  const drain = readTaskCgroup(taskGroup.path);
+  if (!drain.drained) return { ...result, retained: workspaces.map(entry => ({ directory: entry.directory, reason: "Task child is populated or cgroup.procs is nonempty." })),
+    issue: "Task descendants are not proven drained; Cargo binaries retained." };
+  const registered = new Set();
+  const duplicates = new Set();
+  for (const entry of workspaces) {
+    if (typeof entry.directory !== "string" || !isAbsolute(entry.directory) ||
+        !entry.directory.split(sep).some(part => part === ".temp" || part === ".tests") ||
+        !/^\d+$/u.test(entry.dev ?? "") || !/^\d+$/u.test(entry.ino ?? "")) throw new Error("Invalid task-owned workspace identity.");
+    if (registered.has(entry.directory)) duplicates.add(entry.directory);
+    registered.add(entry.directory);
+  }
+  for (const entry of workspaces) {
+    if (!existsSync(entry.directory)) continue;
+    const retain = reason => result.retained.push({ directory: entry.directory, taskId: taskGroup.taskId, reason });
+    if (entry.ownership !== "fresh-task-mkdtemp" || entry.taskId !== taskGroup.taskId ||
+        entry.cgroupPath !== taskGroup.path || duplicates.has(entry.directory)) {
+      retain("Root was not registered as a fresh exclusive workspace for this task.");
+      continue;
+    }
+    const actual = lstatSync(entry.directory, { bigint: true });
+    if (!actual.isDirectory() || String(actual.dev) !== entry.dev || String(actual.ino) !== entry.ino ||
+        (actual.mode & 0o777n) !== 0o700n || realpathSync(entry.directory) !== entry.directory) {
+      retain("Registered workspace identity or private mode changed.");
+      continue;
+    }
+    visit(entry.directory, entry);
+  }
+  return result;
+
+  function visit(directory, registration) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.name === "target") {
+        if (!existsSync(resolve(directory, "Cargo.toml"))) continue;
+        for (const profile of ["debug", "release"]) {
+          const profilePath = resolve(path, profile);
+          if (!existsSync(profilePath) || !lstatSync(profilePath).isDirectory() || realpathSync(profilePath) !== profilePath) continue;
+          for (const leaf of ["deps", "incremental"]) {
+            const binary = resolve(profilePath, leaf);
+            if (!existsSync(binary) || !lstatSync(binary).isDirectory() || realpathSync(binary) !== binary) continue;
+            const identity = lstatSync(registration.directory, { bigint: true });
+            const currentDrain = readTaskCgroup(taskGroup.path);
+            if (String(identity.dev) !== registration.dev || String(identity.ino) !== registration.ino || !currentDrain.drained) {
+              result.retained.push({ directory: binary, taskId: taskGroup.taskId, reason: "Workspace identity or task drain changed before deletion." });
+              continue;
+            }
+            const allocatedBytesRemoved = allocatedBytes(binary);
+            const startedAt = new Date().toISOString();
+            rmSync(binary, { recursive: true });
+            result.removed.push({ directory: binary, taskId: taskGroup.taskId,
+              workspace: registration.directory, dev: registration.dev, ino: registration.ino,
+              drain: currentDrain, startedAt, endedAt: new Date().toISOString(), allocatedBytesRemoved,
+              netPhysicalBytesFreed: null });
+          }
+        }
+      } else visit(path, registration);
+    }
+  }
+
+  function allocatedBytes(path) {
+    const stat = lstatSync(path);
+    return stat.blocks * 512 + (stat.isDirectory()
+      ? readdirSync(path).reduce((total, name) => total + allocatedBytes(resolve(path, name)), 0) : 0);
+  }
+}
 
 export function sampleTaskProcessTree(parentPid, procRoot = "/proc") {
   const pending = children(parentPid);
@@ -95,8 +189,8 @@ export function readTaskResourceUsage(path, durationMs, processes, budget) {
     averageCores: durationMs > 0 ? cpuSeconds * 1000 / durationMs : null },
     memory: { method: "wait4-maximum-individual-process-rss", maximumResidentBytes: usage.maximumResidentKiB * 1024,
       exactAggregateMemoryPeakBytes: null, permitsAutomaticWeightReduction: false },
-    processes, workers: 1, childJobs: budget.childJobs, reservedMemoryMiB: budget.memoryMiB,
-    memoryAdmission: "queue-weight-within-outer-job-cgroup" };
+    processes, workers: 1, childJobs: budget.childJobs,
+    memoryAdmission: "outer-job-cgroup-only" };
 }
 
 export function timedTaskArguments(path, command, args) {

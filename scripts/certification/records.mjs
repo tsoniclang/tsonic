@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { digest, sameCertificationInputs } from "./inputs.mjs";
 import { capturedBankCounts, parallelReportCounts } from "./counts.mjs";
 import { readTestResourceBudget } from "../../test/scripts/test-resource-budget.mjs";
-import { guardReceiptHasOwnedMeasurements } from "../../test/scripts/guard-cgroup.mjs";
+import { guardReceiptHasOwnedMeasurements, guardScopeResultAccepted } from "../../test/scripts/guard-cgroup.mjs";
 
 export function describeEvidence(path, role) {
   const info = lstatSync(path);
@@ -75,7 +75,7 @@ export function validateCertification(record, entry, current, root, now = Date.n
   if (total === 0 || skipped !== entry.skipped) throw new Error("Certification test/skip inventory is inconsistent.");
   const guard = record.guard;
   if (guard?.exitCode !== 0 || guard.calibration !== false || guard.swapMax !== 0 ||
-      !guardReceiptHasOwnedMeasurements(guard) || ![null, "success"].includes(guard.scopeResult)) {
+      !guardReceiptHasOwnedMeasurements(guard) || !guardScopeResultAccepted(guard)) {
     throw new Error("Certification lacks a successful owned resource guard.");
   }
   for (const key of ["memoryMiB", "tasksMax", "timeoutSeconds", "logMaxBytes"]) {

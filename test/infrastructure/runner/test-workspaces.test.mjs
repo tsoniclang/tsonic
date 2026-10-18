@@ -1,13 +1,104 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
 import { tsonicRoot } from "../../scripts/workspace-layout.mjs";
+import { cleanupFinishedCargoTargets } from "../../scripts/parallel-task-resources.mjs";
 
 const scratch = join(tsonicRoot, ".temp/test-workspace-lifecycle");
 const helperUrl = new URL("../../scripts/test-workspaces.mjs", import.meta.url).href;
+
+test("only individually drained task-owned Cargo binary leaves are pruned, preserving generated source and failures", () => {
+  const root = createTestWorkspace(scratch, "cargo-cleanup-");
+  const workspace = createTestWorkspace(root, "project-");
+  const identity = lstatSync(workspace, { bigint: true });
+  const manifest = join(root, "task.jsonl");
+  const group = join(root, "task-cgroup");
+  mkdirSync(group);
+  writeFileSync(join(group, "memory.events.local"), "oom_kill 0\n");
+  writeFileSync(join(group, "memory.peak"), "4096\n");
+  writeFileSync(join(group, "cgroup.events"), "populated 0\n");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  const task = { path: group, taskId: "owned-file", drained: true };
+  const registration = { directory: workspace, ownership: "fresh-task-mkdtemp", taskId: task.taskId,
+    cgroupPath: group, dev: String(identity.dev), ino: String(identity.ino) };
+  const register = entries => writeFileSync(manifest, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  register([registration]);
+  for (const folder of ["target/debug/deps", "target/debug/incremental", "target/debug/build/native/out", "src"]) mkdirSync(join(workspace, folder), { recursive: true });
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(workspace, file), "retained evidence");
+  const waiting = cleanupFinishedCargoTargets(manifest, { ...task, drained: false });
+  assert.match(waiting.issue, /not proven drained/u);
+  assert.equal(existsSync(join(workspace, "target/debug/deps/native")), true, "an active task keeps its binary");
+  writeFileSync(join(group, "cgroup.procs"), "12345\n");
+  const active = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(active.removed.length, 0, "a nonempty cgroup.procs keeps the target even with populated zero");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  register([{ ...registration, ino: String(identity.ino + 1n) }]);
+  const changed = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(changed.removed.length, 0, "changed directory identity keeps the binaries");
+  assert.match(changed.retained[0].reason, /identity/u);
+  register([registration, registration]);
+  const reused = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(reused.removed.length, 0, "duplicate ownership cannot authorize deleting a reused root");
+  assert.match(reused.retained[0].reason, /fresh exclusive/u);
+  register([registration]);
+  const finished = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(finished.removed.length, 2, "both finished binary leaves are removed immediately");
+  assert.equal(finished.removed.every(entry => entry.taskId === task.taskId && entry.dev === registration.dev &&
+    entry.ino === registration.ino && entry.drain.drained && entry.drain.processIds.length === 0 &&
+    entry.allocatedBytesRemoved > 0 && entry.netPhysicalBytesFreed === null &&
+    typeof entry.startedAt === "string" && typeof entry.endedAt === "string"), true, "deletions retain exact ownership, drain and honest footprint evidence");
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(workspace, file), "utf8"), "retained evidence", `${file}: source, configuration and failure evidence survive`);
+  }
+  const foreign = createTestWorkspace(root, "foreign-");
+  mkdirSync(join(foreign, "debug/deps"), { recursive: true });
+  writeFileSync(join(foreign, "debug/deps/native"), "foreign");
+  symlinkSync(foreign, join(workspace, "nested"), "dir");
+  cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(readFileSync(join(foreign, "debug/deps/native"), "utf8"), "foreign", "a symlink cannot transfer deletion ownership");
+  const unregistered = createTestWorkspace(root, "unregistered-");
+  mkdirSync(join(unregistered, "target/debug/deps"), { recursive: true });
+  writeFileSync(join(unregistered, "Cargo.toml"), "unregistered");
+  writeFileSync(join(unregistered, "target/debug/deps/native"), "unregistered");
+  cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(readFileSync(join(unregistered, "target/debug/deps/native"), "utf8"), "unregistered", "unregistered roots are never traversed");
+});
+
+test("the real runner prunes a finished failing file's Cargo binaries after draining its log and native child", () => {
+  const root = createTestWorkspace(scratch, "cargo-runner-");
+  const repository = join(root, "repository");
+  const file = join(repository, "test/infrastructure/runner/terminal.test.mjs");
+  mkdirSync(join(repository, "test/infrastructure/runner"), { recursive: true });
+  const record = join(root, "generated-project.json");
+  const report = join(root, "report.json");
+  writeFileSync(file, `
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import test from "node:test";
+import { createTestWorkspace } from ${JSON.stringify(helperUrl)};
+const project = createTestWorkspace(${JSON.stringify(join(root, ".temp"))}, "project-");
+writeFileSync(${JSON.stringify(record)}, JSON.stringify(project));
+for (const folder of ["target/debug/deps", "target/debug/incremental", "src"]) mkdirSync(join(project, folder), {recursive: true});
+for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(project, path), "preserved source and evidence");
+test("deliberate completed file failure", () => assert.fail("preserved original assertion"));
+`);
+  const run = spawnSync(process.execPath, ["test/scripts/run-parallel.mjs", "--scope", "tsonic", "--repository-root", repository, "--file", file],
+    { cwd: tsonicRoot, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536, env: { ...process.env, TSONIC_TEST_SUITE_REPORT: report } });
+  assert.equal(run.status, 1, "the completed assertion remains failed, not silently repaired by cleanup");
+  const [result] = JSON.parse(readFileSync(report, "utf8")).results;
+  assert.equal(result.cgroup.drained, true, "the actual kernel proves the task empty");
+  assert.equal(result.cleanup.issue, null, "fresh ownership and exact kernel drain authorize cleanup without a global process scan");
+  assert.equal(result.cleanup.removed.length, 2, "both generated binary leaves are pruned before the runner returns");
+  const project = JSON.parse(readFileSync(record, "utf8"));
+  for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(project, path), "utf8"), "preserved source and evidence", `${path}: original evidence is retained`);
+  }
+  assert.equal(result.tests[0].message, "preserved original assertion", "the report keeps the precise failed assertion");
+});
 
 function fixture(body) {
   const root = createTestWorkspace(scratch, "case-");

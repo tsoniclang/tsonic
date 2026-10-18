@@ -30,7 +30,6 @@ export function createDotnetTestShards(testSuite, { statusRoot }) {
       preRunIds: testSuite.preRunIds,
       cwd: testSuite.cwd,
       command: "dotnet",
-      memoryMiB: testSuite.resources?.memoryMiB,
       heapMiB: testSuite.resources?.heapMiB,
       childJobs: testSuite.childJobs,
       resultPath,

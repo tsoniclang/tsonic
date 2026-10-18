@@ -20,7 +20,7 @@ export function createParallelSuiteDefinition(repos) {
     "csharp-nodejs.install", "csharp-nodejs.build", "csharp-nodejs.test-build"];
   const targetPreRuns = ["tsonic.build", "tsonic-csharp.build"];
   const providerPreRuns = [...targetPreRuns, "tsonic-csharp.provider-fixtures"];
-  const nativeResources = { memoryMiB: 4096, heapMiB: 3072 };
+  const nativeResources = { heapMiB: 3072 };
   const hostSuite = (group, path, metadata = {}) => nodeSuite(repos.tsonic, "tsonic", group, path,
     { preRunIds: hostPreRuns, ...metadata });
   const targetSuite = (group, path, metadata = {}) => nodeSuite(repos.tsonicCsharp, "tsonic-csharp", group, path,
@@ -216,7 +216,7 @@ export function createRustParallelSuiteDefinition(repos) {
     nodeSuites: [{
       ...nodeSuite(repos.tsonicRust, "tsonic-rust", "rust-compiler", "test"),
       preRunIds: ["tsonic-rust.installed-layout"],
-      resources: { memoryMiB: 4096, heapMiB: 3072 },
+      resources: { heapMiB: 3072 },
       nodeArguments: ["--import", resolve(repos.tsonicRust, "scripts/register-tsonic-root-loader.mjs")],
     }],
     testRoots: [{ scope: "tsonic-rust", directory: resolve(repos.tsonicRust, "test") }],

@@ -8,14 +8,14 @@ import { hostRoot } from "../../scripts/release/npm-wave.mjs";
 import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
 import { readTestResourceBudget } from "../scripts/test-resource-budget.mjs";
 
-test("release lanes partition memory and retain native child counts rather than deriving them from CPUs", () => {
+test("release lanes use selected width and retain native child counts without memory partitions", () => {
   assert.deepEqual(releaseLaneBudget({ cpuBudget: 24, memoryMiB: 40960, childJobs: 3 }, 2),
-    { workers: 2, memoryMiB: 40960, workerMemoryMiB: 20480, childJobs: 3 });
-  assert.equal(releaseLaneBudget({ cpuBudget: 24, memoryMiB: 4096, childJobs: 3 }, 2).workers, 1);
+    { workers: 2, memoryMiB: 40960, childJobs: 3 });
+  assert.equal(releaseLaneBudget({ cpuBudget: 24, memoryMiB: 4096, childJobs: 3 }, 2).workers, 2);
   assert.equal(releaseLaneBudget({ cpuBudget: 1, memoryMiB: 8192, childJobs: 3 }, 2).workers, 2,
     "the number of exposed CPUs is not a worker quota");
   assert.equal(releaseLaneBudget({ cpuBudget: 1, memoryMiB: 8192, childJobs: 3 }, 2).childJobs, 3);
-  assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 1024, childJobs: 3 }, 2), /4096/u);
+  assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 0, childJobs: 3 }, 2), /positive outer memory/u);
   assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 8192, childJobs: 3 }, 0), /positive/u);
   for (const childJobs of [undefined, 0, 1.5]) {
     assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 8192, childJobs }, 2), /guard-selected/u);
@@ -33,7 +33,7 @@ test("independent acceptance lanes overlap and drain after a failure", async () 
       assert.equal(options.environment[name], "3", `${name}: the same selected child count reaches every native tool`);
     }
     const selected = JSON.parse(options.environment.TSONIC_TEST_RESOURCE_BUDGET);
-    assert.equal(selected.memoryMiB, 4096, "each lane receives its actual memory partition");
+    assert.equal(selected.memoryMiB, 8192, "each lane references the one outer group without reserving a partition");
     assert.equal(selected.workers, 1, "a child lane cannot reuse the whole outer worker budget");
     assert.equal(selected.childJobs, 3, "the structured budget agrees with native environment variables");
     await new Promise(resolveNext => setImmediate(resolveNext));
