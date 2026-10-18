@@ -54,6 +54,12 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 unit="tsonic-${profile}-tests-${run_id}.scope"
 log_file=".temp/test-runs/${run_id}.log"
 measurement_file="$PWD/.temp/test-runs/${run_id}.measurements.json"
+temporary_directory="/tmp/tsonic-tests/$unit"
+mkdir -p -m 700 /tmp/tsonic-tests
+mkdir -m 700 "$temporary_directory"
+export TMPDIR="$temporary_directory" TMP="$temporary_directory" TEMP="$temporary_directory"
+export TSONIC_TEST_TEMP_DIRECTORY="$temporary_directory"
+export TSONIC_TEST_TEMP_DIRECTORY_REMOVED=false
 memory_events="/sys/fs/cgroup/user.slice/user-$(id -u).slice/memory.events"
 
 read_oom_kill_count() {
@@ -80,6 +86,7 @@ while true; do
   sleep 1
 done
 export TSONIC_TEST_ADMISSION="$admission"
+unset TSONIC_TEST_HEADROOM_DECISION TSONIC_TEST_HEADROOM_JOB
 export TSONIC_TEST_ADMISSION_LOCK="$admission_root/lock"
 export TSONIC_TEST_ADMISSION_STATE="$admission_state"
 export TSONIC_TEST_ADMISSION_OWNER="$$"
@@ -290,14 +297,8 @@ if [[ "${scope_result}" == "oom-kill" ]]; then
   test_status=137
 fi
 
-if [[ "${oom_kill_before}" != "unavailable" && "${oom_kill_after}" != "unavailable" &&
-  "${oom_kill_after}" -gt "${oom_kill_before}" ]]; then
-  printf 'System OOM kill count increased during the test run; inspect %s.\n' "${log_file}" >&2
-  test_status=137
-fi
-
 if [[ -f "$measurement_file" ]]; then
-  if ! node --input-type=module -e 'import {readFileSync} from "node:fs"; const measured=JSON.parse(readFileSync(process.argv[1], "utf8")); process.exit(measured.swapBytes === 0 && measured.oomAfter === measured.oomBefore ? 0 : 1)' "$measurement_file"; then
+  if ! node --input-type=module -e 'import {readFileSync} from "node:fs"; const {guardMeasurementSucceeded}=await import(process.argv[2]); const measured=JSON.parse(readFileSync(process.argv[1], "utf8")); process.exit(guardMeasurementSucceeded(measured) ? 0 : 1)' "$measurement_file" "file://$script_root/guard-cgroup.mjs"; then
     printf 'Bounded command exhausted its memory ceiling or used swap; inspect %s.\n' "$measurement_file" >&2
     test_status=137
   fi
@@ -320,9 +321,19 @@ if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" && "$test_status" != 137 && "$te
   fi
 fi
 if [[ -n "${TSONIC_TEST_GUARD_REPORT:-}" ]]; then
+  if (( test_status == 0 )) && [[ "$scope_drained" == true ]]; then
+    if rm -rf -- "$temporary_directory"; then
+      export TSONIC_TEST_TEMP_DIRECTORY_REMOVED=true
+    else
+      printf 'Could not remove the drained successful job temporary directory: %s\n' "$temporary_directory" >&2
+      test_status=1
+    fi
+  fi
   node "$script_root/guard-report.mjs" "$TSONIC_TEST_GUARD_REPORT" "$PWD/$log_file" \
     "$test_status" "$memory_mebibytes" "$tasks_max" "$timeout_seconds" "$log_size_max_bytes" \
     "$oom_kill_before" "$oom_kill_after" "$scope_result" "${TSONIC_TEST_CALIBRATION_SECONDS:-}" \
     "$measurement_file" "$scope_drained"
+elif (( test_status == 0 )) && [[ "$scope_drained" == true ]]; then
+  rm -rf -- "$temporary_directory"
 fi
 exit "${test_status}"

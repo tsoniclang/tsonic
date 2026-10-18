@@ -3,7 +3,8 @@ import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { memoryBoundNodeTestArguments, runGuardCommand } from "../../scripts/guard-command.mjs";
-import { guardCgroupPath, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
+import { guardCgroupPath, guardMeasurementSucceeded, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
+import { createGuardReport } from "../../scripts/guard-report.mjs";
 
 mkdirSync(".temp/guard-command-tests", { recursive: true });
 
@@ -64,4 +65,24 @@ test("a failed child retains its exact exit status and measurement", async () =>
   const path = resolve(directory, "measurement.json");
   assert.equal(await runGuardCommand(path, process.execPath, ["-e", "process.exitCode = 23"]), 23);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).exitCode, 23);
+});
+
+test("only the owned cgroup can invalidate a bounded command for OOM", () => {
+  const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 2, oomAfter: 2,
+    durationSeconds: 2, cpuUsageMicroseconds: 3_000_000 };
+  const report = createGuardReport({ measurement, before: "7", after: "8", status: 0, memory: 4096,
+    tasks: 2048, timeout: 60, logMax: 65536, scope: "success", calibration: "", drained: "true", log: "/actual/log" });
+  assert.equal(guardMeasurementSucceeded(measurement), true, "a foreign job kill does not change owned counters");
+  assert.equal(report.oomBefore, 2, "the canonical receipt starts at the owned counter");
+  assert.equal(report.oomAfter, 2, "the canonical receipt ends at the owned counter");
+  assert.equal(report.userSliceOomDiagnostic.after, 8, "the foreign observation is retained without authority");
+  assert.equal(report.userSliceOomDiagnostic.authoritative, false);
+  assert.equal(report.averageCores, 1.5);
+  for (const invalid of [null, {}, { ...measurement, oomAfter: 3 }, { ...measurement, oomBefore: null },
+    { ...measurement, oomBefore: -1, oomAfter: -1 }, { ...measurement, swapBytes: 1 }]) {
+    assert.equal(guardMeasurementSucceeded(invalid), false, "owned OOM, swap and absent proof still fail closed");
+  }
+  const missing = createGuardReport({ measurement: null, before: "7", after: "7" });
+  assert.equal(missing.oomBefore, null, "global counters never substitute for missing own-job evidence");
+  assert.equal(missing.oomAfter, null);
 });

@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+export function guardMeasurementSucceeded(measurement) {
+  return measurement !== null && typeof measurement === "object" &&
+    typeof measurement.controlGroup === "string" && measurement.controlGroup.startsWith("/") &&
+    measurement.swapBytes === 0 && Number.isSafeInteger(measurement.oomBefore) &&
+    measurement.oomBefore >= 0 && measurement.oomAfter === measurement.oomBefore;
+}
+
 export function guardCgroupPath(membership) {
   const selected = membership.match(/^0::(\/.*)$/mu);
   if (selected === null) throw new Error("The bounded command requires its cgroup v2 membership.");
