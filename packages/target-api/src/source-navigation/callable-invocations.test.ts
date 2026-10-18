@@ -64,6 +64,31 @@ test("a checked const-bound arrow shares the single-invocation owner with lexica
   }
 });
 
+test("closed bound-arrow invocations expose the exact checked repetition refusal", () => {
+  for (const [statement, expectedUses, expected] of [
+    ["return callback();", 1, true],
+    ["return callback() + callback();", 2, false],
+  ] as const) {
+    const current = fixture(`function read(): number { return 3; }
+const callback = () => read();
+${statement}`);
+    const binding = current.source.ast.parent(current.declaration("callback"));
+    assert.equal(binding !== undefined, true, "the callback retains its original checked binding");
+    const summary = current.source.navigation.declarationUseSummary(binding!);
+    assert.equal(summary.exported, false, "the selected binding is not exported");
+    assert.equal(summary.bindingWritten, false, "the selected binding is not reassigned");
+    assert.equal(summary.hasUnclassifiedValueUse, false, "every original use is classified");
+    const uses = summary.uses.filter(use => use.kind !== "type-only" && use.kind !== "source-linkage");
+    assert.equal(uses.length, expectedUses, "the exact multiplicity is one versus two original runtime uses");
+    assert.equal(uses.every(use => use.kind === "direct-call" && use.role === "call-target" && !use.throughMember),
+      true, "only direct non-member call targets contribute to the multiplicity refusal");
+    if (expectedUses === 2) assert.equal(uses[0]!.reference !== uses[1]!.reference, true,
+      "the repeated calls are two distinct original checked references");
+    assert.equal(current.select("callback"), expected, "the canonical query refuses exactly the repeated callback");
+    assert.equal(current.select("read"), expected, "the lexical caller uses that identical checked invocation proof");
+  }
+});
+
 test("bound-arrow invocation proof retains alias, repetition, escape, recursion and deferred negatives", () => {
   for (const body of [
     "const finish = () => 3; return finish() + finish();",
