@@ -181,7 +181,7 @@ export function readKeelDeterminism(packetPath) {
   function guardReceipt(file, summary) {
     const receipt = JSON.parse(readFileSync(ownedPath(file), "utf8"));
     const output = readFileSync(ownedPath(summary), "utf8");
-    return { ...receipt, scopeDrained: /^\s*scope drained: true\s*$/mu.test(output) };
+    return { ...receipt, scopeDrained: receipt.scopeDrained === true && /^\s*scope drained: true\s*$/mu.test(output) };
   }
 }
 

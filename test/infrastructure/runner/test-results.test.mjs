@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -43,6 +44,23 @@ test("empty skip and todo reasons never become passing identities", async () => 
   assert.deepEqual(records.map(row => row.status), ["skipped", "todo"]);
 });
 
+test("real Node cancellation is a distinct terminal identity and never an unchanged baseline failure", () => {
+  const root = mkdtempSync(resolve(".temp/test-result-tests/cancelled-"));
+  const file = resolve(root, "cancelled.test.mjs");
+  const output = resolve(root, "results.jsonl");
+  writeFileSync(file, "import test from 'node:test'; test('pending work', async () => new Promise(() => {}));\n");
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1",
+    `--test-reporter=${resolve("test/scripts/test-result-reporter.mjs")}`, `--test-reporter-destination=${output}`, file],
+  { env: environment, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
+  assert.equal(run.status, 1, run.stderr);
+  const named = readNodeTestResults(output, process.cwd(), file);
+  assert.equal(named.tests[0].status, "cancelled");
+  assert.equal(named.tests[0].failureType, "cancelledByParent");
+  assert.equal(named.summary.counts.cancelled, 1);
+});
+
 test("TRX names preserve escaped arguments and all pass, failure and skipped outcomes", () => {
   const text = '<TestRun><Results><UnitTestResult testName="N.Type.value(a: &quot;&lt;x&gt;&amp;&quot;)" outcome="Passed" />' +
     '<UnitTestResult testName="N.Type.fail" outcome="Failed" />' +
@@ -58,7 +76,7 @@ test("TRX names preserve escaped arguments and all pass, failure and skipped out
 function report(tests) {
   return { bank: "host", selection: { complete: true }, taskCounts: { total: 1 },
     inventory: { taskCount: 1, files: [{ scope: "tsonic", path: "test/architecture/rules.test.mjs", taskIds: ["architecture"] }] },
-    results: [{ id: "architecture", group: "architecture", scope: "tsonic", status: tests.some(row => row.status === "failed") ? 1 : 0,
+    results: [{ id: "architecture", group: "architecture", scope: "tsonic", status: tests.some(row => ["failed", "cancelled"].includes(row.status)) ? 1 : 0,
       resultError: null, tests, log: "logs/architecture.log" }] };
 }
 
@@ -99,12 +117,31 @@ test("infrastructure failures, omitted files and unaccounted task exits cannot p
   assert.equal(compareTestResults(before, collectTestResults([currentReport])).pass, false);
 });
 
+test("every new failure and incomplete outcome blocks comparison without erasing known failures", () => {
+  for (const status of ["passed", "skipped", "todo"]) {
+    const before = collectTestResults([report([result("baseline failure", "failed"), result("changed", status)])]);
+    const after = collectTestResults([report([result("baseline failure", "failed"), result("changed", "failed")])]);
+    const compared = compareTestResults(before, after);
+    assert.equal(compared.pass, false, `${status} becoming failed is a new failure`);
+    assert.deepEqual(compared.regressions.map(test => test.name), ["changed"]);
+  }
+  const before = collectTestResults([report([result("changed", "failed")])]);
+  for (const status of ["skipped", "todo", "cancelled"]) {
+    const after = collectTestResults([report([result("changed", status)])]);
+    assert.equal(compareTestResults(before, after).pass, false, `a known failure cannot disappear as ${status}`);
+  }
+  const cancelled = collectTestResults([report([result("unfinished", "cancelled")])]);
+  assert.equal(compareTestResults(cancelled, cancelled).pass, false, "even an unchanged cancellation is not complete evidence");
+  assert.throws(() => collectTestResults([report([result("unknown", "running")])]), /terminal outcome/u);
+});
+
 test("a train requires both complete banks and exact drained own-cgroup measurements", () => {
   const reports = [report([result("one")]), { ...report([result("two")]), bank: "node" }];
-  const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0 };
+  const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 };
   const guard = { exitCode: 0, scopeDrained: true, swapMax: 0, calibration: false, scopeResult: "success",
+    oomScope: "owned-cgroup",
     oomBefore: 0, oomAfter: 0, measurement, memoryMiB: 4096, budget: { memoryMiB: 4096 },
-    admission: { requestedMiB: 4096, unit: "owned.scope" } };
+    admission: { admitted: true, requestedMiB: 4096, unit: "owned.scope" } };
   assert.doesNotThrow(() => validateTrainInputs(reports, [guard, guard]));
   for (const changed of [{ scopeDrained: false }, { exitCode: 137 }, { swapMax: 1 }, { oomAfter: 1 },
     { measurement: { ...measurement, oomAfter: 1 } }, { measurement: null }]) {
@@ -113,6 +150,10 @@ test("a train requires both complete banks and exact drained own-cgroup measurem
   assert.throws(() => validateTrainInputs([{ ...reports[0], selection: { complete: false } }, reports[1]], [guard, guard]), /complete/u);
   assert.throws(() => validateTrainInputs([reports[0], reports[0]], [guard, guard]), /complete/u);
   assert.throws(() => validateTrainInputs([reports[0], { ...reports[1], results: [] }], [guard, guard]), /scheduled task/u);
+  assert.throws(() => validateTrainInputs([reports[0], { ...report([result("unfinished", "cancelled")]), bank: "node" }],
+    [guard, guard]), /cancelled/u);
+  assert.doesNotThrow(() => validateTrainInputs(reports, [guard, { ...guard,
+    userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } }]), "foreign OOM has no admission authority");
 });
 
 test("one parallel count contract covers Host and Rust without losing cancellation or todo", () => {

@@ -143,6 +143,23 @@ test("count adapters reject truncation and retain ignored or filtered native tes
   assert.throws(() => parallelReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
 });
 
+test("certification requires the drained admitted cgroup and never substitutes user-slice counters", () => {
+  const fixture = makeFixture({ userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } });
+  assert.doesNotThrow(() => validate(fixture), "a foreign user-slice kill is diagnostic only");
+  for (const changed of [
+    { measurement: undefined }, { admission: undefined }, { scopeDrained: undefined }, { scopeDrained: false },
+    { measurement: { ...fixture.record.guard.measurement, oomAfter: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, swapBytes: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, controlGroup: "/user.slice/other.scope" } },
+    { admission: { ...fixture.record.guard.admission, requestedMiB: 8192 } },
+    { budget: { ...fixture.record.guard.budget, memoryMiB: 8192 } },
+    { oomBefore: 1, oomAfter: 1 },
+  ]) {
+    const invalid = makeFixture(changed);
+    assert.throws(() => validate(invalid), /owned resource guard/u, Object.keys(changed).join(","));
+  }
+});
+
 test("parallel runner evidence is canonical and the superseded host evidence role is rejected", () => {
   const fixture = makeFixture();
   const path = resolve(fixture.root, "suite.json");
@@ -207,7 +224,7 @@ test("new test captures produce structured counts and preserve failure status", 
   }
 });
 
-function makeFixture() {
+function makeFixture(guardOverrides = {}) {
   const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
   const root = resolve(workspace, "record");
   mkdirSync(resolve(root, "counts"), { recursive: true });
@@ -217,8 +234,12 @@ function makeFixture() {
   const current = { repositories: [{ repository: "tsonic", root: workspace, head: "a".repeat(40), tree: "a".repeat(40), dirty: false, installedLock: null }],
     tools: { node: "test" }, environment: {}, platform: "linux", architecture: "x64" };
   const guard = { log, exitCode: 0, calibration: false, swapMax: 0, oomBefore: 0, oomAfter: 0,
+    oomScope: "owned-cgroup", scopeDrained: true,
+    measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
+    admission: { admitted: true, unit: "fixture.scope", requestedMiB: 4096 },
     scopeResult: "success", memoryMiB: 4096, tasksMax: 2048, timeoutSeconds: 60, logMaxBytes: 65536,
-    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 } };
+    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 },
+    ...guardOverrides };
   const guardPath = resolve(root, "guard.json");
   const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");
   writeFileSync(guardPath, JSON.stringify(guard));

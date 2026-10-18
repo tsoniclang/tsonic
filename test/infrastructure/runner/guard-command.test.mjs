@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { memoryBoundNodeTestArguments, runGuardCommand } from "../../scripts/guard-command.mjs";
-import { guardCgroupPath, guardMeasurementSucceeded, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
+import { guardCgroupPath, guardMeasurementSucceeded, guardReceiptHasOwnedMeasurements, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
 import { createGuardReport } from "../../scripts/guard-report.mjs";
 
 mkdirSync(".temp/guard-command-tests", { recursive: true });
@@ -85,4 +85,23 @@ test("only the owned cgroup can invalidate a bounded command for OOM", () => {
   const missing = createGuardReport({ measurement: null, before: "7", after: "7" });
   assert.equal(missing.oomBefore, null, "global counters never substitute for missing own-job evidence");
   assert.equal(missing.oomAfter, null);
+});
+
+test("owned receipt proof binds measurement, admission, budget, exit and drain without global-counter authority", () => {
+  const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 2, oomAfter: 2, exitCode: 0 };
+  const receipt = { oomScope: "owned-cgroup", scopeDrained: true, oomBefore: 2, oomAfter: 2, exitCode: 0,
+    memoryMiB: 4096, budget: { memoryMiB: 4096 }, measurement,
+    admission: { admitted: true, unit: "owned.scope", requestedMiB: 4096 },
+    userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } };
+  assert.equal(guardReceiptHasOwnedMeasurements(receipt), true);
+  for (const changed of [
+    { oomScope: undefined }, { scopeDrained: undefined }, { scopeDrained: false }, { measurement: undefined },
+    { admission: undefined }, { admission: { ...receipt.admission, admitted: false } },
+    { admission: { ...receipt.admission, unit: "other.scope" } },
+    { admission: { ...receipt.admission, requestedMiB: 8192 } },
+    { budget: { memoryMiB: 8192 } }, { oomBefore: 1 }, { oomAfter: 3 },
+    { measurement: { ...measurement, oomAfter: 3 } }, { measurement: { ...measurement, swapBytes: 1 } },
+    { measurement: { ...measurement, controlGroup: "/user.slice/other.scope" } },
+    { measurement: { ...measurement, exitCode: 1 } },
+  ]) assert.equal(guardReceiptHasOwnedMeasurements({ ...receipt, ...changed }), false, Object.keys(changed).join(","));
 });

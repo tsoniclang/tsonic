@@ -26,6 +26,9 @@ export function keelFixtureGuard(overrides = {}) {
   return {
     log: ".temp/test-runs/fixture.log", exitCode: 0, swapMax: 0, calibration: false, scopeDrained: true, scopeResult: "success",
     oomBefore: 0, oomAfter: 0, memoryMiB: 7168, tasksMax: 2048, timeoutSeconds: 3600,
+    oomScope: "owned-cgroup",
+    measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
+    admission: { admitted: true, unit: "fixture.scope", requestedMiB: 7168 },
     logMaxBytes: 67108864, budget: { workers: 1, childJobs: 2, cpuBudget: 3, memoryMiB: 7168 },
     ...overrides,
   };

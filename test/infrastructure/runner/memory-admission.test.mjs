@@ -44,27 +44,14 @@ test("stale PID reuse releases only dead reservations and never a living scope",
   assert.throws(() => processStartIdentity("malformed process"), /owning process/u);
 });
 
-test("C-0244 overrides only physical headroom for the exact 20 GiB Q109 census", () => {
-  const pressured = { ...machine, availableMemoryMiB: 32_154 };
-  const exception = { decisionId: "C-0244", jobId: "Q109-C238-first-ring-census-r2" };
-  assert.equal(planTestMemoryAdmission(pressured, [], [], 20_480).admitted, false, "ordinary jobs retain headroom");
-  const admitted = planTestMemoryAdmission(pressured, [scope("watcher", 512)], [], 20_480, exception);
-  assert.equal(admitted.admitted, true);
-  assert.equal(admitted.reserveMiB, 16_384, "the aggregate reserve and capacity are unchanged");
-  assert.equal(admitted.reservedMiB, 512, "every existing reservation remains counted");
-  assert.equal(admitted.headroomException.actualAvailableMemoryMiB, 32_154, "the actual machine reading is not forged");
-  assert.equal(admitted.headroomException.normallyRequiredMemoryMiB, 36_864);
-  assert.equal(admitted.headroomException.deficitMiB, 4710);
-  assert.equal(admitted.headroomException.decisionId, "C-0244");
-  assert.equal(admitted.headroomException.applied, true);
-  assert.equal(planTestMemoryAdmission(pressured, [scope("large", 24_577)], [], 20_480, exception).admitted, false,
-    "C244 does not override aggregate admitted capacity");
-  for (const invalid of [
-    { ...exception, decisionId: "C-0245" }, { ...exception, jobId: "another-job" }, {},
-  ]) assert.throws(() => planTestMemoryAdmission(pressured, [], [], 20_480, invalid), /restricted/u);
-  assert.throws(() => planTestMemoryAdmission(pressured, [], [], 4096, exception), /restricted/u);
-  assert.throws(() => planTestMemoryAdmission(pressured, [{ ...scope("already-running", 20_480),
-    headroomException: admitted.headroomException }], [], 20_480, exception), /single C-0244 census/u);
-  assert.equal(planTestMemoryAdmission(machine, [], [], 20_480, exception).headroomException.applied, false,
-    "an unnecessary exception is recorded honestly rather than claimed used");
+test("every job meets the same physical headroom and aggregate admission rules", () => {
+  for (const requestedMiB of [4096, 8192, 12_288, 20_480]) {
+    const pressured = { ...machine, availableMemoryMiB: requestedMiB + 16_383 };
+    assert.equal(planTestMemoryAdmission(pressured, [], [], requestedMiB).admitted, false);
+    assert.equal(planTestMemoryAdmission({ ...pressured, availableMemoryMiB: pressured.availableMemoryMiB + 1 },
+      [], [], requestedMiB).admitted, true);
+    assert.equal(planTestMemoryAdmission(machine, [scope("running", 45_057 - requestedMiB)], [], requestedMiB).admitted, false);
+  }
+  assert.throws(() => planTestMemoryAdmission(machine, [], [], 4096, { permitHeadroom: true }), /accepts only/u,
+    "the removed extra-configuration signature cannot bypass admission");
 });

@@ -5,19 +5,13 @@ import { fileURLToPath } from "node:url";
 import { readTestHostResources } from "./test-resource-budget.mjs";
 import { guardCgroupPath } from "./guard-cgroup.mjs";
 
-export function planTestMemoryAdmission(machine, reservations, scopes, requestedMiB, exception) {
+export function planTestMemoryAdmission(machine, reservations, scopes, requestedMiB) {
+  if (arguments.length !== 4) throw new Error("Memory admission accepts only machine, reservations, scopes and requested memory.");
   const positive = value => Number.isSafeInteger(value) && value > 0;
   if (!positive(requestedMiB) || !positive(machine.totalMemoryMiB) || !positive(machine.availableMemoryMiB)) {
     throw new Error("Memory admission requires positive finite machine and job sizes.");
   }
   const reserveMiB = 16_384;
-  if (exception !== undefined && (exception.decisionId !== "C-0244" ||
-    exception.jobId !== "Q109-C238-first-ring-census-r2" || requestedMiB !== 20_480)) {
-    throw new Error("The C-0244 headroom exception is restricted to Q109's 20 GiB census r2.");
-  }
-  if (exception !== undefined && reservations.some(claim => claim.headroomException?.decisionId === "C-0244")) {
-    throw new Error("The single C-0244 census already has a memory reservation.");
-  }
   const capacityMiB = machine.totalMemoryMiB - reserveMiB;
   if (requestedMiB > capacityMiB) throw new Error("The job cannot fit alongside the 16 GiB memory reserve.");
   const claims = new Map();
@@ -35,18 +29,11 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
   }
   const reservedMiB = [...claims.values()].reduce((total, size) => total + size, 0);
   const admitted = reservedMiB + requestedMiB <= capacityMiB &&
-    (machine.availableMemoryMiB >= requestedMiB + reserveMiB || exception !== undefined);
+    machine.availableMemoryMiB >= requestedMiB + reserveMiB;
   return Object.freeze({
     admitted, requestedMiB, reservedMiB, capacityMiB, reserveMiB,
     totalMemoryMiB: machine.totalMemoryMiB, availableMemoryMiB: machine.availableMemoryMiB,
     activeUnits: Object.freeze([...claims.keys()].sort()),
-    headroomException: exception === undefined ? null : Object.freeze({
-      decisionId: exception.decisionId, jobId: exception.jobId,
-      actualAvailableMemoryMiB: machine.availableMemoryMiB,
-      normallyRequiredMemoryMiB: requestedMiB + reserveMiB,
-      deficitMiB: Math.max(0, requestedMiB + reserveMiB - machine.availableMemoryMiB),
-      applied: machine.availableMemoryMiB < requestedMiB + reserveMiB,
-    }),
   });
 }
 
@@ -155,10 +142,7 @@ function memoryAdmissionCommand(arguments_) {
   const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
   const retained = state.reservations.filter(entry => reservationIsLive(entry, scopes, readProcess, bootId));
   if (retained.some(entry => entry.unit === unit)) throw new Error("A test job cannot reserve memory twice.");
-  const decisionId = process.env.TSONIC_TEST_HEADROOM_DECISION;
-  const jobId = process.env.TSONIC_TEST_HEADROOM_JOB;
-  const exception = decisionId === undefined && jobId === undefined ? undefined : { decisionId, jobId };
-  const result = planTestMemoryAdmission(readTestHostResources(), retained, scopes, Number(memoryText), exception);
+  const result = planTestMemoryAdmission(readTestHostResources(), retained, scopes, Number(memoryText));
   if (!result.admitted) {
     writeState(statePath, { ...state, reservations: retained });
     return 75;
@@ -172,7 +156,6 @@ function memoryAdmissionCommand(arguments_) {
   const admittedAt = new Date().toISOString();
   writeState(statePath, { ...state, reservations: [...retained, {
     unit, pid, processStart: processStartIdentity(status), memoryMiB: Number(memoryText), admittedAt, phase: "pending", bootId,
-    headroomException: result.headroomException,
   }] });
   console.log(JSON.stringify({ ...result, unit, admittedAt, waitSeconds: Number(waited) / 1_000_000_000 }));
   return 0;

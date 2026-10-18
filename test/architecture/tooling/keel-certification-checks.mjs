@@ -4,6 +4,7 @@ import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mj
 import { isAbsolute } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { keelSourceRejectionIdentity } from "./keel-source-rejection.mjs";
+import { guardReceiptHasOwnedMeasurements } from "../../scripts/guard-cgroup.mjs";
 
 export function evaluateKeelDeterminism(samples, requiredPrograms) {
   const findings = [];
@@ -76,9 +77,8 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
 
 export function guardSucceeded(receipt, expectedExitCode = 0) {
   if (![0, 1].includes(expectedExitCode) || receipt === undefined || receipt === null || receipt.exitCode !== expectedExitCode ||
-    receipt.swapMax !== 0 || receipt.calibration !== false || receipt.scopeDrained !== true ||
-    !(expectedExitCode === 1 ? [null, "success", "exit-code"] : [null, "success"]).includes(receipt.scopeResult) ||
-    !Number.isSafeInteger(receipt.oomBefore) || receipt.oomBefore < 0 || receipt.oomBefore !== receipt.oomAfter) return false;
+    receipt.swapMax !== 0 || receipt.calibration !== false || !guardReceiptHasOwnedMeasurements(receipt) ||
+    !(expectedExitCode === 1 ? [null, "success", "exit-code"] : [null, "success"]).includes(receipt.scopeResult)) return false;
   return ["memoryMiB", "tasksMax", "timeoutSeconds", "logMaxBytes"].every(key =>
     Number.isSafeInteger(receipt[key]) && receipt[key] > 0) &&
     typeof receipt.log === "string" && (validPath(receipt.log) || isAbsolute(receipt.log) && validPath(receipt.log.slice(1))) &&

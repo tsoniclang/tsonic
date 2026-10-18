@@ -86,7 +86,6 @@ while true; do
   sleep 1
 done
 export TSONIC_TEST_ADMISSION="$admission"
-unset TSONIC_TEST_HEADROOM_DECISION TSONIC_TEST_HEADROOM_JOB
 export TSONIC_TEST_ADMISSION_LOCK="$admission_root/lock"
 export TSONIC_TEST_ADMISSION_STATE="$admission_state"
 export TSONIC_TEST_ADMISSION_OWNER="$$"

@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
-import { relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { readTestResourceBudget, testTaskEnvironment } from "./test-resource-budget.mjs";
 import { runBoundedTestQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
@@ -15,11 +15,17 @@ import {
   parseTestCounts,
 } from "./parallel-test-counts.mjs";
 import {
-  testRepositoryRoots as repos,
+  testRepositoryRoots,
   tsonicRoot,
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
+const repos = { ...testRepositoryRoots };
+if (options.repositoryRoot !== undefined) {
+  if (options.scopes.size !== 1) throw new Error("--repository-root requires exactly one selected scope.");
+  repos[scopeToRepoKey([...options.scopes][0])] = options.repositoryRoot;
+}
+Object.freeze(repos);
 const suiteReportPath = process.env.TSONIC_TEST_SUITE_REPORT;
 delete process.env.TSONIC_TEST_SUITE_REPORT;
 delete process.env.TSONIC_TEST_COUNT_DIRECTORY;
@@ -54,8 +60,13 @@ const shards = allShards.filter((shard) =>
   (options.scopes.size === 0 || options.scopes.has(shard.scope)) &&
   (options.groupPrefixes.length === 0 || options.groupPrefixes.some((prefix) => shard.group.startsWith(prefix))) &&
   (options.matches.length === 0 || options.matches.some((match) => shard.id.includes(match))) &&
-  (options.files.size === 0 || options.files.has(toPosix(shard.file)))
+  (options.files.size === 0 || (shard.files ?? [shard.file]).some(file => options.files.has(toPosix(file))))
 );
+const representedRequests = new Set(shards.flatMap(shard => shard.files ?? [shard.file]).map(toPosix));
+const missingRequests = [...options.files].filter(file => !representedRequests.has(file));
+if (missingRequests.length > 0) {
+  throw new Error(`Exact requested test files are missing or excluded by selection:\n${missingRequests.join("\n")}`);
+}
 if (shards.length === 0) {
   console.error("FAIL: no parallel test tasks selected.");
   process.exit(2);
@@ -100,7 +111,7 @@ const testDurationMs = Date.now() - testsStartedAt;
 const averageTaskCores = measuredCpuSeconds === null || testDurationMs <= 0 ? null : measuredCpuSeconds * 1000 / testDurationMs;
 const report = {
   bank: rustOnly ? "node" : "host",
-  selection: { complete: rustOnly ? shards.length === allShards.length :
+  selection: { complete: rustOnly ? options.withPreruns && shards.length === allShards.length :
     options.withPreruns && options.scopes.size === 0 && options.matches.length === 0 &&
       options.files.size === 0 && options.groupPrefixes.length === 0 },
   runId,
@@ -426,7 +437,7 @@ function preRunsForTask(scope, group) {
         ? ["tsonic.build", "tsonic-csharp.build", "tsonic-csharp.provider-fixtures"]
         : ["tsonic.build", "tsonic-csharp.build"];
     case "tsonic-rust":
-      return [];
+      return ["tsonic-rust.installed-layout"];
     case "csharp-js":
       return ["csharp-runtime.build", "csharp-js.build"];
     case "csharp-runtime":
@@ -835,6 +846,7 @@ function parseArgs(args) {
   let inventory = false;
   let withPreruns = false;
   let concurrency;
+  let repositoryRoot;
   let progressIntervalMs = Number(process.env.TSONIC_TEST_PROGRESS_INTERVAL_MS ?? 180_000);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -850,6 +862,12 @@ function parseArgs(args) {
       const file = args[++index];
       if (file === undefined) throw new Error("--file requires an exact file path.");
       files.add(toPosix(resolve(file)));
+    } else if (arg === "--repository-root") {
+      const root = args[++index];
+      if (repositoryRoot !== undefined || root === undefined || !isAbsolute(root)) {
+        throw new Error("--repository-root requires one absolute checkout path.");
+      }
+      repositoryRoot = resolve(root);
     } else if (arg === "--group-prefix") {
       groupPrefixes.push(args[++index]);
     } else if (arg === "--list") {
@@ -859,7 +877,7 @@ function parseArgs(args) {
     } else if (arg === "--with-preruns") {
       withPreruns = true;
     } else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: test/scripts/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--group-prefix <prefix>] [--match <task-substring>] [--file <exact-path>] [--list] [--inventory] [--with-preruns]");
+      console.log("Usage: test/scripts/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--repository-root <absolute-path>] [--group-prefix <prefix>] [--match <task-substring>] [--file <exact-path>] [--list] [--inventory] [--with-preruns]");
       process.exit(0);
     } else {
       console.error(`FAIL: unknown argument: ${arg}`);
@@ -870,7 +888,7 @@ function parseArgs(args) {
   if (!Number.isFinite(progressIntervalMs) || progressIntervalMs < 0) {
     progressIntervalMs = 180_000;
   }
-  return { concurrency, progressIntervalMs, scopes, groupPrefixes, matches, files, list, inventory, withPreruns };
+  return { concurrency, progressIntervalMs, scopes, groupPrefixes, matches, files, repositoryRoot, list, inventory, withPreruns };
 }
 
 function safeName(value) {

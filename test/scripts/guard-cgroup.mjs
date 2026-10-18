@@ -8,6 +8,19 @@ export function guardMeasurementSucceeded(measurement) {
     measurement.oomBefore >= 0 && measurement.oomAfter === measurement.oomBefore;
 }
 
+export function guardReceiptHasOwnedMeasurements(receipt) {
+  const measurement = receipt?.measurement;
+  const admission = receipt?.admission;
+  return receipt?.oomScope === "owned-cgroup" && receipt.scopeDrained === true &&
+    guardMeasurementSucceeded(measurement) && receipt.oomBefore === measurement.oomBefore &&
+    receipt.oomAfter === measurement.oomAfter && measurement.exitCode === receipt.exitCode &&
+    Number.isSafeInteger(receipt.memoryMiB) && receipt.memoryMiB > 0 &&
+    receipt.budget?.memoryMiB === receipt.memoryMiB && admission?.admitted === true &&
+    admission.requestedMiB === receipt.memoryMiB && typeof admission.unit === "string" &&
+    /^[A-Za-z0-9_.-]+\.scope$/u.test(admission.unit) &&
+    measurement.controlGroup.endsWith(`/${admission.unit}`);
+}
+
 export function guardCgroupPath(membership) {
   const selected = membership.match(/^0::(\/.*)$/mu);
   if (selected === null) throw new Error("The bounded command requires its cgroup v2 membership.");

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { guardMeasurementSucceeded } from "./guard-cgroup.mjs";
+import { guardReceiptHasOwnedMeasurements } from "./guard-cgroup.mjs";
 
 export function readNodeTestResults(path, cwd, fallbackFile) {
   const events = readFileSync(path, "utf8").split("\n").filter(line => line !== "").map(line => JSON.parse(line));
@@ -34,8 +34,9 @@ export function readDotnetTestResults(text, file) {
 
 export function resultIdentity(test) {
   if (typeof test.scope !== "string" || typeof test.file !== "string" || !Array.isArray(test.path) ||
-    test.path.length === 0 || test.path.some(name => typeof name !== "string")) {
-    throw new Error("A result lacks its exact scope, file or test-name path.");
+    test.path.length === 0 || test.path.some(name => typeof name !== "string") ||
+    !["passed", "failed", "cancelled", "skipped", "todo"].includes(test.status)) {
+    throw new Error("A result lacks its exact scope, file, test-name path or terminal outcome.");
   }
   return JSON.stringify([test.scope, test.file, test.path]);
 }
@@ -78,7 +79,7 @@ export function compareTestResults(before, after) {
   for (const [identity, test] of prior) {
     const next = current.get(identity);
     if (next === undefined) missing.push(test);
-    else if (test.status === "passed" && next.status !== "passed") regressions.push(next);
+    else if (next.status !== "passed" && next.status !== test.status) regressions.push(next);
     else if (test.status !== "passed" && next.status === "passed") fixed.push(next);
   }
   for (const [identity, test] of current) if (!prior.has(identity)) added.push(test);
@@ -89,9 +90,12 @@ export function compareTestResults(before, after) {
   const unexplainedTaskFailures = after.tasks.filter(task => task.status !== 0 &&
     !after.tests.some(test => test.taskId === task.id && test.scope === task.scope && test.status === "failed"));
   const newFailures = added.filter(test => test.status !== "passed");
+  const cancelled = after.tests.filter(test => test.status === "cancelled");
   return { pass: regressions.length === 0 && missing.length === 0 && missingFiles.length === 0 &&
-      infrastructureFailures.length === 0 && unexplainedTaskFailures.length === 0 && newFailures.length === 0,
+      infrastructureFailures.length === 0 && unexplainedTaskFailures.length === 0 && newFailures.length === 0 &&
+      cancelled.length === 0,
     regressions, missing, added, fixed, newFailures, missingFiles, infrastructureFailures, unexplainedTaskFailures,
+    cancelled,
     failures: after.tests.filter(test => test.status === "failed"),
     architectureFailures: after.architecture.filter(rule => rule.status !== "passed") };
 }
@@ -102,16 +106,16 @@ export function validateTrainInputs(reports, guards) {
     throw new Error("A train requires both complete canonical runner inventories.");
   }
   for (const guard of guards) {
-    if (![0, 1].includes(guard.exitCode) || guard.scopeDrained !== true || guard.swapMax !== 0 ||
-      guard.calibration !== false || ![null, "success", "exit-code"].includes(guard.scopeResult) ||
-      !guardMeasurementSucceeded(guard.measurement) || guard.oomBefore !== guard.measurement.oomBefore ||
-      guard.oomAfter !== guard.measurement.oomAfter || guard.budget?.memoryMiB !== guard.memoryMiB ||
-      guard.admission?.requestedMiB !== guard.memoryMiB || typeof guard.admission?.unit !== "string" ||
-      !guard.measurement.controlGroup.endsWith(`/${guard.admission.unit}`)) {
+    if (![0, 1].includes(guard.exitCode) || guard.swapMax !== 0 || guard.calibration !== false ||
+      !(guard.exitCode === 1 ? [null, "success", "exit-code"] : [null, "success"]).includes(guard.scopeResult) ||
+      !guardReceiptHasOwnedMeasurements(guard)) {
       throw new Error("A train requires its complete, drained, own-cgroup resource receipts.");
     }
   }
   for (const report of reports) {
+    if (report.results.some(task => task.tests?.some(test => test.status === "cancelled"))) {
+      throw new Error("A train cannot admit cancelled or unfinished test results.");
+    }
     const expected = new Set(report.inventory.files.flatMap(file => file.taskIds));
     const actual = new Set(report.results.map(task => task.id));
     if (expected.size !== report.inventory.taskCount || actual.size !== report.results.length ||
@@ -166,7 +170,8 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
     const compared = compareTestResults(JSON.parse(readFileSync(previous, "utf8")), current);
     writeFileSync(resolve(directory, "comparison.json"), `${JSON.stringify(compared, null, 2)}\n`, { flag: "wx" });
     process.stdout.write(`Train comparison: regressions=${compared.regressions.length} missing=${compared.missing.length} ` +
-      `infrastructure=${compared.infrastructureFailures.length} failures=${compared.failures.length}\n`);
+      `infrastructure=${compared.infrastructureFailures.length} newNonPasses=${compared.newFailures.length} ` +
+      `cancelled=${compared.cancelled.length} failures=${compared.failures.length}\n`);
     process.exitCode = compared.pass ? 0 : 1;
   } else {
     throw new Error("Usage: test-results.mjs collect <output> <report>... | compare <before> <after> | train <previous> <directory>.");

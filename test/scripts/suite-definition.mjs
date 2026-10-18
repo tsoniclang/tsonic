@@ -174,7 +174,15 @@ export function createParallelSuiteDefinition(repos) {
 
 export function createRustParallelSuiteDefinition(repos) {
   return {
-    preRuns: [],
+    preRuns: [
+      { id: "tsonic-rust.build", cwd: repos.tsonicRust, command: "npm", args: ["run", "build"] },
+      {
+        id: "tsonic-rust.installed-layout", dependsOn: ["tsonic-rust.build"], cwd: repos.tsonicRust,
+        command: process.execPath,
+        args: ["--import", resolve(repos.tsonicRust, "scripts/register-tsonic-root-loader.mjs"), "-e",
+          "import('./test/helpers/rust-session.mjs').then(session => session.buildInstalledLayout())"],
+      },
+    ],
     nodeSuites: [{
       ...nodeSuite(repos.tsonicRust, "tsonic-rust", "rust-compiler", "test"),
       nodeArguments: ["--import", resolve(repos.tsonicRust, "scripts/register-tsonic-root-loader.mjs")],

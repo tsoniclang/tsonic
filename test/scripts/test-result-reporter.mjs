@@ -9,9 +9,10 @@ export default async function* reportTestResults(source) {
       const message = data.details?.error?.message;
       const skipped = data.skip === true || typeof data.skip === "string";
       const todo = data.todo === true || typeof data.todo === "string";
+      const cancelled = data.details?.error?.failureType === "cancelledByParent";
       yield `${JSON.stringify({ kind: "test", file: data.file ?? null, name: data.name, path,
         nesting: data.nesting, type: data.details?.type ?? "test",
-        status: skipped ? "skipped" : todo ? "todo" : event.type === "test:pass" ? "passed" : "failed",
+        status: cancelled ? "cancelled" : skipped ? "skipped" : todo ? "todo" : event.type === "test:pass" ? "passed" : "failed",
         durationMs: data.details?.duration_ms ?? null, line: data.line ?? null,
         failureType: data.details?.error?.failureType ?? null,
         message: typeof message === "string" ? message.slice(0, 65_536) : null,
