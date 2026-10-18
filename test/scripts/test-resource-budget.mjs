@@ -96,7 +96,7 @@ export function testTaskEnvironment(environment, budget, task) {
   const inherited = environment.NODE_OPTIONS ?? "";
   const ownedHeap = `--max-old-space-size=${budget.heapMiB}`;
   if (!inherited.endsWith(ownedHeap)) throw new Error("Task resources require the final guard-owned Node heap option.");
-  return {
+  const childEnvironment = {
     ...environment,
     TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(selected),
     TSONIC_TEST_CPUS: String(selected.cpuBudget), TSONIC_TEST_MEMORY_MIB: String(selected.memoryMiB),
@@ -107,6 +107,8 @@ export function testTaskEnvironment(environment, budget, task) {
     TSONIC_TEST_WORKERS: "1",
     NODE_OPTIONS: `${inherited.slice(0, -ownedHeap.length)}--max-old-space-size=${selected.heapMiB}`,
   };
+  delete childEnvironment.NODE_TEST_CONTEXT;
+  return childEnvironment;
 }
 
 function configuredInteger(value, name) {

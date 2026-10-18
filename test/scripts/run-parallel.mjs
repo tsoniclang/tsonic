@@ -200,6 +200,10 @@ function runShard(shard, attempt, workers) {
         cgroup.issue = `OOM victim attribution unavailable: ${error.message}`;
       }
       try {
+        resources = readTaskResourceUsage(usagePath, durationMs, processObservations,
+          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS) });
+        resources.memory.exactAggregateMemoryPeakBytes = cgroup.memoryPeakBytes;
+        resources.memory.aggregatePeakMethod = cgroup.path === null ? null : "owned-task-cgroup-memory.peak";
         const named = shard.resultFormat === "node"
           ? readNodeTestResults(shard.resultPath, shard.cwd, testPath(relative(shard.cwd, shard.file)))
           : readDotnetTestResults(readFileSync(shard.resultPath, "utf8"), shard.id);
@@ -209,10 +213,6 @@ function runShard(shard, attempt, workers) {
         const executionIssue = testTaskExecutionIssue({ status: normalizedStatus, signal, summary, tests });
         if (executionIssue !== null) throw new Error(executionIssue);
         if (cgroup.path !== null && !cgroup.drained) throw new Error("Test task descendants are not proven drained.");
-        resources = readTaskResourceUsage(usagePath, durationMs, processObservations,
-          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS) });
-        resources.memory.exactAggregateMemoryPeakBytes = cgroup.memoryPeakBytes;
-        resources.memory.aggregatePeakMethod = cgroup.path === null ? null : "owned-task-cgroup-memory.peak";
         if (processObservations.errorMessage !== null) throw new Error(processObservations.errorMessage);
       } catch (error) {
         resultError = error.message;

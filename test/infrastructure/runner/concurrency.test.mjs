@@ -49,7 +49,7 @@ test("worker selection does not impose an implicit aggregate CPU quota", () => {
 
 test("a task inherits every CPU and the one outer group budget without a task reservation", () => {
   const budget = testResourceBudget(machine, { TSONIC_TEST_CHILD_JOBS: "2" });
-  const environment = { NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` };
+  const environment = { NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}`, NODE_TEST_CONTEXT: "child-v8" };
   const selected = testTaskEnvironment(environment, budget, { id: "native", heapMiB: 2048 });
   const inherited = readTestResourceBudget(selected);
   assert.equal(inherited.cpuBudget, 24);
@@ -57,6 +57,7 @@ test("a task inherits every CPU and the one outer group budget without a task re
   assert.equal(inherited.workers, 1);
   assert.equal(inherited.memoryMiB, budget.memoryMiB);
   assert.equal(inherited.heapMiB, 2048);
+  assert.equal(Object.hasOwn(selected, "NODE_TEST_CONTEXT"), false, "an independent test task cannot inherit Node's parent-file context");
 });
 
 test("per-task native child counts remain explicit without reducing CPU-selected outer width", () => {
