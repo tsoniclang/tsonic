@@ -502,25 +502,35 @@ test("opaque missing members are not silently certified as an impossible allocat
     "unavailable evidence remains an explicit failure, not an empty certificate");
 });
 
-test("mutable and opaque constructor bindings cannot certify an exact missing member", () => {
+test("constructor bindings certify missing members only for closed checked writes", () => {
   for (const [name, constructor] of [
     ["mutable", "let constructor = Scalar; constructor = Scalar;"],
     ["opaque", "declare const constructor: new () => Scalar;"],
+    ["conditional", "declare const flag: boolean; declare const other: new () => Scalar; let constructor = Scalar; if (flag) constructor = other;"],
   ]) {
     const current = fixture(`
       class Base { kind: string = "base"; }
       class Scalar extends Base { readonly value: {} = {}; }
       class List extends Base { constructor(readonly items: {}) { super(); } }
       ${constructor}
+      const fallback = {};
       function select(value: Base): {} {
         if (value instanceof List) return value.items;
-        return {};
+        return fallback;
       }
       const result = select(new constructor());
     `);
     const selected = current.storage.subjectFor(current.variable("result"));
     assert.equal(selected.kind === "resolved", true, name);
     const origins = current.storage.closedOriginsFor(selected.subject);
-    assert.equal(origins.kind === "complete", false, `${name}: no exact project constructor evidence`);
+    if (name === "mutable") {
+      assert.equal(origins.kind === "complete" && origins.origins.length === 1 &&
+        origins.origins[0].subject.node === current.initializer("fallback"), true,
+      "the identical checked Scalar writes retain the exact fallback producer");
+    } else {
+      assert.equal(origins.kind === "unresolved" &&
+        origins.reason === "Source storage members require exact checked correspondence.", true,
+      `${name}: no exact project constructor evidence`);
+    }
   }
 });
