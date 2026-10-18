@@ -58,6 +58,7 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
   let selections = 0;
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),
+    callbackEntriesFor: () => [],
     regions: { enclosing: node => node.region }, invocationImplementations: node => {
       selections += 1;
       return new Set([node.candidate]);
