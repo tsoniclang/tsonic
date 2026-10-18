@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { createSourceStorageQuery, createSourceGlobalCallStorageEffects, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceErrorDeclarations, jsSourceNativeConstructorStorage } from "../../packages/js-source-profile/dist/index.js";
 import { errorConstructorFootprintSource } from "../fixtures/error-origin-domains.mjs";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -25,7 +25,14 @@ async function fixture(name, body, files = {}, transform = source => source) {
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
   const source = transform(createTargetSourceProgram(checked));
   const file = projectSourceFile(source, "src/index.ts");
-  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits);
+  const profile = projectSourceFile(source, "globals.d.ts");
+  const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
+  const nativeConstructors = new Set(source.ast.members(owner).filter(source.ast.is.IsConstructSignatureDeclaration));
+  const effects = createSourceGlobalCallStorageEffects(source, () => undefined, declaration =>
+    nativeConstructors.has(declaration)
+      ? jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration })
+      : undefined);
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits, effects);
   const initializer = name => source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, name)).Initializer;
   const selection = name => {
     const subject = storage.subjectFor(namedVariable(source.ast, file, name));
@@ -50,7 +57,7 @@ function open(current, name, boundary) {
 }
 
 for (const footprint of ["mutating", "readonly", "deferred", "receiver", "bound"]) {
-  test(`implicit source allocation retains ${footprint} inherited initialization without native catalog authority`, async () => {
+  test(`implicit source allocation retains ${footprint} inherited initialization with checked native base signatures and no invocation effects`, async () => {
     const current = await fixture(`storage-implicit-error-${footprint}`, errorConstructorFootprintSource(footprint));
     const invocation = current.initializer("created");
     const selected = current.source.semantics.forNode(invocation).operations.call(invocation);
