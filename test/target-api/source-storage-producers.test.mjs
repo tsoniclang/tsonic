@@ -164,7 +164,8 @@ test("unsupported delete and iteration-key producer evidence rejects rather than
     let value = "";
     for (value in { item: 1 }) {}
   `);
-  const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node));
+  const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "amount");
   for (const declaration of [property, current.variable("value")]) {
     const selected = current.storage.storageProducersFor(current.subject(declaration));
     assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial producer claim");

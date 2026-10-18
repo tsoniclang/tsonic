@@ -12,8 +12,10 @@ const checkedGlobals = `interface Object {} interface Function {} interface Call
   interface Number {} interface String {} interface RegExp {}
   interface Array<Value> { [index: number]: Value; length: number; }
   interface ReadonlyArray<Value> { readonly [index: number]: Value; readonly length: number; }`;
-async function fixture(text, name = "run", limits) {
-  const checked = await checkedSource(`flow-control-${caseNumber++}`, { "src/index.ts": text });
+async function fixture(text, name = "run", limits, globals) {
+  const files = { "src/index.ts": text };
+  if (globals !== undefined) files["globals.d.ts"] = globals;
+  const checked = await checkedSource(`flow-control-${caseNumber++}`, files);
   const source = createTargetSourceProgram(checked);
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
   const selection = createSourceControlFlow(source, declaration, { limits });
@@ -242,7 +244,7 @@ test("flow finally preserves return completion instead of merging it with normal
 });
 
 test("flow writes and the canonical store retain identical original nested default and iterator inputs", async () => {
-  const current = await fixture(`${checkedGlobals}
+  const current = await fixture(`
     function run(source: { nested?: { value?: object } }, outer: { value?: object },
     fallback: object, rows: [object?][]) {
     let { nested: { value = fallback } = outer } = source;
@@ -250,7 +252,7 @@ test("flow writes and the canonical store retain identical original nested defau
     for (const [iterated = fallback] of rows) void iterated;
     for ([value = fallback] of rows) void value;
     return value;
-  }`);
+  }`, "run", undefined, checkedGlobals);
   assert.equal(current.checked.diagnostics.length === 0, true, "the complete original array and tuple source is checked");
   const storage = createSourceStorageQuery(current.source, current.source.sourceFiles);
   const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
@@ -276,8 +278,8 @@ test("nested default patterns share identical continuations and retain bounded c
       type = `{ child?: ${type} }`;
       pattern = `{ child: ${pattern} = {} }`;
     }
-    const current = await fixture(`${checkedGlobals} function run(input: ${type}) { const ${pattern} = input; return value; }`, "run",
-      { maximumSteps: 12000, maximumPoints: 2500, maximumEdges: 5000 });
+    const current = await fixture(`function run(input: ${type}) { const ${pattern} = input; return value; }`, "run",
+      { maximumSteps: 12000, maximumPoints: 2500, maximumEdges: 5000 }, checkedGlobals);
     assert.equal(current.checked.diagnostics.length === 0, true, "the nested optional defaults are ordinary checked source");
     const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
       current.ast.text(current.ast.name(point.operation.binding)) === "value");

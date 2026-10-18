@@ -199,6 +199,23 @@ test("store rows reserve canonical records and both indexes before insertion and
   assert.equal([...inventory.storesFor(storage) ?? []].length === 0, true, "failed owners cannot resume insertion");
 });
 
+test("the identical eleven-row store refuses an individually oversized capacity of ten without publishing any index", () => {
+  const current = fixture("const original = {}; const value = original;");
+  const node = current.variable("value");
+  const storage = current.transport.subject(node);
+  const occurrence = Node_Initializer(current.source.ast, node);
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 10 });
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
+  assert.equal(budget.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+    "the exact original individually-oversized reservation refusal remains authoritative");
+  assert.equal(inventory.storesFor(storage) === undefined &&
+    inventory.storesIn(current.transport.regions.enclosing(occurrence)) === undefined, true,
+    "no canonical record or secondary index is partially retained");
+  inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
+  assert.equal([...inventory.storesFor(storage) ?? []].length === 0, true, "the exhausted owner cannot publish on retry");
+});
+
 test("parameter binding writes are distinct from the constructor's physical member initialization and member writes", () => {
   for (const memberWrite of [false, true]) {
     const current = fixture(`
