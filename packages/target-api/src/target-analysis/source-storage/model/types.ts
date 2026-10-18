@@ -142,13 +142,8 @@ export interface SourceStorageBoundary {
   readonly reason?: string;
 }
 
-export interface SourceStorageSubstitution {
-  readonly formal: SourceStorageSubject;
-  readonly actuals: readonly SourceStorageSubject[];
-}
-
 export interface SourceStorageBindings {
-  readonly substitutions: readonly SourceStorageSubstitution[];
+  readonly kind: "source-storage-bindings";
 }
 
 export type SourceStorageBindingsSelection =

@@ -10,9 +10,9 @@ import { SourceFlowFailure } from "./resources.js";
 export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, next: number,
   context: SourceFlowContext): number {
   const { ast } = build.source;
-  if (ast.is.IsBlock(node)) return sourceFlowStatements(build, ast.statements(node), next, context);
+  if (ast.is.IsBlock(node) || ast.is.IsSourceFile(node)) return sourceFlowStatements(build, ast.statements(node), next, context);
   if (ast.is.IsEmptyStatement(node) || ast.is.IsDebuggerStatement(node) || ast.is.IsInterfaceDeclaration(node) ||
-    ast.is.IsTypeAliasDeclaration(node) || isTypeSyntaxNode(ast, node)) return next;
+    ast.is.IsTypeAliasDeclaration(node) || ast.is.IsImportDeclaration(node) || ast.is.IsExportDeclaration(node) || isTypeSyntaxNode(ast, node)) return next;
   if (ast.is.IsExpressionStatement(node)) {
     const expression = ast.as.AsExpressionStatement(node)?.Expression;
     if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked statement expression.", node);
@@ -89,6 +89,7 @@ export function sourceFlowStatements(build: SourceFlowConstruction, statements: 
   const { ast } = build.source;
   for (const statement of statements) {
     if (statement === undefined) throw new SourceFlowFailure("Source flow requires a dense checked statement sequence.", undefined);
+    if (!build.includes(statement)) continue;
     const list = ast.is.IsVariableStatement(statement) ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
     const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
     if (list === undefined || kind !== "using" && kind !== "await using") {
@@ -98,6 +99,7 @@ export function sourceFlowStatements(build: SourceFlowConstruction, statements: 
     build.step(statement);
     const declarations = checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list);
     for (const declaration of declarations) {
+      if (!build.includes(declaration)) continue;
       sequence.push({ node: declaration, context: active, acquisition: true });
       const scope = sourceFlowCleanupScope(build, declaration, completion, active);
       completion = scope.next;
@@ -127,18 +129,19 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
   if (selected?.Expression === undefined || clauses === undefined) throw new SourceFlowFailure("Source flow requires a checked switch body.", node);
   const bodyContext = { ...context, breaks: new Map([...context.breaks, [node, next]]) };
   const bodies = new Map<Node, number>();
-  const hasResources = clauses.some(clause => clause !== undefined && ast.statements(clause).some(statement => {
-    const list = statement !== undefined && ast.is.IsVariableStatement(statement)
+  const hasResources = clauses.some(clause => clause !== undefined && build.includes(clause) && ast.statements(clause).some(statement => {
+    const list = statement !== undefined && build.includes(statement) && ast.is.IsVariableStatement(statement)
       ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
     const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
-    return kind === "using" || kind === "await using";
+    return list !== undefined && build.includes(list) && (kind === "using" || kind === "await using") &&
+      checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list).some(build.includes);
   }));
   if (hasResources) throw new SourceFlowFailure("Checked switch resources require their explicit lexical blocks.", node);
   let entry = next;
   let defaultEntry = next;
   for (let index = clauses.length - 1; index >= 0; index -= 1) {
     const clause = clauses[index];
-    if (clause === undefined) continue;
+    if (clause === undefined || !build.includes(clause)) continue;
     entry = sourceFlowStatements(build, ast.statements(clause), entry, bodyContext);
     bodies.set(clause, entry);
     if (ast.is.IsDefaultClause(clause)) defaultEntry = entry;
@@ -148,7 +151,7 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
   entry = defaultPoint;
   for (let index = clauses.length - 1; index >= 0; index -= 1) {
     const clause = clauses[index];
-    if (clause === undefined || ast.is.IsDefaultClause(clause)) continue;
+    if (clause === undefined || !build.includes(clause) || ast.is.IsDefaultClause(clause)) continue;
     const expression = ast.as.AsCaseOrDefaultClause(clause)?.Expression;
     if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked case expression.", clause);
     const branch = build.point(clause, { kind: "branch" });
@@ -180,7 +183,7 @@ function tryStatement(build: SourceFlowConstruction, node: Node, next: number, c
   };
   const normal = route(next);
   let throwTo = protectedContext.throwTo;
-  if (selected.CatchClause !== undefined) {
+  if (selected.CatchClause !== undefined && build.includes(selected.CatchClause)) {
     const handler = ast.as.AsCatchClause(selected.CatchClause);
     if (handler?.Block === undefined) throw new SourceFlowFailure("Source flow requires a checked catch body.", selected.CatchClause);
     let entry = build.statement(handler.Block, normal, protectedContext);

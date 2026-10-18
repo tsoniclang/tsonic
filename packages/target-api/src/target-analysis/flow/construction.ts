@@ -22,6 +22,7 @@ interface OpenPoint {
 
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
+  readonly includes: (node: Node) => boolean;
   readonly parameterInitializers: ReadonlySet<Node> | undefined;
   readonly initializeSuper: (next: number, context: SourceFlowContext) => number;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
@@ -117,6 +118,7 @@ export interface SourceFlowCleanupScope {
 
 export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaration: Node,
   next: number, context: SourceFlowContext): SourceFlowCleanupScope {
+  if (!build.includes(declaration)) return { next, context };
   build.step(declaration);
   const checked = build.source.semantics.forNode(declaration).operations.resourceManagement(declaration);
   const declarationKind = build.source.ast.variableDeclarationKind(declaration);
@@ -160,6 +162,7 @@ export function sourceFlowResourceScope(build: SourceFlowConstruction, declarati
   let completion = next;
   let active = context;
   for (const declaration of declarations) {
+    if (!build.includes(declaration)) continue;
     acquisitions.push({ declaration, context: active });
     const scope = sourceFlowCleanupScope(build, declaration, completion, active);
     completion = scope.next;

@@ -39,13 +39,13 @@ export function createSourceStorageMemberFlow(
     let published = false;
     try {
       const queries = source.semantics.forFile(file);
-      const selected = queries.types.structuralMembers(from, to, "storage");
+      const selected = queries.types.structuralMembers(from, to);
       let index: MemberIndex | undefined;
       if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
       if (selected.kind === "available") {
         if (!rows.add(1 + selected.members.length)) return undefined;
         const contextualMembers = contextual === undefined
-          ? undefined : queries.types.structuralMembers(contextual, to, "storage");
+          ? undefined : queries.types.structuralMembers(contextual, to);
         const contextualByDestination = new Map<SourceStructuralMemberPair["destination"]["property"]["symbol"], SourceStructuralMemberPair>();
         if (contextualMembers?.kind === "available") for (const member of contextualMembers.members) {
           if (!budget.step() || !temporary.add(1)) return undefined;

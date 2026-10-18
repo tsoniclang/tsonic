@@ -63,9 +63,10 @@ test("stored invocation producers retain exact independent activation bindings",
     const original = selected.producers.find(value => ast.is.IsCallExpression(value.subject.node) &&
       ast.text(Node_Expression(ast, value.subject.node)) === "callback");
     assert.equal(original !== undefined, true, "exact producer operation is retained");
-    assert.equal(Object.isFrozen(original.bindings) && Object.isFrozen(original.bindings.substitutions), true);
+    assert.equal(Object.isFrozen(original.bindings) && original.bindings.kind === "source-storage-bindings", true);
     const actual = current.storage.boundOriginsFor(formal.subject, original.bindings);
     assert.equal(actual.kind, "resolved");
+    assert.equal(Object.isFrozen(actual.subjects) && actual.subjects.every(Object.isFrozen), true);
     assert.equal(actual.subjects.length, 1);
     assert.equal(actual.subjects[0].node === ast.parameters(inspect)[index], true, "caller input identity survives the return edge");
     assert.equal(current.storage.boundOriginsFor(formal.subject, { ...original.bindings }).kind, "unresolved",
@@ -210,7 +211,7 @@ test("producer queries reject forged and foreign subjects and bindings using the
   const binding = first.storage.bindingsForInvocation(identity, first.initializer("value"));
   assert.equal(binding.kind === "resolved", true);
   const formal = first.subject(first.source.ast.parameters(identity)[0]);
-  assert.equal(first.storage.storageProducersFor(formal, Object.freeze({ substitutions: binding.bindings.substitutions })).kind === "unresolved", true);
+  assert.equal(first.storage.storageProducersFor(formal, Object.freeze({ kind: binding.bindings.kind })).kind === "unresolved", true);
   assert.equal(second.storage.storageProducersFor(second.subject(second.variable("value")), binding.bindings).kind === "unresolved", true);
   assert.equal(first.storage.storageProducersFor(second.subject(second.variable("value"))).kind === "unresolved", true);
   assert.equal(first.storage.storageProducersFor(Object.freeze({ ...formal })).kind === "unresolved", true);

@@ -85,27 +85,13 @@ export function createSourceStorageQuery(
     const key = selected.map(value => value.identity).join(",");
     const existing = bindingViews.get(key);
     if (existing !== undefined) return existing;
-    const subjects = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
-    for (const { state } of selected) for (const formal of transport.substitutions.formals(state) ?? []) {
-      if (!budget.step()) return undefined;
-      const actuals = subjects.get(formal) ?? new Set<SourceStorageSubject>();
-      const originals = transport.substitutions.origins(formal, state);
-      if (originals === undefined) return undefined;
-      for (const actual of originals) {
-        if (!budget.step()) return undefined;
-        actuals.add(actual);
-      }
-      subjects.set(formal, actuals);
-    }
-    const cost = 2 + selected.length + subjects.size + [...subjects.values()].reduce((count, actuals) => count + actuals.size, 0);
-    if (budget.failure() !== undefined || !bindingRows.add(cost)) return undefined;
-    const substitutions = [...subjects].map(([formal, actuals]) => Object.freeze({ formal, actuals: Object.freeze([...actuals]) }));
-    const view = Object.freeze({ substitutions: Object.freeze(substitutions) });
+    if (budget.failure() !== undefined || !bindingRows.add(2 + selected.length)) return undefined;
+    const view = Object.freeze({ kind: "source-storage-bindings" } satisfies SourceStorageBindings);
     bindingStates.set(view, Object.freeze(selected.map(value => value.state)));
     bindingViews.set(key, view);
     return view;
   };
-  const emptyBindings: SourceStorageBindings = Object.freeze({ substitutions: Object.freeze([]) });
+  const emptyBindings: SourceStorageBindings = Object.freeze({ kind: "source-storage-bindings" });
   bindingStates.set(emptyBindings, Object.freeze([transport.substitutions.empty]));
   bindingViews.set("0", emptyBindings);
   const declarationBindings: SourceStorageQueries["bindingsForDeclaration"] = (declaration, parent = emptyBindings) => {
