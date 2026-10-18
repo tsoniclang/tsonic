@@ -160,9 +160,13 @@ test("CLI emits object-literal lexical this through a receiver-bound generated s
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const source = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  assert.match(shapes, /public required Func<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}, double> __tsonic_shape_method_/u);
-  assert.match(shapes, /return __tsonic_shape_method_\w+\(this\);/u);
-  assert.equal((source.match(/__tsonic_shape_method_\w+ =/gu) ?? []).length, 2);
+  const bodies = [...shapes.matchAll(/public double read\(\)\s*\{\s*return (?<value>[^;]+);\s*\}/gu)];
+  assert.deepEqual(bodies.map(body => body.groups.value), ["3", "this.value"],
+    "both exact source bodies are native instance methods with the actual receiver retained");
+  assert.match(source, /ObjectShape_[a-f0-9]{12} direct = new ObjectShape_[a-f0-9]{12}\s*\{\s*value = 3,\s*\};/u);
+  assert.match(source, /ObjectShape_[a-f0-9]{12} receiver = new ObjectShape_[a-f0-9]{12}\s*\{\s*value = 7,\s*\};/u);
+  assert.match(source, /return direct\.read\(\) \+ receiver\.read\(\);/u);
+  assert.doesNotMatch(shapes + source, /__tsonic_shape_method_|\bFunc</u);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectLiteralThis.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });

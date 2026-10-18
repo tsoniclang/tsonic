@@ -318,7 +318,7 @@ test("CLI executes inferred empty arrays with the exact never element carrier", 
 });
 
 function assertArraySpreadCopies(source, inputs) {
-  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__+tsonic_sequence_source) = (?<input>[A-Za-z][A-Za-z0-9:.]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
+  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__tsonic_sequence_[0-9]+) = (?<input>[A-Za-z][A-Za-z0-9:.]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
   assert.deepEqual(copies.map(copy => copy.groups.input), inputs);
   return copies.map(copy => copy.groups.destination);
 }

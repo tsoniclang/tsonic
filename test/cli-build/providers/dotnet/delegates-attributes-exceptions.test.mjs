@@ -177,8 +177,9 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
   assert.match(generatedSource, /new Provider\.ParameterModes\.RefOnlyTarget\(ref current\);/);
   assert.match(generatedSource, /new Provider\.ParameterModes\.OutOnlyTarget\(out value\);/);
   assert.match(generatedSource, /new Provider\.ParameterModes\.InOnlyTarget\(in flag, 'z'\);/);
-  assert.match(generatedSource, /Provider\.ParameterModes\.DelegateTarget\.Invoke\(new Provider\.ParameterModes\.IntTransform\(__tsonic_callable_[0-9]+\), value\);/);
-  assert.match(generatedSource, /int __tsonic_callable_[0-9]+\(int current\)\s*\{\s*return current;\s*\}/);
+  const callback = /Provider\.ParameterModes\.DelegateTarget\.Invoke\(\(Provider\.ParameterModes\.IntTransform\)(?<method>__tsonic_callable_[0-9]+), value\);/u.exec(generatedSource);
+  assert.equal(callback !== null, true, "the exact native custom delegate consumes its cached static method group");
+  assert.match(generatedSource, new RegExp(`static int ${callback.groups.method}\\(int current\\)\\s*\\{\\s*return current;\\s*\\}`, "u"));
   assert.doesNotMatch(generatedSource, /__unsupported|ConstructorTarget\(current\)|bindings\.json/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderConstructorParameterModes.csproj"), "--nologo", "--v:minimal"]);
