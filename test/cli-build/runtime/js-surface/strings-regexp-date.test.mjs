@@ -567,7 +567,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isSafeInteger\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.isNaN\(value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseFloat\(value\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseInt\(value, 16\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.parseInt\(value, 16D\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MAX_SAFE_INTEGER/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MAX_VALUE/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.MIN_VALUE/);

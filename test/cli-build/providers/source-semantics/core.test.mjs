@@ -396,8 +396,8 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   assert.match(generatedSource, /ulongFromLiteral = 18446744073709551615UL;/u);
   assert.match(generatedSource, /int128FromLiteral = new Int128\(9223372036854775808UL, 0UL\);/u);
   assert.match(generatedSource, /uint128FromLiteral = new UInt128\(18446744073709551615UL, 18446744073709551615UL\);/u);
-  assert.match(generatedSource, /floatFromLiteral = \(float\)1\.5;/);
-  assert.match(generatedSource, /doubleFromLiteral = 1\.5;/);
+  assert.match(generatedSource, /floatFromLiteral = \(float\)1\.5D;/);
+  assert.match(generatedSource, /doubleFromLiteral = 1\.5D;/);
   assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);
   assert.match(generatedSource, /return \(byte\)value;/);
   assert.match(generatedSource, /return \(short\)value;/);
