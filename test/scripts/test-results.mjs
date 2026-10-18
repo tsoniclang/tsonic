@@ -41,10 +41,24 @@ export function readDotnetTestResults(text, file) {
     outcome: xmlAttributes(match[1]).outcome,
     text: match[2].replace(/<[^>]*>/gu, "").slice(0, 65_536),
   }));
-  const errors = runInfos.filter(info => !["Completed", "Passed", "Warning"].includes(info.outcome));
+  const counterNames = ["total", "executed", "passed", "failed", "error", "timeout", "aborted", "notExecuted", "inProgress"];
+  const errors = [];
+  const validCounters = counterNames.every(name => /^\d+$/u.test(counts[name] ?? "") && Number.isSafeInteger(Number(counts[name])));
+  if (!validCounters) errors.push({ outcome: "Error", text: "The native run lacks valid execution counters." });
+  if (validCounters && (Number(counts.total) !== Number(counts.executed) ||
+    Number(counts.passed) + Number(counts.failed) !== Number(counts.executed) ||
+    Number(counts.passed) !== results.filter(result => result.status === "passed").length ||
+    Number(counts.failed) !== results.filter(result => result.status === "failed").length)) {
+    errors.push({ outcome: "Error", text: "The native execution counters disagree with the named results." });
+  }
+  const incompleteCounters = ["error", "timeout", "aborted", "notExecuted", "inProgress",
+    "inconclusive", "passedButRunAborted", "notRunnable", "disconnected", "pending"];
+  if (incompleteCounters.some(name => counts[name] !== undefined && (!/^\d+$/u.test(counts[name]) || Number(counts[name]) !== 0))) {
+    errors.push({ outcome: "Error", text: "The native run contains errors or unfinished execution." });
+  }
   if (/<ErrorInfo\b/u.test(summaries[0][2])) errors.push({ outcome: "Error", text: "The native run summary contains error information." });
   const completed = ["Completed", "Passed", "Failed"].includes(outcome) && errors.length === 0;
-  return { summary: { completed, outcome, errors, success: completed && results.every(result => result.status !== "failed") }, tests: results };
+  return { summary: { completed, outcome, errors, runInfos, success: completed && results.every(result => result.status !== "failed") }, tests: results };
 }
 
 export function testResultExecutionIssue(tests) {

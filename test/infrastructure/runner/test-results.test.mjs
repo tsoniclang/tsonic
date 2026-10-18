@@ -84,7 +84,7 @@ test("TRX names preserve escaped arguments and all pass, failure and skipped out
   const text = '<TestRun><Results><UnitTestResult testName="N.Type.value(a: &quot;&lt;x&gt;&amp;&quot;)" outcome="Passed" />' +
     '<UnitTestResult testName="N.Type.fail" outcome="Failed" />' +
     '<UnitTestResult testName="N.Type.skip" outcome="NotExecuted" /></Results>' +
-    '<ResultSummary outcome="Failed"><Counters total="3" passed="1" failed="1" notExecuted="1" /></ResultSummary></TestRun>';
+    '<ResultSummary outcome="Failed"><Counters total="3" executed="2" passed="1" failed="1" error="0" timeout="0" aborted="0" notExecuted="1" inProgress="0" /></ResultSummary></TestRun>';
   const result = readDotnetTestResults(text, "dotnet:net");
   assert.equal(result.tests[0].name, 'N.Type.value(a: "<x>&")');
   assert.deepEqual(result.tests.map(row => row.status), ["passed", "failed", "skipped"]);
@@ -277,14 +277,15 @@ test("a known named failure cannot conceal an abnormal task exit, signal or nati
 
 test("native run-level aborts and errors stay visible beside unchanged failed test identities", () => {
   const trx = '<TestRun><Results><UnitTestResult testName="N.Type.knownFailure" outcome="Failed" /></Results>' +
-    '<ResultSummary outcome="Failed"><Counters total="1" executed="1" failed="1" />RUN_INFOS</ResultSummary></TestRun>';
+    '<ResultSummary outcome="Failed"><Counters total="1" executed="1" passed="0" failed="1" error="0" timeout="0" aborted="0" notExecuted="0" inProgress="0" />RUN_INFOS</ResultSummary></TestRun>';
   const nativeReport = named => ({ ...report(named.tests), results: [{ ...report(named.tests).results[0], summary: named.summary }] });
   const before = collectTestResults([nativeReport(readDotnetTestResults(trx.replace("RUN_INFOS", ""), "native"))]);
   assert.equal(compareTestResults(before, before).pass, true);
   for (const text of [
     trx.replace('outcome="Failed"><Counters', 'outcome="Aborted"><Counters').replace("RUN_INFOS", ""),
     trx.replace('outcome="Failed"><Counters', 'outcome="Error"><Counters').replace("RUN_INFOS", ""),
-    trx.replace("RUN_INFOS", '<RunInfos><RunInfo outcome="Error"><Text>The testhost crashed.</Text></RunInfo></RunInfos>'),
+    trx.replace('executed="1"', 'executed="0"').replace('aborted="0"', 'aborted="1"')
+      .replace("RUN_INFOS", '<RunInfos><RunInfo outcome="Error"><Text>The testhost crashed.</Text></RunInfo></RunInfos>'),
     trx.replace("RUN_INFOS", "<ErrorInfo><Message>The run failed.</Message></ErrorInfo>"),
   ]) {
     const named = readDotnetTestResults(text, "native");
@@ -292,6 +293,39 @@ test("native run-level aborts and errors stay visible beside unchanged failed te
     const after = collectTestResults([nativeReport(named)]);
     assert.equal(compareTestResults(before, after).pass, false, "identical failed assertions do not excuse native execution failure");
     assert.equal(after.tasks[0].summary.completed, false);
+  }
+});
+
+test("native completion follows terminal counters rather than logged message severity", () => {
+  const trx = '<TestRun><Results><UnitTestResult testName="N.Type.assertion" outcome="Failed" /></Results>' +
+    '<ResultSummary outcome="Failed"><Counters total="1" executed="1" passed="0" failed="1" error="0" timeout="0" aborted="0" notExecuted="0" inProgress="0" />' +
+    '<RunInfos><RunInfo outcome="Error"><Text>Arbitrary diagnostic output.</Text></RunInfo></RunInfos></ResultSummary></TestRun>';
+  const named = readDotnetTestResults(trx, "native");
+  assert.equal(named.summary.completed, true, "the named assertion completed normally");
+  assert.equal(named.summary.success, false, "the failed assertion remains failed");
+  assert.equal(named.tests[0].status, "failed", "the exact named failure is retained");
+  assert.equal(named.summary.runInfos[0].outcome, "Error", "native logged severity remains observable");
+  assert.equal(named.summary.runInfos[0].text, "Arbitrary diagnostic output.", "native logged output remains observable");
+  assert.equal(testTaskExecutionIssue({ status: 1, signal: null, summary: named.summary, tests: named.tests }), null,
+    "ordinary assertion exit 1 is complete execution, not success");
+  assert.equal(testTaskExecutionIssue({ status: 137, signal: null, summary: named.summary, tests: named.tests }) !== null, true,
+    "abnormal process exit remains rejected despite complete counters");
+  for (const [label, text] of [
+    ["aborted outcome", trx.replace('outcome="Failed"><Counters', 'outcome="Aborted"><Counters')],
+    ["missing counter", trx.replace(' executed="1"', "")],
+    ["malformed counter", trx.replace('executed="1"', 'executed="NaN"')],
+    ["unsafe counter", trx.replace('executed="1"', 'executed="9007199254740993"')],
+    ["inconsistent execution", trx.replace('executed="1"', 'executed="0"')],
+    ["inconsistent passed", trx.replace('passed="0"', 'passed="1"')],
+    ["inconsistent failed", trx.replace('failed="1"', 'failed="0"')],
+    ["native error", trx.replace('error="0"', 'error="1"')],
+    ["native timeout", trx.replace('timeout="0"', 'timeout="1"')],
+    ["native abort", trx.replace('aborted="0"', 'aborted="1"')],
+    ["not executed", trx.replace('notExecuted="0"', 'notExecuted="1"')],
+    ["still running", trx.replace('inProgress="0"', 'inProgress="1"')],
+    ["native error information", trx.replace("<RunInfos>", "<ErrorInfo><Message>Run failure</Message></ErrorInfo><RunInfos>")],
+  ]) {
+    assert.equal(readDotnetTestResults(text, "native").summary.completed, false, label);
   }
 });
 
