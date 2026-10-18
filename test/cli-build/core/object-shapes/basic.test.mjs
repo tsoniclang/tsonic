@@ -186,9 +186,9 @@ test("CLI emits interface object literals through provider object-shape adapters
   const shapeName = /public class (NamedShape_[a-f0-9]{12}) : Named/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);
   assert.match(generated, /public interface Named[\s\S]*string name \{ get; set; \}[\s\S]*double run\(double value\);/);
-  assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named[\s\S]*public required string name[\s\S]*get;[\s\S]*set;[\s\S]*public required Func<double, double> __tsonic_shape_method_1_run;/);
-  assert.match(generatedShapes, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
-  assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*name = "one",[\\s\\S]*__tsonic_shape_method_1_run = \\(double value\\) =>[\\s\\S]*return value \\+ 1;`));
+  assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named[\s\S]*public double run\(double value\)[\s\S]*return value \+ 1;[\s\S]*public required string name[\s\S]*get;[\s\S]*set;/);
+  assert.doesNotMatch(generatedShapes, /Func<double, double> __tsonic_shape_method_1_run;/);
+  assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}\\s*\\{\\s*name = "one",\\s*\\};`));
   assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
