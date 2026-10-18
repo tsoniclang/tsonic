@@ -227,7 +227,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(modelSource, /public class Entity[\s\S]*public static string suffix = "score";[\s\S]*public Entity\(string label\)/);
   assert.match(modelSource, /public virtual string title[\s\S]*get[\s\S]*return this\.label \+ "-" \+ Entity\.suffix;/);
   assert.match(modelSource, /public override string title[\s\S]*get[\s\S]*return (?:this|\(\(Entity\)this\))\.label \+ "-score:" \+ this\.points;/);
-  assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3;[\s\S]*public static ScoreCard create\(string label, double points\)/);
+  assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3D;[\s\S]*public static ScoreCard create\(string label, double points\)/);
   assert.match(modelSource, /public ScoreCard\(string label, double points\) : base\(label\)/);
   assert.match(modelSource, /return base\.baseScore\(\) \+ this\.points \+ ScoreCard\.bonus;/);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
@@ -237,7 +237,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(modelSource, new RegExp(`return new ${shapeName}[\\s\\S]*label = (?:card|\\(\\(Entity\\)card\\))\\.title,[\\s\\S]*points = points,[\\s\\S]*rank = global::Smoke\\.Generated\\.Model\\.classify\\(points\\)`));
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(indexSource, /ScoreCard\.create\("Ada", 8\)/);
+  assert.match(indexSource, /ScoreCard\.create\("Ada", 8D\)/);
   assert.match(indexSource, /public static string rank\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
   assert.match(indexSource, /rank = global::Smoke\.Generated\.Index\.receipt\.rank == Rank\.Gold \? "gold" : "silver";/);
   assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(global::Smoke\.Generated\.Index\.receipt\.label \+ ":" \+ global::Smoke\.Generated\.Index\.receipt\.points \+ ":" \+ global::Smoke\.Generated\.Index\.rank\);/);

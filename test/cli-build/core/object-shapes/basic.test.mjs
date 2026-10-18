@@ -98,7 +98,7 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   assert.match(generatedSource, /return new Box\s*\{\s*value = value,\s*label = "three",\s*\};/);
   assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0,\s*label = "no",\s*\};/);
   assert.match(generatedSource, /return new WithCtor\s*\{\s*value = value,\s*\};/);
-  assert.match(generatedSource, /public HandlerBox\(\)\s*\{\s*static double (?<callable>__tsonic_callable_\d+)\(double value\)\s*\{\s*return value;\s*\}\s*this\.run = new Func<double, double>\(\k<callable>\);\s*\}/u);
+  assert.match(generatedSource, /public HandlerBox\(\)\s*\{\s*static double (?<callable>__tsonic_callable_\d+)\(double value\)\s*\{\s*return value;\s*\}\s*this\.run = \(Func<double, double>\)\k<callable>;\s*\}/u);
   assert.match(generatedSource, /public Func<double, double> run = default\(Func<double, double>\)!;/u);
   assert.match(generatedSource, /return new HandlerBox\s*\{\s*run = \(double value\) =>\s*\{\s*return value \+ 1;\s*\},\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -616,8 +616,13 @@ test("CLI runs nested object literals through the canonical broad TypeScript-val
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(\(int\)1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
-  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/u);
+  const payload = /Tsonic\.CSharp\.Runtime\.TsValue\.from\(new (?<outer>ObjectShape_[a-f0-9]{12})\s*\{\s*value = 1,\s*child = new (?<inner>ObjectShape_[a-f0-9]{12})\s*\{\s*label = "ready",\s*\},\s*\}\);/u.exec(generatedSource);
+  assert.equal(payload !== null, true, "the broad value wraps the actual closed native payload, not a dynamic object emulation");
+  const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  assert.match(generatedShapes, new RegExp(`public class ${payload.groups.outer} : Tsonic\\.CSharp\\.Runtime\\.ITsClosedValueCarrier\\s*\\{\\s*public required ${payload.groups.inner} child;\\s*public required double value;`, "u"));
+  assert.match(generatedShapes, new RegExp(`public class ${payload.groups.inner}\\s*\\{\\s*public required string label;`, "u"));
+  assert.match(generatedSource, /value\.ReadDynamicSlot\("child"\)\.ReadDynamicSlot\("label"\)/u);
+  assert.doesNotMatch(generatedSource + generatedShapes, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|CreateDynamicObject/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
