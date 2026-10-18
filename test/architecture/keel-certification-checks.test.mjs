@@ -9,6 +9,7 @@ import {
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
 } from "./tooling/keel-certification-checks.mjs";
 import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./tooling/keel-native-allocation-boundary.mjs";
+import { keelPackageBuildResources } from "./tooling/keel-package-exposures.mjs";
 import { scriptSourceReferences } from "./tooling/keel-script-entries.mjs";
 import { readKeelNodeArguments } from "./tooling/keel-node-executions.mjs";
 import { keelCheckIds, keelFinding, keelWorkspaceRepositories, validLiteralFilePath, validPath } from "./tooling/keel-contract.mjs";
@@ -1953,7 +1954,6 @@ test("QRC-14: every finite native package exposure strengthens declaration-file 
     { main: "./src/ordinary.d.ts" },
     { bin: { ordinary: "./src/ordinary.d.ts" } },
     { exports: { ".": "./src/ordinary.d.ts" } },
-    { exports: { ".": { types: "./src/ordinary.d.ts", default: "./src/ordinary.mjs" } } },
     { exports: { "./*": "./src/ordinary.d.ts" } },
     { imports: { "#ordinary": "./src/ordinary.d.ts" } },
   ]) {
@@ -1978,6 +1978,141 @@ test("QRC-14: every finite native package exposure strengthens declaration-file 
     inputs.get("tsonic-rust").set("src/ordinary.d.ts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
     assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/ordinary.d.ts"), false, "formal top-level type metadata does not create a native module entry");
     assert.equal(boundarySafety(inputs).findings.length, 0, "authored declaration roles retain their actual nonexecution contract");
+  }
+});
+
+test("QRC-14: declaration conditions do not erase default or explicitly selected native execution", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/ordinary", exports: {
+    ".": { types: "./src/ordinary.d.ts", default: "./src/ordinary.mjs" },
+  } })));
+  inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const ordinary = 2;"));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/ordinary.d.ts"), false,
+    "a declaration-only metadata facet is not native execution");
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/ordinary.mjs"), true,
+    "the default runtime facet retains its exact native byte requirement");
+  assert.equal(boundarySafety(inputs).findings.length, 0, "a missing declaration-only input cannot invent a missing runtime input");
+  inputs.get("tsonic-rust").delete("src/ordinary.mjs");
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a missing default remains refused");
+  for (const source of ['import "../test/helpers/native-ownership-cost.mjs";', "export const = ;"]) {
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "harmful and malformed default bytes retain refusal");
+  }
+  inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const ordinary = 2;"));
+  for (const entry of ['import "./ordinary.d.ts";', 'require("./ordinary.d.ts");',
+    'import { fork } from "node:child_process"; fork(new URL("./ordinary.d.ts", import.meta.url));']) {
+    inputs.get("tsonic-rust").set("src/entry.mjs", safetyFile(entry));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a real native edge strengthens the declaration facet and refuses missing bytes");
+    inputs.get("tsonic-rust").set("src/ordinary.d.ts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "an actual declaration-named native writer remains forbidden");
+    inputs.get("tsonic-rust").set("src/ordinary.d.ts", safetyFile("const = ;"));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "malformed explicitly executed declaration bytes remain refused");
+    inputs.get("tsonic-rust").delete("src/ordinary.d.ts");
+  }
+  inputs.get("tsonic-rust").delete("src/entry.mjs");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ exports: {
+    ".": { types: "./src/ordinary.d.ts", native: "./src/ordinary.d.ts", default: "./src/ordinary.mjs" },
+  } })));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a custom executable condition is never mistaken for the declaration condition");
+  inputs.get("tsonic-rust").set("src/ordinary.d.ts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "custom native-condition writer reachability remains rejected");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ exports: { ".": { types: "./src/ordinary.mjs" } } })));
+  inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile('import "../test/helpers/native-ownership-cost.mjs";'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a declaration condition cannot relabel a non-declaration executable body");
+});
+
+test("QRC-14: authored package exports use exact checked-source resolution and native edges strengthen them", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/source", type: "module",
+    exports: { ".": { types: "./src/index.ts", default: "./src/index.ts" } } })));
+  inputs.get("tsonic-rust").set("src/index.ts", safetyFile('import { ordinary } from "./model.js"; export const result: number = ordinary;'));
+  inputs.get("tsonic-rust").set("src/model.ts", safetyFile("export const ordinary: number = 2;"));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "the actual checked source owner resolves the authored module to its identical model.ts");
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/model.js"), false,
+    "authored package evidence does not manufacture native model.js bytes");
+  inputs.get("tsonic-rust").delete("src/model.ts");
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "an unresolved first-party authored module is refused");
+  inputs.get("tsonic-rust").set("src/model.ts", safetyFile('import "../test/helpers/native-ownership-cost.mjs"; export const ordinary = 2;'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "checked source edges cannot hide a writer behind native-looking module spelling");
+  inputs.get("tsonic-rust").set("src/model.ts", safetyFile("export const ordinary: number = 2;"));
+  inputs.get("tsonic-rust").set("src/native.mjs", safetyFile('import "./index.ts";'));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/model.js"), true,
+    "the actual native edge strengthens the already visited authored root");
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "native execution requires actual missing model.js bytes, never model.ts substitution");
+  inputs.get("tsonic-rust").set("src/model.js", safetyFile("export const ordinary = 2;"));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "the strengthened root admits only its complete native byte closure");
+  inputs.get("tsonic-rust").set("src/model.js", safetyFile('import "../test/helpers/native-ownership-cost.mjs";'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "native strengthening preserves transitive writer rejection");
+  inputs.get("tsonic-rust").delete("src/native.mjs");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/source", exports: {
+    ".": { first: "./src/index.ts", second: "./src/model.ts" },
+  } })));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "inconsistent authored export identity cannot grant a source role");
+  inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/source", exports: { "./*": "./src/*.ts" } })));
+  inputs.get("tsonic-rust").delete("src/model.js");
+  assert.equal(boundarySafety(inputs).findings.length, 0, "actual compiler-source export enumeration is finite original owner evidence, not an unproved native pattern");
+  inputs.get("tsonic-rust").set("src/model.ts", safetyFile('import "../test/helpers/native-ownership-cost.mjs"; export const ordinary = 2;'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "a finite authored export pattern still propagates its actual writer source edge");
+});
+
+test("QRC-14: only original provider reference outputs own native build resources", () => {
+  for (const { path, evidence: owner } of keelPackageBuildResources()) {
+    const inputs = nativeBoundaryInputs();
+    const separator = path.indexOf("/");
+    const repo = path.slice(0, separator);
+    const file = path.slice(separator + 1);
+    inputs.get(repo).set("package.json", safetyFile(JSON.stringify({ name: "@control/resource", exports: { "./resource": `./${file}` } })));
+    inputs.get(repo).set(file, Object.freeze({ ...safetyFile("<Project />"), packageResourceOwner: owner }));
+    for (const artifact of owner.artifacts) {
+      const separator = artifact.path.indexOf("/");
+      const text = readFileSync(new URL(`../../../${artifact.path}`, import.meta.url), "utf8");
+      assert.equal(keelDigest(text), artifact.sha256, "the fixture carries the exact original owner artifact bytes");
+      inputs.get(artifact.path.slice(0, separator)).set(artifact.path.slice(separator + 1), safetyFile(text, false));
+    }
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${path}: an actual selected provider reference is build data, not JavaScript syntax`);
+    assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(path), false, `${path}: build-resource metadata alone is not native module execution`);
+    inputs.get(repo).set("src/native.mjs", safetyFile(`import ${JSON.stringify(posix.relative(`${repo}/src`, path).replace(/^(?!\.)/u, "./"))};`));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${path}: a real native load still parses the actual resource bytes and refuses malformed JS`);
+    inputs.get(repo).delete(file);
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${path}: an actual native load still requires missing bytes`);
+    inputs.get(repo).delete("src/native.mjs");
+    inputs.get(repo).set(file, Object.freeze({ ...safetyFile("<Project />"), packageResourceOwner: { ...owner, producer: "forged" } }));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${path}: forged ownership cannot waive executable metadata`);
+    inputs.get(repo).set(file, Object.freeze({ ...safetyFile("<Project />"), packageResourceOwner: owner }));
+    inputs.get(repo).set(`${file}.other`, safetyFile("<Project />"));
+    inputs.get(repo).set("package.json", safetyFile(JSON.stringify({ exports: { "./resource": `./${file}.other` } })));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${path}: neighboring data cannot inherit the exact original reference's authority`);
+  }
+});
+
+test("QRC-14: declared installed dependency ownership is external execution, never a directory exemption", () => {
+  const inputs = nativeBoundaryInputs();
+  const root = "tsonic-rust/node_modules/ordinary-tool";
+  const metadata = { name: "ordinary-tool", version: "1.2.3", bin: "bin/tool" };
+  const installed = Object.freeze({ ...safetyFile(JSON.stringify(metadata), false), installedPackageOwners: Object.freeze([
+    Object.freeze({ declaredBy: "tsonic-rust/package.json", name: metadata.name, version: metadata.version, root }),
+  ]) });
+  inputs.get("tsonic-rust").set("package.json", safetyFile('{"devDependencies":{"ordinary-tool":"^1.2.3"}}'));
+  inputs.get("tsonic-rust").set("package-lock.json", safetyFile(JSON.stringify({ packages: {
+    "node_modules/ordinary-tool": { version: "1.2.3", resolved: "https://registry.npmjs.org/ordinary-tool/-/ordinary-tool-1.2.3.tgz", integrity: "sha512-control" },
+  } })));
+  inputs.get("tsonic-rust").set("node_modules/ordinary-tool/package.json", installed);
+  inputs.get("tsonic-rust").set("scripts/run.mjs", safetyFile('import { spawnSync } from "node:child_process"; import { fileURLToPath } from "node:url"; spawnSync(process.execPath, [fileURLToPath(new URL("../node_modules/ordinary-tool/bin/tool", import.meta.url))]);'));
+  const external = boundarySafety(inputs);
+  assert.equal(external.findings.length, 0, "the real declared installed package is not misclassified as authored first-party compiler source");
+  assert.equal(external.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.installedDependencies?.includes(`${root}/bin/tool`)), true,
+    "installed dependency execution remains explicitly unproved external IO, never certified harmless");
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(`${root}/bin/tool`), false,
+    "the boundary never interprets external compiler implementation bytes as first-party source");
+  for (const change of ["missing-lock", "wrong-version", "tracked-source", "undeclared"]) {
+    const changed = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+    if (change === "missing-lock") changed.get("tsonic-rust").delete("package-lock.json");
+    if (change === "wrong-version") changed.get("tsonic-rust").set("node_modules/ordinary-tool/package.json", Object.freeze({
+      ...installed, text: JSON.stringify({ ...metadata, version: "9.9.9" }), sha256: keelDigest(JSON.stringify({ ...metadata, version: "9.9.9" })),
+    }));
+    if (change === "tracked-source") changed.get("tsonic-rust").set("node_modules/ordinary-tool/bin/tool", safetyFile("export const ordinary = 2;"));
+    if (change === "undeclared") changed.get("tsonic-rust").set("package.json", safetyFile("{}"));
+    assert.equal(boundarySafety(changed).nativeAllocationBoundary === undefined, true, `${change}: a path or forged metadata cannot create an external-dependency waiver`);
   }
 });
 

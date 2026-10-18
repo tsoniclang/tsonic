@@ -14,6 +14,7 @@ import {
 } from "./keel-structure-checks.mjs";
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
 import { keelSafetyBuiltModuleEntries, keelSafetyNativeTestGlobs } from "./keel-native-allocation-boundary.mjs";
+import { captureKeelPackageOwners } from "./keel-package-exposures.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
@@ -258,6 +259,7 @@ function readKeelSafetyWorkspaceInputs(workspace) {
       } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
     }
   }
+  captureKeelPackageOwners(workspace, inputs);
   for (const { source, pattern, prefix } of keelSafetyNativeTestGlobs(inputs)) {
     const repo = prefix.split("/")[0];
     const absoluteRoot = resolve(workspace, repo);
