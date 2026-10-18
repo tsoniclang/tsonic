@@ -9,7 +9,7 @@ export default async function* reportTestResults(source) {
       const message = data.details?.error?.message;
       const skipped = data.skip === true || typeof data.skip === "string";
       const todo = data.todo === true || typeof data.todo === "string";
-      const cancelled = data.details?.error?.failureType === "cancelledByParent";
+      const cancelled = ["cancelledByParent", "testAborted", "testTimeoutFailure"].includes(data.details?.error?.failureType);
       yield `${JSON.stringify({ kind: "test", file: data.file ?? null, name: data.name, path,
         nesting: data.nesting, type: data.details?.type ?? "test",
         status: cancelled ? "cancelled" : skipped ? "skipped" : todo ? "todo" : event.type === "test:pass" ? "passed" : "failed",

@@ -48,19 +48,30 @@ test("real Node cancellation is a distinct terminal identity and never an unchan
   const root = mkdtempSync(resolve(".temp/test-result-tests/cancelled-"));
   const file = resolve(root, "cancelled.test.mjs");
   const output = resolve(root, "results.jsonl");
-  writeFileSync(file, "import test from 'node:test'; test('parent', context => { context.test('pending work', () => new Promise(() => {})); });\n");
+  writeFileSync(file, "import test from 'node:test'; test('parent', context => { context.test('pending work', () => new Promise(() => {})); throw Error('parent stops'); });\n");
   const environment = { ...process.env };
   delete environment.NODE_TEST_CONTEXT;
   const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1",
     `--test-reporter=${resolve("test/scripts/test-result-reporter.mjs")}`, `--test-reporter-destination=${output}`, file],
   { env: environment, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
-  assert.equal(run.error, undefined, "the explicit parent completion cancels its child without an outer timeout");
+  assert.equal(run.error === undefined, true, "the explicit parent failure cancels its child without an outer timeout");
   assert.equal(run.status, 1, run.stderr);
   const named = readNodeTestResults(output, process.cwd(), file);
   const pending = named.tests.find(test => test.name === "pending work");
   assert.equal(pending?.status, "cancelled");
   assert.equal(pending?.failureType, "cancelledByParent");
   assert.equal(named.summary.counts.cancelled, 1);
+});
+
+test("all native cancellation reasons remain cancelled instead of ordinary baseline failures", async () => {
+  async function* events() {
+    for (const failureType of ["cancelledByParent", "testAborted", "testTimeoutFailure", "testCodeFailure"]) {
+      yield { type: "test:fail", data: { name: failureType, nesting: 0, details: { type: "test", error: { failureType } } } };
+    }
+  }
+  const records = [];
+  for await (const line of reportTestResults(events())) records.push(JSON.parse(line));
+  assert.deepEqual(records.map(record => record.status), ["cancelled", "cancelled", "cancelled", "failed"]);
 });
 
 test("TRX names preserve escaped arguments and all pass, failure and skipped outcomes", () => {
