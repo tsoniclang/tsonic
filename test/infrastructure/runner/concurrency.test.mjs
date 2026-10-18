@@ -17,7 +17,7 @@ test("test budgets expose every CPU without per-worker memory reservations", () 
   const native = testResourceBudget(machine, {}, "native");
   assert.equal(native.workers, 24);
   assert.equal(native.childJobs, 1);
-  assert.throws(() => testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }), /memory budget/u,
+  assert.throws(() => testResourceBudget({ cpus: 2, availableMemoryMiB: 3072, totalMemoryMiB: 4096 }), /memory budget/u,
     "the default group cannot exceed physical memory");
 });
 
@@ -84,9 +84,9 @@ test("a guard passes one validated budget without reserving memory twice", () =>
   }
 });
 
-test("a default job fits the unchanged physical-headroom admission check at the sampled free memory", () => {
+test("a default job fits the16GiB physical-headroom admission check at the sampled free memory", () => {
   const budget = testResourceBudget(machine);
-  assert.equal(budget.memoryMiB + 6144 <= machine.availableMemoryMiB, true,
+  assert.equal(budget.memoryMiB + 16_384 <= machine.availableMemoryMiB, true,
     "the default does not wait for four GiB more memory than the machine has");
   const selected = testTaskEnvironment({ NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` }, budget, { id: "ordinary" });
   const task = readTestResourceBudget(selected);
@@ -156,4 +156,37 @@ test("infrastructure errors drain active workers without starting another task",
     { workers: 1 }, async () => {
       throw new Error("last task failed");
     }), /active workers were drained/u);
+});
+
+test("targeted outer groups size memory once from the actual explicit width without reducing CPUs", () => {
+  for (const profile of ["host", "rust", "native"]) {
+    for (const [workers, memoryMiB] of [[1, 4096], [2, 6144], [6, 14_336], [11, 24_576], [24, 24_576]]) {
+      const budget = testResourceBudget(machine, { TSONIC_TEST_WORKERS: String(workers) }, profile);
+      assert.equal(budget.memoryMiB, memoryMiB, `${profile}/${workers}: one outer group`);
+      assert.equal(budget.memoryRequestSource, "formula", `${profile}/${workers}: source is decided with the group`);
+      assert.equal(budget.workers, workers, `${profile}/${workers}: actual declared width`);
+      assert.equal(budget.cpuBudget, 24, `${profile}/${workers}: no CPU quota`);
+    }
+  }
+});
+
+test("explicit memory requests stay operator overrides and admitted origin survives child views", () => {
+  for (const memoryMiB of [1024, 24_576]) {
+    const budget = testResourceBudget(machine, { TSONIC_TEST_WORKERS: "1", TSONIC_TEST_MEMORY_MIB: String(memoryMiB) });
+    assert.equal(budget.memoryMiB, memoryMiB, "neither a lower OOM control nor larger operator request is capped");
+    assert.equal(budget.memoryRequestSource, "explicit");
+  }
+  for (const environment of [{}, { TSONIC_TEST_MEMORY_MIB: "24576" }]) {
+    const budget = testResourceBudget(machine, environment);
+    const child = testTaskEnvironment({ NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` }, budget, { id: "child" });
+    const inherited = readTestResourceBudget({ ...child, TSONIC_TEST_MEMORY_MIB: "4096" });
+    assert.equal(inherited.memoryMiB, budget.memoryMiB, "later environment changes do not resize admitted memory");
+    assert.equal(inherited.memoryRequestSource, budget.memoryRequestSource, "later environment changes do not reclassify origin");
+    assert.equal(inherited.workers, 1);
+  }
+  const budget = testResourceBudget(machine);
+  const { memoryRequestSource, ...removedShape } = budget;
+  assert.equal(memoryRequestSource, "formula");
+  assert.throws(() => readTestResourceBudget({ TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(removedShape) }), /Invalid inherited/u,
+    "the old provenance-free budget is not a second accepted form");
 });
