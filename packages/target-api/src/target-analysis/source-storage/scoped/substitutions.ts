@@ -12,7 +12,7 @@ import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
 import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
 import { walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageInputBinding } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
@@ -79,15 +79,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return true;
   };
   const normalize = (term: SourceStorageTerm, witnesses: SourceStorageRelationWitness[], temporary: SourceStorageRows,
-    contributes = true, binding = false): SourceStorageTerm | undefined => {
+    contributes = true): SourceStorageTerm | undefined => {
     while (true) {
       if (term.kind === "reference" || term.kind === "leaf") {
         if (!budget.step() || !temporary.add(1)) return undefined;
         witnesses.push({ subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes });
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
-        const input = binding ? transport.bindingInputFor(term.subject)
-          : sourceStorageTransparentInput(term.subject, source.ast, transport);
+        const input = transport.bindingInputFor(term.subject);
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
         if (term.subject.kind === "receiver" || term.subject.kind === "input" && Node_Initializer(source.ast, term.subject.node) === undefined) {
           const selected = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, undefined)
@@ -127,11 +126,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         ? value : Object.freeze({ ...term, value });
     }
     if (term.kind === "member") {
-      const receiver = normalize(term.receiver, witnesses, temporary, false, true);
+      const receiver = normalize(term.receiver, witnesses, temporary, false);
       return receiver === undefined ? undefined : Object.freeze({ ...term, receiver });
     }
     if (term.kind === "application") {
-      const callee = normalize(term.callee, witnesses, temporary, false, true);
+      const callee = normalize(term.callee, witnesses, temporary, false);
       return callee === undefined ? undefined : Object.freeze({ ...term, callee });
     }
     if (term.kind === "reference" && term.subject.kind === "value" &&
@@ -228,7 +227,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const reference = { subject: witness.subject, bindings: witnessScope(witness.subject, witness.bindings) };
         if (!budget.step() || !addWitness(relation, reference, witness.contributes)) return false;
       }
-      const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current) : selected.terms;
+      const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current,
+        term => select(term, false)) : selected.terms;
       if (alternatives === undefined) return false;
       let operation: SourceStorageTerm = current;
       while (operation.kind === "transition") {

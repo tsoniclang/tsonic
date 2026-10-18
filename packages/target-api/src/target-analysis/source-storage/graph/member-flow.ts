@@ -1,7 +1,7 @@
 import type { Node, SourceFile, Type, TypePropertyInfo } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStructuralMemberPair } from "../../../source-semantics/structural-members.js";
-import { sourcePresentStorageType, sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject,
   sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
@@ -325,9 +325,8 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
     const access = queries.operations.propertyAccess(invocation);
     const receiver = checkedReceiver ?? call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
       ?? access?.receiver.expression ?? inputs.accessorTargets.get(invocation)?.find(target => target.declaration === declaration)?.receiver;
-    const rawReceiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type
+    const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type
       ?? (receiver === undefined ? undefined : queries.types.expressionType(receiver));
-    const receiverType = rawReceiverType === undefined ? undefined : sourcePresentStorageType(rawReceiverType, queries);
     const valueType = receiver === undefined ? undefined : queries.types.expressionType(receiver);
     if (valueType !== undefined && sourceStorageIsScalarType(valueType, queries))
       return { nodes: selected, exact: true };

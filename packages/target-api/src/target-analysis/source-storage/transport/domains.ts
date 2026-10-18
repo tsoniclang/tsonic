@@ -6,7 +6,7 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
   sourceStorageIsScalarType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageSubstitutions } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
@@ -250,13 +250,28 @@ export function createSourceStorageDomains(
     const region = transport.regions.enclosing(invocation);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
     const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.ownerScope(bindings, owner) ?? transport.substitutions.forLexicalOwner(invocation);
+      : transport.substitutions.ownerScope(bindings, owner);
     if (activation === undefined) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
-      const selected = transport.invocationImplementationSelection(invocation,
-        origin => transport.substitutions.origins(origin, activation));
-      return selected?.exact === true && selected.nodes.size !== 0 &&
-        [...selected.nodes].every(declaration => ast.body(declaration) !== undefined);
+      const target = transport.invocationTargets.get(invocation);
+      const selected = target === undefined ? undefined : transport.substitutions.walk(target, activation);
+      if (selected === undefined || selected.reason !== undefined || selected.origins.size === 0) return false;
+      for (const origin of selected.origins) {
+        if (!budget.step() || !sourceStorageHasOriginalCallableValue(origin, ast)) return false;
+        const implementation = navigation.callableImplementation(origin.node);
+        if (implementation.kind !== "resolved" || ast.body(implementation.implementation.declaration) === undefined) return false;
+      }
+      for (const current of selected.subjects) {
+        if (!budget.step()) return false;
+        const bound = transport.substitutions.isBound(current.subject, current.bindings);
+        for (const boundary of boundariesFor(current.subject)) {
+          if (!budget.step()) return false;
+          if (boundary.kind === "external-input") {
+            if (!bound && !receiverBinding(current.subject, current.bindings)) return false;
+          } else if (boundary.kind === "external-write" || boundary.exposure !== invocation) return false;
+        }
+      }
+      return true;
     }
     if (sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);

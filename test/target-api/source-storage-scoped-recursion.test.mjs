@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageScopedRecursion } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-recursion.js";
+import { createSourceStorageEquations } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-equations.js";
+import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-scopes.js";
+import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
+import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
@@ -148,4 +158,90 @@ test("callee-scoped defaults cannot masquerade as invariant forwarded caller por
   assert.equal(current.recursion.entryInputFor(current.subject(current.secondInput, "input"),
     { kind: "variable", equation, owner: current.second }) === undefined, true);
   assert.equal(current.budget.failure() === undefined, true, "unsupported invariance is absence of proof, not weakened checking");
+});
+
+function selectedEquationFixture() {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {};
+    type Step = (next: Step, count: number) => object;
+    const token = {};
+    function step(next: Step, count: number): object { return count === 0 ? token : next(next, count - 1); }
+    declare function native(next: Step, count: number): object;
+    const first = step(step, 3); const second = step(step, 4);
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "the original recursive Step source is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const nodes = [];
+  const visit = node => {
+    nodes.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  const named = name => nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === name);
+  const owner = named("step");
+  const native = named("native");
+  const calls = nodes.filter(source.ast.is.IsCallExpression);
+  const recursive = calls.find(node => source.ast.as.AsCallExpression(node).Expression !== undefined &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "next");
+  const entries = calls.filter(node => node !== recursive);
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 65536 });
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const graph = createSourceStorageGraphQueries(budget);
+  graph.seal();
+  const creation = {
+    footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation,
+      transport.contextualInputs.applicationFor),
+    ownerFor: subject => sourceStorageActivationOwner(source, transport.regions.enclosing, subject),
+  };
+  const recursion = createSourceStorageScopedRecursion(source, budget, transport, transport.invocationInputs);
+  const base = createSourceStorageScopes(source, budget, transport.subject, transport.invocationInputs, graph,
+    recursion.entryInputFor, creation);
+  const frames = [];
+  const scopes = { ...base, frameFor(...args) {
+    const selected = base.frameFor(...args);
+    if (selected !== undefined) frames.push(selected);
+    return selected;
+  } };
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
+  const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
+  const expand = (invocation, mixed = false) => {
+    const initial = equations.scopeFor(owner, invocation, scopes.empty, scopes.empty, {
+      kind: "application", mode: "value", invocation, callee: { kind: "leaf", subject: transport.subject(owner), scope: scopes.empty },
+      scope: scopes.empty, projection: [],
+    });
+    assert.equal(initial !== undefined && initial.equation !== undefined, true, "the checked recursive entry has one equation");
+    const variable = scopes.variable(initial.equation, owner);
+    const term = sourceStorageReference(transport.subject(owner, "return"), variable);
+    frames.length = 0;
+    let reads = 0;
+    const alternatives = equations.expand(variable, term, request => {
+      reads += 1;
+      assert.equal(request.subject === transport.invocationTargets.get(recursive) && request.scope.owner === owner, true,
+        "native eligibility reads the host callee in its original caller, never the entered callback frame");
+      return new Set([owner, ...mixed ? [native] : []].map(node => ({ kind: "leaf", subject: transport.subject(node), scope: scopes.empty })));
+    });
+    assert.equal(alternatives !== undefined && reads === 1, true, "the possible native edge has one scoped supplier decision");
+    assert.equal(budget.failure() === undefined, true, "unchanged finite protection remains intact");
+    return { alternatives, frames: [...frames] };
+  };
+  return { entries, expand };
+}
+
+for (const reverse of [false, true]) test(`selected Step source recursion creates only its two-entry source frames (${reverse})`, () => {
+  const current = selectedEquationFixture();
+  for (const invocation of reverse ? current.entries.reverse() : current.entries) {
+    const selected = current.expand(invocation);
+    assert.equal(selected.frames.length === 2 && selected.frames.every(frame => frame.entries.size === 2 && frame.callback === undefined), true,
+      "the entry and recursive source frames cannot acquire a phantom unknown-timing native callback frame");
+  }
+});
+
+test("a mixed Step supplier retains its conditional body-less native callback edge", () => {
+  const current = selectedEquationFixture();
+  const selected = current.expand(current.entries[0], true);
+  assert.equal(selected.frames.filter(frame => frame.callback?.timing === "unknown").length === 1, true,
+    "a body-less actual supplier is not certified as source-only");
+  assert.equal(selected.alternatives.some(term => term.kind === "transition" && term.capture.callback?.timing === "unknown"), true,
+    "the native alternative retains the existing conditional transition rather than a certified execution");
 });

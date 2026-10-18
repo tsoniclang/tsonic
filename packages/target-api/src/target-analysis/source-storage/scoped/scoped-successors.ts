@@ -182,7 +182,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const memberOwner = declaration === undefined ? undefined : sourceMemberOwner(ast, declaration);
     if (declaration !== undefined && memberOwner !== undefined &&
       (ast.is.IsClassDeclaration(memberOwner) || ast.is.IsClassExpression(memberOwner)) &&
-      (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration)) &&
+      ast.is.IsPropertyDeclaration(declaration) && Node_Initializer(ast, declaration) !== undefined &&
       ast.hasModifierKind(declaration, "readonly")) {
       const member = sourceStorageMemberSubject(declaration, ast, transport.subject, subject.projection.slice(1));
       if (member === undefined) return undefined;
@@ -705,8 +705,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved") {
-        if (transport.isOpaque(term.invocation) &&
-          (!ast.is.IsVariableDeclaration(node) || Node_Initializer(ast, node) !== undefined)) {
+        const contract = transport.invocationDeclarations.get(term.invocation);
+        if (transport.isOpaque(term.invocation) && contract !== undefined && ast.body(contract) === undefined) {
           const result = transport.subject(term.invocation, "value", term.projection);
           return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
             ? [leaf(result, term.scope)] : [], dependencies };

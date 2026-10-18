@@ -41,7 +41,8 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
     }
     return scopes.frameFor(candidate, invocation, caller, captured, equation, term.callback);
   };
-  const expand = (variable: SourceStorageVariable, term: SourceStorageTerm): readonly SourceStorageTerm[] | undefined => {
+  const expand = (variable: SourceStorageVariable, term: SourceStorageTerm,
+    read: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined): readonly SourceStorageTerm[] | undefined => {
     if (variable.capture !== undefined) {
       budget.reject("Source storage captures require their exact selected callee before continuation.");
       return undefined;
@@ -68,6 +69,22 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       const previous = scopes.variable(equation, caller);
       const target = site.callback?.argument.actual ?? transport.invocationTargets.get(site.invocation);
       if (previous === undefined || target === undefined) return undefined;
+      if (site.callback !== undefined) {
+        const host = transport.invocationTargets.get(site.invocation);
+        const suppliers = host === undefined ? undefined : read(sourceStorageReference(host, previous));
+        if (suppliers === undefined) return undefined;
+        if (suppliers.size === 0) continue;
+        let sourceOnly = true;
+        for (const supplier of suppliers) {
+          if (!budget.step()) return undefined;
+          const selected = supplier.kind === "leaf" ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
+          if (selected?.kind !== "resolved" || source.ast.body(selected.implementation.declaration) === undefined) {
+            sourceOnly = false;
+            break;
+          }
+        }
+        if (sourceOnly) continue;
+      }
       const capture = scopes.variable(equation, owner, site.invocation, site.callback);
       const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation, site.callback);
       const value = frame === undefined ? undefined : replace(frame);
