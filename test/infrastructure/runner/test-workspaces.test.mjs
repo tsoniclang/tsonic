@@ -1,13 +1,40 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
 import { tsonicRoot } from "../../scripts/workspace-layout.mjs";
+import { cleanupFinishedCargoTargets } from "../../scripts/parallel-task-resources.mjs";
 
 const scratch = join(tsonicRoot, ".temp/test-workspace-lifecycle");
 const helperUrl = new URL("../../scripts/test-workspaces.mjs", import.meta.url).href;
+
+test("only individually drained task-owned Cargo binary leaves are pruned, preserving generated source and failures", () => {
+  const root = createTestWorkspace(scratch, "cargo-cleanup-");
+  const workspace = createTestWorkspace(root, "project-");
+  const identity = lstatSync(workspace, { bigint: true });
+  const manifest = join(root, "task.jsonl");
+  writeFileSync(manifest, `${JSON.stringify({ directory: workspace, dev: String(identity.dev), ino: String(identity.ino) })}\n`);
+  for (const folder of ["target/debug/deps", "target/debug/incremental", "target/debug/build/native/out", "src"]) mkdirSync(join(workspace, folder), { recursive: true });
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(workspace, file), "retained evidence");
+  const waiting = cleanupFinishedCargoTargets(manifest, { drained: false });
+  assert.match(waiting.issue, /not proven drained/u);
+  assert.equal(existsSync(join(workspace, "target/debug/deps/native")), true, "an active task keeps its binary");
+  const active = cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set([workspace]) });
+  assert.equal(active.removed.length, 0, "another active consumer keeps the shared target");
+  const finished = cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set() });
+  assert.equal(finished.removed.length, 2, "both finished binary leaves are removed immediately");
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(workspace, file), "utf8"), "retained evidence", `${file}: source, configuration and failure evidence survive`);
+  }
+  const foreign = createTestWorkspace(root, "foreign-");
+  mkdirSync(join(foreign, "debug/deps"), { recursive: true });
+  writeFileSync(join(foreign, "debug/deps/native"), "foreign");
+  symlinkSync(foreign, join(workspace, "nested"), "dir");
+  cleanupFinishedCargoTargets(manifest, { drained: true }, { activePaths: new Set() });
+  assert.equal(readFileSync(join(foreign, "debug/deps/native"), "utf8"), "foreign", "a symlink cannot transfer deletion ownership");
+});
 
 function fixture(body) {
   const root = createTestWorkspace(scratch, "case-");

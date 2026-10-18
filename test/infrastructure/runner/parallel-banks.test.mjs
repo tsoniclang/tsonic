@@ -6,7 +6,7 @@ import test from "node:test";
 import { createParallelSuiteDefinition, createRustParallelSuiteDefinition } from "../../scripts/suite-definition.mjs";
 import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
 
-test("Rust explicitly selects the same weighted queue without entering the Host default bank", () => {
+test("Rust explicitly selects the same CPU-selected queue without entering the Host default bank", () => {
   const host = createParallelSuiteDefinition(testRepositoryRoots);
   const rust = createRustParallelSuiteDefinition(testRepositoryRoots);
   assert.equal(host.nodeSuites.some(suite => suite.scope === "tsonic-rust"), false);
@@ -14,7 +14,7 @@ test("Rust explicitly selects the same weighted queue without entering the Host 
   assert.equal(rust.nodeSuites[0].scope, "tsonic-rust");
   assert.deepEqual(rust.preRuns.map(run => run.id), ["tsonic-rust.build", "tsonic-rust.installed-layout"],
     "the existing queue validates selection before its one build and installed layout");
-  assert.deepEqual(rust.nodeSuites[0].resources, { memoryMiB: 4096, heapMiB: 3072 });
+  assert.deepEqual(rust.nodeSuites[0].resources, { heapMiB: 3072 });
   assert.deepEqual(rust.nodeSuites[0].nodeArguments,
     ["--import", resolve(testRepositoryRoots.tsonicRust, "scripts/register-tsonic-root-loader.mjs")]);
   const inventory = spawnSync(process.execPath, ["test/scripts/run-parallel.mjs", "--scope", "tsonic-rust", "--inventory"],
@@ -22,8 +22,8 @@ test("Rust explicitly selects the same weighted queue without entering the Host 
   assert.equal(inventory.status, 0, inventory.stderr);
   const actual = JSON.parse(inventory.stdout);
   assert.equal(actual.files.length > 0, true);
-  assert.equal(actual.files.every(file => file.scope === "tsonic-rust" && file.memoryMiB === 4096 &&
-    file.preRunIds.includes("tsonic-rust.installed-layout")), true, "every Rust file gets the one existing memory-weighted owner");
+  assert.equal(actual.files.every(file => file.scope === "tsonic-rust" && !Object.hasOwn(file, "memoryMiB") &&
+    file.preRunIds.includes("tsonic-rust.installed-layout")), true, "every Rust file uses the same queue without a per-test memory reservation");
 });
 
 test("exact file selection works for the Host default and mixed Node and dotnet scope", () => {

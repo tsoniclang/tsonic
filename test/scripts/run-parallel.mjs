@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { readTestResourceBudget, testTaskEnvironment } from "./test-resource-budget.mjs";
-import { runBoundedTestQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
+import { runOomRetryQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
+import { createTaskCgroup, drainTaskCgroup } from "./guard-cgroup.mjs";
+import { selectAffectedTestTasks } from "./node-test-files.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
 import { selectParallelSuiteDefinition } from "./suite-definition.mjs";
-import { readTaskResourceUsage, timedTaskArguments, trackTaskProcesses } from "./parallel-task-resources.mjs";
+import { cleanupFinishedCargoTargets, readTaskResourceUsage, taskTimeoutMilliseconds,
+  taskTimeoutsFromBaseline, timedTaskArguments, trackTaskProcesses } from "./parallel-task-resources.mjs";
 import { readDotnetTestResults, readNodeTestResults, testTaskExecutionIssue } from "./test-results.mjs";
 import { testResultCounts } from "./parallel-test-counts.mjs";
 import { createParallelShardPlan, scopeToRepoKey } from "./parallel-shards.mjs";
@@ -14,10 +18,12 @@ import { requiredParallelPreRuns, runParallelPreRuns } from "./parallel-preruns.
 import { writeParallelReport } from "./parallel-report.mjs";
 import {
   testRepositoryRoots,
-  tsonicRoot, testPath, testTaskName,
+  tsonicRoot, testPath, testTaskName, testScopeRepositoryKeys,
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
+const timeouts = options.baselineReport === undefined ? new Map()
+  : taskTimeoutsFromBaseline(JSON.parse(readFileSync(options.baselineReport, "utf8")));
 const repos = { ...testRepositoryRoots };
 if (options.repositoryRoot !== undefined) {
   if (options.scopes.size !== 1) throw new Error("--repository-root requires exactly one selected scope.");
@@ -50,12 +56,16 @@ const suiteDefinition = selectParallelSuiteDefinition(repos, options.scopes);
 
 const { shards: allShards, inventory } = createParallelShardPlan(suiteDefinition, repos, { statusRoot, tsonicRoot });
 
-const shards = allShards.filter((shard) =>
+const eligibleShards = allShards.filter((shard) =>
   (options.scopes.size === 0 || options.scopes.has(shard.scope)) &&
   (options.groupPrefixes.length === 0 || options.groupPrefixes.some((prefix) => shard.group.startsWith(prefix))) &&
   (options.matches.length === 0 || options.matches.some((match) => shard.id.includes(match))) &&
   (options.files.size === 0 || (shard.files ?? [shard.file]).some(file => options.files.has(testPath(file))))
 );
+const selectionData = JSON.parse(readFileSync(new URL("./smoke-set.json", import.meta.url), "utf8"));
+const shards = options.affected.length === 0 && !options.smoke ? eligibleShards
+  : selectAffectedTestTasks(eligibleShards, options.affected,
+    Object.fromEntries(Object.entries(testScopeRepositoryKeys).map(([scope, key]) => [scope, repos[key]])), selectionData);
 const representedRequests = new Set(shards.flatMap(shard => shard.files ?? [shard.file]).map(testPath));
 const missingRequests = [...options.files].filter(file => !representedRequests.has(file));
 if (missingRequests.length > 0) {
@@ -104,21 +114,41 @@ const report = writeParallelReport({ options, runId, tsonicRoot, resourceBudget,
 process.exitCode = report.taskCounts.failed === 0 && report.testCountReporting.missing === 0 ? 0 : 1;
 
 async function runShards(allShards) {
-  const results = await runBoundedTestQueue(allShards, {
+  const results = await runOomRetryQueue(allShards, {
     ...resourceBudget,
     groupWorkerLimits: suiteDefinition.groupWorkerLimits,
   }, runShard);
+  for (const result of results) {
+    const first = result.attempts?.[0];
+    if (first !== undefined && result.status === 0 && result.summary?.completed === true &&
+        result.tests.length > 0 && result.cgroup.drained && result.cgroup.oomKills === 0 &&
+        process.env.TSONIC_TEST_OOM_RECOVERY_REPORT !== undefined) {
+      appendFileSync(process.env.TSONIC_TEST_OOM_RECOVERY_REPORT, `${JSON.stringify({
+        task: result.shard.id, firstGroup: first.cgroup.path, retryGroup: result.cgroup.path,
+        retryStatus: result.status, retryCompleted: result.summary.completed, retryTests: result.tests.length,
+        firstLog: first.logPath, retryLog: result.logPath, firstWidth: first.workers, retryWidth: result.workers,
+      })}\n`);
+    }
+  }
   return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
 }
 
-function runShard(shard) {
+function runShard(shard, attempt, workers) {
+  if (attempt !== 1) {
+    const resultPath = `${shard.resultPath}.attempt-${attempt}`;
+    shard = { ...shard, resultPath, args: shard.args.map(argument => argument.replace(shard.resultPath, resultPath)) };
+  }
   return new Promise((resolveResult) => {
     const taskEnvironment = testTaskEnvironment(env, resourceBudget, shard);
     const startedAt = Date.now();
-    const shardSafeName = testTaskName(shard.id);
+    const shardSafeName = `${testTaskName(shard.id)}${attempt === 1 ? "" : `.attempt-${attempt}`}`;
     const logPath = resolve(logRoot, `${shardSafeName}.log`);
     const statusPath = resolve(statusRoot, `${shardSafeName}.json`);
     const usagePath = resolve(statusRoot, `${shardSafeName}.usage.json`);
+    const workspaceManifest = resolve(statusRoot, `${shardSafeName}.workspaces.jsonl`);
+    taskEnvironment.TSONIC_TEST_WORKSPACE_MANIFEST = workspaceManifest;
+    const timeoutMs = taskTimeoutMilliseconds(shard, timeouts);
+    const taskGroup = createTaskCgroup(process.env.TSONIC_TEST_TASK_CGROUP_ROOT, `task-${randomUUID()}`);
     const logStream = createWriteStream(logPath, { flags: "w" });
     writeShardStatus(statusPath, {
       id: shard.id,
@@ -131,8 +161,13 @@ function runShard(shard) {
       cwd: testPath(shard.cwd),
       log: testPath(relative(tsonicRoot, logPath)),
     });
-    progress.startShard(shard, startedAt);
-    const child = spawn("/usr/bin/time", timedTaskArguments(usagePath, shard.command, shard.args), {
+    if (attempt === 1) progress.startShard(shard, startedAt);
+    else console.log(`RETRY ${shard.id} attempt=${attempt} workers=${workers}`);
+    const timed = timedTaskArguments(usagePath, "timeout", ["--signal=TERM", "--kill-after=30s", `${timeoutMs / 1000}s`, shard.command, ...shard.args]);
+    const command = taskGroup.path === null ? "/usr/bin/time" : "/bin/sh";
+    const arguments_ = taskGroup.path === null ? timed
+      : ["-c", 'printf "%s" "$$" > "$1/cgroup.procs" || exit 125; shift; exec "$@"', "task-cgroup", taskGroup.path, "/usr/bin/time", ...timed];
+    const child = spawn(command, arguments_, {
       cwd: shard.cwd,
       env: taskEnvironment,
       stdio: ["ignore", "pipe", "pipe"],
@@ -148,7 +183,7 @@ function runShard(shard) {
       const chunk = Buffer.from(`Could not start test task: ${error.message}\n`);
       logStream.write(chunk);
     });
-    child.on("close", (status, signal) => {
+    child.on("close", async (status, signal) => {
       const durationMs = Date.now() - startedAt;
       let normalizedStatus = status ?? 1;
       let tests = [];
@@ -157,6 +192,12 @@ function runShard(shard) {
       let resources = null;
       let resultError = null;
       const processObservations = finishProcesses();
+      let cgroup = { ...taskGroup, drained: false, oomKills: null, memoryPeakBytes: null };
+      try {
+        if (taskGroup.path !== null) cgroup = await drainTaskCgroup(taskGroup.path);
+      } catch (error) {
+        cgroup.issue = `OOM victim attribution unavailable: ${error.message}`;
+      }
       try {
         const named = shard.resultFormat === "node"
           ? readNodeTestResults(shard.resultPath, shard.cwd, testPath(relative(shard.cwd, shard.file)))
@@ -166,8 +207,11 @@ function runShard(shard) {
         if (summary.completed) testCounts = testResultCounts(tests);
         const executionIssue = testTaskExecutionIssue({ status: normalizedStatus, signal, summary, tests });
         if (executionIssue !== null) throw new Error(executionIssue);
+        if (cgroup.path !== null && !cgroup.drained) throw new Error("Test task descendants are not proven drained.");
         resources = readTaskResourceUsage(usagePath, durationMs, processObservations,
-          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS), memoryMiB: shard.memoryMiB ?? resourceBudget.workerMemoryMiB });
+          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS) });
+        resources.memory.exactAggregateMemoryPeakBytes = cgroup.memoryPeakBytes;
+        resources.memory.aggregatePeakMethod = cgroup.path === null ? null : "owned-task-cgroup-memory.peak";
         if (processObservations.errorMessage !== null) throw new Error(processObservations.errorMessage);
       } catch (error) {
         resultError = error.message;
@@ -193,12 +237,17 @@ function runShard(shard) {
         summary,
         resources,
         resultError,
+        attempt, workers, timeoutMs, cgroup,
       });
       console.log(`${normalizedStatus === 0 ? "PASS" : "FAIL"} ${shard.id} ${durationMs}ms`);
-      progress.finishShard(shard, normalizedStatus, durationMs);
+      if (attempt === 1) progress.finishShard(shard, normalizedStatus, durationMs);
       logStream.end(() => {
+        let cleanup;
+        try { cleanup = cleanupFinishedCargoTargets(workspaceManifest, cgroup); }
+        catch (error) { cleanup = { removed: [], retained: [], issue: error.message }; }
+        writeFileSync(resolve(statusRoot, `${shardSafeName}.cleanup.json`), `${JSON.stringify(cleanup, null, 2)}\n`);
         resolveResult({ shard, status: normalizedStatus, signal, durationMs, logPath, statusPath,
-          testCounts, tests, summary, resources, resultError });
+          testCounts, tests, summary, resources, resultError, attempt, workers, timeoutMs, cgroup, cleanup });
       });
     });
   });
@@ -213,6 +262,9 @@ function parseArgs(args) {
   const matches = [];
   const groupPrefixes = [];
   const files = new Set();
+  const affected = [];
+  let smoke = false;
+  let baselineReport = process.env.TSONIC_TEST_BASELINE_REPORT;
   let list = false;
   let inventory = false;
   let withPreruns = false;
@@ -227,6 +279,15 @@ function parseArgs(args) {
       progressIntervalMs = Number(args[++index]);
     } else if (arg === "--scope") {
       scopes.add(args[++index]);
+    } else if (arg === "--baseline-report") {
+      baselineReport = args[++index];
+      if (baselineReport === undefined) throw new Error("--baseline-report requires a measured bank report.");
+    } else if (arg === "--affected") {
+      const path = args[++index];
+      if (path === undefined) throw new Error("--affected requires a changed source path.");
+      affected.push(resolve(path));
+    } else if (arg === "--smoke") {
+      smoke = true;
     } else if (arg === "--match") {
       matches.push(args[++index]);
     } else if (arg === "--file") {
@@ -248,7 +309,7 @@ function parseArgs(args) {
     } else if (arg === "--with-preruns") {
       withPreruns = true;
     } else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: test/scripts/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--repository-root <absolute-path>] [--group-prefix <prefix>] [--match <task-substring>] [--file <exact-path>] [--list] [--inventory] [--with-preruns]");
+      console.log("Usage: test/scripts/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--repository-root <absolute-path>] [--group-prefix <prefix>] [--match <task-substring>] [--file <exact-path>] [--affected <changed-path>] [--smoke] [--baseline-report <bank-report>] [--list] [--inventory] [--with-preruns]");
       process.exit(0);
     } else {
       console.error(`FAIL: unknown argument: ${arg}`);
@@ -259,7 +320,8 @@ function parseArgs(args) {
   if (!Number.isFinite(progressIntervalMs) || progressIntervalMs < 0) {
     progressIntervalMs = 180_000;
   }
-  return { concurrency, progressIntervalMs, scopes, groupPrefixes, matches, files, repositoryRoot, list, inventory, withPreruns };
+  return { concurrency, progressIntervalMs, scopes, groupPrefixes, matches, files, repositoryRoot, list, inventory, withPreruns,
+    affected, smoke, baselineReport };
 }
 
 function timestamp() {

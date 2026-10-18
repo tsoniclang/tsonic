@@ -11,9 +11,10 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
   if (!positive(requestedMiB) || !positive(machine.totalMemoryMiB) || !positive(machine.availableMemoryMiB)) {
     throw new Error("Memory admission requires positive finite machine and job sizes.");
   }
-  const reserveMiB = 16_384;
+  const reserveMiB = machine.reserveMiB ?? 6144;
+  if (!positive(reserveMiB)) throw new Error("The memory reserve must be a positive integer.");
   const capacityMiB = machine.totalMemoryMiB - reserveMiB;
-  if (requestedMiB > capacityMiB) throw new Error("The job cannot fit alongside the 16 GiB memory reserve.");
+  if (requestedMiB > capacityMiB) throw new Error(`The job cannot fit alongside the ${reserveMiB} MiB memory reserve.`);
   const claims = new Map();
   for (const claim of reservations) {
     if (typeof claim.unit !== "string" || !positive(claim.memoryMiB) || claims.has(claim.unit)) {
@@ -142,7 +143,8 @@ function memoryAdmissionCommand(arguments_) {
   const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
   const retained = state.reservations.filter(entry => reservationIsLive(entry, scopes, readProcess, bootId));
   if (retained.some(entry => entry.unit === unit)) throw new Error("A test job cannot reserve memory twice.");
-  const result = planTestMemoryAdmission(readTestHostResources(), retained, scopes, Number(memoryText));
+  const machine = { ...readTestHostResources(), reserveMiB: Number(process.env.TSONIC_TEST_RESERVE_MIB ?? 6144) };
+  const result = planTestMemoryAdmission(machine, retained, scopes, Number(memoryText));
   if (!result.admitted) {
     writeState(statePath, { ...state, reservations: retained });
     return 75;

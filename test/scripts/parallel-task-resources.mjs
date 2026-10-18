@@ -1,5 +1,88 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, resolve, sep } from "node:path";
+
+export function taskTimeoutsFromBaseline(baseline) {
+  if (!Array.isArray(baseline.results)) throw new Error("A file timeout baseline requires task results.");
+  const timeouts = new Map();
+  for (const task of baseline.results) {
+    if (typeof task.id !== "string" || task.id.length === 0 || timeouts.has(task.id) ||
+        !Number.isFinite(task.durationMs) || task.durationMs < 0) {
+      throw new Error("File timeout baselines require unique task identities and measured file wall times.");
+    }
+    timeouts.set(task.id, Math.max(300_000, Math.ceil(task.durationMs * 10)));
+  }
+  return timeouts;
+}
+
+export function taskTimeoutMilliseconds(task, timeouts = new Map()) {
+  return timeouts.get(task.id) ?? 1_800_000;
+}
+
+export function activeWorkspaceReferences(directories, procRoot = "/proc") {
+  const active = new Set();
+  const within = (path, root) => path === root || path.startsWith(`${root}${sep}`);
+  for (const entry of readdirSync(procRoot)) {
+    if (!/^\d+$/u.test(entry) || Number(entry) === process.pid) continue;
+    const root = resolve(procRoot, entry);
+    try {
+      const status = readFileSync(resolve(root, "status"), "utf8");
+      if (Number(status.match(/^Uid:\s+(\d+)/mu)?.[1]) !== process.getuid()) continue;
+      const paths = [readlinkSync(resolve(root, "cwd")), readlinkSync(resolve(root, "exe")),
+        ...readFileSync(resolve(root, "cmdline"), "utf8").split("\0")];
+      for (const directory of directories) {
+        if (paths.some(path => within(path, directory))) active.add(directory);
+      }
+    } catch (error) {
+      if (["ENOENT", "ESRCH"].includes(error.code)) continue;
+      throw error;
+    }
+  }
+  return active;
+}
+
+export function cleanupFinishedCargoTargets(manifestPath, taskGroup, options = {}) {
+  const result = { removed: [], retained: [], issue: null };
+  if (!existsSync(manifestPath)) return result;
+  if (taskGroup?.drained !== true) return { ...result, issue: "Task descendants are not proven drained; Cargo binaries retained." };
+  const workspaces = readFileSync(manifestPath, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+  for (const entry of workspaces) {
+    if (typeof entry.directory !== "string" || !isAbsolute(entry.directory) ||
+        !entry.directory.split(sep).some(part => part === ".temp" || part === ".tests") ||
+        !/^\d+$/u.test(entry.dev ?? "") || !/^\d+$/u.test(entry.ino ?? "")) throw new Error("Invalid task-owned workspace identity.");
+  }
+  const active = options.activePaths ?? activeWorkspaceReferences(workspaces.map(entry => entry.directory));
+  for (const entry of workspaces) {
+    if (!existsSync(entry.directory)) continue;
+    const actual = lstatSync(entry.directory, { bigint: true });
+    if (!actual.isDirectory() || String(actual.dev) !== entry.dev || String(actual.ino) !== entry.ino ||
+        realpathSync(entry.directory) !== entry.directory || active.has(entry.directory)) {
+      result.retained.push(entry.directory);
+      continue;
+    }
+    visit(entry.directory);
+  }
+  return result;
+
+  function visit(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (!entry.isDirectory() || entry.name === "node_modules" || entry.name === ".git") continue;
+      if (entry.name === "target") {
+        if (!existsSync(resolve(directory, "Cargo.toml"))) continue;
+        for (const profile of ["debug", "release"]) {
+          const profilePath = resolve(path, profile);
+          if (!existsSync(profilePath) || !lstatSync(profilePath).isDirectory() || realpathSync(profilePath) !== profilePath) continue;
+          for (const leaf of ["deps", "incremental"]) {
+            const binary = resolve(profilePath, leaf);
+            if (!existsSync(binary) || !lstatSync(binary).isDirectory() || realpathSync(binary) !== binary) continue;
+            rmSync(binary, { recursive: true });
+            result.removed.push(binary);
+          }
+        }
+      } else visit(path);
+    }
+  }
+}
 
 export function sampleTaskProcessTree(parentPid, procRoot = "/proc") {
   const pending = children(parentPid);
@@ -95,8 +178,8 @@ export function readTaskResourceUsage(path, durationMs, processes, budget) {
     averageCores: durationMs > 0 ? cpuSeconds * 1000 / durationMs : null },
     memory: { method: "wait4-maximum-individual-process-rss", maximumResidentBytes: usage.maximumResidentKiB * 1024,
       exactAggregateMemoryPeakBytes: null, permitsAutomaticWeightReduction: false },
-    processes, workers: 1, childJobs: budget.childJobs, reservedMemoryMiB: budget.memoryMiB,
-    memoryAdmission: "queue-weight-within-outer-job-cgroup" };
+    processes, workers: 1, childJobs: budget.childJobs,
+    memoryAdmission: "outer-job-cgroup-only" };
 }
 
 export function timedTaskArguments(path, command, args) {
