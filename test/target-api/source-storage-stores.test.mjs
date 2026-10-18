@@ -204,7 +204,8 @@ test("published write selections keep each nested input and default projection a
     for (const [item = fallback] of rows) void item;
   `);
   const { ast } = current.source;
-  const binding = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "value");
+  const binding = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "value");
   const selected = current.transport.subjectFor(binding);
   assert.equal(selected.node === binding && selected.projection.length === 0, true,
     "a mutable destructured binding is not the original owner's component storage");
@@ -221,7 +222,8 @@ test("published write selections keep each nested input and default projection a
     assert.equal(published.values === store.values && published.destinations.includes(selected) && Object.isFrozen(published), true,
       "the canonical published record preserves original selection and exact destination identity");
   }
-  const item = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "item");
+  const item = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "item");
   const iteration = [...current.transport.storesFor(current.transport.subjectFor(item))][0];
   assert.equal(iteration.kind === "initialization" && iteration.reason === undefined && iteration.values.length === 2, true,
     "the loop produces its actual element and conditional default once per iteration");
@@ -293,7 +295,8 @@ test("physical producer values and rejection reasons use the identical member-ve
     const reason = current.transport.unresolvedStoredInputsFor(storage);
     assert.equal(reason === undefined, true,
       "only an actual member writer can poison its physical producer evidence");
-    assert.equal([...current.transport.storedInputsFor(storage)].length === 1, true,
-      "both cases retain the exact initialization producer independently of unresolved writer evidence");
+    const inputs = [...current.transport.storedInputsFor(storage)];
+    assert.equal(inputs.length === (memberWrite ? 2 : 1) && inputs.includes(current.transport.subject(parameter, "input")), true,
+      "both cases retain the exact initialization; only an actual member iteration adds its checked physical element producer");
   }
 });

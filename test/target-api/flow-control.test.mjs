@@ -299,7 +299,7 @@ test("flow writes and the canonical store retain identical original nested defau
   const storage = createSourceStorageQuery(current.source, current.source.sourceFiles);
   const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
     point.operation.value !== undefined && ["value", "iterated"].includes(current.ast.text(current.ast.name(point.operation.binding))));
-  assert.equal(writes.length, 10, "every original incoming/default/iteration branch has its own exact checked write event");
+  assert.equal(writes.length, 12, "both outer branches retain their own inner fallback event plus every original iteration branch");
   for (const point of writes) {
     const operation = point.operation;
     const selected = storage.writeAt(operation.reference, storage.emptyBindings);

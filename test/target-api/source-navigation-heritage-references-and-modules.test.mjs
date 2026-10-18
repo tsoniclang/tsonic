@@ -391,7 +391,8 @@ test("source write occurrences retain original nested defaults and iteration pro
   const source = createTargetSourceProgram(checked);
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
-  const selected = requiredNode(ast, file, node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "value");
+  const selected = requiredNode(ast, file, node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "value");
   const initialization = sourceBindingWriteAtReference(ast, ast.name(selected));
   assert.equal(initialization?.kind === "initialization", true, "the declaration's exact original write is retained separately");
   assert.deepEqual(initialization.values.map(value => ast.text(value.expression)), ["source", "outer", "inner"]);
@@ -404,7 +405,8 @@ test("source write occurrences retain original nested defaults and iteration pro
   assert.deepEqual(writes[0].values.map(value => value.projection.length), [2, 1, 0]);
   assert.deepEqual(writes[1].values.map(value => [value.kind, ast.text(value.expression), value.projection.length]),
     [["iteration-value", "rows", 2], ["value", "inner", 0]]);
-  const iterated = requiredNode(ast, file, node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "iterated");
+  const iterated = requiredNode(ast, file, node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "iterated");
   const iteration = sourceBindingWriteAtReference(ast, ast.name(iterated));
   const declaration = iteration.values[0].projection[0];
   assert.equal(iteration.kind === "iteration" && ast.is.IsVariableDeclaration(declaration), true,

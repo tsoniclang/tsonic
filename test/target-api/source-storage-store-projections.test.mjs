@@ -21,6 +21,9 @@ function fixture(limits = {}) {
   const values = subject(namedVariable(source.ast, file, "values"));
   const selected = subject(values.node, values.kind, [{ kind: "array-element" }]);
   const store = Object.freeze({ reference: values.node, operation: values.node, storage: values, value: pair,
+    values: Object.freeze([Object.freeze({ source: Object.freeze({ kind: "value",
+      expression: source.ast.as.AsVariableDeclaration(values.node).Initializer, projection: Object.freeze([]) }),
+      subjects: Object.freeze([pair]), reason: undefined })]),
     region: file, kind: "initialization", destination: "binding" });
   const edges = createSourceStorageEdges(source, budget, subject, () => file);
   let storeLookups = 0;
