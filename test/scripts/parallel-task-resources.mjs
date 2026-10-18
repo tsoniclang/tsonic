@@ -95,8 +95,8 @@ export function readTaskResourceUsage(path, durationMs, processes, budget) {
     averageCores: durationMs > 0 ? cpuSeconds * 1000 / durationMs : null },
     memory: { method: "wait4-maximum-individual-process-rss", maximumResidentBytes: usage.maximumResidentKiB * 1024,
       exactAggregateMemoryPeakBytes: null, permitsAutomaticWeightReduction: false },
-    processes, workers: 1, childJobs: budget.childJobs, reservedMemoryMiB: budget.memoryMiB,
-    memoryAdmission: "queue-weight-within-outer-job-cgroup" };
+    processes, workers: 1, childJobs: budget.childJobs,
+    memoryAdmission: "outer-job-cgroup-only" };
 }
 
 export function timedTaskArguments(path, command, args) {

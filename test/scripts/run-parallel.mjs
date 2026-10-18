@@ -167,7 +167,7 @@ function runShard(shard) {
         const executionIssue = testTaskExecutionIssue({ status: normalizedStatus, signal, summary, tests });
         if (executionIssue !== null) throw new Error(executionIssue);
         resources = readTaskResourceUsage(usagePath, durationMs, processObservations,
-          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS), memoryMiB: shard.memoryMiB ?? resourceBudget.workerMemoryMiB });
+          { childJobs: Number(taskEnvironment.TSONIC_TEST_CHILD_JOBS) });
         if (processObservations.errorMessage !== null) throw new Error(processObservations.errorMessage);
       } catch (error) {
         resultError = error.message;

@@ -27,7 +27,7 @@ test("reservation and kernel scope are one claim, not two competing budgets", ()
 test("pre-existing guarded scopes and physical free-memory pressure remain reserved", () => {
   assert.equal(planTestMemoryAdmission(machine, [], [scope("legacy", 40_960)], 8192).admitted, false);
   assert.equal(planTestMemoryAdmission({ ...machine, availableMemoryMiB: 20_000 }, [], [], 4096).admitted, false);
-  assert.throws(() => planTestMemoryAdmission(machine, [], [], 45_057), /16 GiB/u);
+  assert.throws(() => planTestMemoryAdmission(machine, [], [], 45_057), /16384 MiB/u);
   assert.throws(() => planTestMemoryAdmission(machine, [scope("same", 1), scope("same", 1)], [], 1), /duplicate/u);
   assert.throws(() => planTestMemoryAdmission(machine, [], [scope("infinite", Infinity)], 1), /unbounded/u);
 });
@@ -54,4 +54,17 @@ test("every job meets the same physical headroom and aggregate admission rules",
   }
   assert.throws(() => planTestMemoryAdmission(machine, [], [], 4096, { permitHeadroom: true }), /accepts only/u,
     "the removed extra-configuration signature cannot bypass admission");
+});
+
+test("an explicit group reserve changes admission once, never per test", () => {
+  const trial = { ...machine, availableMemoryMiB: 32_768, reserveMiB: 8192 };
+  const admitted = planTestMemoryAdmission(trial, [], [], 24_576);
+  assert.equal(admitted.admitted, true);
+  assert.equal(admitted.reserveMiB, 8192);
+  assert.equal(admitted.reservedMiB, 0);
+  assert.equal(planTestMemoryAdmission({ ...trial, availableMemoryMiB: 32_767 }, [], [], 24_576).admitted, false);
+  assert.equal(planTestMemoryAdmission({ ...trial, reserveMiB: 16_384 }, [], [], 24_576).admitted, false);
+  for (const reserveMiB of [0, -1, NaN, Infinity]) {
+    assert.throws(() => planTestMemoryAdmission({ ...trial, reserveMiB }, [], [], 24_576), /reserve/u);
+  }
 });

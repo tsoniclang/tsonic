@@ -33,7 +33,7 @@ export function writeParallelReport({ options, runId, tsonicRoot, resourceBudget
       investigationRequired: testCounts.total >= 24 && averageTaskCores !== null && averageTaskCores < 8,
       limits: { queuedFiles: results.length, workerSlots: resourceBudget.workers, memoryMiB: resourceBudget.memoryMiB,
         groupWorkerLimits: suiteDefinition.groupWorkerLimits, exclusiveFiles: exclusiveShardCount,
-        taskWeightsMiB: [...new Set(results.map(result => result.shard.memoryMiB ?? resourceBudget.workerMemoryMiB))].sort((left, right) => left - right) },
+        perTaskMemoryReservations: false, heapCapMiB: resourceBudget.heapMiB },
       exactWholeJobCgroupPeak: "available in the outer guard receipt, not a per-task measurement",
     },
     repos: snapshotParallelRepositories(repos),

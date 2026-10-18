@@ -270,7 +270,7 @@ function makeFixture(guardOverrides = {}, bankOverrides = {}) {
     measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
     admission: { admitted: true, unit: "fixture.scope", requestedMiB: 4096 },
     scopeResult: "success", memoryMiB: 4096, tasksMax: 2048, timeoutSeconds: 60, logMaxBytes: 65536,
-    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 },
+    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, childJobs: 1, workers: 2, heapMiB: 1536 },
     ...guardOverrides };
   const guardPath = resolve(root, "guard.json");
   const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");

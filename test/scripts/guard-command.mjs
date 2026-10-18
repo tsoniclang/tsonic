@@ -30,10 +30,10 @@ export function memoryBoundNodeTestArguments(command, arguments_, workers) {
     const argument = options[index];
     if (argument.startsWith("--test-concurrency=")) {
       configured = true;
-      if (argument.slice("--test-concurrency=".length) !== expected) throw new Error("Node test concurrency must equal the memory-derived worker count.");
+      if (argument.slice("--test-concurrency=".length) !== expected) throw new Error("Node test concurrency must equal the selected worker count.");
     } else if (argument === "--test-concurrency") {
       configured = true;
-      if (options[index + 1] !== expected) throw new Error("Node test concurrency must equal the memory-derived worker count.");
+      if (options[index + 1] !== expected) throw new Error("Node test concurrency must equal the selected worker count.");
     }
   }
   if (configured) return arguments_;
@@ -79,7 +79,7 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   const [measurementPath, timeoutSeconds, command, ...arguments_] = process.argv.slice(2);
   if (!/^[1-9]\d*$/u.test(timeoutSeconds ?? "")) throw new Error("A positive bounded command timeout is required.");
   const budget = JSON.parse(process.env.TSONIC_TEST_RESOURCE_BUDGET);
-  const workers = Math.floor(budget.memoryMiB / budget.workerMemoryMiB);
+  const workers = budget.workers;
   const bounded = memoryBoundNodeTestArguments(command, arguments_, workers);
   process.exitCode = await runGuardCommand(measurementPath, "timeout", [
     "--signal=TERM", "--kill-after=30s", `${timeoutSeconds}s`, command, ...bounded,
