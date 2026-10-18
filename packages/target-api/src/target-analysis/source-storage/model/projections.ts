@@ -6,6 +6,14 @@ import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjec
 import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
+export interface SourceStorageWriteProjection {
+  readonly subjects: readonly SourceStorageSubject[];
+  readonly birth?: readonly {
+    readonly origin: SourceStorageSubject;
+    readonly destination: SourceStorageSubject;
+  }[];
+}
+
 export function createSourceStorageProjectionFlow(
   source: TargetSourceProgram,
   step: () => boolean,
@@ -35,13 +43,36 @@ export function createSourceStorageProjectionFlow(
       unresolved(value, "An indexed value has no exact checked array/tuple storage component.");
     return value;
   };
-  const patternComponent = (originalOwner: SourceStorageSubject, reference: Node): readonly SourceStorageSubject[] | undefined => {
+  const patternComponent = (originalOwner: SourceStorageSubject, reference: Node): SourceStorageWriteProjection | undefined => {
     const pattern = ast.parent(reference);
     if (pattern === undefined) return undefined;
-    if (ast.is.IsObjectBindingPattern(pattern) && ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined) return undefined;
     const queries = semantics.forNode(reference);
     const rawType = sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
     const ownerType = rawType === undefined ? undefined : sourcePresentStorageType(rawType, queries) ?? rawType;
+    if (ast.is.IsObjectBindingPattern(pattern) && ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined) {
+      const value = subject(reference);
+      const resultType = value === undefined ? undefined : sourceStorageSubjectType(source, value, sourceFileFor(value));
+      const members = ownerType === undefined || resultType === undefined ? undefined : queries.types.structuralMembers(ownerType, resultType);
+      if (value === undefined || members?.kind !== "available") return undefined;
+      const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
+      for (const member of members.members) {
+        if (!step() || member.kind !== "present" ||
+          member.source.read !== "property" && member.source.read !== "method" ||
+          member.destination.read !== "property" && member.destination.read !== "method") return undefined;
+        for (const original of member.source.declarations) {
+          if (!step()) return undefined;
+          for (const destination of member.destination.declarations) {
+            if (!step()) return undefined;
+            const origin = project(originalOwner, { kind: member.source.read === "method" ? "method-value" : "member", declaration: original });
+            const target = project(value, { kind: member.destination.read === "method" ? "method-value" : "member", declaration: destination });
+            if (origin === undefined || target === undefined) return undefined;
+            connect(origin, target);
+            birth.push(Object.freeze({ origin, destination: target }));
+          }
+        }
+      }
+      return Object.freeze({ subjects: Object.freeze([value]), birth: Object.freeze(birth) });
+    }
     if (ast.is.IsObjectBindingPattern(pattern) || ast.is.IsObjectLiteralExpression(pattern)) {
       const binding = ast.as.AsBindingElement(reference);
       const name = binding?.PropertyName ?? ast.name(reference);
@@ -61,7 +92,7 @@ export function createSourceStorageProjectionFlow(
         if (value === undefined) return undefined;
         values.add(value);
       }
-      return Object.freeze([...values]);
+      return Object.freeze({ subjects: Object.freeze([...values]) });
     }
     if (!ast.is.IsArrayBindingPattern(pattern) && !ast.is.IsArrayLiteralExpression(pattern)) return undefined;
     const index = ast.elements(pattern).indexOf(reference);
@@ -72,19 +103,24 @@ export function createSourceStorageProjectionFlow(
     if (component === undefined) return undefined;
     if (!rest) {
       const value = project(originalOwner, component);
-      return value === undefined ? undefined : [value];
+      return value === undefined ? undefined : Object.freeze({ subjects: Object.freeze([value]) });
     }
     const value = subject(reference);
     if (value === undefined || ownerType === undefined) return undefined;
     const resultType = sourceStorageSubjectType(source, value, sourceFileFor(value));
     if (resultType === undefined) return undefined;
+    const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
     for (const original of sourceStorageComponents(ownerType, queries)) {
       if (!step()) return undefined;
       if (original.kind === "tuple-element" && original.index < index) continue;
-      connect(project(originalOwner, original), project(value, original.kind === "tuple-element" && queries.types.isTuple(resultType)
-        ? { kind: "tuple-element", index: original.index - index } : { kind: "array-element" }));
+      const origin = project(originalOwner, original);
+      const destination = project(value, original.kind === "tuple-element" && queries.types.isTuple(resultType)
+        ? { kind: "tuple-element", index: original.index - index } : { kind: "array-element" });
+      if (origin === undefined || destination === undefined) return undefined;
+      connect(origin, destination);
+      birth.push(Object.freeze({ origin, destination }));
     }
-    return [value];
+    return Object.freeze({ subjects: Object.freeze([value]), birth: Object.freeze(birth) });
   };
   const binding = (reference: Node): SourceStorageSubject | undefined => {
     const pattern = ast.parent(reference);
@@ -92,18 +128,19 @@ export function createSourceStorageProjectionFlow(
     if (owner === undefined || !ast.is.IsBindingElement(reference)) return undefined;
     const originalOwner = subjectFor(owner);
     const selected = originalOwner === undefined ? undefined : patternComponent(originalOwner, reference);
-    if (selected?.length === 1) return selected[0];
+    if (selected?.subjects.length === 1) return selected.subjects[0];
     const value = subject(reference);
     if (value !== undefined) {
       if (selected === undefined) unresolved(value, "A source binding requires its exact checked readable storage component.");
-      else for (const original of selected) connect(original, value);
+      else for (const original of selected.subjects) connect(original, value);
     }
     return value;
   };
-  const writeValue = (input: SourceBindingWriteValue): readonly SourceStorageSubject[] | undefined => {
+  const writeValue = (input: SourceBindingWriteValue): SourceStorageWriteProjection | undefined => {
     const original = subjectFor(input.expression);
     if (original === undefined) return undefined;
     let selected: readonly SourceStorageSubject[] = [original];
+    let birth: SourceStorageWriteProjection["birth"];
     let offset = 0;
     if (input.kind !== "value") {
       const type = sourceStorageSubjectType(source, original, sourceFileFor(original));
@@ -122,15 +159,24 @@ export function createSourceStorageProjectionFlow(
     }
     for (const component of input.projection.slice(offset)) {
       const values = new Set<SourceStorageSubject>();
+      const components: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
+      let created: SourceStorageSubject | undefined;
       for (const owner of selected) {
         if (!step()) return undefined;
         const projected = patternComponent(owner, component);
         if (projected === undefined) return undefined;
-        for (const value of projected) values.add(value);
+        for (const value of projected.subjects) values.add(value);
+        if (projected.birth !== undefined) {
+          const value = projected.subjects[0];
+          if (value === undefined || projected.subjects.length !== 1 || created !== undefined && created !== value) return undefined;
+          created = value;
+          components.push(...projected.birth);
+        }
       }
       selected = Object.freeze([...values]);
+      birth = selected.length === 1 && selected[0] === created ? Object.freeze(components) : undefined;
     }
-    return Object.freeze([...selected]);
+    return Object.freeze({ subjects: Object.freeze([...selected]), ...(birth === undefined ? {} : { birth }) });
   };
   const literal = (node: Node): void => {
     const owner = subjectFor(node);
