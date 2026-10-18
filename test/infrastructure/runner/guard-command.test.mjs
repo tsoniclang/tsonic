@@ -101,7 +101,7 @@ test("a failed child retains its exact exit status and measurement", async () =>
 test("only the owned cgroup can invalidate a bounded command for OOM", () => {
   const measurement = { controlGroup: "/user.slice/owned.scope", swapBytes: 0, oomBefore: 2, oomAfter: 2,
     durationSeconds: 2, cpuUsageMicroseconds: 3_000_000 };
-  const report = createGuardReport({ measurement, before: "7", after: "8", status: 0, memory: 4096,
+  const report = createGuardReport({ measurement, before: "7", after: "8", status: 0, memory: 4096, memorySource: "explicit",
     tasks: 2048, timeout: 60, logMax: 65536, scope: "success", calibration: "", drained: "true", log: "/actual/log" });
   assert.equal(guardMeasurementSucceeded(measurement), true, "a foreign job kill does not change owned counters");
   assert.equal(report.oomBefore, 2, "the canonical receipt starts at the owned counter");
@@ -113,7 +113,7 @@ test("only the owned cgroup can invalidate a bounded command for OOM", () => {
     { ...measurement, oomBefore: -1, oomAfter: -1 }, { ...measurement, swapBytes: 1 }]) {
     assert.equal(guardMeasurementSucceeded(invalid), false, "owned OOM, swap and absent proof still fail closed");
   }
-  const missing = createGuardReport({ measurement: null, before: "7", after: "7" });
+  const missing = createGuardReport({ measurement: null, before: "7", after: "7", memory: 4096, memorySource: "formula" });
   assert.equal(missing.oomBefore, null, "global counters never substitute for missing own-job evidence");
   assert.equal(missing.oomAfter, null);
 });
@@ -135,4 +135,17 @@ test("owned receipt proof binds measurement, admission, budget, exit and drain w
     { measurement: { ...measurement, controlGroup: "/user.slice/other.scope" } },
     { measurement: { ...measurement, exitCode: 1 } },
   ]) assert.equal(guardReceiptHasOwnedMeasurements({ ...receipt, ...changed }), false, Object.keys(changed).join(","));
+});
+
+test("guard receipts require the actual outer request source and exact admitted value", () => {
+  for (const source of ["formula", "explicit"]) {
+    const input = { measurement: null, memory: 4096, memorySource: source, before: "7", after: "7" };
+    const report = createGuardReport(input);
+    assert.equal(report.memoryRequest.source, source);
+    assert.equal(report.memoryRequest.valueMiB, 4096);
+    for (const memorySource of [undefined, "inherited", "guessed"]) {
+      assert.throws(() => createGuardReport({ ...input, memorySource }), /actual outer memory request/u);
+    }
+    assert.throws(() => createGuardReport({ ...input, memory: 0 }), /actual outer memory request/u);
+  }
 });
