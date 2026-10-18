@@ -36,6 +36,39 @@ test("only individually drained task-owned Cargo binary leaves are pruned, prese
   assert.equal(readFileSync(join(foreign, "debug/deps/native"), "utf8"), "foreign", "a symlink cannot transfer deletion ownership");
 });
 
+test("the real runner prunes a finished failing file's Cargo binaries after draining its log and native child", () => {
+  const root = createTestWorkspace(scratch, "cargo-runner-");
+  const repository = join(root, "repository");
+  const file = join(repository, "test/infrastructure/runner/terminal.test.mjs");
+  mkdirSync(join(repository, "test/infrastructure/runner"), { recursive: true });
+  const record = join(root, "generated-project.json");
+  const report = join(root, "report.json");
+  writeFileSync(file, `
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import test from "node:test";
+import { createTestWorkspace } from ${JSON.stringify(helperUrl)};
+const project = createTestWorkspace(${JSON.stringify(join(root, ".temp"))}, "project-");
+writeFileSync(${JSON.stringify(record)}, JSON.stringify(project));
+for (const folder of ["target/debug/deps", "target/debug/incremental", "src"]) mkdirSync(join(project, folder), {recursive: true});
+for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(project, path), "preserved source and evidence");
+test("deliberate completed file failure", () => assert.fail("preserved original assertion"));
+`);
+  const run = spawnSync(process.execPath, ["test/scripts/run-parallel.mjs", "--scope", "tsonic", "--repository-root", repository, "--file", file],
+    { cwd: tsonicRoot, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536, env: { ...process.env, TSONIC_TEST_SUITE_REPORT: report } });
+  assert.equal(run.status, 1, "the completed assertion remains failed, not silently repaired by cleanup");
+  const [result] = JSON.parse(readFileSync(report, "utf8")).results;
+  assert.equal(result.cgroup.drained, true, "the actual kernel proves the task empty");
+  assert.equal(result.cleanup.issue, null, "the actual process/reference scan completed");
+  assert.equal(result.cleanup.removed.length, 2, "both generated binary leaves are pruned before the runner returns");
+  const project = JSON.parse(readFileSync(record, "utf8"));
+  for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(project, path), "utf8"), "preserved source and evidence", `${path}: original evidence is retained`);
+  }
+  assert.equal(result.tests[0].message, "preserved original assertion", "the report keeps the precise failed assertion");
+});
+
 function fixture(body) {
   const root = createTestWorkspace(scratch, "case-");
   const file = join(root, "worker.test.mjs");
