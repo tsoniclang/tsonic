@@ -7,8 +7,32 @@ export function guardMeasurementSucceeded(measurement) {
     measurement.swapBytes === 0 && Number.isSafeInteger(measurement.oomBefore) &&
     measurement.oomBefore >= 0 && Number.isSafeInteger(measurement.oomAfter) &&
     measurement.oomAfter >= measurement.oomBefore && (measurement.oomAfter === measurement.oomBefore ||
-      measurement.oomRecovery?.verified === true && measurement.oomRecovery.issue === null &&
-      measurement.oomRecovery.accountedKills === measurement.oomAfter - measurement.oomBefore);
+      verifiedOomMeasurement(measurement));
+}
+
+function verifiedOomMeasurement(measurement) {
+  const recovery = measurement.oomRecovery;
+  if (recovery?.verified !== true || recovery.issue !== null || typeof recovery.evidencePath !== "string" ||
+      !recovery.evidencePath.startsWith("/") || !Array.isArray(recovery.incidents) || recovery.incidents.length === 0 ||
+      !Array.isArray(recovery.victimTaskIds) || new Set(recovery.victimTaskIds).size !== recovery.incidents.length ||
+      recovery.accountedKills !== measurement.oomAfter - measurement.oomBefore) return false;
+  return recovery.incidents.every(incident => typeof incident.task === "string" && incident.task.length > 0 &&
+    recovery.victimTaskIds.includes(incident.task) && incident.first?.drained === true &&
+    Number.isSafeInteger(incident.first.oomKills) && incident.first.oomKills > 0 &&
+    incident.retry?.drained === true && incident.retry.oomKills === 0 && incident.retryStatus === 0 &&
+    incident.retryCompleted === true && Number.isSafeInteger(incident.retryTests) && incident.retryTests > 0 &&
+    Number.isSafeInteger(incident.firstWidth) && incident.firstWidth > 0 &&
+    incident.retryWidth === Math.max(1, Math.floor(incident.firstWidth / 2)) &&
+    typeof incident.retryResultPath === "string" && incident.retryResultPath.length > 0) &&
+    recovery.incidents.reduce((total, incident) => total + incident.first.oomKills, 0) === recovery.accountedKills;
+}
+
+export function guardScopeResultAccepted(receipt) {
+  if (!guardMeasurementSucceeded(receipt?.measurement)) return false;
+  const allowed = receipt.exitCode === 0 ? [null, "success"]
+    : receipt.exitCode === 1 ? [null, "success", "exit-code"] : [];
+  if (receipt.measurement.oomAfter > receipt.measurement.oomBefore) allowed.push("oom-kill");
+  return allowed.includes(receipt.scopeResult);
 }
 
 export function prepareTaskCgroups(group, pid = process.pid) {
@@ -67,7 +91,7 @@ export async function drainTaskCgroup(path) {
 }
 
 export function verifyOomRecoveries(group, reportPath, killedCount) {
-  const empty = { verified: killedCount === 0, accountedKills: 0, incidents: [], issue: null };
+  const empty = { verified: killedCount === 0, accountedKills: 0, incidents: [], victimTaskIds: [], evidencePath: reportPath ?? null, issue: null };
   if (reportPath === undefined || !existsSync(reportPath)) {
     return { ...empty, issue: killedCount === 0 ? null : "OOM victim attribution unavailable" };
   }
@@ -94,9 +118,13 @@ export function verifyOomRecoveries(group, reportPath, killedCount) {
     }
     const accountedKills = incidents.reduce((total, incident) => total + incident.first.oomKills, 0);
     if (accountedKills !== killedCount) throw new Error("Not every owned OOM kill has a proved passing one-time retry.");
-    return { verified: true, accountedKills, incidents, issue: null };
+    const recovery = { verified: true, accountedKills, incidents, victimTaskIds: incidents.map(incident => incident.task), evidencePath: reportPath, issue: null };
+    if (killedCount > 0 && !verifiedOomMeasurement({ oomBefore: 0, oomAfter: killedCount, oomRecovery: recovery })) {
+      throw new Error("OOM recovery lacks exact task identities, half-width or retry-result evidence.");
+    }
+    return recovery;
   } catch (error) {
-    return { verified: false, accountedKills: 0, incidents, issue: error.message };
+    return { ...empty, verified: false, incidents, issue: error.message };
   }
 }
 

@@ -59,7 +59,8 @@ test("child kernel accounting validates every recovery against the original and 
   const firstGroup = make("task-first", 1);
   const retryGroup = make("task-retry", 0);
   const path = resolve(root, "recoveries.jsonl");
-  const incident = { firstGroup, retryGroup, retryStatus: 0, retryCompleted: true, retryTests: 3 };
+  const incident = { task: "fixture", firstGroup, retryGroup, retryStatus: 0, retryCompleted: true, retryTests: 3,
+    firstWidth: 2, retryWidth: 1, retryResultPath: resolve(root, "retry.jsonl") };
   writeFileSync(path, `${JSON.stringify(incident)}\n`);
   const valid = verifyOomRecoveries(root, path, 1);
   assert.equal(valid.verified, true, "every owned kill is exactly accounted for");

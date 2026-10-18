@@ -127,6 +127,7 @@ async function runShards(allShards) {
         task: result.shard.id, firstGroup: first.cgroup.path, retryGroup: result.cgroup.path,
         retryStatus: result.status, retryCompleted: result.summary.completed, retryTests: result.tests.length,
         firstLog: first.logPath, retryLog: result.logPath, firstWidth: first.workers, retryWidth: result.workers,
+        firstResultPath: first.shard.resultPath, retryResultPath: result.shard.resultPath,
       })}\n`);
     }
   }

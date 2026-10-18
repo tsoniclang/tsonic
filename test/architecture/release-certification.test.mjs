@@ -257,6 +257,24 @@ test("new test captures produce structured counts and preserve failure status", 
   assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
 });
 
+test("certification resource gates share exact no-OOM and passing half-width recovery rules", () => {
+  const noOom = makeFixture();
+  assert.doesNotThrow(() => validate(noOom), "no-OOM exit, counts and immutable evidence remain required");
+  const incident = { task: "fixture", first: { drained: true, oomKills: 1 }, retry: { drained: true, oomKills: 0 },
+    retryStatus: 0, retryCompleted: true, retryTests: 2, firstWidth: 4, retryWidth: 2, retryResultPath: "/evidence/retry.jsonl" };
+  const recovery = { verified: true, issue: null, accountedKills: 1, incidents: [incident], victimTaskIds: ["fixture"],
+    evidencePath: "/evidence/recovery.jsonl" };
+  const measurement = { ...noOom.record.guard.measurement, oomAfter: 1, oomRecovery: recovery };
+  const recovered = makeFixture({ scopeResult: "oom-kill", oomAfter: 1, measurement });
+  assert.doesNotThrow(() => validate(recovered), "a proved retry retains the exact original incident and raw counters");
+  const unproven = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, verified: false } } });
+  assert.throws(() => validate(unproven), /owned resource guard/u);
+  const failedRetry = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, incidents: [{ ...incident, retryStatus: 1 }] } } });
+  assert.throws(() => validate(failedRetry), /owned resource guard/u);
+});
+
 function makeFixture(guardOverrides = {}, bankOverrides = {}) {
   const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
   const root = resolve(workspace, "record");
