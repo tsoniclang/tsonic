@@ -98,3 +98,21 @@ test("direct evidence preserves local projected failures without executing ances
   assert.equal(queries.directFor(projected), "exact local failure");
   assert.equal(budget.failure() === undefined, true);
 });
+
+test("a completed local incomplete selection cannot poison an unrelated root", () => {
+  const { budget, subject, selected } = fixture();
+  const broken = selected();
+  const safe = selected();
+  const boundary = selected();
+  let reads = 0;
+  const queries = createSourceStorageUnresolvedQueries(budget, subject, owner => {
+    reads += 1;
+    return owner === broken ? { subjects: [], reason: "incomplete invocation" } : relation(owner);
+  }, new Map([[boundary, "unproved boundary"]]));
+  assert.equal(queries.ancestryFor(broken), "incomplete invocation");
+  assert.equal(budget.failure() === undefined, true, "local missing evidence is not finite-budget exhaustion");
+  assert.equal(queries.ancestryFor(broken), "incomplete invocation");
+  assert.equal(reads, 1, "the exact incomplete root is memoized without re-execution");
+  assert.equal(queries.ancestryFor(safe), undefined);
+  assert.equal(budget.failure() === undefined, true, "independent complete evidence remains queryable");
+});
