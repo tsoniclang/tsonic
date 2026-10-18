@@ -42,6 +42,65 @@ function sameSubjects(actual, expected, label) {
   assert.equal(actual.length === expected.length && expected.every(subject => actual.includes(subject)), true, label);
 }
 
+const publishedBindingPrograms = [
+  ["array parameter", "function read([selected]: number[]): number { return selected; }"],
+  ["tuple parameter", "function read([selected]: [number]): number { return selected; }"],
+  ["omitted-position parameter", "function read([, selected]: number[]): number { return selected; }"],
+  ["default parameter", "function read([selected = 7]: number[]): number { return selected; }"],
+  ["default container parameter", "function read([selected]: number[] = [7]): number { return selected; }"],
+  ["rest parameter", "function read([first, ...selected]: number[]): number { return selected.length + first; }"],
+  ["nested parameter", "function read([[selected]]: number[][]): number { return selected; }"],
+  ["object parameter", "function read({ value: selected }: { value: number }): number { return selected; }"],
+  ["default object parameter", "function read({ value: selected = 7 }: { value?: number }): number { return selected; }"],
+  ["nested object parameter", "function read({ nested: { value: selected } }: { nested: { value: number } }): number { return selected; }"],
+  ["object rest parameter", "function read({ first, ...selected }: { first: number; second: number }): number { return first + selected.second; }"],
+  ["array local", "function read(values: number[]): number { const [selected] = values; return selected; }"],
+  ["default local", "function read(values: number[]): number { const [selected = 7] = values; return selected; }"],
+  ["rest local", "function read(values: number[]): number { const [first, ...selected] = values; return first + selected.length; }"],
+  ["nested local", "function read(values: number[][]): number { const [[selected]] = values; return selected; }"],
+  ["object local", "function read(value: { value: number }): number { const { value: selected } = value; return selected; }"],
+  ["default object local", "function read(value: { value?: number }): number { const { value: selected = 7 } = value; return selected; }"],
+  ["nested object local", "function read(value: { nested: { value: number } }): number { const { nested: { value: selected } } = value; return selected; }"],
+  ["object rest local", "function read(value: { first: number; second: number }): number { const { first, ...selected } = value; return first + selected.second; }"],
+];
+
+for (const [form, program] of publishedBindingPrograms) for (const declarationFirst of [false, true]) {
+  test(`published binding subjects keep original declaration identity after seal: ${form}/${declarationFirst}`, () => {
+    const current = fixture(program);
+    const { ast } = current.source;
+    const declaration = current.nodes.find(node => ast.is.IsBindingElement(node) &&
+      ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "selected");
+    assert.equal(declaration !== undefined, true, "the original checked binding declaration exists");
+    const name = ast.name(declaration);
+    const read = current.nodes.find(node => ast.is.IsIdentifier(node) && node !== name &&
+      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    assert.equal(read !== undefined, true, "the original checked binding read exists");
+    const order = declarationFirst ? [declaration, name, read] : [read, name, declaration];
+    const selected = new Map(order.map(node => [node, current.exact(current.storage.storageSubjectFor(node)).subject]));
+    const binding = selected.get(declaration);
+    assert.equal(binding.node === declaration && binding.kind === "value" && binding.projection.length === 0, true,
+      "the declaration remains its own canonical value, not its projected input");
+    assert.equal(selected.get(name) === binding, true, "binding name and declaration select the identical published subject");
+    assert.equal(current.exact(current.storage.subjectFor(declaration)).subject === binding &&
+      current.exact(current.storage.storageSubjectFor(name)).subject === binding, true,
+    "repeated ordinary and storage reads reuse the completed original binding subject");
+    assert.equal(current.storage.failureReason() === undefined, true,
+      "declaration/name/read ordering cannot reconstruct a binding or rest edge after graph seal");
+  });
+}
+
+test("published binding subjects reject foreign declarations without poisoning the original graph", () => {
+  const program = "function read([selected]: number[]): number { return selected; }";
+  const current = fixture(program);
+  const foreign = fixture(program);
+  const declaration = value => value.nodes.find(node => value.source.ast.is.IsBindingElement(node));
+  assert.equal(current.storage.storageSubjectFor(declaration(foreign)).kind === "unresolved", true,
+    "same spelling in another checked program is not a published local binding");
+  assert.equal(current.exact(current.storage.storageSubjectFor(declaration(current))).subject.node === declaration(current), true,
+    "the genuine original declaration remains available after a foreign lookup");
+  assert.equal(current.storage.failureReason() === undefined, true, "foreign rejection cannot mutate the published graph");
+});
+
 test("declaration bindings preserve two equal-signature formal identities without closing over callers", () => {
   const current = fixture(`
     interface Callback { (value: number): number; }

@@ -152,7 +152,12 @@ export function createSourceStorageTransport(
     if (projected && binding === undefined) return undefined;
     const value = qualified ? subject(node) : subject(target);
     if (value === undefined) return undefined;
-    if (binding !== undefined) connect(binding, subject(selected));
+    if (binding !== undefined && selected !== undefined) {
+      const declaration = subject(selected);
+      if (declaration === undefined) return undefined;
+      subjects.set(selected, declaration);
+      connect(binding, declaration);
+    }
     subjects.set(node, value);
     if (qualified) connect(binding ?? subjectFor(selected), value);
     return value;
@@ -240,7 +245,7 @@ export function createSourceStorageTransport(
   };
   const visit = (node: Node): void => {
     visitedNodes.push(node);
-    if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
+    if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsBindingElement(node) ||
       ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) ||
       ast.is.IsElementAccessExpression(node) || valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);
     if ((ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
