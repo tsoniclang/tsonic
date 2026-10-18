@@ -477,9 +477,10 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
   assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(callbackRead), true);
   const rest = call("spread");
+  const restActual = resolvedSubject(storage.subjectFor(source.ast.arguments(rest)[0]), "concrete rest actual");
   const arguments_ = storage.argumentTransportsFor(rest);
   assert.equal(arguments_.kind === "resolved" && arguments_.arguments.length === 1 &&
-    arguments_.arguments[0].actual === callbackRead && arguments_.arguments[0].formal.projection.length === 1 &&
+    arguments_.arguments[0].actual === restActual && arguments_.arguments[0].formal.projection.length === 1 &&
     arguments_.arguments[0].formal.projection[0].kind === "array-element", true,
   "the concrete checked argument retains its selected rest element slot");
   const restDeclaration = namedDeclaration(source.ast, provider, "spread");
