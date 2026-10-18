@@ -134,8 +134,9 @@ test("every incomplete, unsafe, malformed and mutated certification is rejected"
 
 test("count adapters reject truncation and retain ignored or filtered native tests", () => {
   const named = { summary: { completed: true }, tests: [
-    { type: "test", status: "passed" }, { type: "test", status: "passed" },
-    { type: "suite", status: "passed" },
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "suite", status: "passed", exitCode: null, signal: null },
   ] };
   assert.deepEqual(nodeReportCounts(named), [count]);
   assert.throws(() => nodeReportCounts({ ...named, summary: { completed: false } }), /complete/u);
@@ -169,8 +170,9 @@ test("parallel runner evidence is canonical and the superseded host evidence rol
   writeImmutableJson(path, { bank: "node", selection: { complete: true },
     taskCounts: { total: 1, passed: 1, failed: 0 }, testCountReporting: { missing: 0, reported: 1 },
     preRuns: [], testCounts: { ...count },
-    results: [{ summary: { completed: true }, tests: [
-      { type: "test", status: "passed" }, { type: "test", status: "passed" },
+    results: [{ status: 0, signal: null, resultError: null, summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
     ] }] });
   const record = structuredClone(fixture.record);
   record.evidence[2] = describeEvidence(path, "parallel");
@@ -193,6 +195,25 @@ test("a newer incomplete or malformed run never falls back to an older success",
   assert.throws(() => latestCertification(root), /did not finish/u);
   writeFileSync(resolve(newer, "record.json"), "not JSON");
   assert.throws(() => latestCertification(root), /JSON/u);
+});
+
+test("certification rejects inner process failure even inside an otherwise successful count wrapper", () => {
+  const ordinary = { type: "test", status: "passed", exitCode: null, signal: null };
+  for (const changed of [
+    { exitCode: 23 }, { exitCode: 137 }, { signal: "SIGTERM" }, { signal: "SIGABRT" },
+    { exitCode: undefined }, { signal: undefined }, { exitCode: 1 },
+  ]) {
+    const fixture = makeFixture({}, { tests: [{ ...ordinary, ...changed }, ordinary] });
+    assert.throws(() => validate(fixture), /execution|process/u,
+      "counts, outer exit, guard and assertion identities cannot excuse inner termination");
+  }
+  for (const changed of [
+    { resultError: "Inner test process ended by signal SIGTERM." }, { resultError: undefined },
+    { signal: "SIGTERM" }, { summary: { completed: false, success: true } },
+  ]) {
+    assert.throws(() => validate(makeFixture({}, changed)), /execution/u,
+      "the direct bank reader uses the same execution evidence as the queue");
+  }
 });
 
 test("real repository snapshots identify merges, dirty inputs and dependency mutations", () => {
@@ -235,7 +256,7 @@ test("new test captures produce structured counts and preserve failure status", 
   assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
 });
 
-function makeFixture(guardOverrides = {}) {
+function makeFixture(guardOverrides = {}, bankOverrides = {}) {
   const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
   const root = resolve(workspace, "record");
   mkdirSync(resolve(root, "counts"), { recursive: true });
@@ -254,7 +275,12 @@ function makeFixture(guardOverrides = {}) {
   const guardPath = resolve(root, "guard.json");
   const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");
   writeFileSync(guardPath, JSON.stringify(guard));
-  writeFileSync(countsPath, JSON.stringify({ kind: "node", exitCode: 0, counts: [count] }));
+  const bank = { kind: "node", exitCode: 0, signal: null, resultError: null, counts: [count],
+    summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
+    ], ...bankOverrides };
+  writeFileSync(countsPath, JSON.stringify(bank));
   const record = { schemaVersion: 1, suite: entry, before: current, after: current,
     startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z",
     exitCode: 0, complete: true, counts: [count], guard,

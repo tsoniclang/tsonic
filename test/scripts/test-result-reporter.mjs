@@ -10,11 +10,18 @@ export default async function* reportTestResults(source) {
       const skipped = data.skip === true || typeof data.skip === "string";
       const todo = data.todo === true || typeof data.todo === "string";
       const cancelled = ["cancelledByParent", "testAborted", "testTimeoutFailure"].includes(data.details?.error?.failureType);
+      const exitCode = data.details?.error?.exitCode ?? null;
+      const signal = data.details?.error?.signal ?? null;
+      if (exitCode !== null && (!Number.isSafeInteger(exitCode) || exitCode < 0) ||
+        signal !== null && (typeof signal !== "string" || signal.length === 0 || signal.length > 64)) {
+        throw new Error("A Node test process has invalid scalar termination evidence.");
+      }
       yield `${JSON.stringify({ kind: "test", file: data.file ?? null, name: data.name, path,
         nesting: data.nesting, type: data.details?.type ?? "test",
         status: cancelled ? "cancelled" : skipped ? "skipped" : todo ? "todo" : event.type === "test:pass" ? "passed" : "failed",
         durationMs: data.details?.duration_ms ?? null, line: data.line ?? null,
         failureType: data.details?.error?.failureType ?? null,
+        exitCode, signal,
         message: typeof message === "string" ? message.slice(0, 65_536) : null,
         messageTruncated: typeof message === "string" && message.length > 65_536 })}\n`;
       names.length = data.nesting;

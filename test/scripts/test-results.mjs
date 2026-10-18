@@ -26,7 +26,7 @@ export function readDotnetTestResults(text, file) {
     const status = { Passed: "passed", Failed: "failed", NotExecuted: "skipped" }[attributes.outcome];
     if (status === undefined) throw new Error(`Unfinished .NET outcome: ${attributes.outcome}.`);
     return { kind: "test", file, name: attributes.testName, path: [attributes.testName], nesting: 0,
-      type: "test", status };
+      type: "test", status, exitCode: null, signal: null };
   });
   const summaries = [...text.matchAll(/<ResultSummary\b([^>]*?)>([\s\S]*?)<\/ResultSummary>/gu)];
   if (summaries.length !== 1 || results.length === 0) throw new Error(".NET results lack one run summary or named tests.");
@@ -47,10 +47,26 @@ export function readDotnetTestResults(text, file) {
   return { summary: { completed, outcome, errors, success: completed && results.every(result => result.status !== "failed") }, tests: results };
 }
 
+export function testResultExecutionIssue(tests) {
+  if (!Array.isArray(tests)) return "Test execution lacks its named results.";
+  for (const test of tests) {
+    if (test.exitCode !== null && (!Number.isSafeInteger(test.exitCode) || test.exitCode < 0) ||
+      test.signal !== null && (typeof test.signal !== "string" || test.signal.length === 0 || test.signal.length > 64)) {
+      return "A test result has missing or invalid process termination evidence.";
+    }
+    if (test.signal !== null) return `Inner test process ended by signal ${test.signal}.`;
+    if (test.exitCode !== null && ![0, 1].includes(test.exitCode)) return `Abnormal inner test process exit: ${test.exitCode}.`;
+    if (test.exitCode === 1 && test.status === "passed") return "A passing test cannot carry a failed inner process exit.";
+  }
+  return null;
+}
+
 export function testTaskExecutionIssue(task) {
   if (task.signal !== null) return `Test task has a signal or unrecorded signal state: ${String(task.signal)}.`;
   if (![0, 1].includes(task.status)) return `Abnormal test task exit: ${String(task.status)}.`;
   if (task.summary?.completed !== true) return "Test task lacks a completed native or Node run summary.";
+  const resultIssue = testResultExecutionIssue(task.tests);
+  if (resultIssue !== null) return resultIssue;
   const failed = task.tests?.some(test => test.status === "failed");
   if (task.status === 1 && !failed) return "A test task exited 1 without a named assertion failure.";
   if (task.status === 0 && failed || task.summary.success !== (task.status === 0)) {

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import reportTestResults from "../../scripts/test-result-reporter.mjs";
-import { collectTestResults, compareTestResults, readDotnetTestResults, readNodeTestResults, validateTrainInputs, validateTrainResults } from "../../scripts/test-results.mjs";
-import { parallelReportCounts } from "../../../scripts/certification/counts.mjs";
+import { collectTestResults, compareTestResults, readDotnetTestResults, readNodeTestResults, testResultExecutionIssue,
+  testTaskExecutionIssue, validateTrainInputs, validateTrainResults } from "../../scripts/test-results.mjs";
+import { capturedBankCounts, parallelReportCounts } from "../../../scripts/certification/counts.mjs";
 import { fullTestTrainBanks } from "../../scripts/suite-definition.mjs";
 import { testScopeRepositoryKeys } from "../../scripts/workspace-layout.mjs";
 import { aggregateTestCounts, testResultCounts } from "../../scripts/parallel-test-counts.mjs";
@@ -26,6 +27,8 @@ test("the Node adapter retains exact nested names and only scalar failure eviden
   for await (const line of reportTestResults(events())) records.push(JSON.parse(line));
   assert.deepEqual(records[0].path, ["parent", 'child $ "quoted"']);
   assert.equal(records[0].message, "precise refusal");
+  assert.equal(records[0].exitCode, null, "an ordinary exception supplies no inner process exit");
+  assert.equal(records[0].signal, null, "an ordinary exception supplies no inner process signal");
   assert.equal(Object.hasOwn(records[0], "actual"), false, "compiler objects never enter the identity report");
   assert.equal(records[1].type, "suite");
   assert.equal(records[2].kind, "summary");
@@ -98,8 +101,127 @@ function report(tests) {
 }
 
 function result(name, status = "passed") {
-  return { file: "test/architecture/rules.test.mjs", name, path: [name], status, nesting: 0, type: "test" };
+  return { file: "test/architecture/rules.test.mjs", name, path: [name], status, nesting: 0, type: "test",
+    exitCode: null, signal: null };
 }
+
+test("inner termination scalars survive normalization and cannot hide behind a known failure", async () => {
+  const baseline = collectTestResults([report([{ ...result("known file error", "failed"), exitCode: 1 }])]);
+  assert.equal(compareTestResults(baseline, baseline).pass, true, "an ordinary completed file failure remains comparable");
+  const olderProjection = structuredClone(baseline);
+  delete olderProjection.tests[0].exitCode;
+  delete olderProjection.tests[0].signal;
+  const originalOlderProjection = JSON.stringify(olderProjection);
+  assert.equal(compareTestResults(olderProjection, baseline).pass, true,
+    "older source remains a comparison reference, not newly admitted current execution evidence");
+  assert.equal(JSON.stringify(olderProjection), originalOlderProjection, "old evidence is not padded or rewritten");
+  for (const termination of [
+    { exitCode: 23, signal: null }, { exitCode: 137, signal: null },
+    { exitCode: null, signal: "SIGTERM" }, { exitCode: null, signal: "SIGABRT" },
+  ]) {
+    async function* events() {
+      yield { type: "test:fail", data: { name: "known file error", file: "/repo/test/architecture/rules.test.mjs", nesting: 0,
+        details: { type: "test", error: { failureType: "testCodeFailure", ...termination } } } };
+      yield { type: "test:summary", data: { success: false, counts: { tests: 1, failed: 1 } } };
+    }
+    const records = [];
+    for await (const line of reportTestResults(events())) records.push(JSON.parse(line));
+    const file = resolve(mkdtempSync(resolve(".temp/test-result-tests/inner-fields-")), "results.jsonl");
+    writeFileSync(file, records.map(record => JSON.stringify(record)).join("\n") + "\n");
+    const named = readNodeTestResults(file, "/repo");
+    assert.equal(named.tests[0].exitCode, termination.exitCode, "the native inner exit is not replaced by the outer exit1");
+    assert.equal(named.tests[0].signal, termination.signal, "the native signal is not replaced by the outer null signal");
+    const actual = collectTestResults([{ ...report(named.tests), results: [{ ...report(named.tests).results[0], summary: named.summary }] }]);
+    const compared = compareTestResults(baseline, actual);
+    assert.equal(compared.regressions.length, 0, "the same failed file identity is deliberately unchanged");
+    assert.equal(compared.pass, false, "inner process failure independently blocks acceptance");
+    assert.equal(compared.infrastructureFailures.length, 1, "the canonical execution owner detects the inner failure");
+    assert.notEqual(testResultExecutionIssue(named.tests), null, "a count projection is not execution admission");
+  }
+  for (const termination of [{ exitCode: "23" }, { exitCode: -1 }, { signal: {} }, { signal: "x".repeat(65) }]) {
+    async function* invalid() {
+      yield { type: "test:fail", data: { name: "invalid", nesting: 0, details: { error: termination } } };
+    }
+    await assert.rejects(async () => {
+      for await (const line of reportTestResults(invalid())) JSON.parse(line);
+    }, /invalid scalar termination/u);
+  }
+  assert.notEqual(testResultExecutionIssue([{ ...result("missing fields"), exitCode: undefined }]), null,
+    "historical missing process evidence is not rewritten into current explicit absence");
+});
+
+test("actual public queue and capture preserve module errors, assertions, exits and inner signals", () => {
+  const root = mkdtempSync(resolve(".temp/test-result-tests/real-process-"));
+  const directory = resolve(root, "test/infrastructure/runner");
+  mkdirSync(directory, { recursive: true });
+  const file = resolve(directory, "termination.test.mjs");
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  delete environment.TSONIC_TEST_SUITE_REPORT;
+  delete environment.TSONIC_TEST_COUNT_DIRECTORY;
+  const cases = [
+    { id: "module", body: "throw new Error('ordinary module load refusal');", status: 1, exitCode: 1, signal: null, abnormal: false },
+    { id: "exit1", body: "process.exit(1);", status: 1, exitCode: 1, signal: null, abnormal: false },
+    { id: "exit23", body: "process.exit(23);", status: 1, exitCode: 23, signal: null, abnormal: true },
+    { id: "signal", body: "process.kill(process.pid, 'SIGTERM');", status: 1, exitCode: null, signal: "SIGTERM", abnormal: true },
+    { id: "assertion", body: "import test from 'node:test'; import assert from 'node:assert/strict'; test('ordinary assertion', () => assert.equal(1, 2));",
+      status: 1, exitCode: null, signal: null, abnormal: false },
+    { id: "passed", body: "import test from 'node:test'; test('ordinary passing control', () => {});",
+      status: 0, exitCode: null, signal: null, abnormal: false },
+  ];
+  let baseline;
+  for (const scenario of cases) {
+    writeFileSync(file, scenario.body + "\n");
+    const suitePath = resolve(root, `${scenario.id}.report.json`);
+    const queue = spawnSync(process.execPath,
+      ["test/scripts/run-parallel.mjs", "--scope", "tsonic", "--repository-root", root, "--file", file], {
+      cwd: process.cwd(), env: { ...environment, TSONIC_TEST_SUITE_REPORT: suitePath },
+      encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+    });
+    assert.equal(queue.error === undefined, true, `${scenario.id}: the existing public queue completes`);
+    assert.equal(queue.status, scenario.status, `${scenario.id}: the outer Node runner retains its ordinary exit`);
+    const actualReport = JSON.parse(readFileSync(suitePath, "utf8"));
+    assert.equal(actualReport.results.length, 1, "only the exact fixture task is selected");
+    const task = actualReport.results[0];
+    assert.equal(task.signal, null, `${scenario.id}: only the inner test process is terminated`);
+    assert.equal(task.summary.completed, true, `${scenario.id}: the outer runner completes its summary`);
+    assert.equal(task.resultError !== null, scenario.abnormal, `${scenario.id}: abnormal execution is separate from failed assertions`);
+    assert.equal(task.tests[0].exitCode, scenario.exitCode, `${scenario.id}: actual inner exit is retained`);
+    assert.equal(task.tests[0].signal, scenario.signal, `${scenario.id}: actual inner signal is retained`);
+    const collected = collectTestResults([actualReport]);
+    if (scenario.id === "module") baseline = collected;
+    if (["module", "exit1", "exit23", "signal"].includes(scenario.id)) {
+      const compared = compareTestResults(baseline, collected);
+      assert.equal(compared.regressions.length, 0, `${scenario.id}: native file identity/status are unchanged`);
+      assert.equal(compared.pass, !scenario.abnormal, `${scenario.id}: identical known failures never explain a crash`);
+    } else {
+      assert.equal(compareTestResults(collected, collected).pass, true,
+        `${scenario.id}: ordinary completed assertions or passes remain comparable`);
+    }
+    const countsRoot = resolve(root, `${scenario.id}-counts`);
+    const capture = spawnSync(process.execPath,
+      ["scripts/certification/capture-tests.mjs", "node", process.execPath, "--test", file], {
+      cwd: process.cwd(), env: { ...environment, TSONIC_TEST_COUNT_DIRECTORY: countsRoot },
+      encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+    });
+    assert.equal(capture.error === undefined, true, `${scenario.id}: the direct capture completes`);
+    assert.equal(capture.status, scenario.status, `${scenario.id}: the capture never hides its native failure`);
+    const paths = readdirSync(countsRoot);
+    assert.equal(paths.length, 1, `${scenario.id}: failure evidence is saved rather than discarded before admission`);
+    const bank = JSON.parse(readFileSync(resolve(countsRoot, paths[0]), "utf8"));
+    assert.equal(bank.exitCode, scenario.status, `${scenario.id}: actual outer exit is retained in bank evidence`);
+    assert.equal(bank.signal, null, `${scenario.id}: outer process signal is not fabricated`);
+    assert.equal(bank.resultError !== null, scenario.abnormal, `${scenario.id}: both public consumers use one execution owner`);
+    assert.equal(bank.tests[0].exitCode, scenario.exitCode, `${scenario.id}: captured inner exit is retained`);
+    assert.equal(bank.tests[0].signal, scenario.signal, `${scenario.id}: captured inner signal is retained`);
+    assert.equal(bank.counts[0].failed, scenario.status, `${scenario.id}: actual failure counts remain visible`);
+    if (scenario.status === 0) assert.doesNotThrow(() => capturedBankCounts(bank));
+    else assert.throws(() => capturedBankCounts(bank), /failed|execution/u,
+      `${scenario.id}: an unsuccessful capture is not a certificate`);
+    assert.equal(testTaskExecutionIssue({ status: bank.exitCode, signal: bank.signal, summary: bank.summary, tests: bank.tests }) !== null,
+      scenario.abnormal, `${scenario.id}: admission does not classify every testCodeFailure as abnormal`);
+  }
+});
 
 test("comparisons distinguish baseline failures, lost passes, missing tests and architecture rule/file pairs", () => {
   const before = collectTestResults([report([result("stays"), result("already failed", "failed"), result("lost")])]);
@@ -243,6 +365,9 @@ test("complete train validation retains and checks bank provenance, inventory an
     current => { current.banks[1].preRuns = []; },
     current => { current.tasks.pop(); },
     current => { current.tasks[0].status = 137; },
+    current => { current.tests[0].exitCode = 23; },
+    current => { current.tests[0].signal = "SIGTERM"; },
+    current => { delete current.tests[0].exitCode; },
     current => { current.tests.pop(); },
     current => { current.inventory.pop(); },
   ]) {
@@ -260,7 +385,8 @@ test("one parallel count contract covers Host and Rust without losing cancellati
   const counts = { total: 2, passed: 2, failed: 0, skipped: 0, todo: 0, cancelled: 0 };
   const base = { selection: { complete: true }, taskCounts: { total: 1, passed: 1, failed: 0 },
     testCountReporting: { missing: 0, reported: 1 }, testCounts: counts,
-    results: [{ summary: { completed: true }, tests: [result("one"), result("two")] }] };
+    results: [{ status: 0, signal: null, resultError: null, summary: { completed: true, success: true },
+      tests: [result("one"), result("two")] }] };
   assert.equal(parallelReportCounts({ ...base, bank: "host", preRuns: [{ status: 0 }] })[0].total, 2);
   assert.equal(parallelReportCounts({ ...base, bank: "node", preRuns: [] })[0].total, 2);
   assert.throws(() => parallelReportCounts({ ...base, bank: "host", preRuns: [] }), /incomplete/u);
@@ -271,7 +397,7 @@ test("one parallel count contract covers Host and Rust without losing cancellati
   }
   const changedTests = [result("cancelled", "cancelled"), result("todo", "todo")];
   const actual = parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: testResultCounts(changedTests),
-    results: [{ summary: { completed: true }, tests: changedTests }] });
+    results: [{ ...base.results[0], tests: changedTests }] });
   assert.equal(actual[0].cancelled, 1, "certification receives rather than erases a cancelled result");
   assert.equal(actual[0].todo, 1);
   assert.deepEqual(aggregateTestCounts(base.results), { reportedShards: 1, ...counts });

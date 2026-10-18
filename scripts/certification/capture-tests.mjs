@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { resolve } from "node:path";
 import { writeImmutableJson } from "./records.mjs";
 import { parseCargoBankCounts, nodeReportCounts } from "./counts.mjs";
-import { readNodeTestResults } from "../../test/scripts/test-results.mjs";
+import { readNodeTestResults, testTaskExecutionIssue } from "../../test/scripts/test-results.mjs";
 import { memoryBoundNodeTestArguments } from "../../test/scripts/guard-command.mjs";
 import { readTestResourceBudget } from "../../test/scripts/test-resource-budget.mjs";
 
@@ -50,11 +50,14 @@ const outcome = await new Promise((resolveStatus, rejectStatus) => {
 const named = kind === "node" ? readNodeTestResults(resultPath, process.cwd()) : undefined;
 const counts = kind === "node" ? nodeReportCounts(named) : parseCargoBankCounts(lines.join("\n"));
 if (counts.length === 0) throw new Error(`${kind} did not report complete test counts.`);
+const resultError = kind === "node" ? testTaskExecutionIssue({ status: outcome.code, signal: outcome.signal,
+  summary: named.summary, tests: named.tests }) : outcome.signal === null ? null : `Native test bank ended by signal ${outcome.signal}.`;
 if (process.env.TSONIC_TEST_COUNT_DIRECTORY !== undefined) {
   mkdirSync(process.env.TSONIC_TEST_COUNT_DIRECTORY, { recursive: true });
   writeImmutableJson(resolve(process.env.TSONIC_TEST_COUNT_DIRECTORY, `${kind}-${randomUUID()}.json`), {
-    kind, command: [command, ...arguments_], exitCode: outcome.code, signal: outcome.signal, counts,
+    kind, command: [command, ...arguments_], exitCode: outcome.code, signal: outcome.signal, resultError, counts,
     ...(named === undefined ? {} : { tests: named.tests, summary: named.summary }),
   });
 }
-process.exitCode = outcome.code ?? 1;
+if (resultError !== null) process.stderr.write(`Test execution error: ${resultError}\n`);
+process.exitCode = outcome.code === 0 && resultError !== null ? 1 : outcome.code ?? 1;

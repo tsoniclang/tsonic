@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { digest, sameCertificationInputs } from "./inputs.mjs";
-import { parallelReportCounts } from "./counts.mjs";
+import { capturedBankCounts, parallelReportCounts } from "./counts.mjs";
 import { readTestResourceBudget } from "../../test/scripts/test-resource-budget.mjs";
 import { guardReceiptHasOwnedMeasurements } from "../../test/scripts/guard-cgroup.mjs";
 
@@ -111,9 +111,9 @@ export function validateCertification(record, entry, current, root, now = Date.n
       banks.push(report.bank);
     } else if (evidence.role === "counts") {
       const bank = readEvidenceJson(evidence.path);
-      if (bank.exitCode !== 0 || !new RegExp(`^counts[\\\\/]${bank.kind}-[a-f0-9-]{36}\\.json$`, "u").test(within)) throw new Error("Invalid test bank evidence.");
+      if (!new RegExp(`^counts[\\\\/]${bank.kind}-[a-f0-9-]{36}\\.json$`, "u").test(within)) throw new Error("Invalid test bank evidence.");
       banks.push(bank.kind);
-      observedCounts.push(...bank.counts);
+      observedCounts.push(...capturedBankCounts(bank));
     } else throw new Error("Unknown certification evidence role.");
   }
   if (roles.filter(role => role === "guard").length !== 1 || roles.filter(role => role === "log").length !== 1 ||
