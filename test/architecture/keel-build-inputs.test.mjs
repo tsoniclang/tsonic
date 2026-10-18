@@ -27,16 +27,16 @@ test("the inventory's actual Node registry inputs have ordinary transitive provi
   }
 });
 
-test("only the inventory and exact registry tasks acquire the Rust provider build; ordinary C# and other host tasks do not", () => {
+test("only the exact registry task acquires the Rust provider build; the full census is outside routine banks", () => {
   const repository = fileURLToPath(new URL("../..", import.meta.url));
   const inventory = JSON.parse(execFileSync(process.execPath, ["test/scripts/run-parallel.mjs", "--inventory"], {
     cwd: repository, encoding: "utf8", timeout: 60_000, maxBuffer: 16 * 1024 * 1024,
   }));
   const affected = inventory.files.filter(entry => entry.preRunIds.includes("rust-nodejs.build"));
-  assert.equal(affected.length, 2);
+  assert.equal(affected.length, 1);
   assert.equal(affected.every(entry => entry.scope === "tsonic"), true);
   assert.deepEqual(affected.map(entry => entry.path).sort(), [
-    "test/architecture/keel-node-registry.test.mjs", "test/architecture/keel-violations.test.mjs",
+    "test/architecture/keel-node-registry.test.mjs",
   ]);
   assert.equal(inventory.files.filter(entry => entry.scope === "tsonic-csharp").every(entry =>
     entry.preRunIds.every(id => !id.startsWith("rust-") && !id.startsWith("tsonic-rust."))), true);
@@ -48,11 +48,18 @@ test("only the inventory and exact registry tasks acquire the Rust provider buil
     assert.equal(inventory.files.filter(entry => entry.scope === scope && entry.path === path).length, 1,
       `${scope}:${path} has exactly one scheduled owner`);
   }
-  const heavy = inventory.files.filter(entry => entry.memoryMiB !== undefined);
-  assert.equal(heavy.length, 1);
-  assert.equal(heavy[0].path, "test/architecture/keel-violations.test.mjs");
-  assert.equal(heavy[0].memoryMiB, 4096);
-  assert.equal(heavy[0].heapMiB, 3072);
+  const heavy = inventory.files.filter(entry => entry.scope === "tsonic" && entry.memoryMiB !== undefined);
+  assert.equal(heavy.length, 0, "the removed full census has no provisional routine-bank weight");
+  assert.equal(inventory.files.some(entry => entry.path === "test/architecture/keel-violations.test.mjs"), false);
+  for (const path of ["test/architecture/keel-check-contract.test.mjs", "test/architecture/keel-certification-checks.test.mjs",
+    "test/architecture/keel-structure-checks.test.mjs", "test/architecture/keel-layer-checks.test.mjs"]) {
+    assert.equal(inventory.files.filter(entry => entry.scope === "tsonic" && entry.path === path).length, 1,
+      `${path} retains its one cheap contract owner`);
+  }
+  const native = inventory.files.filter(entry => entry.scope !== "tsonic");
+  assert.equal(native.length > 0, true, "the native task inventory is represented");
+  assert.equal(native.every(entry => entry.memoryMiB === 4096 && entry.heapMiB === 3072), true,
+    "native tasks retain provisional per-file weights instead of borrowing the whole job budget");
 });
 
 test("the existing queue weights the heavy inventory task without lowering ordinary useful parallelism", async () => {
@@ -94,12 +101,15 @@ test("one admitted task gets its own finite heap and worker budget while other N
   assert.equal(local.heapMiB, 3072);
   assert.equal(local.workers, 1);
   assert.equal(local.childJobs, 2);
-  assert.equal(testTaskEnvironment(environment, budget, { id: "simple" }) === environment, true);
+  const ordinary = readTestResourceBudget(testTaskEnvironment(environment, budget, { id: "simple" }));
+  assert.equal(ordinary.memoryMiB, budget.workerMemoryMiB);
+  assert.equal(ordinary.workers, 1);
+  assert.equal(ordinary.availableCpus, budget.availableCpus);
   assert.throws(() => testTaskEnvironment(environment, budget, { id: "invalid", memoryMiB: 4096, heapMiB: 4096 }), /leave room/u);
   assert.throws(() => testTaskEnvironment({}, budget, { id: "missing-guard", memoryMiB: 4096 }), /guard-owned/u);
 });
 
-test("an outer budget below 4 GiB rejects the inventory before any build prerequisite executes", () => {
+test("the moved full census cannot start through a routine bank or execute its prerequisites", () => {
   const repository = fileURLToPath(new URL("../..", import.meta.url));
   const scratch = resolve(repository, ".temp/keel-architecture");
   mkdirSync(scratch, { recursive: true });
@@ -111,13 +121,13 @@ test("an outer budget below 4 GiB rejects the inventory before any build prerequ
       TSONIC_TEST_CPUS: "2", TSONIC_TEST_MEMORY_MIB: "2048", TSONIC_TEST_WORKERS: "1", TSONIC_TEST_CHILD_JOBS: "2",
     });
     const result = spawnSync(process.execPath, [
-      "test/scripts/run-parallel.mjs", "--with-preruns", "--scope", "tsonic", "--match", "test/architecture/keel-violations.test.mjs",
+      "test/scripts/run-parallel.mjs", "--with-preruns", "--scope", "tsonic", "--file", "test/architecture/keel-violations.test.mjs",
     ], {
       cwd: repository, encoding: "utf8", timeout: 60_000,
       env: { ...process.env, PATH: root, TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(budget), TSONIC_TEST_WORKERS: "1", NODE_OPTIONS: "--max-old-space-size=1536" },
     });
     assert.equal(result.status, 1);
-    assert.equal(result.stderr.includes("cannot fit the memory budget"), true);
+    assert.equal(result.stderr.includes("Exact requested test files are missing or excluded"), true);
     assert.equal(existsSync(marker), false);
   } finally {
     rmSync(root, { recursive: true, force: true });

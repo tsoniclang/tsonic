@@ -14,7 +14,7 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   const totalMemoryMiB = positiveInteger(machine.totalMemoryMiB, "total memory");
   const availableMemoryMiB = positiveInteger(machine.availableMemoryMiB, "available memory");
   if (availableMemoryMiB > totalMemoryMiB) throw new Error("Available memory exceeds total memory.");
-  const reserveMiB = Math.min(12_288, Math.max(512, Math.floor(totalMemoryMiB / 5)));
+  const reserveMiB = 16_384;
   const memoryMiB = configuredInteger(environment.TSONIC_TEST_MEMORY_MIB, "TSONIC_TEST_MEMORY_MIB")
     ?? Math.min(40_960, availableMemoryMiB - reserveMiB);
   if (memoryMiB <= 0 || memoryMiB > availableMemoryMiB) {
@@ -91,15 +91,15 @@ export function readTestResourceBudget(environment = process.env, profile = "hos
 }
 
 export function testTaskEnvironment(environment, budget, task) {
-  if (task.memoryMiB === undefined && task.heapMiB === undefined) return environment;
   const memoryMiB = task.memoryMiB ?? budget.workerMemoryMiB;
   const heapMiB = task.heapMiB ?? budget.heapMiB;
+  const childJobs = task.childJobs ?? budget.childJobs;
   if (memoryMiB > budget.memoryMiB) throw new Error(`Test task ${task.id} cannot fit the memory budget.`);
   const selected = testResourceBudget({
     cpus: budget.availableCpus, totalMemoryMiB: memoryMiB, availableMemoryMiB: memoryMiB,
   }, {
     TSONIC_TEST_CPUS: String(budget.availableCpus), TSONIC_TEST_MEMORY_MIB: String(memoryMiB),
-    TSONIC_TEST_WORKER_MEMORY_MIB: String(memoryMiB), TSONIC_TEST_CHILD_JOBS: String(budget.childJobs),
+    TSONIC_TEST_WORKER_MEMORY_MIB: String(memoryMiB), TSONIC_TEST_CHILD_JOBS: String(childJobs),
     TSONIC_TEST_WORKERS: "1", TSONIC_TEST_HEAP_MIB: String(heapMiB),
   });
   const inherited = environment.NODE_OPTIONS ?? "";
@@ -110,6 +110,9 @@ export function testTaskEnvironment(environment, budget, task) {
     TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(selected),
     TSONIC_TEST_CPUS: String(selected.cpuBudget), TSONIC_TEST_MEMORY_MIB: String(selected.memoryMiB),
     TSONIC_TEST_WORKER_MEMORY_MIB: String(selected.workerMemoryMiB), TSONIC_TEST_HEAP_MIB: String(selected.heapMiB),
+    TSONIC_TEST_CHILD_JOBS: String(selected.childJobs),
+    CARGO_BUILD_JOBS: String(selected.childJobs), RUST_TEST_THREADS: String(selected.childJobs),
+    DOTNET_PROCESSOR_COUNT: String(selected.childJobs),
     TSONIC_TEST_WORKERS: "1",
     NODE_OPTIONS: `${inherited.slice(0, -ownedHeap.length)}--max-old-space-size=${selected.heapMiB}`,
   };

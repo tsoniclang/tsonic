@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostRoot, loadNpmWave, resolveWaveLayout } from "../release/npm-wave.mjs";
 import { snapshotCertificationInputs } from "./inputs.mjs";
-import { hostReportCounts } from "./counts.mjs";
+import { capturedBankCounts, parallelReportCounts } from "./counts.mjs";
 import { certificationRoot, describeEvidence, validateCertification, writeImmutableJson } from "./records.mjs";
 
 export function runCertification(entry, layout, { environment = process.env, name = entry.repository } = {}) {
@@ -39,19 +39,19 @@ export function runCertification(entry, layout, { environment = process.env, nam
     if (guard === null) throw new Error("Bounded runner did not finish its resource report.");
     evidence.push(describeEvidence(guardPath, "guard"), describeEvidence(guard.log, "log"));
     if (existsSync(reportPath)) {
-      if (JSON.stringify(entry.banks) !== '["host"]') throw new Error("Unexpected host report.");
-      counts = hostReportCounts(JSON.parse(readFileSync(reportPath, "utf8")));
-      evidence.push(describeEvidence(reportPath, "host"));
+      const report = JSON.parse(readFileSync(reportPath, "utf8"));
+      if (JSON.stringify(entry.banks) !== JSON.stringify([report.bank])) throw new Error("Unexpected parallel test bank.");
+      evidence.push(describeEvidence(reportPath, "parallel"));
+      counts = parallelReportCounts(report);
     } else {
       const paths = readdirSync(countsRoot).sort().map(file => resolve(countsRoot, file));
       if (paths.length === 0) throw new Error("No completed test banks reported counts.");
       const banks = [];
       for (const path of paths) {
         const bank = JSON.parse(readFileSync(path, "utf8"));
-        if (bank.exitCode !== 0) throw new Error("A test bank failed.");
-        banks.push(bank.kind);
-        counts.push(...bank.counts);
         evidence.push(describeEvidence(path, "counts"));
+        counts.push(...capturedBankCounts(bank));
+        banks.push(bank.kind);
       }
       if (JSON.stringify(banks.sort()) !== JSON.stringify([...entry.banks].sort())) throw new Error("Test bank inventory is incomplete.");
     }

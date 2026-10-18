@@ -6,6 +6,7 @@ import { readTestHostResources } from "./test-resource-budget.mjs";
 import { guardCgroupPath } from "./guard-cgroup.mjs";
 
 export function planTestMemoryAdmission(machine, reservations, scopes, requestedMiB) {
+  if (arguments.length !== 4) throw new Error("Memory admission accepts only machine, reservations, scopes and requested memory.");
   const positive = value => Number.isSafeInteger(value) && value > 0;
   if (!positive(requestedMiB) || !positive(machine.totalMemoryMiB) || !positive(machine.availableMemoryMiB)) {
     throw new Error("Memory admission requires positive finite machine and job sizes.");

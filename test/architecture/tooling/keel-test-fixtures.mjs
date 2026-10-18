@@ -26,6 +26,9 @@ export function keelFixtureGuard(overrides = {}) {
   return {
     log: ".temp/test-runs/fixture.log", exitCode: 0, swapMax: 0, calibration: false, scopeDrained: true, scopeResult: "success",
     oomBefore: 0, oomAfter: 0, memoryMiB: 7168, tasksMax: 2048, timeoutSeconds: 3600,
+    oomScope: "owned-cgroup",
+    measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
+    admission: { admitted: true, unit: "fixture.scope", requestedMiB: 7168 },
     logMaxBytes: 67108864, budget: { workers: 1, childJobs: 2, cpuBudget: 3, memoryMiB: 7168 },
     ...overrides,
   };
@@ -36,11 +39,18 @@ export function keelFixtureGeneration() {
     target, family, id: `${family}/example`, sourceDigest: keelDigest(`${target}/${family}`),
     pins: { tsonic: "a".repeat(40), [target]: "b".repeat(40) },
   })));
-  const samples = programs.map(program => ({
-    ...program, first: new Map([["source.txt", Buffer.from("native source")]]),
-    second: new Map([["source.txt", Buffer.from("native source")]]),
-    firstGuard: keelFixtureGuard({ log: `.temp/test-runs/${program.target}-${program.family}-first.log` }),
-    secondGuard: keelFixtureGuard({ log: `.temp/test-runs/${program.target}-${program.family}-second.log` }),
-  }));
+  const samples = programs.map(program => {
+    const guard = side => {
+      const receipt = keelFixtureGuard();
+      const identity = `${program.target}-${program.family}-${side}`;
+      const unit = `${identity}.scope`;
+      return { ...receipt, log: `.temp/test-runs/${identity}.log`,
+        admission: { ...receipt.admission, unit },
+        measurement: { ...receipt.measurement, controlGroup: `/user.slice/${unit}` } };
+    };
+    return { ...program, first: new Map([["source.txt", Buffer.from("native source")]]),
+      second: new Map([["source.txt", Buffer.from("native source")]]),
+      firstGuard: guard("first"), secondGuard: guard("second") };
+  });
   return { programs, samples };
 }

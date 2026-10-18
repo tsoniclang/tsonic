@@ -43,3 +43,15 @@ test("stale PID reuse releases only dead reservations and never a living scope",
   assert.equal(reservationIsLive({ ...reservation, phase: "pending" }, [], () => undefined, "new-boot"), false);
   assert.throws(() => processStartIdentity("malformed process"), /owning process/u);
 });
+
+test("every job meets the same physical headroom and aggregate admission rules", () => {
+  for (const requestedMiB of [4096, 8192, 12_288, 20_480]) {
+    const pressured = { ...machine, availableMemoryMiB: requestedMiB + 16_383 };
+    assert.equal(planTestMemoryAdmission(pressured, [], [], requestedMiB).admitted, false);
+    assert.equal(planTestMemoryAdmission({ ...pressured, availableMemoryMiB: pressured.availableMemoryMiB + 1 },
+      [], [], requestedMiB).admitted, true);
+    assert.equal(planTestMemoryAdmission(machine, [scope("running", 45_057 - requestedMiB)], [], requestedMiB).admitted, false);
+  }
+  assert.throws(() => planTestMemoryAdmission(machine, [], [], 4096, { permitHeadroom: true }), /accepts only/u,
+    "the removed extra-configuration signature cannot bypass admission");
+});

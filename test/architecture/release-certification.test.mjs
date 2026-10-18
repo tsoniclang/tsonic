@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { readCertificationOptions, validateCertificationEntry } from "../../scripts/certification/contract.mjs";
-import { hostReportCounts, parseBankCounts } from "../../scripts/certification/counts.mjs";
+import { parallelReportCounts, parseCargoBankCounts, nodeReportCounts } from "../../scripts/certification/counts.mjs";
 import { snapshotCertificationInputs, sameCertificationInputs } from "../../scripts/certification/inputs.mjs";
 import { describeEvidence, latestCertification, validateCertification, writeImmutableJson } from "../../scripts/certification/records.mjs";
 import { selectCertification } from "../../scripts/certification/select.mjs";
@@ -133,14 +133,53 @@ test("every incomplete, unsafe, malformed and mutated certification is rejected"
 });
 
 test("count adapters reject truncation and retain ignored or filtered native tests", () => {
-  const output = "# tests 2\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n";
-  assert.deepEqual(parseBankCounts("node", output), [count]);
-  assert.throws(() => parseBankCounts("node", output.replace("# todo 0\n", "")), /complete/u);
-  assert.throws(() => parseBankCounts("node", output + output), /complete/u);
-  const cargo = parseBankCounts("cargo", "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
+  const named = { summary: { completed: true }, tests: [
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "suite", status: "passed", exitCode: null, signal: null },
+  ] };
+  assert.deepEqual(nodeReportCounts(named), [count]);
+  assert.throws(() => nodeReportCounts({ ...named, summary: { completed: false } }), /complete/u);
+  assert.throws(() => nodeReportCounts({ ...named, summary: undefined }), /complete/u);
+  const cargo = parseCargoBankCounts("test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
   assert.deepEqual(cargo, [{ ...count, total: 3, skipped: 1, filtered: 3 }]);
-  assert.deepEqual(parseBankCounts("cargo", "running 3 tests\n"), []);
-  assert.throws(() => hostReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
+  assert.deepEqual(parseCargoBankCounts("running 3 tests\n"), []);
+  assert.throws(() => parallelReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
+});
+
+test("certification requires the drained admitted cgroup and never substitutes user-slice counters", () => {
+  const fixture = makeFixture({ userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } });
+  assert.doesNotThrow(() => validate(fixture), "a foreign user-slice kill is diagnostic only");
+  for (const changed of [
+    { measurement: undefined }, { admission: undefined }, { scopeDrained: undefined }, { scopeDrained: false },
+    { measurement: { ...fixture.record.guard.measurement, oomAfter: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, swapBytes: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, controlGroup: "/user.slice/other.scope" } },
+    { admission: { ...fixture.record.guard.admission, requestedMiB: 8192 } },
+    { budget: { ...fixture.record.guard.budget, memoryMiB: 8192 } },
+    { oomBefore: 1, oomAfter: 1 },
+  ]) {
+    const invalid = makeFixture(changed);
+    assert.throws(() => validate(invalid), /owned resource guard/u, Object.keys(changed).join(","));
+  }
+});
+
+test("parallel runner evidence is canonical and the superseded host evidence role is rejected", () => {
+  const fixture = makeFixture();
+  const path = resolve(fixture.root, "suite.json");
+  writeImmutableJson(path, { bank: "node", selection: { complete: true },
+    taskCounts: { total: 1, passed: 1, failed: 0 }, testCountReporting: { missing: 0, reported: 1 },
+    preRuns: [], testCounts: { ...count },
+    results: [{ status: 0, signal: null, resultError: null, summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
+    ] }] });
+  const record = structuredClone(fixture.record);
+  record.evidence[2] = describeEvidence(path, "parallel");
+  assert.doesNotThrow(() => validate(fixture, record), "the same complete report proves the declared Node bank");
+  record.evidence[2] = describeEvidence(path, "host");
+  assert.throws(() => validate(fixture, record), /Unknown certification evidence role/u,
+    "there is no legacy Host report route alongside the current parallel contract");
 });
 
 test("a newer incomplete or malformed run never falls back to an older success", () => {
@@ -156,6 +195,25 @@ test("a newer incomplete or malformed run never falls back to an older success",
   assert.throws(() => latestCertification(root), /did not finish/u);
   writeFileSync(resolve(newer, "record.json"), "not JSON");
   assert.throws(() => latestCertification(root), /JSON/u);
+});
+
+test("certification rejects inner process failure even inside an otherwise successful count wrapper", () => {
+  const ordinary = { type: "test", status: "passed", exitCode: null, signal: null };
+  for (const changed of [
+    { exitCode: 23 }, { exitCode: 137 }, { signal: "SIGTERM" }, { signal: "SIGABRT" },
+    { exitCode: undefined }, { signal: undefined }, { exitCode: 1 },
+  ]) {
+    const fixture = makeFixture({}, { tests: [{ ...ordinary, ...changed }, ordinary] });
+    assert.throws(() => validate(fixture), /execution|process/u,
+      "counts, outer exit, guard and assertion identities cannot excuse inner termination");
+  }
+  for (const changed of [
+    { resultError: "Inner test process ended by signal SIGTERM." }, { resultError: undefined },
+    { signal: "SIGTERM" }, { summary: { completed: false, success: true } },
+  ]) {
+    assert.throws(() => validate(makeFixture({}, changed)), /execution/u,
+      "the direct bank reader uses the same execution evidence as the queue");
+  }
 });
 
 test("real repository snapshots identify merges, dirty inputs and dependency mutations", () => {
@@ -188,12 +246,17 @@ test("new test captures produce structured counts and preserve failure status", 
     const path = resolve(root, `${passes}.test.mjs`);
     writeFileSync(path, `import test from 'node:test'; import assert from 'node:assert/strict'; test('case', () => assert.equal(${passes}, true));\n`);
     const result = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
-      "--test", "--test-reporter=tap", path], { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+      "--test", path], { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
     assert.equal(result.status, passes ? 0 : 1, result.stdout + result.stderr);
   }
+  const removed = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
+    "--test", "--test-reporter=tap", resolve(root, "true.test.mjs")],
+  { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+  assert.equal(removed.status !== 0, true);
+  assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
 });
 
-function makeFixture() {
+function makeFixture(guardOverrides = {}, bankOverrides = {}) {
   const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
   const root = resolve(workspace, "record");
   mkdirSync(resolve(root, "counts"), { recursive: true });
@@ -203,12 +266,21 @@ function makeFixture() {
   const current = { repositories: [{ repository: "tsonic", root: workspace, head: "a".repeat(40), tree: "a".repeat(40), dirty: false, installedLock: null }],
     tools: { node: "test" }, environment: {}, platform: "linux", architecture: "x64" };
   const guard = { log, exitCode: 0, calibration: false, swapMax: 0, oomBefore: 0, oomAfter: 0,
+    oomScope: "owned-cgroup", scopeDrained: true,
+    measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
+    admission: { admitted: true, unit: "fixture.scope", requestedMiB: 4096 },
     scopeResult: "success", memoryMiB: 4096, tasksMax: 2048, timeoutSeconds: 60, logMaxBytes: 65536,
-    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 } };
+    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, workerMemoryMiB: 2048, childJobs: 1, workers: 2, heapMiB: 1536 },
+    ...guardOverrides };
   const guardPath = resolve(root, "guard.json");
   const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");
   writeFileSync(guardPath, JSON.stringify(guard));
-  writeFileSync(countsPath, JSON.stringify({ kind: "node", exitCode: 0, counts: [count] }));
+  const bank = { kind: "node", exitCode: 0, signal: null, resultError: null, counts: [count],
+    summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
+    ], ...bankOverrides };
+  writeFileSync(countsPath, JSON.stringify(bank));
   const record = { schemaVersion: 1, suite: entry, before: current, after: current,
     startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z",
     exitCode: 0, complete: true, counts: [count], guard,

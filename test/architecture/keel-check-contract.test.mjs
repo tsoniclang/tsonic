@@ -96,7 +96,7 @@ test("AC11 evidence adapter reads complete real output trees and drained guard s
         writeFileSync(resolve(root, directory, "source.txt"), "native source");
       }
       for (const side of ["first", "second"]) {
-        const { scopeDrained: _drained, ...guard } = side === "first" ? sample.firstGuard : sample.secondGuard;
+        const guard = side === "first" ? sample.firstGuard : sample.secondGuard;
         writeFileSync(resolve(root, `${index}/${side}-guard.json`), JSON.stringify(guard));
         writeFileSync(resolve(root, `${index}/${side}-guard.log`), "exit status: 0\nscope drained: true\n");
       }
@@ -111,6 +111,20 @@ test("AC11 evidence adapter reads complete real output trees and drained guard s
     writeFileSync(packetFile, JSON.stringify({ artifactRoot: root, samples: packetSamples }));
     const actual = readKeelDeterminism(packetFile);
     assert.equal(evaluateKeelDeterminism(actual, programs).length, 0);
+    const firstGuardPath = resolve(root, "0/first-guard.json");
+    const firstGuard = JSON.parse(readFileSync(firstGuardPath, "utf8"));
+    const secondGuardPath = resolve(root, "0/second-guard.json");
+    const secondGuard = JSON.parse(readFileSync(secondGuardPath, "utf8"));
+    writeFileSync(secondGuardPath, JSON.stringify({ ...firstGuard, log: secondGuard.log }));
+    assert.equal(keelFixtureHas(evaluateKeelDeterminism(readKeelDeterminism(packetFile), programs),
+      "AC11", "distinct admitted units"), true, "distinct receipt files and summaries cannot duplicate one guarded run");
+    writeFileSync(secondGuardPath, JSON.stringify(secondGuard));
+    for (const scopeDrained of [undefined, false]) {
+      writeFileSync(firstGuardPath, JSON.stringify({ ...firstGuard, scopeDrained }));
+      assert.equal(keelFixtureHas(evaluateKeelDeterminism(readKeelDeterminism(packetFile), programs), "AC11", "guard receipt"), true,
+        "a true summary cannot manufacture missing or contradictory JSON drain proof");
+    }
+    writeFileSync(firstGuardPath, JSON.stringify(firstGuard));
     writeFileSync(resolve(root, "0/first-guard.log"), "exit status: 0\nscope drained: false\n");
     assert.equal(keelFixtureHas(evaluateKeelDeterminism(readKeelDeterminism(packetFile), programs), "AC11", "guard receipt"), true);
     writeFileSync(resolve(root, "0/first/unlisted.txt"), "not inventoried");
