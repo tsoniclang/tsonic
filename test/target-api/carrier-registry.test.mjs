@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { carrierDeclarationId, deriveCarrierVocabulary, validateCarrierRegistry, validateCarrierRegistrySymmetry } from "../helpers/carrier-registry.mjs";
+import { carrierDeclarationId, deriveCarrierVocabulary, inspectCarrierRegistrySource,
+  validateCarrierRegistry, validateCarrierRegistrySymmetry } from "../helpers/carrier-registry.mjs";
 
 const model = "src/target-model/types/model.ts";
 const constructors = "src/target-model/types/carriers/native.ts";
@@ -137,5 +138,135 @@ test("an existing registered counterpart with the wrong structural kind is rejec
       assert.equal(validateCarrierRegistrySymmetry(left, right, signed)
         .includes("Structural carrier counterpart kind mismatch: kind:source-primitive"), true);
     }
+  }
+});
+
+const registryMetadata = `import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";
+import type { TargetTypeRef } from "../model.js";
+export const nativeEntries: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]>[] = Object.freeze([
+  { id: "native#carrier", kinds: ["target-named"], declaration: { module: "native.ts", symbol: "nativeCarrier" },
+    counterpart: { module: "native.ts", symbol: "csharpCarrier" },
+    divergence: { register: "NATIVE-01", reason: "dotnet has a different native qualifier" }, frozen: false }
+]);`;
+const inspectMetadata = (text, extra = []) => inspectCarrierRegistrySource(
+  new Map([["src/unrestricted-name.ts", text], ...extra]), signed);
+
+test("declared inert counterpart metadata is recognized structurally, not by filename", () => {
+  const proof = inspectMetadata(registryMetadata);
+  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
+  assert.equal(proof.modules.length, 1, "the actual typed metadata module is proven");
+  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
+  assert.equal(proof.sources.get("src/unrestricted-name.ts").includes('symbol: "nativeCarrier"'), true,
+    "own declaration identity remains visible");
+});
+
+test("metadata masking preserves authored UTF-16 offsets and never hides leading comments", () => {
+  const text = `/* é😀 */\n${registryMetadata.replace('"csharpCarrier"', '/* roslyn */ "csharpCarrier"')}`;
+  const proof = inspectMetadata(text);
+  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
+  assert.match(proof.sources.get("src/unrestricted-name.ts"), /\/\* roslyn \*\//u);
+  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharpCarrier|dotnet/iu);
+  assert.equal(proof.sources.get("src/unrestricted-name.ts").length, text.length, "exact offsets retained");
+});
+
+test("type-only aliases retain the same exact shared registry identity", () => {
+  const text = registryMetadata.replace("{ TargetCarrierRegistryEntry }", "{ TargetCarrierRegistryEntry as Entry }")
+    .replace("readonly TargetCarrierRegistryEntry<", "readonly Entry<");
+  const proof = inspectMetadata(text);
+  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
+  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
+});
+
+for (const [name, change] of [
+  ["runtime DTO import", text => text.replace("import type { TargetCarrierRegistryEntry }", "import { TargetCarrierRegistryEntry }")],
+  ["foreign implementation import", text => `import { select } from "@tsonic/csharp";\n${text}`],
+  ["foreign type-only import", text => `import type { Foreign } from "@tsonic/csharp";\n${text}`],
+  ["additional executable statement", text => `${text}\nconsole.log("dotnet");`],
+  ["mutable registry binding", text => text.replace("export const nativeEntries", "export let nativeEntries")],
+  ["a different type operator", text => text.replace("readonly TargetCarrierRegistryEntry", "keyof TargetCarrierRegistryEntry")],
+  ["uninitialized declaration", text => text.slice(0, text.indexOf(" = Object.freeze")) + ";"],
+  ["unfrozen registry array", text => text.replace("Object.freeze([", "[").replace("\n]);", "\n];")],
+  ["plain function instead of freeze", text => text.replace("Object.freeze([", "freeze([")],
+  ["indexed freeze access", text => text.replace("Object.freeze([", 'Object["freeze"]([')],
+  ["constructor instead of freeze", text => text.replace("Object.freeze([", "new Object([")],
+  ["computed counterpart", text => text.replace('symbol: "csharpCarrier"', 'symbol: select("csharp")')],
+  ["computed counterpart key", text => text.replace('counterpart: { module:', 'counterpart: { ["module"]:')],
+  ["counterpart getter", text => text.replace('symbol: "csharpCarrier"', 'get symbol() { return "csharpCarrier"; }')],
+  ["selecting closure", text => text.replace("frozen: false", 'frozen: false, select: () => "csharp"')],
+  ["spread row", text => text.replace('id: "native#carrier"', '...selected, id: "native#carrier"')],
+  ["computed frozen flag", text => text.replace("frozen: false", "frozen: Boolean(0)")],
+  ["duplicate row field", text => text.replace("frozen: false", "frozen: false, frozen: true")],
+  ["unknown row field", text => text.replace("frozen: false", "frozen: false, extra: 1")],
+  ["unsigned native divergence", text => text.replace('register: "NATIVE-01"', 'register: "UNSIGNED"')],
+  ["computed divergence reason", text => text.replace('reason: "dotnet has a different native qualifier"', 'reason: explain("dotnet")')],
+  ["empty divergence reason", text => text.replace('reason: "dotnet has a different native qualifier"', 'reason: ""')],
+  ["Object binding shadows freeze", text => text.replace("export const nativeEntries", "export const Object")],
+]) {
+  test(`inert registry proof rejects ${name} without masking any source`, () => {
+    const text = change(registryMetadata);
+    const proof = inspectMetadata(text);
+    assert.equal(proof.failures.length > 0, true, name);
+    assert.equal(proof.sources.get("src/unrestricted-name.ts"), text, "invalid source remains fully visible");
+  });
+}
+
+test("same-spelled local registry types cannot authorize counterpart masking", () => {
+  const text = registryMetadata.replace('import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";',
+    "type TargetCarrierRegistryEntry<Kind> = { kind: Kind };");
+  const proof = inspectMetadata(text);
+  assert.equal(proof.modules.length, 0, "no canonical shared declaration");
+  assert.match(proof.sources.get("src/unrestricted-name.ts"), /csharp/iu);
+});
+
+test("foreign names outside the two admitted metadata fields remain prohibited", () => {
+  for (const text of [registryMetadata.replace('id: "native#carrier"', 'id: "dotnet#carrier"'),
+    registryMetadata.replace('symbol: "nativeCarrier"', 'symbol: "csharpOwnCarrier"'),
+    `${registryMetadata}\n/* roslyn */`]) {
+    const proof = inspectMetadata(text);
+    assert.equal(proof.failures.length, 0, "literal metadata shape is still inert");
+    assert.match(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
+  }
+});
+
+test("only pure registry aggregation may consume counterpart data", () => {
+  const aggregate = `import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";
+import type { TargetTypeRef } from "../model.js";
+import { nativeEntries } from "./unrestricted-name.js";
+export const registry: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]>[] = Object.freeze([...nativeEntries]);`;
+  const proof = inspectMetadata(registryMetadata, [["src/aggregate.ts", aggregate]]);
+  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
+  assert.equal(proof.modules.length, 2, "literal metadata and its non-selecting aggregate");
+  const alias = aggregate.replace("{ nativeEntries }", "{ nativeEntries as selectedEntries }")
+    .replace("[...nativeEntries]", "[...selectedEntries]");
+  const aliased = inspectMetadata(registryMetadata, [["src/aggregate.ts", alias]]);
+  assert.equal(aliased.failures.length, 0, aliased.failures.join("\n"));
+  for (const invalidAggregate of [
+    aggregate.replace("{ nativeEntries }", "{ nativeEntries, nativeEntries as Object }"),
+    aggregate.replace("[...nativeEntries]", "[...unboundEntries]"),
+    aggregate.replace("{ nativeEntries }", "{ wrongExport as nativeEntries }"),
+    aggregate.replace("{ nativeEntries }", "* as nativeEntries"),
+    aggregate.replace("{ nativeEntries }", "nativeEntries"),
+  ]) {
+    const invalid = inspectMetadata(registryMetadata, [["src/aggregate.ts", invalidAggregate]]);
+    assert.equal(invalid.failures.length > 0, true, "only the actual imported metadata export can be aggregated");
+    assert.equal(invalid.sources.get("src/unrestricted-name.ts"), registryMetadata, "invalid bindings authorize no masking");
+  }
+  for (const consumer of [
+    'import { nativeEntries } from "./unrestricted-name.js"; export const selected = nativeEntries[0].counterpart.symbol;',
+    'export { nativeEntries } from "./unrestricted-name.js";',
+    'export async function select() { return (await import("./unrestricted-name.js")).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(`./unrestricted-name.js`)).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(("./unrestricted-name.js"))).nativeEntries[0].counterpart; }',
+    'export async function select() { return (await import(((`./unrestricted-name.js`)))).nativeEntries[0].counterpart; }',
+    'export type Counterpart = (typeof import("./unrestricted-name.js"))["nativeEntries"][number]["counterpart"];',
+    ...['"./unrestricted-name.js"', '`./unrestricted-name.js`'].flatMap(specifier => [
+      `${specifier} as const`, `${specifier} satisfies string`, `${specifier}!`, `<const>${specifier}`,
+      `((${specifier} as const) satisfies string)!`,
+    ].map(operand => `export async function select() { return (await import(${operand})).nativeEntries[0].counterpart; }`)),
+  ]) {
+    const invalid = inspectMetadata(registryMetadata, [["src/consumer.ts", consumer]]);
+    assert.equal(invalid.failures.includes("Production consumer of carrier registry metadata: src/consumer.ts"), true,
+      "ordinary code may neither decide with nor expose the counterpart records");
+    assert.equal(invalid.sources.get("src/unrestricted-name.ts"), registryMetadata, "no mask on an invalid graph");
   }
 });
