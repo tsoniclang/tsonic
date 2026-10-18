@@ -48,16 +48,18 @@ test("real Node cancellation is a distinct terminal identity and never an unchan
   const root = mkdtempSync(resolve(".temp/test-result-tests/cancelled-"));
   const file = resolve(root, "cancelled.test.mjs");
   const output = resolve(root, "results.jsonl");
-  writeFileSync(file, "import test from 'node:test'; test('pending work', async () => new Promise(() => {}));\n");
+  writeFileSync(file, "import test from 'node:test'; test('parent', context => { context.test('pending work', () => new Promise(() => {})); });\n");
   const environment = { ...process.env };
   delete environment.NODE_TEST_CONTEXT;
   const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1",
     `--test-reporter=${resolve("test/scripts/test-result-reporter.mjs")}`, `--test-reporter-destination=${output}`, file],
   { env: environment, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
+  assert.equal(run.error, undefined, "the explicit parent completion cancels its child without an outer timeout");
   assert.equal(run.status, 1, run.stderr);
   const named = readNodeTestResults(output, process.cwd(), file);
-  assert.equal(named.tests[0].status, "cancelled");
-  assert.equal(named.tests[0].failureType, "cancelledByParent");
+  const pending = named.tests.find(test => test.name === "pending work");
+  assert.equal(pending?.status, "cancelled");
+  assert.equal(pending?.failureType, "cancelledByParent");
   assert.equal(named.summary.counts.cancelled, 1);
 });
 
