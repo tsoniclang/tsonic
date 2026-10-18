@@ -76,7 +76,7 @@ export function captureKeelPackageOwners(workspace, inputs) {
     const programFiles = new Map([...inputs].flatMap(([repo, entries]) => [...entries].filter(([file, input]) =>
       input.kind === "file" && isCompilerSourceFile(file) && packageOwner(packageInputs, `${repo}/${file}`)?.root === owner.root)
       .map(([file, input]) => [resolve(workspace, repo, file), input.text])));
-    if (collectCompilerSourceExports(root, owner.metadata, [...programFiles.keys()]).length === 0) continue;
+    if (programFiles.size === 0) continue;
     programFiles.set(resolve(root, "package.json"), filesText(owner.path));
     const sourcePackages = collectTargetSourcePackageGraph(root, root, programFiles);
     const installedDeclarations = appendInstalledDeclarationPackageFiles(root, programFiles);
@@ -227,7 +227,7 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
     const available = sources.filter(([path]) => packageOwner(packages, path)?.root === entry.root).map(([path]) => `/keel/${path}`);
     try {
       const exports = collectCompilerSourceExports(`/keel/${entry.root}`, entry.metadata, available);
-      if (exports.length > 0) sourcePackages.set(entry.root, { ...entry, sourceFiles: available, exports });
+      if (available.length > 0) sourcePackages.set(entry.root, { ...entry, sourceFiles: available, exports });
     } catch (error) {
       errors.push({ path: `${entry.root}/package.json`, reason: `inconsistent compiler-source package owner: ${error.message}` });
     }

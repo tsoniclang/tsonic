@@ -2283,8 +2283,9 @@ test("QRC-14: original installed declaration snapshots preserve each compilation
 
 test("QRC-14: declared missing dependencies and unresolved installed exports reach the actual authored resolver", () => {
   const cases = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(field =>
-    ["missing-installation", "missing-export", "declared-export"].map(state => ({ field, state })));
-  for (const { field, state } of cases) {
+    ["missing-installation", "missing-export", "declared-export"].flatMap(state =>
+      ["module", "no-exports"].map(exposure => ({ field, state, exposure }))));
+  for (const { field, state, exposure } of cases) {
     const scratch = new URL("../../.temp/keel-Q109/", import.meta.url);
     mkdirSync(scratch, { recursive: true });
     const workspace = mkdtempSync(join(fileURLToPath(scratch), "declared-package-context-"));
@@ -2302,7 +2303,8 @@ test("QRC-14: declared missing dependencies and unresolved installed exports rea
     }
     const root = "tsonic-rust";
     const name = "@control/declared-only";
-    put(`${root}/package.json`, JSON.stringify({ name: "@control/authored", type: "module", module: "./src/index.ts",
+    put(`${root}/package.json`, JSON.stringify({ name: "@control/authored", type: "module",
+      ...(exposure === "module" ? { module: "./src/index.ts" } : {}),
       [field]: { [name]: "1.0.0" } }));
     put(`${root}/src/index.ts`, `import { value } from "${name}"; export const result: number = value;`);
     if (state !== "missing-installation") {
@@ -2312,23 +2314,29 @@ test("QRC-14: declared missing dependencies and unresolved installed exports rea
       put(`${root}/node_modules/${name}/index.mjs`, "export const value = 1;", false);
     }
     captureKeelPackageOwners(workspace, inputs);
+    const original = inputs.get(root).get("package.json").compilerPackage.sourcePackages;
+    const originalRoot = original.packages.find(entry => entry.id === original.rootPackageId);
+    assert.equal(originalRoot !== undefined && originalRoot.sourceFiles.includes(join(workspace, root, "src/index.ts")), true,
+      `${field} ${state} ${exposure}: the original compiler graph owns this caller independently of public exports`);
+    assert.equal(originalRoot.exports.length, exposure === "module" ? 1 : 0,
+      `${field} ${state} ${exposure}: capture preserves the original public export inventory`);
     const files = new Map([...inputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
     const packages = [...files].filter(([path]) => posix.basename(path) === "package.json")
       .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
     const exposures = createKeelPackageExposures(packages, files, path => path);
     assert.equal(exposures.knownPackage(`${root}/src/index.ts`, name), true,
-      `${field} ${state}: the original declaration remains known even when no installed graph node or declaration snapshot exists`);
+      `${field} ${state} ${exposure}: the original declaration remains known even when no installed graph node or declaration snapshot exists`);
     const selected = exposures.authoredModule(`${root}/src/index.ts`, { module: true, specifier: name });
     assert.equal(selected?.kind, state === "declared-export" ? "declaration" : "unresolved",
-      `${field} ${state}: only the actual checked resolver can establish the selected declaration`);
+      `${field} ${state} ${exposure}: only the actual checked resolver can establish the selected declaration`);
     assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, state !== "declared-export",
-      `${field} ${state}: absent declared evidence cannot disappear into an external-name default`);
+      `${field} ${state} ${exposure}: absent declared evidence cannot disappear into an external-name default`);
     if (state === "declared-export") {
       put(`${root}/src/native.mjs`, `import "${name}";`);
       put(`${root}/node_modules/${name}/index.mjs`, 'import "../../../test/helpers/native-ownership-cost.mjs";', false);
       captureNativePackageInputs(workspace, inputs);
       assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
-        "an actual native import still strengthens the formal authored declaration and rejects the real writer path");
+        `${field} ${state} ${exposure}: an actual native import still strengthens the formal authored declaration and rejects the real writer path`);
     }
   }
 });
