@@ -32,9 +32,7 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
   }, context: SourceStorageCreationContext) {
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
   const activations = new Map<string, SourceStorageActivation>();
-  const noCreation: readonly SourceStorageActivation[] = Object.freeze([]);
-  const root: SourceStorageActivation = Object.freeze({ key: "root", variable: undefined, closed: true,
-    owner: undefined, creation: noCreation, invocation: undefined, parent: undefined });
+  let rootActivation: SourceStorageActivation | undefined;
   const creationScopes = (scope: SourceStorageScope, frame: SourceStorageFrame): readonly SourceStorageScope[] | undefined => {
     if (frame.owner === undefined) return undefined;
     const subject = queries.subject(frame.owner);
@@ -66,6 +64,13 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
   };
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
+    if (rootActivation === undefined) {
+      if (!rows.add(2)) return undefined;
+      rootActivation = Object.freeze({ key: "root", variable: undefined, closed: true,
+        owner: undefined, creation: Object.freeze([]), invocation: undefined, parent: undefined });
+    }
+    const root = rootActivation;
+    const noCreation = root.creation;
     if (scope === queries.empty) return root;
     const cached = activationKeys.get(scope);
     if (cached !== undefined) return cached;

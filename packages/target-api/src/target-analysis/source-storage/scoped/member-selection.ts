@@ -17,6 +17,7 @@ type SourceStoragePhysicalMembers =
 export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
+    symbolic(value: SourceStorageReference): boolean;
     lineages(value: SourceStorageReference): readonly {
       readonly classes: readonly SourceStorageClassValue<SourceStorageScope>[]; readonly complete: boolean;
     }[] | undefined;
@@ -37,7 +38,9 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         if (subject === undefined) return undefined;
         members.push(Object.freeze({ subject, bindings: receiver.scope }));
       }
-      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 };
+      const optional = queries.symbolic(receiver) && transport.memberFlow.membersFor(receiver.subject, receiverType)?.some(member =>
+        member.kind === "present" && member.destination.declarations.includes(target) && member.source.property.optional) === true;
+      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
     }
     const owner = sourceMemberOwner(ast, target);
     const selected = semantics.forNode(allocation);

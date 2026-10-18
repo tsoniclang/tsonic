@@ -354,12 +354,38 @@ test("activation caller cycles and missing callers cannot publish an invented co
 });
 
 test("activation indexing preserves independent finite work and live row rejection", () => {
-  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 2 }]) {
-    const current = fixture(limits, 1);
-    assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true);
-    assert.match(current.budget.failure(), limits.maximumSteps === undefined ? /transport-row/u : /analysis-work/u);
-    assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true, "a failed request cannot expose a partially interned activation");
-  }
+  const rows = fixture({ maximumTransportRows: 2 }, 1);
+  assert.equal(rows.scopes.activation(rows.scopes.empty) === undefined, true,
+    "one existing scope identity plus the actual root object and shared creation array exceed two rows");
+  assert.match(rows.budget.failure(), /transport-row/u);
+  assert.equal(rows.scopes.activation(rows.scopes.empty) === undefined, true,
+    "a failed reservation cannot expose a partially interned activation");
+  const work = fixture({ maximumSteps: 1, maximumTransportRows: 3 }, 1);
+  assert.equal(work.scopes.activation(work.scopes.empty) !== undefined, true,
+    "one actual request fits the exact one-step and three-row success boundary");
+  assert.equal(work.budget.usage().steps, 1, "no synthetic root lookup or padding work is introduced");
+  assert.equal(work.budget.usage().rows, 3, "the existing scope identity and exactly two root objects stay charged");
+  assert.equal(work.budget.failure() === undefined, true);
+  assert.equal(work.scopes.activation(work.scopes.empty) === undefined, true,
+    "a second real request cannot bypass the exhausted independent work limit");
+  assert.match(work.budget.failure(), /analysis-work/u);
+  assert.equal(work.scopes.activation(work.scopes.empty) === undefined, true, "work failure stays sticky");
+});
+
+test("the root activation and shared empty creation array are retained exactly once at their true cost", () => {
+  const current = fixture({ maximumSteps: 2, maximumTransportRows: 3 }, 1);
+  assert.equal(current.budget.usage().rows, 1, "no root is allocated before a real activation demand");
+  const first = current.scopes.activation(current.scopes.empty);
+  assert.equal(first !== undefined && Object.isFrozen(first) && Object.isFrozen(first.creation), true,
+    "a complete immutable root is published at the exact cost boundary");
+  assert.equal(first.creation.length, 0);
+  assert.equal(current.scopes.activation(current.scopes.empty) === first, true,
+    "a repeated real request reuses the same root object and creation array");
+  assert.equal(current.budget.usage().rows, 3, "no per-request root entry or hidden reference row is retained");
+  assert.equal(current.budget.usage().steps, 2);
+  assert.equal(current.budget.failure() === undefined, true);
+  assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true);
+  assert.match(current.budget.failure(), /analysis-work/u);
 });
 
 test("deep cyclic capture discovery reuses the bounded completed relation owner", () => {

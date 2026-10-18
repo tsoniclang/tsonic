@@ -3,7 +3,8 @@ import { Node_Expression, Node_Initializer } from "../../../source-navigation/in
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue,
+  sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
@@ -283,6 +284,51 @@ export type SourceStorageInvocationInputQuery = (
   invocation: Node,
   callback?: SourceStorageCallbackEntry,
 ) => SourceStorageInvocationInputs;
+
+export function createSourceStorageInvocationOrigins(source: TargetSourceProgram, budget: SourceStorageBudget,
+  queries: {
+    readonly invocationInputs: SourceStorageInvocationInputQuery;
+    incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
+    isUnresolved(invocation: Node): boolean;
+  }) {
+  return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
+    if (queries.isUnresolved(invocation)) return undefined;
+    const context = source.semantics.forNode(invocation);
+    const slots = source.ast.body(candidate) === undefined ? undefined : sourceStorageCallableInputSlots(source, candidate, context,
+      { kind: "source-implementation", signature: context.operations.call(invocation)?.selectedSignature }, budget.step);
+    return budget.withRows(rows => {
+      const origins = new Set<SourceStorageSubject>();
+      const pending = [origin];
+      const visited = new Set<SourceStorageSubject>();
+      while (pending.length !== 0) {
+        if (!budget.step()) return undefined;
+        const current = pending.pop()!;
+        if (visited.has(current)) continue;
+        if (!rows.add(1)) return undefined;
+        visited.add(current);
+        if (current.kind === "receiver" || current.kind === "input") {
+          if (current.kind === "input" && source.ast.body(candidate) !== undefined &&
+            sourceStorageFormalOwner(current, source.ast) === candidate) {
+            const selected = slots?.filter(slot => slot.parameter === current.node);
+            if (selected === undefined || selected.length === 0 || selected.some(slot => slot.repeated || slot.projection === undefined)) return undefined;
+          }
+          for (const input of queries.invocationInputs(current, candidate, invocation).subjects) {
+            if (!budget.step()) return undefined;
+            origins.add(input);
+          }
+        } else {
+          const incoming = queries.incomingFor(current);
+          if (sourceStorageHasOriginalValue(current, source.ast, incoming.size !== 0)) origins.add(current);
+          for (const input of incoming) {
+            if (!budget.step() || !rows.add(1)) return undefined;
+            pending.push(input);
+          }
+        }
+      }
+      return origins;
+    });
+  };
+}
 
 export function createSourceStorageInvocationInputs(
   source: TargetSourceProgram,

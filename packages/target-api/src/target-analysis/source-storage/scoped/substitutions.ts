@@ -16,7 +16,7 @@ import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject,
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
-import { Node_Initializer } from "../../../source-navigation/index.js";
+import { isSourceCallableBodyBoundary, Node_Initializer } from "../../../source-navigation/index.js";
 import { createSourceStorageContextFootprints } from "../graph/context-footprints.js";
 import { sourceStorageActivationOwner } from "./activation-keys.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
@@ -467,7 +467,41 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return Object.freeze(inputs);
   });
-  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions,
+  const lexicalScopes = new Map<Node, SourceStorageScope>();
+  const lexicalRows = budget.createRows();
+  const forLexicalOwner = (node: Node): SourceStorageScope | undefined => budget.withRows(temporary => {
+    const owners: Node[] = [];
+    const visited = new Set<Node>();
+    let current: Node | undefined = node;
+    let parent: SourceStorageScope = scopes.empty;
+    while (current !== undefined) {
+      if (!budget.step()) return undefined;
+      const existing = lexicalScopes.get(current);
+      if (existing !== undefined) { parent = existing; break; }
+      if (visited.has(current)) {
+        budget.reject("Lexical substitution has a cyclic declaration ancestry."); return undefined;
+      }
+      if (!temporary.add(1)) return undefined;
+      visited.add(current);
+      if (isSourceCallableBodyBoundary(source.ast, current) || source.ast.is.IsClassDeclaration(current) ||
+        source.ast.is.IsClassExpression(current)) {
+        if (!temporary.add(1)) return undefined;
+        owners.push(current);
+      }
+      const region = transport.regions.enclosing(current);
+      current = region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    }
+    while (owners.length !== 0) {
+      if (!budget.step()) return undefined;
+      const owner = owners.pop()!;
+      const selected = scopes.declarationFor(owner, parent);
+      if (selected === undefined || !lexicalRows.add(1)) return undefined;
+      parent = selected;
+      lexicalScopes.set(owner, parent);
+    }
+    return parent;
+  });
+  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {

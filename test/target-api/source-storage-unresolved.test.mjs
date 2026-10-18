@@ -98,3 +98,14 @@ test("direct evidence preserves local projected failures without executing ances
   assert.equal(queries.directFor(projected), "exact local failure");
   assert.equal(budget.failure() === undefined, true);
 });
+
+test("an already rejected root preserves its exact evidence without executing an unrelated producer context", () => {
+  const { budget, subject, selected } = fixture();
+  const owner = selected();
+  const queries = createSourceStorageUnresolvedQueries(budget, subject,
+    () => assert.fail("a direct rejection does not require unbound invocation or creation evaluation"),
+    new Map([[owner, "exact original rejected transport"]]));
+  assert.equal(queries.ancestryFor(owner), "exact original rejected transport");
+  assert.equal(queries.ancestryFor(owner), "exact original rejected transport", "the completed exact root is reused");
+  assert.equal(budget.failure() === undefined, true, "a local rejection does not poison independent source queries");
+});

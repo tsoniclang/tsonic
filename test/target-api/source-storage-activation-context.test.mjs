@@ -42,6 +42,52 @@ function resolved(selection) {
   return selection;
 }
 
+for (const rejectedFirst of [false, true]) {
+  test("bound creation queries retain their actual caller independently of a rejected source rest transport: " + rejectedFirst, async () => {
+    const current = await fixture("bound-creation-local-rejection-" + rejectedFirst, `
+      function factory<Value>(value: Value) {
+        function make(): () => Value { return () => value; }
+        return make();
+      }
+      function throwRest(...values: object[]): never { throw values[0]; }
+      const left = {}; const right = {};
+      const first = factory(left); const second = factory(right);
+      try { throwRest({}); } catch (caught) { const rejected = caught; }
+      export {};
+    `);
+    const { ast, nodes, storage, declaration } = current;
+    const variable = name => nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+    const subject = name => resolved(storage.subjectFor(variable(name))).subject;
+    const initializer = name => ast.as.AsVariableDeclaration(variable(name)).Initializer;
+    const rejected = () => assert.equal(storage.originSubjectsFor(subject("rejected")).kind, "unresolved",
+      "the unsupported source body input remains rejected, not inferred from caller ABI facts");
+    if (rejectedFirst) rejected();
+    const creations = new Set();
+    for (const [name, expected, excluded] of [["first", "left", "right"], ["second", "right", "left"]]) {
+      const selected = storage.storageProducersFor(subject(name));
+      assert.equal(selected.kind === "complete" && selected.producers.length === 1, true,
+        name + ": one actual closure creation is independent of the rejected source region");
+      const producer = selected.producers[0];
+      const factory = resolved(storage.boundActivationsFor(declaration("factory"), producer.bindings));
+      const make = resolved(storage.boundActivationsFor(declaration("make"), producer.bindings));
+      assert.equal(factory.activations.length === 1 && factory.activations[0].kind === "invocation" &&
+        factory.activations[0].invocation === initializer(name), true, name + ": exact original outer activation");
+      assert.equal(make.activations.length === 1 && make.activations[0].kind === "invocation", true,
+        name + ": original inner invocation, not a fabricated lexical execution");
+      const formal = resolved(storage.subject(ast.parameters(declaration("factory"))[0], "input")).subject;
+      const origins = resolved(storage.boundOriginsFor(formal, producer.bindings));
+      assert.equal(origins.subjects.length === 1 && origins.subjects[0].node === initializer(expected), true,
+        name + ": exact original captured value");
+      assert.equal(origins.subjects.some(value => value.node === initializer(excluded)), false,
+        name + ": another actual caller cannot supply this closure's capture");
+      creations.add(make.activations[0].bindings);
+    }
+    assert.equal(creations.size, 2, "the identical inner AST retains both original caller activations");
+    if (!rejectedFirst) rejected();
+    assert.equal(storage.failureReason() === undefined, true, "local unresolved evidence never fabricates a key or global failure");
+  });
+}
+
 test("argument closure frontier retains its caller's symbolic enclosing activation", async () => {
   const { ast, nodes, storage, declaration, subject } = await fixture("source-activation-argument-capture", `
     export function source<Value>(callback: () => Value): Value { return callback(); }
@@ -1407,12 +1453,64 @@ for (const actual of ["present", "absent", "external"]) {
     else {
       const expected = actual === "present" ? ast.parameters(declaration("create"))[0]
         : ast.as.AsParameterDeclaration(ast.parameters(declaration("deliver"))[0]).Initializer;
-      assert.equal(selected.kind === "complete" && selected.producers.length === 1 && selected.producers[0].subject.node === expected, true,
+      assert.equal(selected.kind === "open" && selected.producers.length === 1 && selected.producers[0].subject.node === expected, true,
         "only the actual present argument or the actual checked absence chooses this value");
+      const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+      assert.equal(selected.boundaries.length, actual === "present" ? 2 : 1, "the complete set of genuine exposures is retained");
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === invocation), true,
+        "synchronous callback metadata does not promise preservation of its actual input array");
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" && boundary.exposure === declaration("create")),
+        actual === "present", "only the actual exported caller input adds this exact external boundary");
     }
     assert.equal(storage.failureReason(), undefined, "unknown input presence is not a budget failure");
   });
 }
+
+test("native initialized inputs are complete with actual preserved storage and a closed original caller", async () => {
+  const current = await fixture("native-initialized-preserved-closed-caller", `
+    declare function observe(value: number): void;
+    declare function nativeInvoke<Part>(values: (Part | undefined)[], callback: (actual: Part | undefined) => void): void;
+    function create(value: number) {
+      function deliver(actual: number = 99): void { observe(actual); }
+      return () => { nativeInvoke([value], deliver); };
+    }
+    const actual = 7;
+    const execute = create(actual);
+    execute();
+    export {};
+  `, (source, nodes) => {
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    const selectedNative = (node, selected) => source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native;
+    return {
+      callbackEntries(node, selected) {
+        return selectedNative(node, selected)
+          ? [{ parameterIndex: 1, timing: "synchronous", inputs: [{ parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 }] }]
+          : undefined;
+      },
+      call(node, selected) {
+        if (!selectedNative(node, selected)) return undefined;
+        const binding = selected.sourceArgumentBindings.find(value => value.sourceParameterIndex === 0 &&
+          value.sourceForm === "value" && value.sourceParameterForm === "parameter");
+        const input = binding === undefined ? undefined : selected.sourceArguments[binding.sourceArgumentIndex]?.expression;
+        return input === undefined ? undefined : { preservedInputs: [input] };
+      },
+    };
+  });
+  const { ast, nodes, storage, declaration } = current;
+  const execute = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "execute");
+  const original = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "actual");
+  const entry = storage.storageProducersFor(resolved(storage.subjectFor(execute)).subject);
+  assert.equal(entry.kind === "complete" && entry.producers.length === 1, true, "one closed actual executor creation");
+  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const executions = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+    declaration("deliver"), entry.producers[0]);
+  assert.equal(executions.kind === "complete" && executions.producers.length === 1, true, "one same-creation actual native callback execution");
+  const selected = storage.storageProducersFor(resolved(storage.subjectFor(ast.arguments(use)[0])).subject, executions.producers[0].bindings);
+  assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
+    selected.producers[0].subject.node === ast.as.AsVariableDeclaration(original).Initializer, true,
+    "actual input preservation and the original closed caller prove exactly the authored value, never an assumed default");
+  assert.equal(storage.failureReason() === undefined, true);
+});
 
 for (const [actual, code] of [["[undefined]", 2322], ["external", 2345]]) {
   test("native initialized input declarations do not admit absent elements in Part[]: " + code, async () => {

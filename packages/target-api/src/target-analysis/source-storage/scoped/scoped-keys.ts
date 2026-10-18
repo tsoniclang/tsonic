@@ -343,7 +343,16 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         inputs.set(selected.subject, retained);
         completedReferences.set(selected.scope, inputs);
         return key;
-      } finally { closed = outerClosed && closed; }
+      } finally {
+        if (encodings[selected.kind] === null) {
+          delete encodings[selected.kind];
+          if (encodings.reference === undefined && encodings.leaf === undefined) {
+            entries.delete(selected.subject);
+            if (entries.size === 0) references.delete(selected.scope);
+          }
+        }
+        closed = outerClosed && closed;
+      }
     };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };

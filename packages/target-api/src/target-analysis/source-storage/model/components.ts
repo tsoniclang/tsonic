@@ -73,7 +73,7 @@ export function sourceStorageOriginalComponents(
         : member.destination.read === "property" || member.destination.read === "accessor") &&
       member.source.read !== "unavailable" &&
       member.destination.declarations.includes(component.declaration)
-      ? member.source.declarations.map(declaration => ({
+      ? (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
           kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
         })) : []);
   }

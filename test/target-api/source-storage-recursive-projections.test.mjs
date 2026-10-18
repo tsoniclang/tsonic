@@ -281,6 +281,26 @@ test("an uninvoked structural getter does not become an executed mutation", () =
   current.expect("result", ["original"]);
 });
 
+for (const access of ["box.current", 'box["current"]']) {
+  test(`a write-only structural ${access} selects only the actual setter execution`, () => {
+    const current = fixture(`
+      const original = {}; const replacement = {}; const unused = {};
+      interface Writer { current: object; }
+      class Box {
+        constructor(public value: object) {}
+        set current(next: object) { this.value = next; }
+      }
+      function invoke(box: Writer, next: object): void { ${access} = next; }
+      function never(box: Writer): void { ${access} = unused; }
+      const first = new Box(original); const second = new Box(original);
+      invoke(first, replacement);
+      const written = first.value; const untouched = second.value;
+    `);
+    current.expect("written", ["original", "replacement"]);
+    current.expect("untouched", ["original"]);
+  });
+}
+
 for (const operation of ["throw original", "raise(original)", "box.current", 'box["current"]']) {
   for (const mutate of [false, true]) {
     test(`${operation} retains the exact catch input independently of later catch writes (${mutate})`, () => {

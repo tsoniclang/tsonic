@@ -57,7 +57,9 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const source = { ast: { is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
+  const owner = { parameters: [...parameters] };
+  const source = { ast: { parent: node => parameters.has(node) ? owner : undefined,
+    is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
     as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } } };
   const keys = createSourceStorageScopedKeys(source, current, {
     contextualInputs: () => new Set(),

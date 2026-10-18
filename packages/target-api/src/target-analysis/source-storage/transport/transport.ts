@@ -20,7 +20,7 @@ import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
-import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
+import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
   sourceStorageNativeCallablePayloads, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
@@ -566,28 +566,8 @@ export function createSourceStorageTransport(
   };
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
     accessorTargets, invocation => unresolvedInvocations.has(invocation));
-  const invocationOrigins = (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> => {
-    const origins = new Set<SourceStorageSubject>();
-    if (unresolvedInvocations.has(invocation)) return origins;
-    const pending = [origin];
-    const visited = new Set<SourceStorageSubject>();
-    while (pending.length !== 0 && step()) {
-      const current = pending.pop()!;
-      if (visited.has(current)) continue;
-      visited.add(current);
-      if (current.kind === "receiver" || current.kind === "input") {
-        for (const input of invocationInputs(current, candidate, invocation).subjects) {
-          if (!step()) break;
-          origins.add(input);
-        }
-      } else {
-        const incomingOrigins = incomingFor(current);
-        if (sourceStorageHasOriginalValue(current, ast, incomingOrigins.size !== 0)) origins.add(current);
-        for (const incomingOrigin of incomingOrigins) { if (!step()) break; pending.push(incomingOrigin); }
-      }
-    }
-    return origins;
-  };
+  const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
+    { invocationInputs, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
 
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const [access, owner] of mutationOwners) yield once => {
@@ -720,7 +700,15 @@ export function createSourceStorageTransport(
             else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
           }
           for (const origin of thrownOrigins.get(region) ?? []) {
-            for (const actual of invocationOrigins(origin, target.candidate, invocation)) {
+            const origins = invocationOrigins(origin, target.candidate, invocation);
+            if (origins === undefined) {
+              const reason = "Thrown source storage requires completed original implementation input transport, not caller ABI correspondence alone.";
+              const caught = destination === undefined ? undefined : subject(destination, "input");
+              if (caught !== undefined) unresolvedSubjects.set(caught, reason);
+              else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
+              continue;
+            }
+            for (const actual of origins) {
               if (destination !== undefined) connect(actual, subject(destination, "input"));
               else if (enclosing !== undefined) recordThrow(enclosing, actual);
             }
@@ -853,7 +841,10 @@ export function createSourceStorageTransport(
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
-    selected => substitutions.walk(selected, substitutions.empty), unresolvedSubjects);
+    selected => {
+      const scope = substitutions.forLexicalOwner(selected.node);
+      return scope === undefined ? undefined : substitutions.walk(selected, scope);
+    }, unresolvedSubjects);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;
@@ -866,7 +857,7 @@ export function createSourceStorageTransport(
     const result = subject(invocation);
     if (result !== undefined) {
       selected.add(result);
-      if (reason !== undefined) unresolvedSubjects.set(result, reason);
+      if (reason !== undefined && !ast.is.IsNewExpression(invocation)) unresolvedSubjects.set(result, reason);
     }
     for (const argument of invocationArguments.get(invocation) ?? []) {
       if (!step()) break;

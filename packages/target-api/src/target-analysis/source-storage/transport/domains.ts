@@ -332,8 +332,7 @@ export function createSourceStorageDomains(
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings, current => {
-      if (current.subject.kind !== "input" && current.subject.kind !== "receiver" ||
-        transport.substitutions.isBound(current.subject, current.bindings)) return false;
+      if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
       return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input");
     });
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
@@ -360,7 +359,7 @@ export function createSourceStorageDomains(
       const retained = seen ?? new Set<SourceStorageSubject>();
       retained.add(current.subject); visited.set(current.bindings, retained);
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
-      reason = transport.unresolvedStoredInputsFor(current.subject);
+      reason = transport.directlyUnresolvedFor(current.subject) ?? transport.unresolvedStoredInputsFor(current.subject);
       if (reason !== undefined) break;
       const bound = transport.substitutions.isBound(current.subject, current.bindings);
       for (const boundary of boundariesFor(current.subject)) {
