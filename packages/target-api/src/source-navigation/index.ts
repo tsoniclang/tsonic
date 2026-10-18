@@ -9,7 +9,7 @@ export type { SourceReceiverBoundary } from "./receiver-owner.js";
 export { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceConstructValueInputs,
   sourceExpressionValueInputs } from "./expression-use.js";
 export type { SourceExpressionResultDisposition, SourceValueInput, SourceValueInputSlot } from "./expression-use.js";
-export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
+export { generatedTypeParameterNames, authoredTypeParameterNames, sourceEnclosingGenericParameters } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";

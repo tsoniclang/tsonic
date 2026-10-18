@@ -38,3 +38,21 @@ export function authoredTypeParameterNames(
   visit(node);
   return [...names];
 }
+
+export function sourceEnclosingGenericParameters(
+  declaration: Node, ast: AstReader,
+): readonly Node[] | undefined {
+  if (ast.kind(declaration) === undefined) return undefined;
+  const parameters: Node[] = [];
+  const visited = new Set<Node>([declaration]);
+  for (let owner = ast.parent(declaration); owner !== undefined; owner = ast.parent(owner)) {
+    if (visited.has(owner) || visited.size >= 4096) return undefined;
+    visited.add(owner);
+    for (const parameter of ast.typeParameters(owner)) {
+      if (parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter) ||
+        parameters.length >= 65_536) return undefined;
+      parameters.push(parameter);
+    }
+  }
+  return Object.freeze(parameters);
+}
