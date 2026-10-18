@@ -19,6 +19,7 @@ export function parallelReportCounts(report) {
       report.taskCounts?.total !== report.taskCounts?.passed || report.taskCounts.total < 1 ||
       report.testCountReporting?.missing !== 0 ||
       report.testCountReporting?.reported !== report.taskCounts.total ||
+      !Array.isArray(report.results) || report.results.length !== report.taskCounts.total ||
       !Array.isArray(report.preRuns) || report.bank === "host" && report.preRuns.length === 0 ||
       report.preRuns.some(run => run.status !== 0)) {
     throw new Error("Parallel report is failed, incomplete or missing test counts.");

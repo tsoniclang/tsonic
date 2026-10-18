@@ -1,17 +1,18 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readTestResourceBudget } from "../../test/scripts/test-resource-budget.mjs";
+import { readTestResourceBudget, testTaskEnvironment } from "../../test/scripts/test-resource-budget.mjs";
 import { runBoundedTestQueue } from "../../test/scripts/parallel-scheduler.mjs";
 
 export function releaseLaneBudget(budget, count) {
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("Release lanes require a positive count.");
-  const workers = Math.min(count, budget.workers ?? count, budget.cpuBudget, Math.floor(budget.memoryMiB / 4096));
+  if (!Number.isSafeInteger(budget.childJobs) || budget.childJobs < 1) throw new Error("Release lanes require the guard-selected native child count.");
+  const workers = Math.min(count, budget.workers ?? count, Math.floor(budget.memoryMiB / 4096));
   if (workers < 1) throw new Error("Release acceptance requires at least 4096 MiB per native lane.");
   return {
     workers, memoryMiB: budget.memoryMiB,
     workerMemoryMiB: Math.floor(budget.memoryMiB / workers),
-    childJobs: Math.floor(budget.cpuBudget / workers),
+    childJobs: budget.childJobs,
   };
 }
 
@@ -20,13 +21,11 @@ export async function runReleaseLanes(lanes, root, execute = runLane, budget = r
   process.stdout.write(`Release acceptance: ${selected.workers} independent lanes, ${selected.childJobs} native jobs per lane, ${selected.workerMemoryMiB} MiB per lane.\n`);
   await runBoundedTestQueue(lanes, selected, lane => execute(lane, {
     root,
-    environment: {
-      ...process.env,
-      CARGO_BUILD_JOBS: String(selected.childJobs),
-      RUST_TEST_THREADS: String(selected.childJobs),
-      DOTNET_PROCESSOR_COUNT: String(selected.childJobs),
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=${Math.min(4096, Math.floor(selected.workerMemoryMiB * 0.75))}`.trim(),
-    },
+    environment: testTaskEnvironment(process.env, budget, {
+      id: lane.id, memoryMiB: selected.workerMemoryMiB,
+      heapMiB: Math.min(budget.heapMiB, Math.floor(selected.workerMemoryMiB * 0.75)),
+      childJobs: selected.childJobs,
+    }),
   }));
 }
 

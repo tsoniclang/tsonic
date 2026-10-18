@@ -265,6 +265,10 @@ test("one parallel count contract covers Host and Rust without losing cancellati
   assert.equal(parallelReportCounts({ ...base, bank: "node", preRuns: [] })[0].total, 2);
   assert.throws(() => parallelReportCounts({ ...base, bank: "host", preRuns: [] }), /incomplete/u);
   assert.throws(() => parallelReportCounts({ ...base, bank: "node", selection: { complete: false }, preRuns: [] }), /incomplete/u);
+  for (const results of [undefined, [], [...base.results, ...base.results]]) {
+    assert.throws(() => parallelReportCounts({ ...base, bank: "node", preRuns: [], results }), /incomplete/u,
+      "summary-only, missing and duplicated task results are not a complete Node bank");
+  }
   const changedTests = [result("cancelled", "cancelled"), result("todo", "todo")];
   const actual = parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: testResultCounts(changedTests),
     results: [{ summary: { completed: true }, tests: changedTests }] });

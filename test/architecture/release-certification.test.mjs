@@ -168,7 +168,10 @@ test("parallel runner evidence is canonical and the superseded host evidence rol
   const path = resolve(fixture.root, "suite.json");
   writeImmutableJson(path, { bank: "node", selection: { complete: true },
     taskCounts: { total: 1, passed: 1, failed: 0 }, testCountReporting: { missing: 0, reported: 1 },
-    preRuns: [], testCounts: { ...count } });
+    preRuns: [], testCounts: { ...count },
+    results: [{ summary: { completed: true }, tests: [
+      { type: "test", status: "passed" }, { type: "test", status: "passed" },
+    ] }] });
   const record = structuredClone(fixture.record);
   record.evidence[2] = describeEvidence(path, "parallel");
   assert.doesNotThrow(() => validate(fixture, record), "the same complete report proves the declared Node bank");

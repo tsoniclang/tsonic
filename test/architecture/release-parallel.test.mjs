@@ -6,14 +6,20 @@ import { releaseLaneBudget, runReleaseLanes } from "../../scripts/release/parall
 import { startPackedRegistry } from "../../scripts/release/packed-install/registry.mjs";
 import { hostRoot } from "../../scripts/release/npm-wave.mjs";
 import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
+import { readTestResourceBudget } from "../scripts/test-resource-budget.mjs";
 
-test("release lanes partition native CPU and memory instead of multiplying them", () => {
-  assert.deepEqual(releaseLaneBudget({ cpuBudget: 20, memoryMiB: 40960 }, 2),
-    { workers: 2, memoryMiB: 40960, workerMemoryMiB: 20480, childJobs: 10 });
-  assert.equal(releaseLaneBudget({ cpuBudget: 20, memoryMiB: 4096 }, 2).workers, 1);
-  assert.equal(releaseLaneBudget({ cpuBudget: 1, memoryMiB: 8192 }, 2).childJobs, 1);
-  assert.throws(() => releaseLaneBudget({ cpuBudget: 20, memoryMiB: 1024 }, 2), /4096/u);
-  assert.throws(() => releaseLaneBudget({ cpuBudget: 20, memoryMiB: 8192 }, 0), /positive/u);
+test("release lanes partition memory and retain native child counts rather than deriving them from CPUs", () => {
+  assert.deepEqual(releaseLaneBudget({ cpuBudget: 24, memoryMiB: 40960, childJobs: 3 }, 2),
+    { workers: 2, memoryMiB: 40960, workerMemoryMiB: 20480, childJobs: 3 });
+  assert.equal(releaseLaneBudget({ cpuBudget: 24, memoryMiB: 4096, childJobs: 3 }, 2).workers, 1);
+  assert.equal(releaseLaneBudget({ cpuBudget: 1, memoryMiB: 8192, childJobs: 3 }, 2).workers, 2,
+    "the number of exposed CPUs is not a worker quota");
+  assert.equal(releaseLaneBudget({ cpuBudget: 1, memoryMiB: 8192, childJobs: 3 }, 2).childJobs, 3);
+  assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 1024, childJobs: 3 }, 2), /4096/u);
+  assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 8192, childJobs: 3 }, 0), /positive/u);
+  for (const childJobs of [undefined, 0, 1.5]) {
+    assert.throws(() => releaseLaneBudget({ cpuBudget: 24, memoryMiB: 8192, childJobs }, 2), /guard-selected/u);
+  }
 });
 
 test("independent acceptance lanes overlap and drain after a failure", async () => {
@@ -23,13 +29,18 @@ test("independent acceptance lanes overlap and drain after a failure", async () 
   await assert.rejects(runReleaseLanes([{ id: "csharp" }, { id: "rust" }], ".", async (lane, options) => {
     active.add(lane.id);
     peak = Math.max(peak, active.size);
-    assert.equal(options.environment.CARGO_BUILD_JOBS, "10");
-    assert.equal(options.environment.DOTNET_PROCESSOR_COUNT, "10");
+    for (const name of ["CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "DOTNET_PROCESSOR_COUNT", "TSONIC_TEST_CHILD_JOBS"]) {
+      assert.equal(options.environment[name], "3", `${name}: the same selected child count reaches every native tool`);
+    }
+    const selected = JSON.parse(options.environment.TSONIC_TEST_RESOURCE_BUDGET);
+    assert.equal(selected.memoryMiB, 4096, "each lane receives its actual memory partition");
+    assert.equal(selected.workers, 1, "a child lane cannot reuse the whole outer worker budget");
+    assert.equal(selected.childJobs, 3, "the structured budget agrees with native environment variables");
     await new Promise(resolveNext => setImmediate(resolveNext));
     active.delete(lane.id);
     completed.push(lane.id);
     if (lane.id === "csharp") throw new Error("native failure");
-  }, { cpuBudget: 20, memoryMiB: 8192 }), /drained/u);
+  }, { ...readTestResourceBudget(), memoryMiB: 8192, workers: 2, childJobs: 3 }), /drained/u);
   assert.equal(peak, 2);
   assert.deepEqual(completed.sort(), ["csharp", "rust"]);
   assert.equal(active.size, 0);

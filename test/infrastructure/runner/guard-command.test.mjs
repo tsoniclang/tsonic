@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { memoryBoundNodeTestArguments, runGuardCommand } from "../../scripts/guard-command.mjs";
 import { guardCgroupPath, guardMeasurementSucceeded, guardReceiptHasOwnedMeasurements, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
 import { createGuardReport } from "../../scripts/guard-report.mjs";
+import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
 
 mkdirSync(".temp/guard-command-tests", { recursive: true });
 
@@ -18,6 +20,35 @@ test("Node test launches explicitly use the memory-derived worker count", () => 
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["--", "script.mjs", "--test"], 4), ["--", "script.mjs", "--test"]);
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["--test", "--", "--test-concurrency=1"], 4), ["--test", "--test-concurrency=4", "--", "--test-concurrency=1"]);
   assert.deepEqual(memoryBoundNodeTestArguments("node", ["--import", "hook.mjs", "--test", "case.mjs"], 4), ["--import", "hook.mjs", "--test", "--test-concurrency=4", "case.mjs"]);
+});
+
+test("the actual Node provider worker preserves guarded native children across both phases", () => {
+  const root = mkdtempSync(resolve(".temp/guard-command-tests/native-environment-"));
+  const binaries = resolve(root, "bin");
+  mkdirSync(binaries);
+  for (const command of ["npm", "node"]) {
+    writeFileSync(resolve(binaries, command),
+      '#!/bin/sh\nprintf "%s|%s|%s|%s\\n" "$CARGO_BUILD_JOBS" "$RUST_TEST_THREADS" "$DOTNET_PROCESSOR_COUNT" "$TSONIC_TEST_CPUS" >> "$TSONIC_ENV_CONTROL"\n',
+      { mode: 0o700 });
+  }
+  const provider = resolve(testRepositoryRoots.tsonic, "../rust-nodejs");
+  for (const childJobs of [1, 3]) {
+    const log = resolve(root, `native-${childJobs}.log`);
+    const run = spawnSync("bash", [resolve(provider, "scripts/test-worker.sh"), "selected-fixture.test.mjs"], {
+      cwd: provider, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+      env: { ...process.env, PATH: `${binaries}:${process.env.PATH}`, TSONIC_ENV_CONTROL: log,
+        TSONIC_TEST_CPUS: "24", TSONIC_TEST_WORKERS: "1", TSONIC_TEST_CHILD_JOBS: String(childJobs),
+        CARGO_BUILD_JOBS: String(childJobs), RUST_TEST_THREADS: String(childJobs), DOTNET_PROCESSOR_COUNT: String(childJobs) },
+    });
+    assert.equal(run.error === undefined, true, "the bounded command fixture completes without a native build");
+    assert.equal(run.status, 0, run.stderr);
+    const actual = readFileSync(log, "utf8").trim().split("\n");
+    assert.equal(actual.length, 3, "the real worker reaches its build, Node tests and Cargo tests");
+    for (const [index, environment] of actual.entries()) {
+      assert.equal(environment, `${childJobs}|${childJobs}|${childJobs}|24`,
+        `phase ${index}: the native tools retain the selected child count, independently of all exposed CPUs`);
+    }
+  }
 });
 
 test("guard membership is a closed cgroup v2 path", () => {
