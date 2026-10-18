@@ -2376,6 +2376,95 @@ test("QRC-14: logical compiler inputs capture exact real files without promoting
     "native incoming still traces the actual physical executable to the restricted writer");
 });
 
+test("QRC-14: original hoisted declarations retain ancestor filenames without granting native package authority", () => {
+  const scratch = new URL("../../.temp/keel-Q109/", import.meta.url);
+  mkdirSync(scratch, { recursive: true });
+  for (const level of [0, 1, 2]) {
+    const container = mkdtempSync(join(fileURLToPath(scratch), "hoisted-declaration-inputs-"));
+    const workspace = join(container, "parent", "workspace");
+    const inputs = nativeBoundaryInputs();
+    const put = (path, text, tracked = true) => {
+      const absolute = join(workspace, path);
+      mkdirSync(posix.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, text);
+      const separator = path.indexOf("/");
+      inputs.get(path.slice(0, separator)).set(path.slice(separator + 1), safetyFile(text, tracked));
+    };
+    for (const { path, evidence } of keelPackageBuildResources()) {
+      put(path, readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8"));
+      for (const artifact of evidence.artifacts) put(artifact.path, readFileSync(new URL(`../../../${artifact.path}`, import.meta.url), "utf8"), false);
+    }
+    put("tsonic-rust/test/helpers/native-ownership-cost.mjs", inputs.get("tsonic-rust").get("test/helpers/native-ownership-cost.mjs").text);
+    const name = "@control/shared";
+    const roots = ["tsumo-rust/packages/cli", "tsumo-csharp/packages/cli"];
+    const metadata = JSON.stringify({ name, version: "1.2.3", type: "module", types: "./index.d.ts",
+      exports: { types: "./index.d.ts", default: "./index.mjs" } });
+    const installed = join([workspace, posix.dirname(workspace), container][level], "node_modules", name);
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(join(installed, "package.json"), metadata);
+    writeFileSync(join(installed, "index.d.ts"), "export declare const value: 1;");
+    writeFileSync(join(installed, "index.mjs"), "export const value = 1;");
+    for (const [index, root] of roots.entries()) {
+      put(`${root}/package.json`, JSON.stringify({ name: `@control/caller-${index}`, type: "module", dependencies: { [name]: "1.2.3" } }));
+      put(`${root}/src/index.ts`, `import { value } from "${name}"; export const result: number = value;`);
+    }
+    put(`${roots[1]}/node_modules/${name}/package.json`, metadata, false);
+    put(`${roots[1]}/node_modules/${name}/index.d.ts`, "export declare const value: 2;", false);
+    put(`${roots[1]}/node_modules/${name}/index.mjs`, "export const value = 2;", false);
+    captureKeelPackageOwners(workspace, inputs);
+    const files = new Map([...inputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
+    const packages = [...files].filter(([path]) => posix.basename(path) === "package.json")
+      .map(([path, input]) => ({ root: posix.dirname(path), metadata: JSON.parse(input.text) }));
+    const exposures = createKeelPackageExposures(packages, files);
+    assert.equal(exposures.errors.length, 0, `${level}: original hoisted metadata and declarations remain consistent`);
+    for (const [index, root] of roots.entries()) {
+      const expected = index === 0 ? join(installed, "index.d.ts") : join(workspace, root, "node_modules", name, "index.d.ts");
+      const selected = exposures.authoredModule(`${root}/src/index.ts`, { module: true, specifier: name });
+      assert.equal(selected?.kind, "declaration", `${level} ${root}: the actual checked resolver selects the original nonexecutable input`);
+      assert.equal(selected.input.fileName, expected, `${level} ${root}: competing same-name packages keep their own original identities`);
+      assert.equal(selected.input.sha256, keelDigest(readFileSync(expected)), `${level} ${root}: original declaration bytes stay exact`);
+    }
+    const context = files.get(`${roots[0]}/package.json`).compilerPackage;
+    const captured = context.files.find(file => file.fileName === join(installed, "index.d.ts"));
+    assert.equal(captured?.realPath, join(installed, "index.d.ts"), `${level}: the capture records the actual ancestor file identity`);
+    assert.equal(captured?.sourcePath, undefined, `${level}: outside-repository declarations are not fabricated native files`);
+    assert.equal(captured?.text, "export declare const value: 1;", `${level}: only the original collector's bytes are transported`);
+    assert.equal(context.installedDeclarations.packages.some(owner => owner.root === installed), true,
+      `${level}: the original selected installed snapshot owns the declaration`);
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${level}: an ordinary actual hoist does not violate the native boundary`);
+    const altered = transform => {
+      const copy = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
+      const entry = copy.get("tsumo-rust").get("packages/cli/package.json");
+      copy.get("tsumo-rust").set("packages/cli/package.json", Object.freeze({ ...entry,
+        compilerPackage: Object.freeze({ ...context, files: transform(context.files) }) }));
+      return copy;
+    };
+    for (const fileName of [join(installed, "package.json"), join(installed, "index.d.ts")]) {
+      const changed = altered(rows => rows.map(file => file.fileName === fileName ? { ...file, sha256: "0".repeat(64) } : file));
+      assert.equal(boundarySafety(changed).nativeAllocationBoundary === undefined, true, `${level}: changed original metadata or declaration hashes are refused`);
+    }
+    const wrongOwner = altered(rows => rows.map(file => file.fileName === captured.fileName
+      ? { ...file, fileName: join(workspace, roots[1], "node_modules", name, "index.d.ts") } : file));
+    assert.equal(boundarySafety(wrongOwner).nativeAllocationBoundary === undefined, true,
+      `${level}: another available compilation owner's logical identity cannot replace this caller's declaration`);
+    const missing = altered(rows => rows.filter(file => file.fileName !== captured.fileName));
+    assert.equal(boundarySafety(missing).nativeAllocationBoundary === undefined, true, `${level}: a missing original declaration stays unresolved`);
+    put(`${roots[0]}/src/native.mjs`, `import "${name}";`);
+    captureNativePackageInputs(workspace, inputs);
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${level}: a real native incoming edge still requires physical executable bytes outside the declaration facet`);
+    writeFileSync(join(installed, "index.mjs"), `import ${JSON.stringify(join(workspace, "tsonic-rust/test/helpers/native-ownership-cost.mjs"))};`);
+    captureNativePackageInputs(workspace, inputs);
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${level}: an outside native writer cannot borrow an original declaration's authority`);
+    inputs.get("tsumo-rust").delete("packages/cli/src/native.mjs");
+    writeFileSync(join(installed, "index.ts"), "export const value: number = 1;");
+    writeFileSync(join(installed, "package.json"), JSON.stringify({ name, version: "1.2.3", type: "module", exports: "./index.ts" }));
+    assert.throws(() => captureKeelPackageOwners(workspace, inputs), /Compiler (?:source )?package input leaves the complete workspace/u,
+      `${level}: original compiler-source bytes outside the physical source cut are not declaration inputs`);
+  }
+});
+
 test("QRC-14: declared missing dependencies and unresolved installed exports reach the actual authored resolver", () => {
   const cases = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(field =>
     ["missing-installation", "missing-export", "declared-export"].flatMap(state =>

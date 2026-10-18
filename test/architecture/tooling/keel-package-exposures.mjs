@@ -84,7 +84,8 @@ export function captureKeelPackageOwners(workspace, inputs) {
       const path = relative(workspace, fileName);
       const actual = realpathSync(fileName);
       const sourcePath = relative(workspace, actual);
-      if (!validLiteralFilePath(path) || !keelWorkspaceRepositories.includes(path.split("/")[0])) {
+      if ((!validLiteralFilePath(path) || !keelWorkspaceRepositories.includes(path.split("/")[0])) &&
+        !originalInstalledDeclaration(fileName, installedDeclarations)) {
         throw new Error(`Compiler package input leaves the complete workspace: ${fileName}.`);
       }
       const bytes = readFileSync(fileName);
@@ -93,8 +94,7 @@ export function captureKeelPackageOwners(workspace, inputs) {
       }
       const sha256 = keelDigest(bytes);
       if (!validLiteralFilePath(sourcePath) || !keelWorkspaceRepositories.includes(sourcePath.split("/")[0])) {
-        if ((!isDeclarationFile(fileName) && posix.basename(fileName) !== "package.json") ||
-          !installedDeclarations.packages.some(entry => fileName.startsWith(`${entry.root}/`))) {
+        if (!originalInstalledDeclaration(fileName, installedDeclarations)) {
           throw new Error(`Compiler source package input leaves the complete workspace: ${fileName}.`);
         }
         return Object.freeze({ fileName, path, realPath: actual, sha256, text });
@@ -147,6 +147,12 @@ export function captureKeelPackageOwners(workspace, inputs) {
     const separator = path.indexOf("/");
     return inputs.get(path.slice(0, separator)).get(path.slice(separator + 1)).text;
   }
+}
+
+function originalInstalledDeclaration(fileName, snapshot) {
+  return typeof fileName === "string" && isAbsolute(fileName) &&
+    (isDeclarationFile(fileName) || posix.basename(fileName) === "package.json") &&
+    snapshot.packages.some(entry => fileName.startsWith(`${entry.root}/`));
 }
 
 function capturePackageFile(workspace, inputs, sourcePath, bytes) {
@@ -218,39 +224,42 @@ export function createKeelPackageExposures(packages, files) {
     }
   }
   const compilerFiles = new Map([...files].filter(([path, input]) => input.kind === "file" &&
-    (/\.[cm]?[jt]sx?$/u.test(path) || posix.basename(path) === "package.json")).map(([path, input]) => [`/keel/${path}`, input.text]));
+    (/\.[cm]?[jt]sx?$/u.test(path) || posix.basename(path) === "package.json")).map(([path, input]) => [path, input.text]));
   const owners = JSON.stringify([...sourcePackages.keys()]);
   if (authoredPrograms.owners !== owners) authoredPrograms = { owners, programs: new Map() };
   const compilerContexts = new Map();
   const authoredDeclarationInputs = new Map();
   for (const entry of sourcePackages.values()) {
-    const program = { files: new Map(compilerFiles), sourcePaths: new Map([...compilerFiles.keys()].map(path => [path, path.slice(6)])),
-      roots: entry.sourceFiles, originalDeclarationInputs: new Map() };
-    compilerContexts.set(entry.root, program);
     const context = files.get(`${entry.root}/package.json`)?.compilerPackage;
+    const root = context?.sourcePackages.packages.find(candidate => candidate.id === context.sourcePackages.rootPackageId);
+    const metadataInput = context?.files.find(file => file.path === `${entry.root}/package.json`);
+    const workspace = metadataInput?.fileName.slice(0, -metadataInput.path.length) ?? "/keel/";
+    const program = { workspace, files: new Map([...compilerFiles].map(([path, text]) => [posix.resolve(workspace, path), text])),
+      sourcePaths: new Map([...compilerFiles.keys()].map(path => [posix.resolve(workspace, path), path])),
+      roots: entry.sourceFiles.map(path => posix.resolve(workspace, path.slice(6))), originalDeclarationInputs: new Map() };
+    compilerContexts.set(entry.root, program);
     if (context === undefined) {
       if (readDependencyNames(entry.metadata, true).length > 0) errors.push({ path: `${entry.root}/package.json`, reason: "missing original compiler package input context" });
       continue;
     }
-    const root = context.sourcePackages.packages.find(candidate => candidate.id === context.sourcePackages.rootPackageId);
-    const metadataInput = context.files.find(file => file.path === `${entry.root}/package.json`);
     if (root === undefined || root.packageRoot !== posix.dirname(metadataInput?.fileName ?? "") ||
       !root.sourceFiles.every(fileName => context.files.some(file => file.fileName === fileName))) {
       errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent original compiler package context" }); continue;
     }
-    program.roots = root.sourceFiles.map(fileName => `/keel/${context.files.find(file => file.fileName === fileName).path}`);
-    const workspacePrefix = metadataInput.fileName.slice(0, -metadataInput.path.length);
+    program.roots = root.sourceFiles;
     for (const file of context.files) {
       const input = file.sourcePath === undefined ? undefined : files.get(file.sourcePath);
+      const declarationAuthority = originalInstalledDeclaration(file.fileName, context.installedDeclarations);
       const originalDeclaration = file.sourcePath === undefined && typeof file.text === "string" &&
-        (isDeclarationFile(file.fileName) || posix.basename(file.fileName) === "package.json") &&
-        context.installedDeclarations.packages.some(owner => file.fileName.startsWith(`${owner.root}/`)) && keelDigest(file.text) === file.sha256;
-      if ((!originalDeclaration && (!validLiteralFilePath(file.sourcePath) || file.realPath !== `${workspacePrefix}${file.sourcePath}` ||
+        declarationAuthority && keelDigest(file.text) === file.sha256;
+      if ((!originalDeclaration && (!validLiteralFilePath(file.sourcePath) || file.realPath !== posix.resolve(workspace, file.sourcePath) ||
           input?.kind !== "file" || input.sha256 !== file.sha256)) || typeof file.realPath !== "string" || !isAbsolute(file.realPath) ||
-        !validLiteralFilePath(file.path) || file.fileName !== `${workspacePrefix}${file.path}`) {
+        (!validLiteralFilePath(file.path) && !declarationAuthority) ||
+        typeof file.path !== "string" || file.fileName !== posix.resolve(workspace, file.path) ||
+        file.path !== posix.relative(workspace, file.fileName)) {
         errors.push({ path: `${entry.root}/package.json`, reason: "inconsistent original compiler package input bytes" }); continue;
       }
-      const name = `/keel/${file.path}`;
+      const name = file.fileName;
       const text = originalDeclaration ? file.text : input.text;
       if (program.files.has(name) && program.files.get(name) !== text) {
         errors.push({ path: `${entry.root}/package.json`, reason: "ambiguous original compiler package input identity" }); continue;
@@ -345,7 +354,7 @@ export function createKeelPackageExposures(packages, files) {
     if (!checkedSources.has(owner.root)) {
       const digest = keelDigest(JSON.stringify([[...program.files], program.roots]));
       if (authoredPrograms.programs.get(owner.root)?.digest !== digest) {
-        const session = createCompilerSessionFromFiles({ currentDirectory: `/keel/${owner.root}`, files: program.files, rootFiles: program.roots,
+        const session = createCompilerSessionFromFiles({ currentDirectory: posix.resolve(program.workspace, owner.root), files: program.files, rootFiles: program.roots,
           compilerOptions: { module: "nodenext", moduleResolution: "nodenext", target: "es2024", noLib: true,
             allowJs: true, allowImportingTsExtensions: true, preserveSymlinks: true, allowArbitraryExtensions: true,
             strict: true, skipLibCheck: true } });
@@ -357,7 +366,7 @@ export function createKeelPackageExposures(packages, files) {
     if (resolutions.has(key)) return resolutions.get(key);
     const source = checkedSources.get(owner.root).source;
     const ast = source.ast;
-    const sourceFile = source.getSourceFile(`/keel/${path}`);
+    const sourceFile = source.getSourceFile(posix.resolve(program.workspace, path));
     const targets = new Map();
     const visit = node => {
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(node)) && ast.text(node) === reference.specifier) {
