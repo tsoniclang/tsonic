@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 import { sourceStorageAllocations, sourceStorageConstructionExpression,
-  sourceStorageInstanceInitializers } from "../model/construction.js";
-import { sourceStorageClassLineages } from "../transport/invocation-results.js";
+  sourceStorageInstanceInitializers, sourceStorageClassLineages } from "../model/construction.js";
+import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection,
   SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
@@ -12,7 +12,8 @@ type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForIn
 type Construction = Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number];
 
 export function createSourceStorageConstructionQuery(source: TargetSourceProgram, budget: SourceStorageBudget,
-  queries: ConstructionQueries): (invocation: Node, bindings: SourceStorageBindings) => SourceStorageConstructionSelection {
+  queries: ConstructionQueries, nativeConstructorsFor: (subject: SourceStorageSubject) => readonly Node[] | undefined):
+  (invocation: Node, bindings: SourceStorageBindings) => SourceStorageConstructionSelection {
   const cache = new Map<Node, Map<SourceStorageBindings, SourceStorageConstructionSelection>>();
   const rows = budget.createRows();
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
@@ -34,6 +35,7 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
         : "Construction execution requires a closed actual class-value domain, not an externally mutable or opaque constructor.");
       let failure: string | undefined;
       const lineages = sourceStorageClassLineages(source, budget, new Set(producers.producers), {
+        nativeConstructorsFor,
         subjectFor(node) {
           if (node === undefined) return undefined;
           const selected = queries.subjectFor(node);
@@ -65,7 +67,8 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
       let cost = 2;
       for (const lineage of lineages) for (const allocation of allocations.allocations) {
         if (!budget.step()) return unresolved(budget.failure()!);
-        const root = lineage.classes[0]!.subject.node;
+        const root = lineage.classes[0]?.subject.node;
+        if (root === undefined) return unresolved("Source construction execution requires its actual source class owner, not an imported native body.");
         const classes: SourceStorageConstructionClass[] = [];
         for (const value of lineage.classes) {
           if (!budget.step()) return unresolved(budget.failure()!);

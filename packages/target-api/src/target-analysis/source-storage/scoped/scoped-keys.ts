@@ -9,8 +9,9 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
 import { createSourceStorageKeyEncoder, type SourceStorageKey, type SourceStorageKeyValue as Encoded } from "../graph/key-encoding.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 
 interface ReferenceEncoding {
   readonly encoded: SourceStorageKey;
@@ -32,6 +33,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const referenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
   const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
+    if (subject.kind === "input") return sourceStorageFormalOwner(subject, source.ast);
     const region = transport.regions.enclosing(subject.node);
     return subject.kind === "return" || subject.kind === "receiver" ? subject.node
       : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
@@ -69,12 +71,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const birthKey = (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
@@ -101,7 +103,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
             if (encoded === undefined) return undefined;
             values.push(encoded);
           }
-          entry = values;
+          entry = [bound.initialization, values];
         }
         inputs.push([scopes.identity(port), entry]);
       }
@@ -123,7 +125,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const value = encodeTerm({ kind: "leaf", subject: selected.subject, scope: selected.scope });
         return value === undefined ? undefined : ["qualified", selected.guards.key, value];
       }
-      if (selected.kind === "empty") return [selected.kind];
+      if (selected.kind === "empty") {
+        if (selected.absence === undefined) return [selected.kind, null];
+        const reference = selected.absence;
+        const activation = birthKey(reference.subject, reference.scope);
+        return activation === undefined ? undefined : [selected.kind,
+          scopes.identity(reference.subject), activation, reference.guards?.key ?? null];
+      }
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand), selected.deferred === true ? 1 : 0];
       if (selected.kind === "guarded") {
         return budget.withRows(rows => {
@@ -175,6 +183,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const activation = activationKey(selected.scope);
         const inputs: Encoded[] = [];
         const owner = sourceStorageRegionOwner(source.ast, selected.region);
+        const callable = owner === undefined ? undefined : transport.subject(owner);
+        const captures = owner === undefined ? null : callable === undefined ? undefined : encodeScope(callable, selected.scope);
         const parameters = owner === undefined || source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)
           ? [] : source.ast.parameters(owner);
         if (owner !== undefined) for (const parameter of [...parameters, owner]) {
@@ -184,7 +194,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           if (value === undefined) return undefined;
           inputs.push(value);
         }
-        return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs];
+        return activation === undefined || captures === undefined ? undefined : [selected.kind, scopes.identity(selected.region),
+          scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs, captures];
       }
       if (selected.kind === "member") {
         const receiver = encodeBinding(selected.receiver);
@@ -197,7 +208,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
           selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
-            : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
+            : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration),
+              selected.selection.evaluation === undefined ? null : scopes.identity(selected.selection.evaluation),
+              selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
       if (selected.kind === "application") {
@@ -231,8 +244,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           scopes.identity(selected.invocation), callback, activation, callee, receiver,
           arguments_, encodeProjection(selected.projection)];
       }
-      if (selected.kind === "reference" && (selected.subject.kind === "input" || selected.subject.kind === "receiver")) {
-        const bound = scopes.lookup(selected.subject, selected.scope);
+      const omittedInput = selected.kind === "leaf" && selected.subject.kind === "input"
+        ? scopes.lookup(selected.subject, selected.scope) : undefined;
+      if ((selected.kind === "reference" || selected.kind === "leaf" && omittedInput?.kind === "replace" && omittedInput.initialization === "absent") &&
+        (selected.subject.kind === "receiver" || selected.subject.kind === "input" &&
+        Node_Initializer(source.ast, selected.subject.node) === undefined)) {
+        const bound = selected.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, selected, undefined)
+          : scopes.lookup(selected.subject, selected.scope);
         if (bound?.kind === "replace") {
           const values: Encoded[] = [];
           for (const term of bound.terms) {
@@ -248,9 +266,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         frame.kind === "frame" && frame.invocation !== undefined && frame.owner !== undefined &&
         sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
-      const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
+      const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
-      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason,
+      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
         ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
         : [selected.kind, scopes.identity(selected.subject), birth, context];
     };

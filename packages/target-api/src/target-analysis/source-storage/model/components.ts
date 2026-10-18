@@ -1,7 +1,7 @@
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import { sourceStorageIsMemberProjection } from "./subjects.js";
+import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
 import { Node_Initializer, sourceEnclosingCallable } from "../../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
 
@@ -20,16 +20,16 @@ export function sourceStorageComponentType(
   type: Type,
   component: SourceStorageProjection,
   semantics: SourceFileSemantics,
+  ast: AstReader,
 ): Type | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
   if (sourceStorageIsMemberProjection(component)) {
-    const correspondence = semantics.types.structuralMembers(selected, selected);
-    if (correspondence.kind !== "available") return undefined;
-    const members = correspondence.members.filter(member => member.kind === "present" &&
-      member.destination.read === (component.kind === "member" ? "property" : "method") &&
-      member.destination.declarations.includes(component.declaration));
-    return members.length === 1 ? members[0]!.destination.property.type : undefined;
+    if (component.kind === "method-value" ? !sourceStorageIsMethodMember(component.declaration, ast)
+      : !sourceStorageIsDataMember(component.declaration, ast) && !ast.is.IsGetAccessorDeclaration(component.declaration)) return undefined;
+    const properties = semantics.types.propertyInfos(selected).filter(property => [property.symbol, ...property.rootSymbols]
+      .some(symbol => semantics.declarations.symbolDeclarations(symbol).includes(component.declaration)));
+    return properties.length === 1 ? properties[0]!.type : undefined;
   }
   if (component.kind === "tuple-element") {
     if (!semantics.types.isTuple(selected)) return undefined;
@@ -47,6 +47,7 @@ export function sourceStorageOriginalComponents(
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
+    if (semantics.types.isIdentical(from, to)) return [component];
     const correspondence = semantics.types.structuralMembers(from, to);
     if (correspondence.kind !== "available") return [];
     return correspondence.members.flatMap(member => member.kind === "present" &&
@@ -72,7 +73,7 @@ export function* sourceStorageComponents(
       if (element.elementKind === "required" || element.elementKind === "optional")
         yield { kind: "tuple-element", index };
     }
-  } else if (sourceStorageComponentType(selected, { kind: "array-element" }, semantics) !== undefined)
+  } else if (sourceArrayElementType(selected, semantics) !== undefined)
     yield { kind: "array-element" };
 }
 
@@ -95,15 +96,17 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
     const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
       (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
     const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
+    const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
       value.kind === "value" && source.ast.is.IsIdentifier(value.node);
-    selected = bindingContainer ? initializer === undefined ? undefined : semantics.types.expressionType(initializer)
+    selected = bindingContainer ? containerType !== undefined ? semantics.types.authoredType(containerType)
+        : initializer === undefined ? undefined : semantics.types.expressionType(initializer)
       : expressionValue ? semantics.types.expressionType(value.node)
         : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
   }
   for (const component of value.projection) {
     if (selected === undefined) return undefined;
-    selected = sourceStorageComponentType(selected, component, semantics);
+    selected = sourceStorageComponentType(selected, component, semantics, source.ast);
   }
   return selected;
 }
@@ -142,6 +145,7 @@ export function sourceIndexedStorageProjection(
   type: Type,
   index: Node | undefined,
   semantics: SourceFileSemantics,
+  ast: AstReader,
 ): SourceStorageProjection | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
@@ -149,9 +153,9 @@ export function sourceIndexedStorageProjection(
     const indexType = index === undefined ? undefined : semantics.types.expressionType(index);
     const value = indexType === undefined ? undefined : semantics.types.numericLiteralValue(indexType);
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&
-      sourceStorageComponentType(selected, { kind: "tuple-element", index: value }, semantics) !== undefined
+      sourceStorageComponentType(selected, { kind: "tuple-element", index: value }, semantics, ast) !== undefined
       ? Object.freeze({ kind: "tuple-element", index: value }) : undefined;
   }
-  return sourceStorageComponentType(selected, { kind: "array-element" }, semantics) === undefined
+  return sourceStorageComponentType(selected, { kind: "array-element" }, semantics, ast) === undefined
     ? undefined : Object.freeze({ kind: "array-element" });
 }

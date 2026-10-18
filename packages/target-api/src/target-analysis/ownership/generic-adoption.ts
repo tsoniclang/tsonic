@@ -185,10 +185,13 @@ export function analyzeSourceGenericAdoption(input: {
       } else markType(sensitivity.operation, actual, semantics, sensitivity.unresolved);
     }
   };
-  const receiverInstances = (site: Node, type: Type, active = new Set<Type>()): void => {
-    if (!step(site) || active.has(type)) return;
-    active.add(type);
+  const receiverInstances = (site: Node, originalType: Type, active = new Set<Type>()): void => {
+    if (!step(site)) return;
     const semantics = source.semantics.forNode(site);
+    const type = semantics.types.apparentType(originalType);
+    if (type === undefined) { refuse(site, "Generic receiver adoption requires its exact checked apparent receiver."); return; }
+    if (active.has(type)) return;
+    active.add(type);
     if (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) {
       for (const part of semantics.types.unionOrIntersectionTypes(type)) receiverInstances(site, part, active);
       return;
@@ -196,6 +199,10 @@ export function analyzeSourceGenericAdoption(input: {
     const bindings = semantics.types.typeArgumentBindings(type);
     const symbol = semantics.declarations.typeSymbol(type);
     const declarations = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol);
+    const constructor = symbol === undefined ? undefined : semantics.types.typeOfSymbol(symbol);
+    if (bindings === undefined && constructor !== undefined && semantics.types.isIdentical(type, constructor) &&
+      declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
+        (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)))) return;
     if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
       (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
       refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");
@@ -362,6 +369,7 @@ export function analyzeSourceGenericAdoption(input: {
     knownResolverResult: Type | undefined, unresolved?: SourceOwnershipUnresolved): void => {
     const selected = input.storage.subjectFor(argument);
     const origins = selected.kind === "unresolved" ? selected : input.storage.storageProducersFor(selected.subject, bindings);
+    if (origins.kind === "complete" && origins.producers.length === 0) return;
     if (origins.kind === "unresolved" || origins.producers.length === 0) {
       if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
       const semantics = source.semantics.forNode(argument);

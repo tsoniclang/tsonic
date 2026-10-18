@@ -492,7 +492,9 @@ for (const reverse of [false, true]) for (const inherited of [false, true]) {
     if (classBindings.kind !== "resolved" || depth.kind !== "resolved" || classSubject.kind !== "resolved" || input.kind !== "resolved") return;
     for (const [subject, bindings] of [[classSubject.subject, classBindings.bindings], [input.subject, depth.bindings]] as const) {
       const selected = storage.storageProducersFor(subject, bindings);
-      assert.equal(selected.kind, "complete", "the exact class or constructor producer relation closes");
+      assert.equal(selected.kind, "complete", selected.kind === "unresolved"
+        ? `the exact class or constructor producer relation closes: ${selected.reason}`
+        : "the exact class or constructor producer relation closes");
       if (selected.kind !== "complete") return;
       assert.equal(selected.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
         "a class/constructor entry never drops the borrowed branch's capture");
@@ -503,6 +505,64 @@ for (const reverse of [false, true]) for (const inherited of [false, true]) {
     }
     assert.equal(storage.failureReason() === undefined, true, "the finite class relation stays within its unchanged budget");
   });
+}
+
+for (const exposure of ["returned", "exported-factory", "opaque-argument"]) {
+  for (const borrowed of [false, true]) for (const producersFirst of [false, true]) {
+    test(`externally retained Derived keeps its inherited actual capture: ${exposure}/${borrowed}/${producersFirst}`, () => {
+      const current = fixture(false, "self", `
+        declare function publish(value: new () => { readonly value: Lease }): void;
+        ${exposure === "exported-factory" ? "export " : ""}function escapingClass(lease: Lease) {
+          class Base { readonly value = lease; }
+          class Derived extends Base {}
+          ${exposure === "opaque-argument" ? "publish(Derived);" : ""}
+          return Derived;
+        }
+        async function escapingClassRoot(): Promise<number> {
+          const owner = { value: 3 }; const owned: Lease = { value: 7 };
+          const Selected = escapingClass(${borrowed ? "borrow(owner)" : "owned"});
+          const value = new Selected().value;
+          const stored = produced(value); return stored;
+        }
+      `);
+      const { source, storage } = current;
+      const root = current.declaration("escapingClassRoot");
+      const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+        source.ast.text(source.ast.name(node)) === "value" && storage.enclosingRegionFor(node) === source.ast.body(root));
+      const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+        current.selectedDeclaration(node) === current.declaration("produced") && storage.enclosingRegionFor(node) === source.ast.body(root));
+      assert.equal(access !== undefined && call !== undefined, true, "The original actual inherited field and escaping Promise demand exist.");
+      const subject = storage.subjectFor(access!);
+      const caller = storage.bindingsForLexicalOwner(access!);
+      assert.equal(subject.kind === "resolved" && caller.kind === "resolved", true,
+        "The field keeps its actual checked source and execution bindings.");
+      if (subject.kind !== "resolved" || caller.kind !== "resolved") return;
+      const inspect = () => {
+        const selected = storage.storageProducersFor(subject.subject, caller.bindings);
+        assert.equal(selected.kind, "complete", selected.kind === "unresolved" ? selected.reason
+          : "Actual class retention never replaces the inherited capture with an unbound external constructor.");
+        if (selected.kind !== "complete") return;
+        assert.equal(selected.producers.length === 1, true, "Exactly this actual factory argument owns the inherited field.");
+        assert.equal(selected.producers.some(producer => source.ast.is.IsCallExpression(producer.subject.node) &&
+          current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), borrowed,
+        "Returning, exporting or passing Derived cannot discard its actual captured loan.");
+        assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
+          source.ast.is.IsVariableDeclaration(source.ast.parent(producer.subject.node)) &&
+          source.ast.text(source.ast.name(source.ast.parent(producer.subject.node))) === "owned"), !borrowed,
+        "External class retention cannot substitute an unrelated owned or borrowed factory argument.");
+      };
+      if (producersFirst) inspect();
+      const selected = current.query.forCall(call!);
+      assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
+        selected.kind === "unresolved" ? selected.reason : "The unchanged native ownership decision follows the actual inherited capture.");
+      if (selected.kind === "resolved" && borrowed) assert.equal(selected.decision === "rejected" &&
+        selected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES" && selected.diagnostic.at === call, true,
+      "The real escaping demand retains its precise original borrowed-result diagnostic.");
+      if (!producersFirst) inspect();
+      assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true,
+        "Genuine external retention stays finite without erasing its captured owner.");
+    });
+  }
 }
 
 for (const choice of ["flag ? first.ping : second.pong", "flag ? second.pong : first.ping",
@@ -632,7 +692,9 @@ for (const reverse of [false, true]) for (const branches of ["owned", "borrowed"
     const contexts = reverse ? [depthTwo.bindings, depth.bindings, entry.bindings] : [entry.bindings, depth.bindings, depthTwo.bindings];
     for (const bindings of contexts) {
       const selected = storage.storageProducersFor(input.subject, bindings);
-      assert.equal(selected.kind, "complete", "each complete constructor context has its exact producer relation");
+      assert.equal(selected.kind, "complete", selected.kind === "unresolved"
+        ? `each complete constructor context has its exact producer relation: ${selected.reason}`
+        : "each complete constructor context has its exact producer relation");
       if (selected.kind !== "complete") return;
       const nodes = selected.producers.map(producer => producer.subject.node);
       assert.equal(nodes.every(node => node === borrowed || node === owned || node === local), true, "no unrelated activation supplies a constructor input");
