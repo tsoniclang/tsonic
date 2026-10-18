@@ -453,7 +453,7 @@ export function make(): (value: number) => number {
 });
 
 test("opaque and unproved argument boundaries expose exact nodes without inventing an implementation", async () => {
-  const { source, storage, subject, call, provider } = await checked("source-storage-native-boundaries", `
+  const { source, storage, subject, call, provider, file } = await checked("source-storage-native-boundaries", `
 const callback = (): number => 3;
 declare const externalCallbacks: (() => number)[];
 native(callback);
@@ -476,7 +476,9 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
     callbackSource.subjects[0] === subject("callback"), true, "callback read retains its exact source declaration");
   const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
   assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(callbackRead), true);
-  const rest = call("spread");
+  const rest = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "spread" &&
+    !source.ast.is.IsSpreadElement(source.ast.arguments(node)[0]));
   const restActual = resolvedSubject(storage.subjectFor(source.ast.arguments(rest)[0]), "concrete rest actual");
   const arguments_ = storage.argumentTransportsFor(rest);
   assert.equal(arguments_.kind === "resolved" && arguments_.arguments.length === 1 &&
