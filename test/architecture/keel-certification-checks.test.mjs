@@ -2376,11 +2376,14 @@ test("QRC-14: actual native package capture binds both owners and every caller f
     `${posix.relative(posix.dirname(`${roots[0]}/src/entry.mjs`), posix.dirname(origin))}/`]) {
     const selected = new Map([...inputs].map(([repo, entries]) => [repo, new Map(entries)]));
     selected.get("tsumo-rust").set("packages/engine/src/entry.mjs", safetyFile(`import { createRequire } from "node:module";
-      const load = createRequire(new URL(${JSON.stringify(base)}, import.meta.url)); load("${name}");`));
+      const load = createRequire(new URL(${JSON.stringify(base)}, import.meta.url));
+      load("${name}"); load("#shared"); const { readFileSync } = load("node:fs"); void readFileSync;`));
     const proof = captureNativePackageInputs(workspace, selected);
     const actualOrigin = base.endsWith("/") ? `${posix.dirname(origin)}/package.json` : origin;
     assert.equal(proof.nativePackageRequests.some(row => row.origin === actualOrigin && row.name === name), true,
       "both immutable factory file and directory origins use their own original package finder");
+    assert.equal(proof.nativePackageRequests.every(row => !row.origin.includes("//")), true,
+      "native loading and native member acquisition share one normalized factory file identity");
     assert.equal(selected.get("tsumo-csharp").get("packages/engine/package.json").nativePackageInputs.some(row =>
       row.origin === actualOrigin && row.sourceRoot === `${roots[1]}/node_modules/${name}`), true,
     "the foreign factory's original package wins over the caller's available same-name installation");
@@ -2413,10 +2416,12 @@ test("QRC-14: actual native package capture binds both owners and every caller f
   const oracle = spawnSync(process.execPath, ["--input-type=module", "--eval",
     `import { createRequire } from "node:module"; const first = createRequire(${JSON.stringify(join(workspace, roots[0], "src/entry.mjs"))});
      const second = createRequire(${JSON.stringify(join(workspace, roots[1], "src/entry.mjs"))});
-     process.stdout.write(JSON.stringify([first("${name}").value, second("${name}").value, first("#shared").value, second("#shared").value]));`],
+     const directory = createRequire(${JSON.stringify(`${join(workspace, roots[1], "src")}/`)});
+     process.stdout.write(JSON.stringify([first("${name}").value, second("${name}").value, first("#shared").value, second("#shared").value,
+       directory("${name}").value, directory("#shared").value]));`],
   { encoding: "utf8", timeout: 10000, maxBuffer: 65536 });
   assert.equal(oracle.status, 0, `actual native Node package owner oracle: ${oracle.stderr}`);
-  assert.deepEqual(JSON.parse(oracle.stdout), [1, 2, 1, 2], "native Node confirms each caller and private alias retains the exact physical installation");
+  assert.deepEqual(JSON.parse(oracle.stdout), [1, 2, 1, 2, 2, 2], "native Node confirms each file or directory caller and private alias retains the exact physical installation");
   const aliased = join(workspace, roots[0], "node_modules/@control/aliased");
   mkdirSync(aliased, { recursive: true });
   const foreign = join(fileURLToPath(scratch), `${posix.basename(workspace)}-native-metadata.json`);
@@ -2484,6 +2489,8 @@ test("QRC-14: physical package names, URL targets and finite-pattern proof stay 
 });
 
 test("QRC-14: bare packages and package-import aliases preserve the same physical main and URL export identity", () => {
+  const scratch = new URL("../../.temp/keel-Q109/", import.meta.url);
+  mkdirSync(scratch, { recursive: true });
   for (const [metadata, target] of [
     [{ main: "./src/ordinary.d.ts#literal" }, "src/ordinary.d.ts#literal"],
     [{ main: "./src/ordinary.d.ts#literal", exports: null }, "src/ordinary.d.ts#literal"],
@@ -2496,29 +2503,31 @@ test("QRC-14: bare packages and package-import aliases preserve the same physica
     for (const specifier of ["@control/ordinary", "#entry"]) {
       for (const source of [`require(${JSON.stringify(specifier)});`, `await import(${JSON.stringify(specifier)});`]) {
         const inputs = nativeBoundaryInputs();
-        inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/ordinary", ...metadata,
-          imports: { "#entry": "@control/ordinary" } })));
-        const packageInput = inputs.get("tsonic-rust").get("package.json");
-        const installedPath = "tsonic-rust/node_modules/@control/ordinary";
-        inputs.get("tsonic-rust").set("node_modules/@control/ordinary", Object.freeze({
-          kind: "symlink", tracked: false, mode: "120000", target: "../..",
-        }));
-        inputs.get("tsonic-rust").set("package.json", Object.freeze({ ...packageInput,
-          nativePackageInputs: Object.freeze(["tsonic-rust/package.json", "tsonic-rust/src/emitter.mjs"].map(origin => Object.freeze({
-            origin, name: "@control/ordinary", resolutionDirectory: `/native-context-control/${posix.dirname(origin)}`,
-            installedRoot: `/native-context-control/${installedPath}`, physicalRoot: "/native-context-control/tsonic-rust",
-            installedPath, sourceRoot: "tsonic-rust", metadataSha256: packageInput.sha256,
-          }))),
-        }));
-        inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
-        inputs.get("tsonic-rust").set(target, safetyFile("const ordinary = 2;"));
+        const workspace = mkdtempSync(join(fileURLToPath(scratch), "native-physical-package-"));
+        const selfExports = metadata.exports !== undefined && metadata.exports !== null;
+        const packageRoot = selfExports ? "tsonic-rust" : "tsonic-rust/node_modules/@control/ordinary";
+        const put = (file, text, tracked = true) => {
+          const absolute = join(workspace, "tsonic-rust", file);
+          mkdirSync(posix.dirname(absolute), { recursive: true });
+          writeFileSync(absolute, text);
+          inputs.get("tsonic-rust").set(file, safetyFile(text, tracked));
+        };
+        put("package.json", JSON.stringify(selfExports ? { name: "@control/ordinary", ...metadata,
+          imports: { "#entry": "@control/ordinary" } } : { name: "@control/caller",
+          dependencies: { "@control/ordinary": "1.0.0" }, imports: { "#entry": "@control/ordinary" } }));
+        if (!selfExports) put("node_modules/@control/ordinary/package.json", JSON.stringify({ name: "@control/ordinary", ...metadata }), false);
+        put("src/emitter.mjs", source);
+        const physicalTarget = `${packageRoot}/${target}`;
+        const targetFile = posix.relative("tsonic-rust", physicalTarget);
+        put(targetFile, "const ordinary = 2;", selfExports);
+        captureNativePackageInputs(workspace, inputs);
         const harmless = boundarySafety(inputs);
         assert.equal(harmless.findings.length, 0, `${source}: physical package identity is unchanged`);
-        assert.equal(harmless.nativeAllocationBoundary.builtModuleInputs.some(entry => entry.path === `tsonic-rust/${target}`), true,
+        assert.equal(harmless.nativeAllocationBoundary.builtModuleInputs.some(entry => entry.path === physicalTarget), true,
           `${source}: canonical metadata and ordinary module edges bind the identical bytes`);
-        inputs.get("tsonic-rust").set(target, safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+        put(targetFile, `require(${JSON.stringify(posix.relative(posix.dirname(physicalTarget), "tsonic-rust/test/helpers/native-ownership-cost.mjs"))});`, selfExports);
         assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${source}: actual writer reachability remains rejected`);
-        inputs.get("tsonic-rust").delete(target);
+        inputs.get("tsonic-rust").delete(targetFile);
         assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${source}: missing native bytes never imply harmlessness`);
       }
     }

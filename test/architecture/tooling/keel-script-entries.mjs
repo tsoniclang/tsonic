@@ -138,8 +138,9 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
       const address = importMetaUrl(root) ? { path } : sourceAddress(root);
       const finiteTargets = valid ? finiteRequireTargets(declaration) : undefined;
       if (!final && valid && address.path === undefined && finiteTargets === undefined) continue;
-      moduleBindings.set(name, { valid, root: address.path,
-        directory: address.directory ?? address.path?.endsWith("/"), finiteTargets });
+      const origin = address.path === undefined ? undefined : address.directory || address.path.endsWith("/")
+        ? posix.join(address.path, "package.json") : address.path;
+      moduleBindings.set(name, { valid, origin, finiteTargets });
       if (!valid) references.push({ unresolved: true, unresolvedReason: "unresolved first-party createRequire binding, write or escape" });
     }
   }
@@ -154,8 +155,7 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
         const argument = ast.arguments(root)[0];
         if ((ast.kindName(callee) === "KindImportKeyword" || api(callee) === "require") && ast.arguments(root).length === 1 && literal(argument)) {
           const binding = ast.kindName(callee) === "KindIdentifier" ? moduleBindings.get(ast.text(callee)) : undefined;
-          const origin = binding === undefined ? path : binding.valid && binding.root !== undefined
-            ? binding.directory ? `${binding.root}/package.json` : binding.root : undefined;
+          const origin = binding === undefined ? path : binding.valid ? binding.origin : undefined;
           const specifier = origin === undefined ? "" : builtinSpecifier(ast.text(argument), origin);
           if (nativeBuiltinSpecifiers.has(specifier)) selected = `${specifier}#*`;
         }
@@ -314,12 +314,12 @@ export function scriptSourceReferences(path, text, boundary, entryRole, moduleSp
         if (binding.finiteTargets !== undefined) {
           references.push(...binding.finiteTargets.map(target => ({ module: true, path: target, firstParty: true, nativeRequire: true }))); continue;
         }
-        if (!binding.valid || binding.root === undefined) {
+        if (!binding.valid || binding.origin === undefined) {
           references.push({ unresolved: true, unresolvedReason: "unresolved first-party createRequire origin" }); continue;
         }
-        address.moduleOrigin = binding.directory ? `${binding.root}/package.json` : binding.root;
+        address.moduleOrigin = binding.origin;
         if (address.specifier?.startsWith(".")) {
-          address.path = posix.normalize(posix.join(binding.directory ? binding.root : posix.dirname(binding.root), address.specifier));
+          address.path = posix.normalize(posix.join(posix.dirname(binding.origin), address.specifier));
         }
       }
       const nativeModule = builtinSpecifier(address.specifier, address.moduleOrigin ?? path);
