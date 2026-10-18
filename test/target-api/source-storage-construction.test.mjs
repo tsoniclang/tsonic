@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
-import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/transport/invocation-results.js";
+import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(limits = defaultSourceStorageLimits) {
@@ -80,18 +80,18 @@ test("the canonical class lineage refuses cyclic, foreign and missing actual her
     return selected.kind === "resolved" ? selected.subject : undefined;
   };
   const cyclic = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits), values,
-    { subjectFor, valuesFor: () => values });
+    { subjectFor, nativeConstructorsFor: () => undefined, valuesFor: () => values });
   assert.equal(cyclic !== undefined && cyclic.length === 1 && cyclic[0].complete === false, true,
     "A repeated exact class/scope pair is unresolved, not a complete empty initializer inventory.");
   const missing = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits), values,
-    { subjectFor, valuesFor: () => undefined });
+    { subjectFor, nativeConstructorsFor: () => undefined, valuesFor: () => undefined });
   assert.equal(missing === undefined, true, "Missing required heritage evidence cannot be treated as no base.");
   const foreign = fixture();
   const foreignClass = foreign.storage.nodes.find(node => foreign.source.ast.is.IsClassDeclaration(node));
   const foreignSubject = foreign.storage.subjectFor(foreignClass);
   assert.equal(foreignSubject.kind, "resolved");
   const rejected = sourceStorageClassLineages(current.source, createSourceStorageBudget(defaultSourceStorageLimits),
-    new Set([{ subject: foreignSubject.subject, bindings: foreign.storage.emptyBindings }]), { subjectFor, valuesFor: () => values });
+    new Set([{ subject: foreignSubject.subject, bindings: foreign.storage.emptyBindings }]), { subjectFor, nativeConstructorsFor: () => undefined, valuesFor: () => values });
   assert.equal(rejected !== undefined && rejected.length === 1 && rejected[0].complete === false, true,
     "A foreign class value never supplies a native or source-construction guarantee.");
 });

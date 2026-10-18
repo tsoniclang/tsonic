@@ -4,6 +4,46 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageReference, SourceStorageScope, SourceStorageScopedSubject as SourceStorageBoundSubject, SourceStorageTerm } from "../graph/scoped-model.js";
+import { sourceStorageReference } from "../graph/scoped-model.js";
+import type { SourceStorageScopes } from "./scoped-scopes.js";
+import type { SourceStorageSubject } from "../model/subjects.js";
+import { sourceStorageFormalOwner } from "../model/subjects.js";
+import { sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
+
+export function* walkSourceStorageExecution(budget: SourceStorageBudget, roots: Iterable<SourceStorageTerm>,
+  read: (term: SourceStorageTerm) => Iterable<SourceStorageTerm> | undefined): Generator<SourceStorageTerm> {
+  const rows = budget.createRows();
+  const frontier = budget.createRows();
+  let maximumFrontier = 0;
+  const pending: SourceStorageTerm[] = [];
+  const visited = new Set<SourceStorageTerm>();
+  const schedule = (term: SourceStorageTerm): boolean => {
+    if (!budget.step()) return false;
+    if (visited.has(term)) return true;
+    if (!rows.add(1)) return false;
+    if (pending.length === maximumFrontier) {
+      if (!frontier.add(1)) return false;
+      maximumFrontier += 1;
+    }
+    visited.add(term); pending.push(term);
+    return true;
+  };
+  try {
+    for (const root of roots) if (!schedule(root)) return;
+    while (pending.length !== 0) {
+      if (!budget.step()) return;
+      const term = pending.pop()!;
+      if (term.kind === "leaf" || term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
+      if (term.kind === "empty") continue;
+      const successors = read(term);
+      if (successors === undefined) {
+        budget.reject("Source storage execution requires its active scoped relation."); return;
+      }
+      for (const successor of successors) if (!schedule(successor)) return;
+    }
+  } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
+}
 
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
@@ -123,7 +163,8 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
       const relevant: (Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry })[] = [];
       for (const frontier of frontiers) {
         if (!budget.step()) return undefined;
-        if (transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);
+        if (frontier.subject === frontier.owner ||
+          transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);
       }
       return Object.freeze(relevant);
     },
@@ -144,4 +185,125 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
       return false;
     },
   });
+}
+
+export function createSourceStorageInputExecutions(source: TargetSourceProgram, budget: SourceStorageBudget,
+  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
+  reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
+  readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
+  const { ast } = source;
+  const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
+  const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
+    reasons: { readonly value: string; readonly effect: string }): readonly SourceStorageTerm[] | undefined => {
+    const selected = transport.subjectFor(demand);
+    const terms: SourceStorageTerm[] = [];
+    for (const result of walkSourceStorageExecution(budget, roots, readRelation)) {
+      if (!budget.step()) return undefined;
+      if (result.kind === "unresolved") terms.push(result);
+      else if (result.kind === "leaf" && result.subject === selected)
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
+      else if (result.kind === "effect" && result.store.region === demand)
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
+    }
+    return budget.failure() === undefined ? Object.freeze(terms) : undefined;
+  };
+  const nativeInputExecutions = (invocation: Node, scope: SourceStorageScope, demand: Node, deferred: boolean | undefined,
+    callback?: { readonly entry: SourceStorageCallbackEntry; readonly subject: SourceStorageSubject;
+      readonly bindings: SourceStorageScope }): readonly SourceStorageTerm[] | undefined => {
+    const frontiers = reachability.frontiers(invocation, demand);
+    if (frontiers === undefined) return undefined;
+    if (frontiers.length === 0 && callback === undefined) return Object.freeze([]);
+    const contexts = scopes.executionRoots(scope);
+    if (contexts === undefined) return undefined;
+    const terms: SourceStorageTerm[] = [];
+    const selected = transport.subjectFor(demand);
+    let covered = false;
+    let incomplete = false;
+    const uncertain = (bindings: SourceStorageScope, reason: string, exposure: Node): boolean => {
+      if (selected !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope: bindings, reason, exposure }));
+      else for (const store of transport.storesIn(demand) ?? []) {
+        if (!budget.step()) return false;
+        terms.push(Object.freeze({ kind: "unresolved", subject: store.storage, scope: bindings, reason, exposure }));
+      }
+      return budget.failure() === undefined;
+    };
+    for (const frontier of frontiers) {
+      if (!budget.step()) return undefined;
+      if (callback === undefined ? frontier.callback !== undefined
+        : frontier.callback !== callback.entry || frontier.owner !== callback.subject) continue;
+      const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, ast);
+      const actual = callback === undefined || owner === undefined ? undefined
+        : scopes.boundActivation(callback.bindings, owner)?.nativeEntry;
+      if (callback !== undefined) {
+        if (actual === undefined) { incomplete = true; continue; }
+        if (actual.invocation !== frontier.exposure) continue;
+      }
+      let matched = false;
+      for (const context of contexts) {
+        if (!budget.step()) return undefined;
+        if (owner === undefined || context.owner !== owner) continue;
+        const activation = scopes.boundActivation(context.scope, owner);
+        const native = activation?.nativeEntry;
+        if (native?.invocation !== frontier.exposure) {
+          if (context.scope.kind === "variable" && context.callback !== undefined &&
+            transport.callbackEntriesFor(frontier.exposure).includes(context.callback))
+            if (!uncertain(context.scope, "A relevant native callback input requires its completed same-activation value correspondence.",
+              frontier.exposure)) return undefined;
+          continue;
+        }
+        if (actual !== undefined && (native.callback !== actual.callback || native.caller !== actual.caller)) continue;
+        matched = true;
+        covered = true;
+        if (native.callback.timing === "deferred" && !deferred) continue;
+        const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
+          subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
+          componentsFor: transport.memberFlow.componentsFor,
+          hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
+          componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
+          valuesFor: (subject, bindings) => {
+            const selected = readRelation(sourceStorageReference(subject, bindings));
+            if (selected === undefined) return undefined;
+            const values: SourceStorageBoundSubject[] = [];
+            let complete = true;
+            for (const value of selected) {
+              if (!budget.step()) return undefined;
+              if (value.kind === "leaf") values.push({ subject: value.subject, bindings: value.scope });
+              else if (value.kind === "unresolved") complete = false;
+            }
+            return { values, complete };
+          },
+        });
+        if (payloads === undefined) return undefined;
+        if (!payloads.complete) {
+          for (const value of payloads.uncertain) if (!uncertain(value.bindings,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+          if (payloads.uncertain.length === 0 && !uncertain(native.caller,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+        }
+        for (const value of payloads.values) {
+          if (!budget.step()) return undefined;
+          if (frontier.subject !== frontier.owner && value.subject !== frontier.subject) continue;
+          if (frontier.callback?.timing === "deferred" && !deferred) continue;
+          const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation,
+            callee: leaf(value.subject, value.bindings), scope, projection: [],
+            ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
+            mode: "execution", demand, deferred });
+          const conditional = conditionalExecutions([possible], demand, frontier.exposure, {
+            value: "A relevant source callable crosses a native input without completed value and capture correspondence.",
+            effect: "A relevant source effect crosses a native input without completed value and capture correspondence.",
+          });
+          if (conditional === undefined) return undefined;
+          terms.push(...conditional);
+        }
+      }
+      if (callback !== undefined && !matched) incomplete = true;
+    }
+    if (callback !== undefined && (!covered || incomplete)) {
+      if (selected === undefined) return undefined;
+      terms.push(Object.freeze({ kind: "unresolved", subject: selected, scope, exposure: invocation,
+        reason: "A native callback entry requires its exact original source implementation and capture context." }));
+    }
+    return budget.failure() !== undefined ? undefined : Object.freeze(terms);
+  };
+  return Object.freeze({ conditionalExecutions, nativeInputExecutions });
 }

@@ -7,6 +7,9 @@ import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { createSourceStorageContextInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/context-inputs.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
@@ -30,10 +33,19 @@ function fixture() {
   const inner = namedDeclaration(source.ast, file, "inner");
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   const formal = subject(source.ast.parameters(outer)[0], "input");
-  const scopes = createSourceStorageScopes(source, budget, subject, (origin, candidate) => ({
+  const invocationInputs = (origin, candidate) => ({
     subjects: new Set(origin.kind === "input" ? [subject(initializer(candidate === outer ? "first" : "second"))] : []),
     context: "caller",
-  }), graph, () => undefined);
+    omitted: false,
+  });
+  const contextualInputs = createSourceStorageContextInputs(source, budget, { subject,
+    subjectFor: node => subject(node, node !== undefined && source.ast.is.IsParameterDeclaration(node) ? "input" : "value"),
+    sourceFileFor: origin => source.ast.getSourceFile(origin.node), incomingFor: () => new Set(), invocationInputs,
+    isInvocation: () => false, implementationsFor: () => new Set(), argumentsFor: () => [],
+    locationFor: () => undefined, ownerFor: () => undefined }, graph);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, contextualInputs, () => undefined),
+    ownerFor: origin => sourceStorageActivationOwner(source, () => undefined, origin) };
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation);
   const parent = scopes.frameFor(outer, initializer("selected"), scopes.empty, scopes.empty);
   const callee = scopes.frameFor(foreign, initializer("result"), parent, scopes.empty);
   const equation = { identity: 0, entry: foreign, component: new Set([foreign]), initial: callee };

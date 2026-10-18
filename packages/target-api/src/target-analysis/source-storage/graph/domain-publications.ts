@@ -11,9 +11,11 @@ export interface SourceStoragePublication {
   readonly kind: "external-write" | "opaque-write" | "unclassified-exposure";
   readonly externalEntry: boolean;
   readonly inputOwner?: SourceStorageSubject;
+  readonly parent: SourceStoragePublication | undefined;
 }
 
-export function createSourceStorageDomainPublications(budget: SourceStorageBudget) {
+export function createSourceStorageDomainPublications(budget: SourceStorageBudget,
+  coveredByPrefix: (ancestor: SourceStoragePublication, current: SourceStoragePublication) => boolean) {
   const pending: SourceStoragePublication[] = [];
   const admitted = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, number>>>();
   const callables = new Map<Node, Set<Node>>();
@@ -31,23 +33,32 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
       return true;
     },
     add(subject: SourceStorageSubject, type: Type, sourceFile: SourceFile, exposure: Node, writes: boolean,
-      kind: SourceStoragePublication["kind"], externalEntry: boolean, inputOwner?: SourceStorageSubject): void {
+      kind: SourceStoragePublication["kind"], externalEntry: boolean, inputOwner: SourceStorageSubject | undefined,
+      parent: SourceStoragePublication | undefined): void {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return; }
       if (!budget.step()) return;
+      const publication: SourceStoragePublication = Object.freeze({ subject, type, sourceFile, exposure, writes, kind, externalEntry,
+        ...(inputOwner === undefined ? {} : { inputOwner }), parent });
+      for (let ancestor = parent; ancestor !== undefined; ancestor = ancestor.parent) {
+        if (!budget.step()) return;
+        if (ancestor.sourceFile === sourceFile && ancestor.exposure === exposure &&
+          ancestor.writes === writes && ancestor.kind === kind && ancestor.externalEntry === externalEntry &&
+          ancestor.inputOwner === inputOwner && coveredByPrefix(ancestor, publication)) return;
+      }
       const types = admitted.get(subject);
       const owners = types?.get(type);
       const previous = owners?.get(inputOwner);
       const phase = kind === "opaque-write" ? 4 : kind === "unclassified-exposure" ? 8 : 0;
       const flag = 1 << (phase + (externalEntry ? 2 : 0) + (writes ? 1 : 0));
       if (((previous ?? 0) & flag) !== 0) return;
-      if (!rows.add(2 + (types === undefined ? 1 : 0) + (owners === undefined ? 1 : 0) + (previous === undefined ? 1 : 0))) return;
+      if (!rows.add(2 + (parent === undefined ? 0 : 1) + (types === undefined ? 1 : 0) +
+        (owners === undefined ? 1 : 0) + (previous === undefined ? 1 : 0))) return;
       const selectedTypes = types ?? new Map<Type, Map<SourceStorageSubject | undefined, number>>();
       const selectedOwners = owners ?? new Map<SourceStorageSubject | undefined, number>();
       selectedOwners.set(inputOwner, (previous ?? 0) | flag);
       selectedTypes.set(type, selectedOwners);
       admitted.set(subject, selectedTypes);
-      pending.push(Object.freeze({ subject, type, sourceFile, exposure, writes, kind, externalEntry,
-        ...(inputOwner === undefined ? {} : { inputOwner }) }));
+      pending.push(publication);
     },
     size: (): number => pending.length,
     at: (index: number): SourceStoragePublication | undefined => pending[index],

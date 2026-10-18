@@ -10,6 +10,8 @@ import { createSourceStorageBindingInputs } from "../../packages/target-api/dist
 import { createSourceStorageInvocationInputs } from "../../packages/target-api/dist/target-analysis/source-storage/graph/invocation-inputs.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -30,12 +32,15 @@ function fixture() {
     ast.text(ast.name(node)) === name);
   const initializer = name => ast.as.AsVariableDeclaration(named(name)).Initializer;
   const inputs = createSourceStorageInvocationInputs(source, budget, transport.subject, transport.subjectFor,
-    call => transport.accessorTargets.has(call), call => transport.unresolvedInvocations.has(call));
+    transport.accessorTargets, call => transport.unresolvedInvocations.has(call));
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor),
+    ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined, creation);
   const keys = createSourceStorageScopedKeys(source, budget, { ...transport,
-    bindingInputFor: createSourceStorageBindingInputs(ast, transport, budget) }, scopes);
+    bindingInputFor: createSourceStorageBindingInputs(ast, transport, budget) }, scopes, creation);
   const pick = named("pick");
   const formal = transport.subject(ast.parameters(pick)[0], "input");
   const frame = name => scopes.frameFor(pick, initializer(name), scopes.empty, scopes.empty);
@@ -74,7 +79,7 @@ test("terminal receiver birth retains its exact active invocation instead of the
   assert.equal(typeof key, "string");
   assert.notEqual(current.keys.encode(second), key);
   assert.equal(current.keys.encode(first), key);
-  assert.notEqual(current.keys.birthKey(receiver, first.scope), current.keys.birthKey(receiver, second.scope));
+  assert.notEqual(current.keys.birth(receiver, first.scope).key, current.keys.birth(receiver, second.scope).key);
   assert.equal(current.budget.failure() === undefined, true);
 });
 

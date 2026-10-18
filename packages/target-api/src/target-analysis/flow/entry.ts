@@ -24,6 +24,12 @@ export interface SourceFlowInitializer {
 export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
   invocation: SourceControlFlowOptions["invocation"], step: (node?: Node) => void): SourceFlowEntry {
   const { ast } = source;
+  if (ast.is.IsSourceFile(declaration)) {
+    if (!source.sourceFiles.some(file => file === declaration) || invocation !== undefined)
+      throw new SourceFlowFailure("Source module flow requires its original checked source file and no callable invocation.", declaration);
+    return { body: declaration, parameters: [], parameterInitializers: undefined, bodyExecution: undefined,
+      entryInitializers: [], superInitializers: [], completionInitializers: [], syntaxRoots: [] };
+  }
   const body = ast.body(declaration);
   const classRoot = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
   let bodyExecution: SourceFlowExecutionRegion | undefined;

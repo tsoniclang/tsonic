@@ -7,8 +7,11 @@ import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject } from "./model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection,
+  sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
+import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
+import { isSourceCallableBodyBoundary, Node_Initializer } from "../../source-navigation/index.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
@@ -33,6 +36,11 @@ export function createSourceStorageQuery(
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const checkedNode = (node: Node): boolean => {
     if (!budget.step()) return false;
+    if (declarations === undefined) {
+      if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
+      declarations = new Set(transport.visitedNodes);
+    }
+    if (!declarations.has(node)) return false;
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
   };
@@ -116,34 +124,13 @@ export function createSourceStorageQuery(
       ? unresolved(budget.failure() ?? "Declaration substitution exceeds its finite context budget.")
       : Object.freeze({ kind: "resolved", bindings: view });
   };
-  const lexicalBindings = new Map<Node, SourceStorageBindings>();
-  const lexicalRows = budget.createRows();
   const bindingsForLexicalOwner = (node: Node): SourceStorageBindingsSelection => {
     if (!checkedNode(node)) return unresolved(budget.failure() ?? "Lexical substitution requires an exact checked source node.");
-    const owners: Node[] = [];
-    const visited = new Set<Node>();
-    let current: Node | undefined = node;
-    let parent = emptyBindings;
-    while (current !== undefined) {
-      if (!budget.step()) return unresolved(budget.failure()!);
-      const existing = lexicalBindings.get(current);
-      if (existing !== undefined) { parent = existing; break; }
-      if (visited.has(current)) return unresolved("Lexical substitution has a cyclic declaration ancestry.");
-      visited.add(current);
-      if (checkedDeclaration(current)) owners.push(current);
-      const region = transport.regions.enclosing(current);
-      current = region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
-    }
-    while (owners.length !== 0) {
-      const owner = owners.pop()!;
-      const selected = declarationBindings(owner, parent);
-      if (selected.kind === "unresolved") return selected;
-      if (!lexicalRows.add(1)) return unresolved(budget.failure()!);
-      parent = selected.bindings;
-      lexicalBindings.set(owner, parent);
-    }
-    return budget.failure() !== undefined ? unresolved(budget.failure()!)
-      : Object.freeze({ kind: "resolved", bindings: parent });
+    const selected = transport.substitutions.forLexicalOwner(node);
+    const bindings = selected === undefined ? undefined : bindingView([selected]);
+    return bindings === undefined || budget.failure() !== undefined
+      ? unresolved(budget.failure() ?? "Lexical substitution has no completed original declaration context.")
+      : Object.freeze({ kind: "resolved", bindings });
   };
   const checkedInvocation = (node: Node): boolean => checkedNode(node) &&
     (transport.invocations.has(node) || transport.accessorTargets.has(node));
@@ -160,15 +147,20 @@ export function createSourceStorageQuery(
       lineage.classes.some(value => value.subject.node === candidate)) === true;
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
-    const reason = ancestryReason(subject);
+    const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
     if (reason !== undefined) return unresolved(reason);
     const states = bindingStates.get(bindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     for (const state of states) {
-      const originals = transport.substitutions.origins(subject, state);
-      if (originals === undefined) return unresolved(budget.failure() ?? "Source storage has no completed bound-origin selection.");
-      for (const actual of originals) {
+      const selected = transport.substitutions.walk(subject, state);
+      if (selected === undefined || selected.reason !== undefined)
+        return unresolved(budget.failure() ?? selected?.reason ?? "Source storage has no completed bound-origin selection.");
+      for (const current of selected.subjects) {
+        const reason = transport.directlyUnresolvedFor(current.subject);
+        if (reason !== undefined) return unresolved(reason);
+      }
+      for (const actual of selected.origins) {
         if (!budget.step()) return unresolved(budget.failure()!);
         subjects.add(actual);
       }
@@ -178,19 +170,27 @@ export function createSourceStorageQuery(
   const originSubjectsFor: SourceStorageQueries["originSubjectsFor"] = subject => {
     const reason = ancestryReason(subject);
     if (reason !== undefined) return unresolved(reason);
-    const ancestors = transport.ancestorSubjects(subject);
-    if (ancestors === undefined || budget.failure() !== undefined)
-      return unresolved(budget.failure() ?? "Source storage ancestry exceeds its finite query budget.");
+    let failure: string | undefined;
+    const ancestors = createSourceStorageAncestorQuery(budget, origin => {
+      if (origin.kind !== "input" || Node_Initializer(source.ast, origin.node) === undefined)
+        return transport.incomingFor(origin);
+      const selected = transport.substitutions.walk(origin, transport.substitutions.empty);
+      if (selected === undefined || selected.reason !== undefined) {
+        failure ??= selected?.reason ?? budget.failure() ?? "An initialized source input requires its completed value correspondence.";
+        return new Set();
+      }
+      return selected.origins;
+    });
     const origins: SourceStorageSubject[] = [];
     let terminal = false;
-    for (const owner of ancestors) {
-      if (!budget.step()) return unresolved(budget.failure()!);
-      const parents = transport.incomingFor(owner);
+    for (const owner of ancestors(subject, (owner, parents) => {
+      if (!budget.step()) return false;
       if (parents.size === 0) terminal = true;
-      if (sourceStorageHasOriginalValue(owner, source.ast, parents.size !== 0)) origins.push(owner);
-    }
-    return origins.length === 0 && !terminal
-      ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
+      return sourceStorageHasOriginalValue(owner, source.ast, parents.size !== 0);
+    })) origins.push(owner);
+    return failure !== undefined || budget.failure() !== undefined
+      ? unresolved(failure ?? budget.failure()!) : origins.length === 0 && !terminal
+        ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
   };
   const typedOrigins = (subjects: readonly SourceStorageSubject[]): SourceStorageOriginsSelection => {
     const origins: SourceStorageTypedSubject[] = [];
@@ -203,19 +203,27 @@ export function createSourceStorageQuery(
     }
     return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
-  const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings,
+  const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings | undefined,
     purpose: "values" | "storage-producers") => {
-    const reason = ancestryReason(subject);
+    const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
     if (reason !== undefined) return unresolved(reason);
-    const states = bindingStates.get(bindings);
+    const creation = subject.kind === "value" && (isSourceCallableBodyBoundary(source.ast, subject.node) ||
+      source.ast.is.IsClassDeclaration(subject.node) || source.ast.is.IsClassExpression(subject.node));
+    const node = creation ? source.ast.parent(subject.node) : subject.node;
+    const lexical = bindings === undefined && node !== undefined ? bindingsForLexicalOwner(node) : undefined;
+    if (lexical?.kind === "unresolved") return lexical;
+    const selectedBindings = bindings ?? (lexical?.kind === "resolved" ? lexical.bindings : undefined);
+    const states = selectedBindings === undefined ? undefined : bindingStates.get(selectedBindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     const boundaries: SourceStorageDomainBoundary[] = [];
     const producerStates = new Map<SourceStorageSubject, Set<SourceStorageSubstitutions>>();
+    let absence = false;
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
       const selected = domains.select(subject, state, purpose);
       if (selected.reason !== undefined) return unresolved(selected.reason);
+      absence ||= selected.absence;
       for (const origin of selected.subjects) { if (!budget.step()) return unresolved(budget.failure()!); subjects.add(origin); }
       if (purpose === "storage-producers") for (const origin of selected.boundSubjects) {
         if (!budget.step()) return unresolved(budget.failure()!);
@@ -233,13 +241,13 @@ export function createSourceStorageQuery(
       }
     }
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
-    if (subjects.size === 0) return unresolved("A source storage cycle has no proven original owner.");
+    if (subjects.size === 0 && boundaries.length === 0 && !absence) return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects]);
     if (origins.kind === "unresolved") return origins;
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
       : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
   };
-  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
+  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings) => {
     const selected = selectDomain(subject, bindings, "values");
     return selected.kind === "unresolved" ? selected : selected.kind === "complete"
       ? Object.freeze({ kind: "complete", origins: selected.origins })
@@ -258,7 +266,10 @@ export function createSourceStorageQuery(
     subject(node, kind, projection) {
       if (kind !== undefined && kind !== "input" && kind !== "value" && kind !== "member" && kind !== "return" && kind !== "receiver")
         return unresolved("A source storage subject requires an exact input, value, member, return or receiver kind.");
-      return selectedSubject(checkedNode(node) ? transport.subject(node, kind, projection) : undefined);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      return selectedSubject(checkedNode(node) && components !== undefined && components.every(component =>
+        !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration))
+        ? transport.subject(node, kind, components) : undefined);
     },
     subjectFor(node) {
       return selectedSubject(checkedNode(node) ? transport.subjectFor(node) : undefined);
@@ -270,7 +281,10 @@ export function createSourceStorageQuery(
       return selectedSubject(member ? sourceStorageMemberSubject(node, ast, transport.subject) : undefined);
     },
     storageSubjectFor(node, projection) {
-      return selectedSubject(checkedNode(node) ? transport.storageSubject(node, projection) : undefined);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      return selectedSubject(checkedNode(node) && components !== undefined && components.every(component =>
+        !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration))
+        ? transport.storageSubject(node, components) : undefined);
     },
     writeAt(reference, bindings) {
       if (!checkedNode(reference)) return unresolved(budget.failure() ?? "A source write requires its original checked occurrence.");
@@ -302,7 +316,7 @@ export function createSourceStorageQuery(
       return typedOrigins(selected.subjects);
     },
     closedOriginsFor,
-    storageProducersFor(subject, bindings = emptyBindings) {
+    storageProducersFor(subject, bindings) {
       return budget.withRows(rows => {
       const selected = selectDomain(subject, bindings, "storage-producers");
       if (selected.kind === "unresolved") return selected;
@@ -653,6 +667,6 @@ export function createSourceStorageQuery(
     },
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
-  const construction = createSourceStorageConstructionQuery(source, budget, query);
+  const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
   return query;
 }

@@ -18,6 +18,7 @@ function fixture(limits = {}) {
   let calls = 0; let inspect = () => {}; let context = "caller";
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([firstCall, secondCall]), accessorTargets: new Map(),
+    callbackEntriesFor: () => [],
     regions: { enclosing: node => node.region }, invocationImplementations: node => {
       calls += 1; inspect(node);
       return new Set([node === firstCall ? second : first]);

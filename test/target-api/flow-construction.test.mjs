@@ -5,7 +5,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
-import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/transport/invocation-results.js";
+import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
   class Base {
@@ -36,7 +36,7 @@ function fixture(text) {
 }
 
 function flow(current, declaration, call, callerBindings = current.storage.emptyBindings) {
-  const selected = createSourceControlFlow(current.source, declaration, { invocation: { storage: current.storage, call, callerBindings } });
+  const selected = createSourceControlFlow(current.source, declaration, { domain: { kind: "source" }, invocation: { storage: current.storage, call, callerBindings } });
   assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked graph");
   return selected.graph;
 }
@@ -149,6 +149,7 @@ test("source implicit heritage uses its actual implementation while foreign and 
   const current = fixture(`${classes} class ImplicitDerived extends Base { extra = mark("extra"); }
     const instance = new ImplicitDerived(); const direct = new Derived();`);
   const missing = createSourceControlFlow(current.source, current.named("ImplicitDerived"), {
+    domain: { kind: "source" },
     invocation: { storage: current.storage, call: current.construct("ImplicitDerived") },
   });
   assert.equal(missing.kind, "unresolved");
@@ -157,12 +158,14 @@ test("source implicit heritage uses its actual implementation while foreign and 
   assert.equal(reachable(inherited, marked(current, inherited, "base-body").id, marked(current, inherited, "extra").id), true,
     "the actual source constructor completes before implicit derived fields");
   const wrong = createSourceControlFlow(current.source, current.constructor("Base"), {
+    domain: { kind: "source" },
     invocation: { storage: current.storage, call: current.construct("Derived") },
   });
   assert.equal(wrong.kind, "unresolved", "an unrelated constructor cannot borrow another allocation's regions");
   const native = fixture(`declare class External { constructor(); }
     class NativeDerived extends External { value = mark("value"); } const instance = new NativeDerived();`);
   const opaque = createSourceControlFlow(native.source, native.named("NativeDerived"), {
+    domain: { kind: "source" },
     invocation: { storage: native.storage, call: native.construct("NativeDerived") },
   });
   assert.equal(opaque.kind, "unresolved", "implicit native heritage is not expanded into an invented constructor");
@@ -250,6 +253,7 @@ test("each finite class alternative has its own CFG and forged or ambiguous alte
     "The checked conditional constructor contains both finite source alternatives.");
   for (const construction of selected.alternatives) {
     const result = createSourceControlFlow(current.source, construction.root, {
+      domain: { kind: "source" },
       invocation: { storage: current.storage, call, construction },
     });
     assert.equal(result.kind, "resolved", "The selected cache-owned alternative defines exactly one execution.");
@@ -261,6 +265,7 @@ test("each finite class alternative has its own CFG and forged or ambiguous alte
       current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
         current.ast.text(argument).includes(other))), false, "Alternative initializers are never linearized into the same graph.");
     const forged = createSourceControlFlow(current.source, construction.root, {
+      domain: { kind: "source" },
       invocation: { storage: current.storage, call, construction: { ...construction } },
     });
     assert.equal(forged.kind === "unresolved" && forged.reason.includes("cached construction alternative"), true,
@@ -318,12 +323,13 @@ test("each checked super branch performs only its own initializer sequence befor
 
 test("generic constructor graphs retain fields and checked constructor budgets remain finite", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
-  const generic = createSourceControlFlow(current.source, current.constructor("Base"));
+  const generic = createSourceControlFlow(current.source, current.constructor("Base"), { domain: { kind: "source" } });
   assert.equal(generic.kind, "resolved");
   const field = marked(current, generic.graph, "base-field");
   assert.equal(reachable(generic.graph, field.id, marked(current, generic.graph, "base-parameter").id), true);
   for (const limits of [{ maximumPoints: 1 }, { maximumSteps: 1 }, { maximumDepth: 1 }]) {
     const selected = createSourceControlFlow(current.source, current.constructor("Derived"), {
+      domain: { kind: "source" },
       limits, invocation: { storage: current.storage, call: current.construct("Derived") },
     });
     assert.equal(selected.kind, "unresolved", "bounded constructor proof never publishes partial regions");
@@ -351,6 +357,7 @@ for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
     assert.equal(values.kind === "complete" && values.producers.length === 1, true, "One actual outer class activation is selected.");
     const lineages = sourceStorageClassLineages(source, createSourceStorageBudget(defaultSourceStorageLimits),
       new Set(values.producers), {
+        nativeConstructorsFor: () => undefined,
         subjectFor(node) {
           const selected = node === undefined ? undefined : storage.subjectFor(node);
           assert.equal(selected?.kind, "resolved", "Every actual heritage operand has checked identity.");
@@ -381,6 +388,7 @@ for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
     if (!capturesFirst) selectCaptures();
     const construction = selected.alternatives[0];
     const graphSelection = createSourceControlFlow(source, construction.root, {
+      domain: { kind: "source" },
       invocation: { storage, call, construction },
     });
     assert.equal(graphSelection.kind === "resolved", true,

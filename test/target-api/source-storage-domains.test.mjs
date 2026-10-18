@@ -3,7 +3,7 @@ import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { selectJsSourceCallStorageEffect, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -388,7 +388,8 @@ test("owned native Error call and constructor allocations do not certify externa
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       if (!signatures.has(declaration)) return undefined;
       return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
-    });
+    }, declaration => !signatures.has(declaration) || !source.ast.is.IsConstructSignatureDeclaration(declaration)
+      ? undefined : jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration }));
   } });
   for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
   open(current.selection("unknown"), "external-input", "an ambient external value is not the owned native constructor");
@@ -430,7 +431,7 @@ test("owned native global members require their actual immutable receiver and se
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       return !members.has(declaration) ? undefined : selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor",
         memberName: source.ast.text(source.ast.name(declaration)), declaration }, selected);
-    });
+    }, () => undefined);
   };
   const current = await fixture("storage-domain-global-members", `
     declare const external: ObjectConstructor;
@@ -474,7 +475,7 @@ test("native global effects reject foreign provider artifacts and operation decl
       return subject === declaration ? operation : subject === binding ? globalFact : undefined;
     } },
   }, () => ({ declaration: operationDeclaration, binding: { name: "Error", providerId: artifact.providerId },
-    form: "value", effect: { resultAllocation: node } }));
+    form: "value", effect: { resultAllocation: node } }), () => undefined);
   assert.equal(effects(global).call(node, call).resultAllocation === node, true);
   assert.equal(effects(global, binding).call(node, call) === undefined, true, "the selected operation declaration is authoritative");
   for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "artifactFileName", "exportName"])
@@ -559,7 +560,7 @@ test("complete-domain ownership rejects forged and foreign binding or subject se
   const selected = first.storage.bindingsForInvocation(identity, first.initializer("value"));
   assert.equal(selected.kind === "resolved", true);
   const formal = first.subject(first.source.ast.parameters(identity)[0]);
-  assert.equal(first.storage.closedOriginsFor(formal, Object.freeze({ substitutions: selected.bindings.substitutions })).kind === "unresolved", true);
+  assert.equal(first.storage.closedOriginsFor(formal, Object.freeze({ kind: selected.bindings.kind })).kind === "unresolved", true);
   assert.equal(second.storage.closedOriginsFor(second.subject(second.variable("value")), selected.bindings).kind === "unresolved", true);
   assert.equal(first.storage.closedOriginsFor(second.subject(second.variable("value"))).kind === "unresolved", true);
   assert.equal(first.storage.closedOriginsFor(Object.freeze({ ...formal })).kind === "unresolved", true);

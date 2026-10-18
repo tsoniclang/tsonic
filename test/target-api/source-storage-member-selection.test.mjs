@@ -5,6 +5,7 @@ import { createTargetSourceProgram, Node_Initializer } from "../../packages/targ
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, extraFiles = {}) {
@@ -443,14 +444,16 @@ test("exact nominal member selection preserves independent finite work and hiera
   assert.equal(selected.kind === "resolved", true);
   const access = current.initializer("read");
   const receiver = current.source.ast.as.AsPropertyAccessExpression(access).Expression;
+  const classValues = createSourceStorageTransport(current.source, current.source.navigation.sourceFiles,
+    createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const guarded = createSourceStorageGuardedValues(current.source, budget);
+    const guarded = createSourceStorageGuardedValues(current.source, budget, classValues);
     assert.equal(guarded.admits(selected.subject, receiver) === undefined, true, "no result publishes around independent exhaustion");
     assert.equal(budget.failure() !== undefined, true, "the failed proof preserves its owning resource diagnostic");
   }
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
-  const guarded = createSourceStorageGuardedValues(current.source, budget);
+  const guarded = createSourceStorageGuardedValues(current.source, budget, classValues);
   for (let replay = 0; replay < 100; replay += 1) {
     assert.equal(guarded.admits(selected.subject, receiver), false);
   }

@@ -44,9 +44,19 @@ function fixture(extraSource = "") {
   return { source, method, values, select(name: string) {
     const scope = values.get(name);
     assert.equal(scope !== undefined, true, "exact authored callable");
-    return sourceLexicalCaptures(scope!, [scope!], source.ast, source.navigation);
+    return sourceLexicalCaptures(scope!, [scope!], source.ast, source.navigation, "source");
   } };
 }
+
+test("lexical captures reject omitted and non-owning domains without a source-wide fallback", () => {
+  const input = fixture();
+  const scope = input.values.get("direct")!;
+  assert.throws(() => Reflect.apply(sourceLexicalCaptures, undefined,
+    [scope, [scope], input.source.ast, input.source.navigation]),
+  { message: "Lexical captures require an explicit source-node domain." });
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation,
+    { has: () => false }), { message: "A lexical-capture scope must belong to its explicit source-node domain." });
+});
 
 test("super and this retain the exact derived-method receiver through deferred lexical callbacks", () => {
   const input = fixture();
@@ -75,7 +85,7 @@ test("stateless, independent-this and named-self definitions acquire no outer re
 test("lexical capture roots cannot cross their exact authored scope", () => {
   const input = fixture();
   assert.throws(() => sourceLexicalCaptures(input.values.get("staticValue")!, [input.values.get("direct")!],
-    input.source.ast, input.source.navigation), /exact source scope/u);
+    input.source.ast, input.source.navigation, "source"), /exact source scope/u);
 });
 
 test("lexical capture traversal charges capture-free syntax and propagates budget exhaustion unchanged", () => {
@@ -83,7 +93,7 @@ test("lexical capture traversal charges capture-free syntax and propagates budge
   const scope = input.values.get("wide")!;
   const failure = new Error("test work exhausted");
   let steps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, () => {
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, "source", () => {
     steps += 1;
     if (steps > 16) throw failure;
   }), error => error === failure);
@@ -97,7 +107,7 @@ test("lexical capture root containment consumes the caller's work budget", () =>
   const nested = input.source.ast.body(scope)!;
   const failure = new Error("test containment exhausted");
   let steps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [nested], input.source.ast, input.source.navigation, () => {
+  assert.throws(() => sourceLexicalCaptures(scope, [nested], input.source.ast, input.source.navigation, "source", () => {
     steps += 1;
     if (steps > 1) throw failure;
   }), error => error === failure);
@@ -109,7 +119,7 @@ test("receiver ancestry charges the shared work owner without losing its exact r
   const scope = input.values.get("receiver")!;
   const failure = new Error("test receiver ancestry exhausted");
   let receiverSteps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, node => {
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, "source", node => {
     if (node !== undefined && input.source.ast.kindName(node) === "KindThisKeyword") {
       receiverSteps += 1;
       if (receiverSteps === 3) throw failure;

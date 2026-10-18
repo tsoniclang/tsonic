@@ -3,19 +3,22 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import { createSourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "./scoped-keys.js";
 import { createSourceStorageEquations } from "./scoped-equations.js";
 import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
-import { createSourceStorageScopedSuccessors, walkSourceStorageExecution } from "./scoped-successors.js";
+import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
+import { walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
+import { isSourceCallableBodyBoundary, Node_Initializer } from "../../../source-navigation/index.js";
+import { createSourceStorageContextFootprints } from "../graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "./activation-keys.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 
 export type SourceStorageSubstitutions = SourceStorageScope;
@@ -30,11 +33,15 @@ interface SourceStorageRelation {
 }
 
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
-  transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery,
+  transport: SourceStorageScopedTransport,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
+  const { invocationInputs } = transport;
   const recursion = createSourceStorageScopedRecursion(source, budget, transport, invocationInputs);
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor);
-  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  const creation = Object.freeze({ footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor),
+    ownerFor: (subject: SourceStorageSubject) => sourceStorageActivationOwner(source, transport.regions.enclosing, subject) });
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation);
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
   interface ReferenceMemo {
@@ -45,7 +52,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const referenceRows = budget.createRows();
   const withQuery = scopes.withQuery;
   const rows = budget.createRows();
-  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty" });
+  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
     if (scope === scopes.empty || subject.kind === "member") return scope;
     const region = transport.regions.enclosing(subject.node);
@@ -80,8 +87,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const input = binding ? transport.bindingInputFor(term.subject)
           : sourceStorageTransparentInput(term.subject, source.ast, transport);
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
-        if (term.subject.kind === "input" || term.subject.kind === "receiver") {
-          const selected = scopes.lookup(term.subject, term.scope);
+        if (term.subject.kind === "receiver" || term.subject.kind === "input" && Node_Initializer(source.ast, term.subject.node) === undefined) {
+          const selected = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, undefined)
+            : scopes.lookup(term.subject, term.scope);
           if (selected?.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
         }
       }
@@ -96,6 +104,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const destination = normalize(term.destination, witnesses, temporary, false);
       const receiver = normalize(term.receiver, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
       return destination === undefined || receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, destination, receiver, value });
+    }
+    if (term.kind === "empty" && term.absence !== undefined) {
+      if (!budget.step() || !temporary.add(1)) return undefined;
+      witnesses.push({ subject: term.absence.subject, bindings: witnessScope(term.absence.subject, term.absence.scope), contributes });
     }
     if (term.kind === "guarded") {
       let current: SourceStorageTerm = term;
@@ -148,7 +160,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       selected = { term: normalized, children: new Map(), complete: false };
       relations.set(key, selected);
     }
-    if (selected.term.kind !== "empty") for (const witness of retained)
+    if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
     if (reference !== undefined) {
       if (retainedMemo === undefined && !referenceRows.add(contexts === undefined ? 3 : 2)) return undefined;
@@ -183,24 +195,29 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
-        const input = retain(selected.input, false);
-        if (input !== undefined && selected.valueFilter !== undefined) {
-          if (relation.filter === undefined && !rows.add(1)) return false;
-          relation.filter = { reference: selected.valueFilter, input };
-        }
-        return input !== undefined && project(input, value => scopes.withTraversal(() => {
-          const projected = value.kind === "leaf" ? selected.select(value)
-            : value.kind === "unresolved" || value.kind === "empty" ? [value] : [];
-          if (projected === undefined) return undefined;
-          const outputs: SourceStorageRelation[] = [];
-          for (const output of projected) {
-            if (!budget.step()) return undefined;
-            const normalized = retain(output);
-            if (normalized === undefined) return undefined;
-            outputs.push(normalized);
+        for (const term of selected.inputs) {
+          const input = retain(term, false);
+          if (input === undefined) return false;
+          if (selected.valueFilter !== undefined) {
+            if (selected.inputs.length !== 1) { budget.reject("A guarded storage projection requires one exact original value."); return false; }
+            if (relation.filter === undefined && !rows.add(1)) return false;
+            relation.filter = { reference: selected.valueFilter, input };
           }
-          return outputs;
-        }));
+          if (!project(input, value => scopes.withTraversal(() => {
+            const projected = value.kind === "leaf" || value.kind === "empty" ? selected.select(value)
+              : value.kind === "unresolved" ? [value] : [];
+            if (projected === undefined) return undefined;
+            const outputs: SourceStorageRelation[] = [];
+            for (const output of projected) {
+              if (!budget.step()) return undefined;
+              const normalized = retain(output);
+              if (normalized === undefined) return undefined;
+              outputs.push(normalized);
+            }
+            return outputs;
+          }))) return false;
+        }
+        return true;
       }
       for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : []) {
         if (!budget.step() || retain(dependency, false) === undefined) return false;
@@ -318,6 +335,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     let reason: string | undefined;
+    let absence = false;
     const project = (input: SourceStorageRelation,
       select: (value: SourceStorageTerm) => readonly SourceStorageRelation[] | undefined): boolean => {
       const values = results(input);
@@ -369,7 +387,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const completed = collectWitnesses(relation, entry.collect, entry.guards);
       if (completed === undefined) return undefined;
       if (completed) continue;
-      if (stopAt === undefined && entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
+      if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
         const completed = results(relation);
         if (completed === undefined) return undefined;
         if (completed.size === 0) {
@@ -383,6 +401,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         }
       }
       if (entry.collect && current.kind === "leaf" && admitted(current.subject, entry.guards)) origins.add(current.subject);
+      if (entry.collect && current.kind === "empty" && current.absence !== undefined &&
+        admitted(current.absence.subject, entry.guards)) absence = true;
       if (current.kind === "unresolved") reason ??= current.reason;
       const filter = preserveValuePath ? relation.filter : undefined;
       if (filter !== undefined) {
@@ -401,7 +421,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (!budget.step()) return undefined;
       selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0 }));
     }
-    return Object.freeze({ subjects: Object.freeze(selected), origins, reason });
+    return Object.freeze({ subjects: Object.freeze(selected), origins, reason, absence });
   }));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined =>
     walk(origin, scope)?.subjects;
@@ -447,31 +467,82 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return Object.freeze(inputs);
   });
-  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions,
+  const lexicalScopes = new Map<Node, SourceStorageScope>();
+  const lexicalRows = budget.createRows();
+  const forLexicalOwner = (node: Node): SourceStorageScope | undefined => budget.withRows(temporary => {
+    const owners: Node[] = [];
+    const visited = new Set<Node>();
+    let current: Node | undefined = node;
+    let parent: SourceStorageScope = scopes.empty;
+    while (current !== undefined) {
+      if (!budget.step()) return undefined;
+      const existing = lexicalScopes.get(current);
+      if (existing !== undefined) { parent = existing; break; }
+      if (visited.has(current)) {
+        budget.reject("Lexical substitution has a cyclic declaration ancestry."); return undefined;
+      }
+      if (!temporary.add(1)) return undefined;
+      visited.add(current);
+      if (isSourceCallableBodyBoundary(source.ast, current) || source.ast.is.IsClassDeclaration(current) ||
+        source.ast.is.IsClassExpression(current)) {
+        if (!temporary.add(1)) return undefined;
+        owners.push(current);
+      }
+      const region = transport.regions.enclosing(current);
+      current = region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    }
+    while (owners.length !== 0) {
+      if (!budget.step()) return undefined;
+      const owner = owners.pop()!;
+      const selected = scopes.declarationFor(owner, parent);
+      if (selected === undefined || !lexicalRows.add(1)) return undefined;
+      parent = selected;
+      lexicalScopes.set(owner, parent);
+    }
+    return parent;
+  });
+  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
         const subject = transport.subject(invocation);
         if (subject === undefined) return undefined;
         const target = transport.invocationTargets.get(invocation);
-        const operation = transport.accessorTargets.has(invocation)
-          ? source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
-            : source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
+        const accessors = transport.accessorTargets.get(invocation);
+        const operation = accessors === undefined ? undefined
+          : source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
+          : source.ast.is.IsElementAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
         const receiver = transport.subjectFor(operation?.receiver.expression);
         const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
         for (const scope of bindings) {
-          if (!budget.step() || !temporary.add(2)) return undefined;
-          let term: SourceStorageTerm;
-          if (target !== undefined) term = Object.freeze({ kind: "application", mode: "execution", demand: invocation,
-            invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) });
-          else if (receiver !== undefined) term = Object.freeze({ kind: "member", mode: "execution", demand: invocation,
-            selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
-            scope, projection: Object.freeze([]) });
-          else {
+          if (!budget.step() || !temporary.add(1)) return undefined;
+          const inputs: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[] = [];
+          const add = (term: SourceStorageTerm): boolean => {
+            if (!temporary.add(1)) return false;
+            inputs.push({ subject, term }); return true;
+          };
+          if (target !== undefined) {
+            if (!add(Object.freeze({ kind: "application", mode: "execution", demand: invocation,
+              invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) }))) return undefined;
+          } else if (receiver !== undefined) {
+            if (!add(Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+              selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
+              scope, projection: Object.freeze([]) }))) return undefined;
+          } else if (source.ast.is.IsSpreadAssignment(invocation) || source.ast.is.IsBindingElement(invocation)) {
+            for (const accessor of accessors ?? []) {
+              if (!budget.step()) return undefined;
+              const receiver = transport.subjectFor(accessor.receiver);
+              if (receiver === undefined || !add(Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+                selection: Object.freeze({ kind: "projection", subject: receiver, declaration: accessor.declaration,
+                  evaluation: invocation, before: undefined }), receiver: sourceStorageReference(receiver, scope),
+                scope, projection: Object.freeze([]) }))) return undefined;
+            }
+          }
+          if (inputs.length === 0) {
             budget.reject("An invocation context requires its exact checked callee or accessor receiver.");
             return undefined;
           }
-          states.push([{ subject, term }]);
+          states.push(inputs);
         }
         return keys.context(states);
       }));

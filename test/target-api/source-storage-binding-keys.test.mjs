@@ -3,6 +3,8 @@ import test from "node:test";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -17,7 +19,8 @@ function fixture(limits = {}) {
     IsIdentifier: node => node.syntax === "identifier",
     IsVariableDeclaration: node => node.syntax === "variable",
     IsParameterDeclaration: node => node.syntax === "parameter",
-  }, variableDeclarationKind: node => node.declarationKind, kindName: node => node.syntax };
+  }, as: { AsParameterDeclaration: node => node.syntax === "parameter" ? { Initializer: undefined } : undefined },
+  variableDeclarationKind: node => node.declarationKind, kindName: node => node.syntax };
   const transport = { incomingFor: value => inputs.get(value) ?? new Set(),
     contextualInputs: value => value === destination ? new Set([formal]) : new Set(),
     contextLocation: () => undefined, regions: { enclosing: () => undefined },
@@ -25,14 +28,16 @@ function fixture(limits = {}) {
   transport.bindingInputFor = createSourceStorageBindingInputs(ast, transport, budget);
   const scopes = { empty,
     lookup: (value, scope) => value === formal && scope.input !== undefined
-      ? { kind: "replace", terms: [{ kind: "reference", subject: scope.input, scope: empty }] } : undefined,
-    activation: () => ({ key: "empty" }),
+      ? { kind: "replace", terms: [{ kind: "reference", subject: scope.input, scope: empty }], initialization: "actual" } : undefined,
+    activation: () => ({ key: "empty", closed: true }),
     identity: value => {
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     },
   };
-  const keys = createSourceStorageScopedKeys({ ast }, budget, transport, scopes);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation),
+    ownerFor: origin => sourceStorageActivationOwner({ ast }, transport.regions.enclosing, origin) };
+  const keys = createSourceStorageScopedKeys({ ast }, budget, transport, scopes, creation);
   const key = (value, scope = empty) => keys.encode({ kind: "reference", subject: value, scope });
   const binding = value => key(destination, { input: value });
   const read = value => {

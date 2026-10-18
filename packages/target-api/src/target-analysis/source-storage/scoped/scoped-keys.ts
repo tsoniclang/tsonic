@@ -6,11 +6,13 @@ import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../mo
 import type { SourceStorageActivation, SourceStorageReference, SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
-import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "../graph/context-footprints.js";
+import type { SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageInputBinding, sourceStorageTransparentInput } from "./scoped-transport.js";
 import { createSourceStorageKeyEncoder, type SourceStorageKey, type SourceStorageKeyValue as Encoded } from "../graph/key-encoding.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 
 interface ReferenceEncoding {
   readonly encoded: SourceStorageKey;
@@ -22,20 +24,16 @@ interface ReferenceEncodings {
   leaf?: ReferenceEncoding;
 }
 
+type ReferenceWork = { [Kind in SourceStorageReference["kind"]]?: ReferenceEncoding | null };
+
 export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
-  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes) {
-  const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
-    transport.contextLocation, transport.contextualInputs.applicationFor);
+  transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, creation: SourceStorageCreationContext) {
+  const { footprints, ownerFor: locationOwner } = creation;
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
   const ownerRows = budget.createRows();
-  const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
-  const referenceRows = budget.createRows();
+  const completedReferences = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
+  const completedReferenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
-  const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
-    const region = transport.regions.enclosing(subject.node);
-    return subject.kind === "return" || subject.kind === "receiver" ? subject.node
-      : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
-  };
   const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
     if (!budget.step()) return undefined;
     if (footprint.locations.size === 0) return [];
@@ -63,18 +61,18 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
-    const pending = new Map<SourceStorageScope, Map<SourceStorageSubject, Set<SourceStorageReference["kind"]>>>();
+    const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceWork>>();
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const birthKey = (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);
-      if (selected?.variable !== undefined) closed = false;
+      if (selected !== undefined && !selected.closed) closed = false;
       return selected?.key;
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
@@ -101,7 +99,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
             if (encoded === undefined) return undefined;
             values.push(encoded);
           }
-          entry = values;
+          entry = [bound.initialization, values];
         }
         inputs.push([scopes.identity(port), entry]);
       }
@@ -123,10 +121,16 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const value = encodeTerm({ kind: "leaf", subject: selected.subject, scope: selected.scope });
         return value === undefined ? undefined : ["qualified", selected.guards.key, value];
       }
-      if (selected.kind === "empty") return [selected.kind];
+      if (selected.kind === "empty") {
+        if (selected.absence === undefined) return [selected.kind, null];
+        const reference = selected.absence;
+        const activation = birthKey(reference.subject, reference.scope);
+        return activation === undefined ? undefined : [selected.kind,
+          scopes.identity(reference.subject), activation, reference.guards?.key ?? null];
+      }
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand), selected.deferred === true ? 1 : 0];
       if (selected.kind === "guarded") {
-        return budget.withRows(rows => {
+        const guarded = budget.withRows(rows => {
           const references = new Set<number>();
           let current: SourceStorageTerm = selected;
           while (current.kind === "guarded") {
@@ -136,13 +140,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
             references.add(reference);
             current = current.value;
           }
-          const value = encodeTerm(current);
-          return value === undefined ? undefined : [selected.kind, [...references].sort((left, right) => left - right), value];
+          const guards = encoder.intern([...references].sort((left, right) => left - right));
+          references.clear();
+          return guards === undefined ? undefined : { guards, value: current };
         });
-      }
-      if (selected.kind === "reference" && selected.subject.kind === "value") {
-        const input = sourceStorageTransparentInput(selected.subject, source.ast, transport);
-        if (input !== undefined) return encodeTerm(sourceStorageReference(input, selected.scope));
+        if (guarded === undefined) return undefined;
+        const value = encodeTerm(guarded.value);
+        return value === undefined ? undefined : [selected.kind, guarded.guards, value];
       }
       if (selected.kind === "transition") {
         const guards: Extract<SourceStorageTerm, { readonly kind: "transition" }>[] = [];
@@ -175,6 +179,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const activation = activationKey(selected.scope);
         const inputs: Encoded[] = [];
         const owner = sourceStorageRegionOwner(source.ast, selected.region);
+        const callable = owner === undefined ? undefined : transport.subject(owner);
+        const captures = owner === undefined ? null : callable === undefined ? undefined : encodeScope(callable, selected.scope);
         const parameters = owner === undefined || source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)
           ? [] : source.ast.parameters(owner);
         if (owner !== undefined) for (const parameter of [...parameters, owner]) {
@@ -184,7 +190,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           if (value === undefined) return undefined;
           inputs.push(value);
         }
-        return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs];
+        return activation === undefined || captures === undefined ? undefined : [selected.kind, scopes.identity(selected.region),
+          scopes.identity(selected.demand), selected.deferred === true ? 1 : 0, activation, inputs, captures];
       }
       if (selected.kind === "member") {
         const receiver = encodeBinding(selected.receiver);
@@ -197,7 +204,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
           selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
-            : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
+            : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration),
+              selected.selection.evaluation === undefined ? null : scopes.identity(selected.selection.evaluation),
+              selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
       if (selected.kind === "application") {
@@ -231,8 +240,17 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           scopes.identity(selected.invocation), callback, activation, callee, receiver,
           arguments_, encodeProjection(selected.projection)];
       }
-      if (selected.kind === "reference" && (selected.subject.kind === "input" || selected.subject.kind === "receiver")) {
-        const bound = scopes.lookup(selected.subject, selected.scope);
+      const omittedInput = selected.kind === "leaf" && selected.subject.kind === "input"
+        ? scopes.lookup(selected.subject, selected.scope) : undefined;
+      if (selected.kind === "leaf" && omittedInput?.kind === "replace" && omittedInput.initialization === "absent") {
+        const activation = birthKey(selected.subject, selected.scope);
+        return activation === undefined ? undefined : ["absent-input", scopes.identity(selected.subject), activation];
+      }
+      if (selected.kind === "reference" &&
+        (selected.subject.kind === "receiver" || selected.subject.kind === "input" &&
+        Node_Initializer(source.ast, selected.subject.node) === undefined)) {
+        const bound = selected.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, selected, undefined)
+          : scopes.lookup(selected.subject, selected.scope);
         if (bound?.kind === "replace") {
           const values: Encoded[] = [];
           for (const term of bound.terms) {
@@ -248,9 +266,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         frame.kind === "frame" && frame.invocation !== undefined && frame.owner !== undefined &&
         sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
-      const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
+      const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
-      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason,
+      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
         ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
         : [selected.kind, scopes.identity(selected.subject), birth, context];
     };
@@ -274,42 +292,67 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encodeTerm = (selected: SourceStorageTerm): SourceStorageKey | undefined => {
       if (!budget.step()) return undefined;
+      if (selected.kind === "reference" && selected.subject.kind === "value") {
+        const input = sourceStorageTransparentInput(selected.subject, source.ast, transport);
+        if (input !== undefined) return encodeTerm(sourceStorageReference(input, selected.scope));
+      }
+      if (selected.kind === "reference" && selected.scope === scopes.empty)
+        return encoder.intern(["reference", scopes.identity(selected.subject)]);
       if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined) {
         const encoded = encodeUncachedTerm(selected);
         return encoded === undefined ? undefined : encoder.intern(encoded);
+      }
+      const completedSubjects = completedReferences.get(selected.scope);
+      const completedEncodings = completedSubjects?.get(selected.subject);
+      const completed = completedEncodings?.[selected.kind];
+      if (completed !== undefined) {
+        closed = closed && completed.closed;
+        return completed.encoded;
       }
       const subjects = references.get(selected.scope);
       const retained = subjects?.get(selected.subject);
       const previous = retained?.[selected.kind];
       if (previous !== undefined) {
+        if (previous === null) {
+          budget.reject("Source storage key references cannot expose an unfinished encoding.");
+          return undefined;
+        }
         closed = closed && previous.closed;
         return previous.encoded;
       }
-      const inputs = pending.get(selected.scope) ?? new Map<SourceStorageSubject, Set<SourceStorageReference["kind"]>>();
-      const encodings = inputs.get(selected.subject) ?? new Set<SourceStorageReference["kind"]>();
-      if (encodings.has(selected.kind)) {
-        budget.reject("Source storage key references cannot expose an unfinished encoding.");
-        return undefined;
-      }
-      if (!rows.add(3)) return undefined;
-      encodings.add(selected.kind);
-      inputs.set(selected.subject, encodings); pending.set(selected.scope, inputs);
+      if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
+      const encodings = retained ?? {};
+      encodings[selected.kind] = null;
+      const entries = subjects ?? new Map<SourceStorageSubject, ReferenceWork>();
+      entries.set(selected.subject, encodings);
+      references.set(selected.scope, entries);
       const outerClosed = closed;
       closed = true;
       try {
         const encoded = encodeUncachedTerm(selected);
         const key = encoded === undefined ? undefined : encoder.intern(encoded);
         if (key === undefined || budget.failure() !== undefined) return undefined;
-        const completedInputs = references.get(selected.scope);
-        const completed = completedInputs?.get(selected.subject);
-        if (!referenceRows.add(completed === undefined ? completedInputs === undefined ? 3 : 2 : 1)) return undefined;
-        const completedEncodings = completed ?? {};
-        completedEncodings[selected.kind] = Object.freeze({ encoded: key, closed });
-        const completedSubjects = completedInputs ?? new Map<SourceStorageSubject, ReferenceEncodings>();
-        completedSubjects.set(selected.subject, completedEncodings);
-        references.set(selected.scope, completedSubjects);
+        const currentSubjects = completedReferences.get(selected.scope);
+        const currentEncodings = currentSubjects?.get(selected.subject);
+        if (!completedReferenceRows.add(currentEncodings === undefined ? currentSubjects === undefined ? 3 : 2 : 1)) return undefined;
+        const result = Object.freeze({ encoded: key, closed });
+        encodings[selected.kind] = result;
+        const retained = currentEncodings ?? {};
+        retained[selected.kind] = result;
+        const inputs = currentSubjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
+        inputs.set(selected.subject, retained);
+        completedReferences.set(selected.scope, inputs);
         return key;
-      } finally { encodings.delete(selected.kind); closed = outerClosed && closed; }
+      } finally {
+        if (encodings[selected.kind] === null) {
+          delete encodings[selected.kind];
+          if (encodings.reference === undefined && encodings.leaf === undefined) {
+            entries.delete(selected.subject);
+            if (entries.size === 0) references.delete(selected.scope);
+          }
+        }
+        closed = outerClosed && closed;
+      }
     };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };

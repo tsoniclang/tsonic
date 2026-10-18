@@ -267,9 +267,10 @@ const rightResult = identity(right);
   assert.equal(other.subjects.length === 1 && other.subjects[0].node === initializer("right"), true);
   assert.equal(left.bindings !== right.bindings, true, "distinct selected contexts");
   assert.equal(storage.bindingsForInvocation(declaration, invocation("leftResult")).bindings === left.bindings, true, "interned immutable substitution context");
-  assert.equal(Object.isFrozen(left.bindings) && Object.isFrozen(left.bindings.substitutions) &&
-    left.bindings.substitutions.every(binding => Object.isFrozen(binding) && Object.isFrozen(binding.actuals)), true);
-  const forged = Object.freeze({ substitutions: left.bindings.substitutions });
+  assert.equal(Object.isFrozen(left.bindings) && left.bindings.kind === "source-storage-bindings" &&
+    Object.isFrozen(original.subjects) && Object.isFrozen(other.subjects) &&
+    original.subjects.every(Object.isFrozen) && other.subjects.every(Object.isFrozen), true);
+  const forged = Object.freeze({ kind: left.bindings.kind });
   assert.equal(storage.boundOriginsFor(formal, forged).kind, "unresolved", "shape cannot forge query ownership");
   const unrelated = namedDeclaration(source.ast, provider, "first");
   assert.equal(storage.bindingsForInvocation(unrelated, invocation("leftResult")).kind, "unresolved", "wrong callable is not selected");
