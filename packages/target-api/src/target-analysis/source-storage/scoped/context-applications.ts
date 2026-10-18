@@ -36,8 +36,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
   const bindings = new Map<SourceStorageSubject, Map<Node, Map<Node, ContextBinding>>>();
   const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
   const projections = new Map<ContextSubject, Map<Node, (value: SourceStorageSubject) => readonly ContextSelection[] | undefined>>();
-  const isPort = (subject: SourceStorageSubject): boolean =>
-    (subject.kind === "input" || subject.kind === "receiver") && subject.projection.length === 0;
+  const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "input" || subject.kind === "receiver";
   const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean => subject.kind === "receiver"
     ? subject.node === candidate : subject.kind === "input" && !source.ast.is.IsClassDeclaration(candidate) &&
       !source.ast.is.IsClassExpression(candidate) && source.ast.parameters(candidate).includes(subject.node);

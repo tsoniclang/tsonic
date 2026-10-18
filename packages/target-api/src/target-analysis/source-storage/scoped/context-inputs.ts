@@ -52,11 +52,17 @@ export function createSourceStorageContextInputs(
     const rows = budget.createRows();
     let complete = false;
     try {
-      if (!rows.add(1 + (incoming?.size ?? 0))) return undefined;
-      const inputs = new Set(incoming);
+      if (!rows.add(1)) return undefined;
+      const inputs = new Set<SourceStorageSubject>();
       const add = (selected: SourceStorageSubject | undefined): void => {
-        if (selected !== undefined && !inputs.has(selected) && rows.add(1)) inputs.add(selected);
+        const input = selected !== undefined && (selected.kind === "input" || selected.kind === "receiver") &&
+          selected.projection.length !== 0 ? queries.subject(selected.node, selected.kind) : selected;
+        if (input !== undefined && !inputs.has(input) && rows.add(1)) inputs.add(input);
       };
+      for (const input of incoming ?? []) {
+        if (!budget.step()) return undefined;
+        add(input);
+      }
       if (member !== undefined) {
         const receiver = queries.subjectFor(member.receiver.expression);
         if (receiver === undefined) return undefined;

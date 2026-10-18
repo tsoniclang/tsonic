@@ -31,7 +31,7 @@ export function createSourceStorageContextFootprints(
     return rows;
   };
   const select = createTargetGraphComponentQuery<SourceStorageSubject, FootprintInput, SourceStorageContextFootprint>(subject => {
-    const port = (subject.kind === "receiver" || subject.kind === "input") && subject.projection.length === 0;
+    const port = subject.kind === "receiver" || subject.kind === "input";
     const application = port ? undefined : applicationFor(subject);
     if (budget.failure() !== undefined) return undefined;
     const location = port || application !== undefined ? undefined : locationFor(subject);

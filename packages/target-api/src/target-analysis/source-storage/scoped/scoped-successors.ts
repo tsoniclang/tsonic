@@ -650,7 +650,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (regions === undefined) return undefined;
         const reason = "The relevant native callback has no completed checked execution contract.";
         const terms = term.callback.timing === "unknown" ? conditionalExecutions(regions, term.demand, term.invocation,
-          { value: reason, effect: reason }) : regions;
+          { value: reason, effect: reason }, true) : regions;
         if (terms === undefined) return undefined;
         return { kind: "replace", terms, dependencies };
       }

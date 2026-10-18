@@ -208,7 +208,10 @@ export function createSourceStorageQuery(
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
       const selected = domains.select(subject, state, purpose);
-      if (selected.reason !== undefined) return unresolved(selected.reason);
+      if (selected.reason !== undefined) {
+        budget.reject(selected.reason);
+        return unresolved(selected.reason);
+      }
       absence ||= selected.absence;
       for (const origin of selected.subjects) { if (!budget.step()) return unresolved(budget.failure()!); subjects.add(origin); }
       if (purpose === "storage-producers") for (const origin of selected.boundSubjects) {

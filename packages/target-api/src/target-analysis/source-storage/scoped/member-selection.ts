@@ -40,9 +40,13 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const declarations = transport.memberFlow.declarationsFor(selectedView, target, receiverType);
       const correspondence = symbolic || declarations === undefined
         ? transport.memberFlow.membersFor(selectedView, receiverType) : undefined;
-      if (declarations === undefined) return correspondence?.some(member => member.kind === "absent" &&
-        member.destination.declarations.includes(target)) === true ? { kind: "known", members: Object.freeze([]), absent: true }
-        : unresolved("Source storage members require exact checked correspondence.");
+      if (declarations === undefined) {
+        if (correspondence?.some(member => member.kind === "absent" && member.destination.declarations.includes(target)) !== true)
+          return unresolved("Source storage members require exact checked correspondence.");
+        const subject = sourceStorageMemberSubject(target, ast, transport.subject);
+        const written = subject !== undefined && (transport.storedValuesFor(subject)?.length ?? 0) !== 0;
+        return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []), absent: true };
+      }
       const members: SourceStorageScopedSubject[] = [];
       for (const declaration of declarations) {
         if (!budget.step()) return undefined;

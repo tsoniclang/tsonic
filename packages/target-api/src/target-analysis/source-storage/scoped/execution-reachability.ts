@@ -194,16 +194,19 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
   const { ast } = source;
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
   const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
-    reasons: { readonly value: string; readonly effect: string }): readonly SourceStorageTerm[] | undefined => {
+    reasons: { readonly value: string; readonly effect: string }, retainProducers: boolean): readonly SourceStorageTerm[] | undefined => {
     const selected = transport.subjectFor(demand);
     const terms: SourceStorageTerm[] = [];
     for (const result of walkSourceStorageExecution(budget, roots, readRelation)) {
       if (!budget.step()) return undefined;
       if (result.kind === "unresolved") terms.push(result);
-      else if (result.kind === "leaf" && result.subject === selected)
-        terms.push(result, Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
-      else if (result.kind === "effect" && result.store.region === demand)
-        terms.push(result, Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
+      else if (result.kind === "leaf" && result.subject === selected) {
+        if (retainProducers) terms.push(result);
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
+      } else if (result.kind === "effect" && result.store.region === demand) {
+        if (retainProducers) terms.push(result);
+        terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage, scope: result.scope, exposure, reason: reasons.effect }));
+      }
     }
     return budget.failure() === undefined ? Object.freeze(terms) : undefined;
   };
@@ -291,7 +294,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
           const conditional = conditionalExecutions([possible], demand, frontier.exposure, {
             value: "A relevant source callable crosses a native input without completed value and capture correspondence.",
             effect: "A relevant source effect crosses a native input without completed value and capture correspondence.",
-          });
+          }, false);
           if (conditional === undefined) return undefined;
           terms.push(...conditional);
         }

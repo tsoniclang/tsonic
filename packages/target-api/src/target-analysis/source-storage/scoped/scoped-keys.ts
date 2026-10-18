@@ -24,7 +24,7 @@ interface ReferenceEncodings {
   leaf?: ReferenceEncoding;
 }
 
-type ReferenceWork = { [Kind in SourceStorageReference["kind"]]?: ReferenceEncoding | null };
+type ReferenceWork = { [Kind in SourceStorageReference["kind"]]?: true };
 
 export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, creation: SourceStorageCreationContext) {
@@ -59,7 +59,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const selected = scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
     return selected === undefined ? undefined : Object.freeze({ ...selected, key: `${scopes.identity(subject)}:${selected.key}` });
   };
-  const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
+  const encode = (term: SourceStorageTerm, invocation = false) => {
     let closed = true;
     const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceWork>>();
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
@@ -313,50 +313,45 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       const retained = subjects?.get(selected.subject);
       const previous = retained?.[selected.kind];
       if (previous !== undefined) {
-        if (previous === null) {
-          budget.reject("Source storage key references cannot expose an unfinished encoding.");
-          return undefined;
-        }
-        closed = closed && previous.closed;
-        return previous.encoded;
+        budget.reject("Source storage key references cannot expose an unfinished encoding.");
+        return undefined;
       }
-      if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
-      const encodings = retained ?? {};
-      encodings[selected.kind] = null;
-      const entries = subjects ?? new Map<SourceStorageSubject, ReferenceWork>();
-      entries.set(selected.subject, encodings);
-      references.set(selected.scope, entries);
-      const outerClosed = closed;
-      closed = true;
-      try {
-        const encoded = encodeUncachedTerm(selected);
-        const key = encoded === undefined ? undefined : encoder.intern(encoded);
-        if (key === undefined || budget.failure() !== undefined) return undefined;
-        const currentSubjects = completedReferences.get(selected.scope);
-        const currentEncodings = currentSubjects?.get(selected.subject);
-        if (!completedReferenceRows.add(currentEncodings === undefined ? currentSubjects === undefined ? 3 : 2 : 1)) return undefined;
-        const result = Object.freeze({ encoded: key, closed });
-        encodings[selected.kind] = result;
-        const retained = currentEncodings ?? {};
-        retained[selected.kind] = result;
-        const inputs = currentSubjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
-        inputs.set(selected.subject, retained);
-        completedReferences.set(selected.scope, inputs);
-        return key;
-      } finally {
-        if (encodings[selected.kind] === null) {
+      const result = budget.withRows(rows => {
+        if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
+        const encodings = retained ?? {};
+        encodings[selected.kind] = true;
+        const entries = subjects ?? new Map<SourceStorageSubject, ReferenceWork>();
+        entries.set(selected.subject, encodings);
+        references.set(selected.scope, entries);
+        const outerClosed = closed;
+        closed = true;
+        try {
+          const encoded = encodeUncachedTerm(selected);
+          const key = encoded === undefined ? undefined : encoder.intern(encoded);
+          return key === undefined || budget.failure() !== undefined ? undefined : Object.freeze({ encoded: key, closed });
+        } finally {
           delete encodings[selected.kind];
           if (encodings.reference === undefined && encodings.leaf === undefined) {
             entries.delete(selected.subject);
             if (entries.size === 0) references.delete(selected.scope);
           }
+          closed = outerClosed && closed;
         }
-        closed = outerClosed && closed;
-      }
+      });
+      if (result === undefined) return undefined;
+      const currentSubjects = completedReferences.get(selected.scope);
+      const currentEncodings = currentSubjects?.get(selected.subject);
+      if (!completedReferenceRows.add(currentEncodings === undefined ? currentSubjects === undefined ? 3 : 2 : 1)) return undefined;
+      const completedModes = currentEncodings ?? {};
+      completedModes[selected.kind] = result;
+      const inputs = currentSubjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
+      inputs.set(selected.subject, completedModes);
+      completedReferences.set(selected.scope, inputs);
+      return result.encoded;
     };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };
-  });
+  };
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
     return selected === undefined ? undefined : String(selected.encoded.identity);
