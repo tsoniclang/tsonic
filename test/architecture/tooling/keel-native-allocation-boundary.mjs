@@ -153,7 +153,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       })).filter(reference => !reference.implicit || files.has(reference.destination)));
     }
   }
-  const exposures = createKeelPackageExposures(packages, files);
+  const exposures = createKeelPackageExposures(packages, files, resolveAlias);
   for (const { path, reason } of exposures.errors) reject(path, reason);
   const moduleSpecifierTargets = (origin, specifier) => packageImportTargets(packages, origin, specifier);
   for (const [path, input] of files) {
@@ -226,9 +226,9 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       for (const target of destinations(path, reference)) {
         if (exposures.externalPath(target)) continue;
         recordIncoming(path, target);
-        if (transcriptData.has(target)) continue;
         const format = reference.executionEntry ? "script" : nativeNodeModuleFormat(target);
         if (nativeEntry && format === "script") requiredNativeModulePaths.add(target);
+        if (transcriptData.has(target)) continue;
         const input = files.get(target);
         if (input?.kind !== "file") {
           if (nativeEntry) reject(path, "uncaptured first-party native module entry");
@@ -392,6 +392,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       .map(loader => Object.freeze({ path, ...loader })))),
     builtModuleInputs: Object.freeze([...builtModuleInputs.values()].sort((left, right) => left.path.localeCompare(right.path))),
     requiredNativeModulePaths: Object.freeze([...requiredNativeModulePaths].sort()),
+    authoredDeclarationInputs: Object.freeze([...exposures.authoredDeclarationInputs.values()].sort((left, right) => left.fileName.localeCompare(right.fileName))),
     transcriptData: Object.freeze([...transcriptData].sort()), externalDynamicEntries: Object.freeze(externalDynamicEntries), workspaceInputsSha256: keelDigest(JSON.stringify(
     [...files].map(([path, input]) => [path, input.kind === "file" ? { ...input, text: undefined } : input])
       .sort(([left], [right]) => left.localeCompare(right)))),
@@ -462,9 +463,10 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
 
   function ambiguousEntry(path, reference) {
     if (reference.computedEntry) return true;
-    const authored = !nativeScripts.has(path) && reference.module ? exposures.authoredTargets(path, reference) : undefined;
-    if (authored !== undefined && authored.length !== 1) return true;
+    const authored = !nativeScripts.has(path) && reference.module ? exposures.authoredModule(path, reference) : undefined;
+    if (authored !== undefined) return authored.kind === "unresolved";
     if (externalPackageImportTargets(path, reference) !== undefined) return false;
+    if (reference.module && reference.specifier !== undefined && exposures.knownPackage(path, reference.specifier) && destinations(path, reference).length === 0) return true;
     if (reference.fileRead && reference.observerEvidence && destinations(path, reference).filter(value => value !== undefined).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("file:") && destinations(path, reference).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("#") && destinations(path, reference).length === 0) return true;
@@ -475,8 +477,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
 
   function destinations(sourcePath, reference) {
-    const authored = !nativeScripts.has(sourcePath) && reference.module ? exposures.authoredTargets(sourcePath, reference) : undefined;
-    return (authored ?? moduleReferencePaths(packages, files, sourcePath, reference))
+    const authored = !nativeScripts.has(sourcePath) && reference.module ? exposures.authoredModule(sourcePath, reference) : undefined;
+    return (authored === undefined ? moduleReferencePaths(packages, files, sourcePath, reference) : authored.kind === "source" ? [authored.path] : [])
       .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
   }
 }
