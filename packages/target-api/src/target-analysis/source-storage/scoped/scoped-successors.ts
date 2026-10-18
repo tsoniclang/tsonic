@@ -49,7 +49,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const readEffects = function* (store: SourceStorageStore, selection:
     | { readonly kind: "general"; readonly execution?: SourceStorageTerm }
     | { readonly kind: "own-construction"; readonly execution: SourceStorageTerm }, deferred = false, context?: SourceStorageScope) {
-    const roots = context === undefined || selection.execution !== undefined ? [] : scopes.nativeExecutionRoots(context);
+    const roots = context === undefined || selection.execution !== undefined ? [] : scopes.executionRoots(context);
     if (roots === undefined) return;
     const starts = function* (): Generator<SourceStorageTerm> {
       if (roots.length === 0) {

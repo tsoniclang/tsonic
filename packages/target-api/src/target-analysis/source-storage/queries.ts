@@ -11,7 +11,7 @@ import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, s
   sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
-import { Node_Initializer } from "../../source-navigation/index.js";
+import { isSourceCallableBodyBoundary, Node_Initializer } from "../../source-navigation/index.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
@@ -190,11 +190,17 @@ export function createSourceStorageQuery(
     }
     return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
-  const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings,
+  const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings | undefined,
     purpose: "values" | "storage-producers") => {
     const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
     if (reason !== undefined) return unresolved(reason);
-    const states = bindingStates.get(bindings);
+    const creation = subject.kind === "value" && (isSourceCallableBodyBoundary(source.ast, subject.node) ||
+      source.ast.is.IsClassDeclaration(subject.node) || source.ast.is.IsClassExpression(subject.node));
+    const node = creation ? source.ast.parent(subject.node) : subject.node;
+    const lexical = bindings === undefined && node !== undefined ? bindingsForLexicalOwner(node) : undefined;
+    if (lexical?.kind === "unresolved") return lexical;
+    const selectedBindings = bindings ?? (lexical?.kind === "resolved" ? lexical.bindings : undefined);
+    const states = selectedBindings === undefined ? undefined : bindingStates.get(selectedBindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     const boundaries: SourceStorageDomainBoundary[] = [];
@@ -228,7 +234,7 @@ export function createSourceStorageQuery(
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
       : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
   };
-  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
+  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings) => {
     const selected = selectDomain(subject, bindings, "values");
     return selected.kind === "unresolved" ? selected : selected.kind === "complete"
       ? Object.freeze({ kind: "complete", origins: selected.origins })
@@ -290,7 +296,7 @@ export function createSourceStorageQuery(
       return typedOrigins(selected.subjects);
     },
     closedOriginsFor,
-    storageProducersFor(subject, bindings = emptyBindings) {
+    storageProducersFor(subject, bindings) {
       return budget.withRows(rows => {
       const selected = selectDomain(subject, bindings, "storage-producers");
       if (selected.kind === "unresolved") return selected;

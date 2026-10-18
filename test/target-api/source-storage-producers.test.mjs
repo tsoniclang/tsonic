@@ -86,6 +86,39 @@ for (const reversed of [false, true]) {
   });
 }
 
+test("an omitted producer context is the original lexical entry, not an invented module caller", async () => {
+  const current = await fixture("indexed-written-original-lexical-entry", `
+    function mutate(values: number[], replacement: number): void { values[0] = replacement; }
+    export function run(): number {
+      const values = [1, 2];
+      function uncalled(): void { values[0] = 9; }
+      mutate(values, 1.5);
+      return values[0];
+    }
+  `);
+  const variable = current.variable("values");
+  const subject = current.storage.storageSubjectFor(variable, [{ kind: "array-element" }]);
+  assert.equal(subject.kind === "resolved", true, "the original lexical aggregate has exact checked storage");
+  const lexical = current.storage.bindingsForLexicalOwner(variable);
+  assert.equal(lexical.kind === "resolved", true, "the checked enclosing source entry is the single canonical default context");
+  const implicit = producers(current.storage.storageProducersFor(subject.subject));
+  const explicit = producers(current.storage.storageProducersFor(subject.subject, lexical.bindings));
+  assert.equal(implicit.length === 3 && explicit.length === 3 && implicit.every(producer => explicit.some(other =>
+    other.subject === producer.subject && other.bindings === producer.bindings)), true,
+  "omission and explicit original lexical entry retain the same initialized and executed helper-write contributions");
+  assert.equal(new Set(implicit.map(producer => current.source.ast.text(producer.subject.node))).size, 3,
+    "the three actual numeric producer nodes are retained without an invented type value");
+  assert.equal(implicit.some(producer => current.source.ast.text(producer.subject.node) === "9"), false,
+    "an existing but uninvoked nested writer is not an execution of the lexical entry");
+  const foreign = await fixture("indexed-written-other-lexical-entry", `
+    export function run(): number { const values = [9]; return values[0]; }
+  `);
+  const other = foreign.storage.bindingsForLexicalOwner(foreign.variable("values"));
+  assert.equal(other.kind === "resolved", true, "the independent program supplies its own genuine lexical context");
+  assert.equal(current.storage.storageProducersFor(subject.subject, other.bindings).kind, "unresolved",
+    "a foreign owned binding handle never substitutes for this checked lexical entry");
+});
+
 test("stored invocation producers retain exact independent activation bindings", async () => {
   const current = await fixture("storage-producer-activation", `
     function retain(callback: () => {}): {} { return callback(); }

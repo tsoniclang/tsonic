@@ -28,7 +28,7 @@ import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStora
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
-import { createSourceStorageStoredValues } from "../graph/stored-values.js";
+import { createSourceStorageStoredValues, type SourceStorageWrite } from "../graph/stored-values.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
@@ -280,8 +280,14 @@ export function createSourceStorageTransport(
     }
     if ((ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) &&
       sourceBindingWriteAtReference(ast, node) === undefined) {
-      connect(subjectFor(ObjectLiteralProperty_Value(ast, node)), subject(node));
-      storedValues.initialize(subject(node), ObjectLiteralProperty_Value(ast, node) ?? node, subjectFor(ObjectLiteralProperty_Value(ast, node)));
+      const member = subject(node);
+      connect(subjectFor(ObjectLiteralProperty_Value(ast, node)), member);
+      storedValues.initialize(member, ObjectLiteralProperty_Value(ast, node) ?? node, subjectFor(ObjectLiteralProperty_Value(ast, node)));
+      if (parent !== undefined && ast.is.IsObjectLiteralExpression(parent))
+        connect(member, subject(parent, "value", [{ kind: "member", declaration: node }]));
+    }
+    if (ast.is.IsMethodDeclaration(node) && parent !== undefined && ast.is.IsObjectLiteralExpression(parent)) {
+      connect(subject(node), subject(parent, "value", [{ kind: "method-value", declaration: node }]));
     }
     if (ast.is.IsArrowFunction(node)) {
       const body = ast.as.AsArrowFunction(node)?.Body;
@@ -572,14 +578,12 @@ export function createSourceStorageTransport(
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const [access, owner] of mutationOwners) yield once => {
       if (!step()) return;
-      const parent = ast.parent(access);
-      const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent) ? undefined : ast.as.AsBinaryExpression(parent);
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
       const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
       if (selected === undefined) return;
-      const write = storedValues.writeFor(access, subjectFor)
-        ?? { reference: access, operation: parent ?? access, reason: "Source storage mutation requires its exact selected value producer." };
+      const write: SourceStorageWrite = storedValues.writeFor(access, subjectFor)
+        ?? { reference: access, operation: ast.parent(access) ?? access, reason: "Source storage mutation requires its exact selected value producer." };
       const storage = locationFor(access);
       storedValues.recordWrite(storage, write);
       for (const origin of originSubjects(owner) ?? []) {
@@ -595,20 +599,23 @@ export function createSourceStorageTransport(
             });
           continue;
         }
-        if (declaration === undefined) continue;
         const rest = sourceStorageObjectRestOwner(origin.node, ast) !== undefined;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node) && !rest) continue;
         if (!once(origin)) continue;
-        for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
-          if (!step()) break;
-          const copied = rest || ast.is.IsObjectLiteralExpression(origin.node) && ast.parent(member) !== origin.node;
-          if (!copied && (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member))) continue;
-          const location = copied ? subject(origin.node, origin.kind, [...origin.projection, {
-            kind: sourceStorageIsMethodMember(member, ast) ? "method-value" : "member", declaration: member,
-          }]) : sourceStorageMemberSubject(member, ast, subject);
-          if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
-            connect(subjectFor(assignment.Right), location);
-          storedValues.bind(location, access);
+        for (const pair of memberFlow.membersFor(origin, selected.receiver.type) ?? []) {
+          if (pair.kind !== "present" || pair.destination.property.symbol !== selected.selectedSymbol &&
+            pair.destination.property.symbol !== selected.sourceSymbol &&
+            (declaration === undefined || !pair.destination.declarations.includes(declaration))) continue;
+          for (const member of pair.source.declarations) {
+            if (!step()) break;
+            const copied = rest || ast.is.IsObjectLiteralExpression(origin.node) && ast.parent(member) !== origin.node;
+            if (ast.is.IsSetAccessorDeclaration(member) || !copied && ast.is.IsGetAccessorDeclaration(member)) continue;
+            const location = copied ? subject(origin.node, origin.kind, [...origin.projection, {
+              kind: sourceStorageIsMethodMember(member, ast) ? "method-value" : "member", declaration: member,
+            }]) : sourceStorageMemberSubject(member, ast, subject);
+            connect(write.value, location);
+            storedValues.bind(location, access);
+          }
         }
       }
     };

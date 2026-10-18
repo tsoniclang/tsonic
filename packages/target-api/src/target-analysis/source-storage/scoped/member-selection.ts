@@ -33,8 +33,9 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
         ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
     if (!construction) {
-      const declarations = transport.memberFlow.declarationsFor(queries.symbolic(receiver) ? view : receiver.subject,
-        target, receiverType);
+      const symbolic = queries.symbolic(receiver);
+      const selectedView = symbolic ? view : receiver.subject;
+      const declarations = transport.memberFlow.declarationsFor(selectedView, target, receiverType);
       if (declarations === undefined) return { kind: "unresolved", reason: "Source storage members require exact checked correspondence." };
       const members: SourceStorageScopedSubject[] = [];
       for (const declaration of declarations) {
@@ -46,7 +47,12 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       }
       if (declarations.length > 0 && members.length === 0) return { kind: "unresolved",
         reason: "Source storage correspondence does not provide the actual checked member operation mode." };
-      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 };
+      const correspondence = symbolic ? transport.memberFlow.membersFor(selectedView, receiverType) : undefined;
+      if (symbolic && correspondence === undefined) return { kind: "unresolved",
+        reason: "A symbolic source member requires its exact checked presence correspondence." };
+      const optional = correspondence?.some(member => member.kind === "present" &&
+        member.destination.declarations.includes(target) && member.source.property.optional) === true;
+      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
     }
     const owner = sourceMemberOwner(ast, target);
     const selected = semantics.forNode(allocation);

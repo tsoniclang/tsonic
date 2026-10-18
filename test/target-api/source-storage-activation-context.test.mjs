@@ -1062,6 +1062,42 @@ test("a spread getter is evaluated even when its copied result is overwritten", 
     "the original observable getter evaluation is retained once, including when no result is read");
 });
 
+test("a checked source callable discharges only its own opaque receiver publication", async () => {
+  const current = await fixture("checked-callable-receiver-publication", `
+    declare function outside(value: {}): void;
+    class Relay<Part> {
+      constructor(readonly done: (value: Part) => void, readonly value: Part) {}
+      run(): void { this.done(this.value); }
+    }
+    const observer = (value: {}): void => { void value; };
+    const value = {};
+    const first = new Relay(observer, value);
+    const second = new Relay(outside, value);
+    first.run(); second.run();
+    export {};
+  `);
+  const { ast, nodes, storage, source } = current;
+  const textFor = node => Buffer.from(ast.getSourceText(ast.getSourceFile(node)))
+    .subarray(ast.pos(node), ast.end(node)).toString("utf8").trim();
+  const method = nodes.find(node => ast.is.IsMethodDeclaration(node) && ast.text(ast.name(node)) === "run");
+  const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node) && textFor(node) === "this.done");
+  const first = nodes.find(node => ast.is.IsCallExpression(node) && textFor(node) === "first.run()");
+  const second = nodes.find(node => ast.is.IsCallExpression(node) && textFor(node) === "second.run()");
+  const observer = nodes.find(node => ast.is.IsArrowFunction(node));
+  assert.equal(method !== undefined && access !== undefined && first !== undefined && second !== undefined && observer !== undefined, true,
+    "the same checked receiver declaration has two distinct actual callable inputs");
+  const selected = resolved(storage.subjectFor(access)).subject;
+  const known = storage.storageProducersFor(selected, resolved(storage.bindingsForInvocation(method, first)).bindings);
+  assert.equal(known.kind === "complete" && known.producers.length === 1 && known.producers[0].subject.node === observer, true,
+    "an actual source implementation replaces the provisional opaque call, not its receiver's storage or invocation identity");
+  const unknown = storage.storageProducersFor(selected, resolved(storage.bindingsForInvocation(method, second)).bindings);
+  assert.equal(unknown.kind === "open" && unknown.boundaries.some(boundary => boundary.kind === "unclassified-exposure" &&
+    boundary.exposure === ast.parent(access)), true,
+  "the same field and signature do not discharge an actual opaque implementation");
+  assert.equal(source.semantics.includes(ast.getSourceFile(access)), true, "the original checked consumer context is retained");
+  assert.equal(storage.failureReason() === undefined, true, "the unknown alternative remains local, not a global query failure");
+});
+
 test("writes to a copied getter result are writes to its new own field, not to the original accessor", async () => {
   const current = await fixture("spread-getter-own-field-write", `
     const initial = {};
@@ -1093,6 +1129,32 @@ test("writes to a copied getter result are writes to its new own field, not to t
   const implementations = resolved(storage.invocationImplementationsFor(call));
   assert.equal(implementations.exact && implementations.nodes.length === 2 && arrows.every(arrow => implementations.nodes.includes(arrow)), true,
     "the original accessor result and actual own-field write remain discoverable before source execution SCCs seal");
+});
+
+test("an indexed copied getter field retains its actual own mutation without invoking the original getter again", async () => {
+  const current = await fixture("spread-getter-own-indexed-write", `
+    const initial = {};
+    const replacement = {};
+    const original = { get read(): () => {} { return () => initial; } };
+    const copied = { ...original };
+    copied["read"] = () => replacement;
+    const selected = copied["read"];
+    const untouched = original.read;
+    export {};
+  `);
+  const { ast, nodes, storage } = current;
+  const variable = name => nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+  const arrows = nodes.filter(node => ast.is.IsArrowFunction(node));
+  const selected = storage.storageProducersFor(resolved(storage.subjectFor(variable("selected"))).subject);
+  assert.equal(selected.kind === "complete" && selected.producers.length === 2 &&
+    arrows.every(arrow => selected.producers.some(producer => producer.subject.node === arrow)), true,
+  "checked indexed writes use the same fresh copied field and retain both original actual producers");
+  const untouched = storage.storageProducersFor(resolved(storage.subjectFor(variable("untouched"))).subject);
+  assert.equal(untouched.kind === "complete" && untouched.producers.length === 1 && untouched.producers[0].subject.node === arrows[0], true,
+    "the new copied data field does not mutate or invoke the source accessor");
+  assert.equal(storage.accessorInvocations.length === 2 && storage.accessorInvocations.every(node => ast.is.IsSpreadAssignment(node) ||
+    ast.is.IsPropertyAccessExpression(node) && ast.text(ast.as.AsPropertyAccessExpression(node).Expression) === "original"), true,
+  "only the original spread evaluation and explicit original read execute a getter");
 });
 
 for (const optional of [false, true]) for (const reversed of [false, true]) {

@@ -213,7 +213,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
     const frontiers = reachability.frontiers(invocation, demand);
     if (frontiers === undefined) return undefined;
     if (frontiers.length === 0 && callback === undefined) return Object.freeze([]);
-    const contexts = scopes.nativeExecutionRoots(scope);
+    const contexts = scopes.executionRoots(scope);
     if (contexts === undefined) return undefined;
     const terms: SourceStorageTerm[] = [];
     const selected = transport.subjectFor(demand);

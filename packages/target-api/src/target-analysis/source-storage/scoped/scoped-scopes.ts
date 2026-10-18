@@ -241,6 +241,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const selectEntries = (origin: SourceStorageSubject, entry: SourceStorageFrameInput,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean,
     selectedRoot?: SourceStorageSubject): SourceStorageScopeBinding | undefined => {
+    if (origin.projection.length === 0 && path === undefined)
+      return retain(1) ? Object.freeze({ kind: "replace", terms: entry.values, initialization: entry.initialization }) : undefined;
     const terms: SourceStorageTerm[] = [];
     for (const value of entry.values) {
       if (!budget.step()) return undefined;
@@ -487,15 +489,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected;
   });
   return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, declarationFor,
-    nativeExecutionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
+    executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];
       const seen = new Set<SourceStorageScope>();
-      let native = false;
+      let entry = false;
       for (const direction of ["caller", "lexical"] as const) for (const current of traverse(scope, direction)) {
         if (!budget.step()) return undefined;
         if (current.scope.owner === undefined) continue;
-        native ||= current.scope.callback !== undefined;
+        entry ||= current.scope.callback !== undefined || current.scope.kind === "frame" &&
+          current.scope.boundary === "declaration" && source.ast.body(current.scope.owner) !== undefined;
         let bound: SourceStorageScope | undefined = current.scope;
         for (let path = current.path; path !== undefined && bound !== undefined; path = path.parent)
           bound = applyScope(bound, path.replacements);
@@ -506,7 +509,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         roots.push(Object.freeze({ owner: current.scope.owner, scope: bound, invocation: current.scope.kind === "frame" ? current.scope.invocation : undefined,
           callback: current.scope.callback }));
       }
-      return native ? Object.freeze(roots) : Object.freeze([]);
+      return entry ? Object.freeze(roots) : Object.freeze([]);
     })),
     isDeferred: (scope: SourceStorageScope): boolean => withTraversal(() => {
       for (const current of traverse(scope, "caller")) {

@@ -372,7 +372,7 @@ export function createSourceStorageDomains(
       const bound = transport.substitutions.isBound(current.subject, current.bindings);
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
-        if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write") &&
+        if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;

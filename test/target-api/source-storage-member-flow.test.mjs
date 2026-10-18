@@ -4,8 +4,12 @@ import { createSourceStorageMemberFlow } from "../../packages/target-api/dist/ta
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const subject = type => ({ node: { type }, kind: "value", projection: [] });
+const member = (declarations, optional = false) => ({
+  property: { symbol: {}, rootSymbols: [], name: "selected", type: {}, optional, readonly: false },
+  declarations, getters: [], setters: [], read: "property",
+});
 const present = (destination, originals) => ({ kind: "present",
-  destination: { declarations: destination }, source: { declarations: originals } });
+  destination: member(destination), source: member(originals) });
 
 function fixture(relation, limits = {}, context = () => true) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -88,7 +92,7 @@ test("member indexes preserve exact order, optional absence, duplicates and decl
   const absent = {};
   const input = fixture(() => ({ kind: "available", members: [
     present([first, second], [original, original]),
-    { kind: "absent", destination: { declarations: [absent] } },
+    { kind: "absent", destination: member([absent], true) },
     present([first], [another, original]),
   ] }));
   const owner = subject({});
@@ -97,10 +101,11 @@ test("member indexes preserve exact order, optional absence, duplicates and decl
   assert.equal(selected?.length === 2 && selected[0] === original && selected[1] === another, true);
   const alternate = input.flow.declarationsFor(owner, second, target);
   assert.equal(alternate?.length === 1 && alternate[0] === original, true);
-  for (const declaration of [absent, { ...first }]) {
-    assert.equal(input.flow.declarationsFor(owner, declaration, target) === undefined, true,
-      "absent and equal-looking unrelated declarations cannot invent correspondence");
-  }
+  const missing = input.flow.declarationsFor(owner, absent, target);
+  assert.equal(missing?.length === 0 && Object.isFrozen(missing), true,
+    "checked absence is an exact empty correspondence, not an unknown member or an invented declaration");
+  assert.equal(input.flow.declarationsFor(owner, { ...first }, target) === undefined, true,
+    "an equal-looking unrelated declaration cannot invent correspondence or proven absence");
   assert.equal(input.calls.length, 1);
   assert.equal(input.retained.some(value => value.node === absent), false);
 });
@@ -176,7 +181,7 @@ test("cached member correspondence cannot bypass selected checked-context reject
 test("direct member selection and recursive domain traversal consume one immutable indexed checked relationship", () => {
   const target = {}; const optional = {}; const original = {};
   const matched = present([target], [original]);
-  const absent = { kind: "absent", destination: { declarations: [optional] } };
+  const absent = { kind: "absent", destination: member([optional], true) };
   const members = [matched, absent];
   const input = fixture(() => ({ kind: "available", members }));
   const owner = subject({});
@@ -194,7 +199,7 @@ test("direct member selection and recursive domain traversal consume one immutab
 
 test("optional-only member inventories reserve every retained relationship before copying or publishing their index", () => {
   const input = fixture(() => ({ kind: "available", members: Array.from({ length: 20 }, () =>
-    ({ kind: "absent", destination: { declarations: [{}] } })) }), { maximumTransportRows: 8 });
+    ({ kind: "absent", destination: member([{}], true) })) }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.equal(input.flow.membersFor(owner, destination) === undefined, true);
   assert.equal(input.budget.failure() === "Source storage rows require a live owner and a finite positive reservation.", true,
@@ -206,12 +211,12 @@ test("optional-only member inventories reserve every retained relationship befor
 test("throwing member construction releases its unpublished rows before a complete bounded retry", () => {
   const declaration = {}; const original = {};
   let fail = true;
-  const sourceMember = { get declarations() {
+  const sourceMember = { ...member([original]), get declarations() {
     if (fail) { fail = false; throw new Error("incomplete member evidence"); }
     return [original];
   } };
   const input = fixture(() => ({ kind: "available", members: [{ kind: "present",
-    destination: { declarations: [declaration] }, source: sourceMember }] }), { maximumTransportRows: 8 });
+    destination: member([declaration]), source: sourceMember }] }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.throws(() => input.flow.declarationsFor(owner, declaration, destination), /incomplete member evidence/);
   assert.equal(input.budget.failure() === undefined, true, "an exception is not a fabricated budget failure");

@@ -401,4 +401,5 @@ const comparisonOperators = new Set([
   "KindExclamationEqualsToken",
   "KindEqualsEqualsEqualsToken",
   "KindExclamationEqualsEqualsToken",
+  "KindInstanceOfKeyword",
 ]);

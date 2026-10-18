@@ -230,6 +230,37 @@ export {};
     "Neither retained constructor can be reclassified as erased metadata.");
 });
 
+test("native constructor comparisons remain runtime uses without inventing an external constructor publication", async () => {
+  const checked = await checkedSource("constructor-comparison-use-roles", {
+    "globals.d.ts": minimalSourceGlobals,
+    "src/index.ts": `
+      class Compared {}
+      class Foreign {}
+      declare function opaque(value: typeof Foreign): void;
+      function inspect(value: object): boolean { return value instanceof Compared; }
+      const created = new Compared();
+      const matched = created instanceof Compared;
+      opaque(Foreign);
+      void Foreign;
+      export {};
+    `,
+  });
+  assert.equal(checked.diagnostics.length, 0, "the original native class identity checks and opaque constructor input are admitted source");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const compared = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "Compared"));
+  assert.equal(compared.uses.filter(use => use.role === "comparison").length, 2,
+    "both checked instanceof operands retain their real comparison occurrences");
+  assert.equal(compared.uses.every(use => use.role === "comparison" || use.role === "call-target"), true,
+    "constructor testing is neither an unclassified value escape nor erased type-only syntax");
+  assert.equal(compared.identityCompared && !compared.hasUnclassifiedValueUse && compared.escapeKinds.length === 0, true,
+    "comparison does not grant an external observer authority to mutate constructor inputs or instance fields");
+  assert.equal(sourceDeclarationHasOnlyTypeUses(compared), false, "native runtime class identity remains retained");
+  const foreign = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "Foreign"));
+  assert.equal(foreign.escapeKinds.includes("argument") && foreign.hasUnclassifiedValueUse, true,
+    "an actual opaque argument and an independently unclassified value still retain both obligations");
+});
+
 test("checked spread operands retain their actual call or storage use without a purity promise", async () => {
   const checked = await checkedSource("checked-spread-use-roles", {
     "globals.d.ts": minimalSourceGlobals,

@@ -8,6 +8,7 @@ import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
+import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 
 interface MemberIndex {
   readonly members: readonly SourceStructuralMemberPair[];
@@ -362,13 +363,24 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
         const lineages = inputs.constructionLineagesFor(origin.node, originsFor);
         unknown ||= lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete);
         for (const lineage of lineages ?? []) {
-          const concrete = lineage.classes[0]?.subject.node;
-          const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
-          if (target?.kind !== "resolved") { unknown = true; continue; }
-          const original = target.implementation.declaration;
-          exact.add(original);
-          const slot = sourceStorageMemberSubject(original, ast, inputs.subject);
-          if (slot !== undefined && inputs.storesFor(slot) !== undefined) selectMember(original);
+          let found = false;
+          for (const captured of lineage.classes) {
+            if (!step()) return { nodes: selected, exact: false };
+            const instance = inputs.subject(captured.subject.node, "receiver");
+            const members = instance === undefined || receiverType === undefined ? undefined
+              : inputs.declarationsFor(instance, declaration, receiverType);
+            if (members === undefined) { unknown = true; break; }
+            const physical = members.filter(member => sourceMemberOwner(ast, member) === captured.subject.node &&
+              !ast.hasModifierKind(member, "static"));
+            if (physical.length === 0) continue;
+            for (const member of physical) {
+              if (!step()) return { nodes: selected, exact: false };
+              selectMember(member);
+            }
+            found = true;
+            break;
+          }
+          if (!found) unknown = true;
         }
       } else if (ast.is.IsObjectLiteralExpression(origin.node) || sourceStorageObjectRestOwner(origin.node, ast) !== undefined) {
         const members = receiverType === undefined ? undefined : inputs.declarationsFor(origin, declaration, receiverType);
