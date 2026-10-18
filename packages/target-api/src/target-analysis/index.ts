@@ -64,6 +64,8 @@ export { createTargetGraphComponentQuery } from "./graph-component-query.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
+export { sourceStorageCallableInputSlots } from "./source-storage/graph/invocation-inputs.js";
+export type { SourceStorageCallableInputSlot } from "./source-storage/graph/invocation-inputs.js";
 export { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
 export type { SourceGlobalCallStorageEffect } from "./source-storage/model/global-call-effects.js";
 export { createSourceStorageBudget, defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
