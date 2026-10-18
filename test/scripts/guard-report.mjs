@@ -4,8 +4,13 @@ import { fileURLToPath } from "node:url";
 
 export function createGuardReport(input) {
   const measurement = input.measurement;
+  const memoryMiB = Number(input.memory);
+  if (!["explicit", "formula"].includes(input.memorySource) || !Number.isSafeInteger(memoryMiB) || memoryMiB <= 0) {
+    throw new Error("A guard report requires its actual outer memory request source and value.");
+  }
   return {
-    log: input.log, exitCode: Number(input.status), memoryMiB: Number(input.memory), tasksMax: Number(input.tasks),
+    log: input.log, exitCode: Number(input.status), memoryMiB, tasksMax: Number(input.tasks),
+    memoryRequest: { source: input.memorySource, valueMiB: memoryMiB },
     timeoutSeconds: Number(input.timeout), logMaxBytes: Number(input.logMax), swapMax: 0,
     oomScope: "owned-cgroup",
     oomBefore: measurement?.oomBefore ?? null,
@@ -31,10 +36,11 @@ export function createGuardReport(input) {
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [path, log, status, memory, tasks, timeout, logMax, before, after, scope, calibration, measurementPath, drained] = process.argv.slice(2);
   const measurement = existsSync(measurementPath) ? JSON.parse(readFileSync(measurementPath, "utf8")) : null;
+  const budget = JSON.parse(process.env.TSONIC_TEST_RESOURCE_BUDGET);
   const report = createGuardReport({ log, status, memory, tasks, timeout, logMax, before, after, scope, calibration,
     measurement, drained, guardSnapshot: process.env.TSONIC_TEST_GUARD_SNAPSHOT,
     admission: JSON.parse(process.env.TSONIC_TEST_ADMISSION),
-    budget: JSON.parse(process.env.TSONIC_TEST_RESOURCE_BUDGET),
+    budget, memorySource: budget.memoryRequestSource,
     temporaryDirectory: process.env.TSONIC_TEST_TEMP_DIRECTORY,
     temporaryDirectoryRemoved: process.env.TSONIC_TEST_TEMP_DIRECTORY_REMOVED });
   writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
