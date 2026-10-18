@@ -48,7 +48,7 @@ test("optional union literal members retain exact selected destination declarati
     assert.equal(selected.declarations.length, 1);
     assert.equal(source.ast.parent(selected.declarations[0]!) === declarations[0], true, "destination belongs to its exact interface");
     assert.equal(Object.isFrozen(selected), true);
-    const correspondence = semantics.types.structuralMembers(element.objectLiteralType, destination);
+    const correspondence = semantics.types.structuralMembers(element.objectLiteralType, destination, "read");
     assert.ok(correspondence.kind === "available");
     const selectedPair = correspondence.members.find(pair => pair.kind === "present" && pair.destination === selected);
     assert.ok(selectedPair);

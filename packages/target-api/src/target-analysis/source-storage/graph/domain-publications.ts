@@ -41,7 +41,7 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
         inputOwner, parent });
       for (let ancestor = parent; ancestor !== undefined; ancestor = ancestor.parent) {
         if (!budget.step()) return;
-        if (ancestor.type === type && ancestor.sourceFile === sourceFile && ancestor.exposure === exposure &&
+        if (ancestor.sourceFile === sourceFile && ancestor.exposure === exposure &&
           ancestor.writes === writes && ancestor.kind === kind && ancestor.externalEntry === externalEntry &&
           ancestor.inputOwner === inputOwner && coveredByPrefix(ancestor, publication)) return;
       }

@@ -37,11 +37,12 @@ export function createSourceStorageContextInputs(
     const { ast, navigation, semantics } = source;
     const node = origin.node;
     const invocation = queries.isInvocation(node);
+    const binding = ast.is.IsBindingElement(node);
     const access = origin.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
     const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
     if (access && member === undefined) return undefined;
-    const incoming = invocation || access ? undefined : queries.incomingFor(origin);
+    const incoming = invocation || access || binding ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
     try {
@@ -55,7 +56,7 @@ export function createSourceStorageContextInputs(
         if (receiver === undefined) return undefined;
         add(receiver);
       }
-      if (ast.is.IsBindingElement(node)) {
+      if (binding) {
         const pattern = ast.parent(node);
         const owner = pattern === undefined ? undefined : ast.parent(pattern);
         const binding = queries.subjectFor(owner);

@@ -33,6 +33,8 @@ export function createSourceStorageUnresolvedQueries(
       store(selected, undefined);
       return budget.failure();
     }
+    const direct = directFor(selected);
+    if (direct !== undefined) { store(selected, direct); return direct; }
     const relation = ancestry(selected);
     if (relation === undefined) return budget.failure() ?? "Source storage unresolved evidence requires completed scoped ancestry.";
     if (relation.reason !== undefined) {

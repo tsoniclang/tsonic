@@ -229,3 +229,68 @@ export {};
   assert.equal(sourceDeclarationHasOnlyTypeUses(captured) || sourceDeclarationHasOnlyTypeUses(returned), false,
     "Neither retained constructor can be reclassified as erased metadata.");
 });
+
+test("native constructor comparisons remain runtime uses without inventing an external constructor publication", async () => {
+  const checked = await checkedSource("constructor-comparison-use-roles", {
+    "globals.d.ts": minimalSourceGlobals,
+    "src/index.ts": `
+      class Compared {}
+      class Foreign {}
+      declare function opaque(value: typeof Foreign): void;
+      function inspect(value: object): boolean { return value instanceof Compared; }
+      const created = new Compared();
+      const matched = created instanceof Compared;
+      opaque(Foreign);
+      void Foreign;
+      export {};
+    `,
+  });
+  assert.equal(checked.diagnostics.length, 0, "the original native class identity checks and opaque constructor input are admitted source");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const compared = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "Compared"));
+  assert.equal(compared.uses.filter(use => use.role === "comparison").length, 2,
+    "both checked instanceof operands retain their real comparison occurrences");
+  assert.equal(compared.uses.every(use => use.role === "comparison" || use.role === "call-target"), true,
+    "constructor testing is neither an unclassified value escape nor erased type-only syntax");
+  assert.equal(compared.identityCompared && !compared.hasUnclassifiedValueUse && compared.escapeKinds.length === 0, true,
+    "comparison does not grant an external observer authority to mutate constructor inputs or instance fields");
+  assert.equal(sourceDeclarationHasOnlyTypeUses(compared), false, "native runtime class identity remains retained");
+  const foreign = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "Foreign"));
+  assert.equal(foreign.escapeKinds.includes("argument") && foreign.hasUnclassifiedValueUse, true,
+    "an actual opaque argument and an independently unclassified value still retain both obligations");
+});
+
+test("checked spread operands retain their actual call or storage use without a purity promise", async () => {
+  const checked = await checkedSource("checked-spread-use-roles", {
+    "globals.d.ts": minimalSourceGlobals,
+    "src/index.ts": `
+      declare function opaque(value: number): void;
+      function deliver(value: number): number { return value; }
+      class Box { constructor(value: number) { void value; } }
+      const callValues: [number] = [7]; const called = deliver(...callValues);
+      const newValues: [number] = [8]; const created = new Box(...newValues);
+      const arrayValues: number[] = [9]; const arrayCopy = [...arrayValues];
+      const objectValues = { value: 10 }; const objectCopy = { ...objectValues };
+      const opaqueValues: [number] = [11]; opaque(...opaqueValues);
+      function callback(): number { return 12; }
+      const uncalled = callback;
+      export {};
+    `,
+  });
+  assert.equal(checked.diagnostics.length, 0, "all actual finite spread sites are checked");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  for (const [name, role] of [["callValues", "argument"], ["newValues", "argument"],
+    ["arrayValues", "storage"], ["objectValues", "storage"], ["opaqueValues", "argument"]]) {
+    const summary = source.navigation.declarationUseSummary(namedVariable(source.ast, file, name));
+    assert.equal(summary.uses.length === 1 && summary.uses[0].role === role, true,
+      `${name}: the real owning checked operation supplies the use role`);
+    assert.equal(summary.escapeKinds.includes(role), true, `${name}: spread traversal never suppresses its original escape`);
+  }
+  const callback = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "callback"));
+  assert.equal(callback.uses.length === 1 && callback.uses[0].kind === "first-class" && callback.uses[0].role === "storage", true,
+    "a stored uncalled callback is not an executed source invocation");
+  const opaque = source.navigation.declarationUseSummary(namedVariable(source.ast, file, "opaqueValues"));
+  assert.equal(opaque.escapeKinds.includes("argument"), true, "an opaque argument gains no identity or no-invocation contract");
+});

@@ -139,7 +139,7 @@ mutate(spread);
   }
 });
 
-test("Error writes through unproved scalar bindings remain unresolved without changing independent storage", async () => {
+test("Error writes through checked scalar bindings retain exact original storage independently", async () => {
   const { source, file, demands, variable, storage } = await checked("error-unproved-scalar-binding", `
 const original: Stored = { message: "original" };
 const container = { value: original };
@@ -148,10 +148,39 @@ const untouched = { message: "untouched" };
 selected.message = "changed";
 `);
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
-  assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not writable evidence");
-  assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not exact origin evidence");
+  const selected = demands.storageFor(requiredStorageSubject(storage, binding));
+  assert.equal(selected.kind, "writable", "the checked binding selects its original writable storage");
+  const origins = demands.storageOriginsFor(requiredStorageSubject(storage, binding));
+  const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+  assert.equal(origins.kind === "resolved" && origins.origins.length === 1 && origins.origins[0].node === original, true,
+    "the binding retains exactly the original authored initializer, not the container or independent object");
+  const write = requiredNode(source.ast, file, node => source.ast.is.IsPropertyAccessExpression(node) &&
+    source.ast.text(node) === "selected.message");
+  assert.equal(selected.kind === "writable" && selected.writes.length === 1 && selected.writes[0] === write, true,
+    "the binding's actual write is retained by identity");
+  const originalStorage = demands.storageFor(requiredStorageSubject(storage, variable("original")));
+  assert.equal(originalStorage.kind === "writable" && originalStorage.writes.length === 1 && originalStorage.writes[0] === write, true,
+    "the same write reaches the original storage");
   const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
   assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
+});
+
+test("Error writes through an unproved computed binding keep both storage and origins unresolved", async () => {
+  const { source, file, demands, variable, storage } = await checked("error-unproved-computed-binding", `
+declare const key: string;
+const original: Stored = { message: "original" };
+const container: { [name: string]: Stored } = { value: original };
+const { [key]: selected } = container;
+const untouched = { message: "untouched" };
+selected.message = "changed";
+`);
+  const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved",
+    "a nonconstant computed key has no exact original selected scalar storage");
+  assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved",
+    "an unproved binding cannot manufacture its original storage identity");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable",
+    "the genuinely unresolved binding does not contaminate an independent owner");
 });
 
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {

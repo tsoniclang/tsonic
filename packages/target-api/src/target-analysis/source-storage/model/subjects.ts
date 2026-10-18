@@ -33,6 +33,7 @@ export function sourceStorageFormalOwner(subject: SourceStorageSubject, ast: Ast
 }
 
 export function sourceStorageObjectRestOwner(node: Node, ast: AstReader): Node | undefined {
+  if (!ast.is.IsBindingElement(node)) return undefined;
   const element = ast.as.AsBindingElement(node);
   const pattern = element?.DotDotDotToken === undefined ? undefined : ast.parent(node);
   const owner = pattern === undefined || !ast.is.IsObjectBindingPattern(pattern) ? undefined : ast.parent(pattern);

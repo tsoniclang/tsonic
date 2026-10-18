@@ -16,6 +16,24 @@ export function sourcePresentStorageType(type: Type, semantics: SourceFileSemant
   return present.length === 1 ? present[0] : undefined;
 }
 
+export function sourceStorageAccessDeclarations(source: TargetSourceProgram, access: Node,
+  mode: "read" | "write"): readonly Node[] | undefined {
+  const { ast } = source;
+  const semantics = source.semantics.forNode(access);
+  const property = ast.is.IsPropertyAccessExpression(access) ? semantics.operations.propertyAccess(access) : undefined;
+  const selected = property ?? (ast.is.IsElementAccessExpression(access) ? semantics.operations.elementAccess(access) : undefined);
+  if (selected === undefined) return undefined;
+  if (mode === "read" ? selected.accessMode === "write" : selected.accessMode === "read") return Object.freeze([]);
+  const direct = mode === "read" ? property?.selectedReadDeclaration ?? selected.selectedDeclaration
+    : property?.selectedWriteDeclaration ?? selected.selectedDeclaration;
+  const readable = (node: Node): boolean => sourceStorageIsDataMember(node, ast) || sourceStorageIsMethodMember(node, ast) ||
+    (mode === "read" ? ast.is.IsGetAccessorDeclaration(node) : ast.is.IsSetAccessorDeclaration(node));
+  if (direct !== undefined && readable(direct)) return Object.freeze([direct]);
+  if (selected.selectedSymbol === undefined) return undefined;
+  const declarations = [...new Set(semantics.declarations.symbolDeclarations(selected.selectedSymbol).filter(readable))];
+  return declarations.length === 0 ? undefined : Object.freeze(declarations);
+}
+
 export function sourceStorageComponentType(
   type: Type,
   component: SourceStorageProjection,
@@ -47,14 +65,15 @@ export function sourceStorageOriginalComponents(
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
-    if (semantics.types.isIdentical(from, to)) return [component];
-    const correspondence = semantics.types.structuralMembers(from, to);
+    if (from === to) return [component];
+    const correspondence = semantics.types.structuralMembers(from, to, "read");
     if (correspondence.kind !== "available") return [];
     return correspondence.members.flatMap(member => member.kind === "present" &&
-      member.destination.read === (component.kind === "member" ? "property" : "method") &&
-      (member.source.read === "property" || member.source.read === "method") &&
+      (component.kind === "method-value" ? member.destination.read === "method"
+        : member.destination.read === "property" || member.destination.read === "accessor") &&
+      member.source.read !== "unavailable" &&
       member.destination.declarations.includes(component.declaration)
-      ? member.source.declarations.map(declaration => ({
+      ? (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
           kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
         })) : []);
   }
@@ -93,14 +112,16 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
     selected = sourceStorageReceiverType(source, value.node, semantics);
   } else {
     const name = source.ast.name(value.node);
-    const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
+    const bindingContainer = name !== undefined && (source.ast.is.IsVariableDeclaration(value.node) ||
+      source.ast.is.IsParameterDeclaration(value.node)) &&
       (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
     const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
     const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
       value.kind === "value" && source.ast.is.IsIdentifier(value.node);
     selected = bindingContainer ? containerType !== undefined ? semantics.types.authoredType(containerType)
-        : initializer === undefined ? undefined : semantics.types.expressionType(initializer)
+        : initializer !== undefined ? semantics.types.expressionType(initializer)
+          : source.ast.is.IsParameterDeclaration(value.node) ? semantics.types.expressionType(value.node) : undefined
       : expressionValue ? semantics.types.expressionType(value.node)
         : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
   }

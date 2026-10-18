@@ -213,7 +213,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
     const frontiers = reachability.frontiers(invocation, demand);
     if (frontiers === undefined) return undefined;
     if (frontiers.length === 0 && callback === undefined) return Object.freeze([]);
-    const contexts = scopes.nativeExecutionRoots(scope);
+    const contexts = scopes.executionRoots(scope);
     if (contexts === undefined) return undefined;
     const terms: SourceStorageTerm[] = [];
     const selected = transport.subjectFor(demand);
@@ -274,8 +274,12 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
           },
         });
         if (payloads === undefined) return undefined;
-        if (!payloads.complete && !uncertain(native.caller,
-          "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+        if (!payloads.complete) {
+          for (const value of payloads.uncertain) if (!uncertain(value.bindings,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+          if (payloads.uncertain.length === 0 && !uncertain(native.caller,
+            "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
+        }
         for (const value of payloads.values) {
           if (!budget.step()) return undefined;
           if (frontier.subject !== frontier.owner && value.subject !== frontier.subject) continue;

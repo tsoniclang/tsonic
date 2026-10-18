@@ -25,8 +25,8 @@ function inspect(text: string, files: Record<string, string> = {}) {
     const selected = call.sourceSelectedSignatureParameters[0]?.selectedType;
     assert.ok(actual && selected);
     argumentTypes.push(actual);
-    const result = semantics.types.structuralMembers(actual, selected);
-    assert.equal(semantics.types.structuralMembers(actual, selected), result);
+    const result = semantics.types.structuralMembers(actual, selected, "read");
+    assert.equal(semantics.types.structuralMembers(actual, selected, "read"), result);
     assert.ok(Object.isFrozen(result));
     results.push(result);
   }
@@ -60,7 +60,7 @@ test("checked primitive member correspondence retains native carriers and exact 
     `);
     const actual = argumentTypes[0]!;
     const destination = argumentTypes[1]!;
-    const relation = semantics.types.structuralMembers(actual, destination);
+    const relation = semantics.types.structuralMembers(actual, destination, "read");
     assert.equal(results.every(result => result.kind === "available") && relation.kind === "available", true, name);
     if (relation.kind !== "available") continue;
     assert.equal(relation.source.type === actual && relation.destination.type === destination, true,
@@ -70,7 +70,7 @@ test("checked primitive member correspondence retains native carriers and exact 
     assert.equal(selected?.kind === "present" && selected.source.declarations.length === 1 &&
       selected.source.declarations[0] === selected.destination.declarations[0], true,
       `${name}: exact checker declaration identity, not a name-only or invented match`);
-    assert.equal(semantics.types.structuralMembers(actual, destination) === relation && Object.isFrozen(relation.members), true,
+    assert.equal(semantics.types.structuralMembers(actual, destination, "read") === relation && Object.isFrozen(relation.members), true,
       `${name}: one immutable checked correspondence`);
   }
 });
@@ -212,11 +212,50 @@ test("missing required members, setter-only reads and changed type pairs do not 
   const required = results[0];
   const optional = results[1];
   assert.ok(required?.kind === "available" && optional?.kind === "available");
-  const changed = semantics.types.structuralMembers(optional.source.type, required.destination.type);
+  const changed = semantics.types.structuralMembers(optional.source.type, required.destination.type, "read");
   assert.deepEqual(changed, { kind: "unavailable", reason: "missing-required-member" });
-  assert.equal(semantics.types.structuralMembers(required.source.type, required.destination.type), required);
+  assert.equal(semantics.types.structuralMembers(required.source.type, required.destination.type, "read"), required);
   assert.deepEqual(results[2], { kind: "unavailable", reason: "unreadable-member" });
 });
+
+for (const storageFirst of [false, true]) {
+  test(`checked setter storage correspondence never licenses a read or shares its purpose cache (${storageFirst})`, () => {
+    const { source, semantics, argumentTypes } = inspect(`
+      export {};
+      interface Writer { current: object; }
+      class Box { set current(next: object) {} }
+      declare const box: Box;
+      declare const writer: Writer;
+      declare function observe<Value>(value: Value): void;
+      observe(box); observe(writer);
+    `);
+    const from = argumentTypes[0]!;
+    const to = argumentTypes[1]!;
+    const purposes = storageFirst ? ["storage", "read"] as const : ["read", "storage"] as const;
+    for (const purpose of purposes) semantics.types.structuralMembers(from, to, purpose);
+    const read = semantics.types.structuralMembers(from, to, "read");
+    const storage = semantics.types.structuralMembers(from, to, "storage");
+    assert.equal(read.kind === "unavailable" && read.reason === "unreadable-member", true,
+      "the setter-only correspondence never licenses a readable value");
+    assert.equal(storage.kind === "available", true, "the actual setter retains its checked correspondence");
+    if (storage.kind !== "available") return;
+    assert.equal(storage.source.type === from && storage.destination.type === to, true);
+    const pair = storage.members[0];
+    assert.equal(pair?.kind === "present", true);
+    if (pair?.kind !== "present") return;
+    assert.equal(pair.source.read, "unavailable", "storage correspondence does not manufacture a readable value");
+    assert.equal(pair.source.getters.length, 0);
+    assert.equal(pair.source.setters.length === 1 && source.ast.is.IsSetAccessorDeclaration(pair.source.setters[0]), true);
+    assert.equal(pair.source.declarations.includes(pair.source.setters[0]!), true, "the original checked setter is retained");
+    assert.equal(semantics.types.structuralMembers(from, to, "storage") === storage, true);
+    assert.equal(semantics.types.structuralMembers(from, to, "read") === read, true);
+    assert.equal(Object.isFrozen(storage) && Object.isFrozen(storage.members) && Object.isFrozen(pair.source.setters), true);
+    for (const arguments_ of [[from, to], [from, to, "write"]]) {
+      assert.throws(() => Reflect.apply(semantics.types.structuralMembers, undefined, arguments_), TypeError,
+        "the removed two-argument API and unsupported purposes cannot silently select a relation");
+    }
+  });
+}
 
 test("symbol and numeric keys use exact compiler member lookup", () => {
   const results = check(`
@@ -253,9 +292,9 @@ test("disjoint required literal members prove impossible record alternatives wit
     const selected = results[1];
     assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
     if (actual?.kind !== "available" || selected?.kind !== "available") continue;
-    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type, "read"),
       { kind: "unavailable", reason: "disjoint-shape" }, name);
-    assert.deepEqual(semantics.types.structuralMembers(selected.source.type, actual.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(selected.source.type, actual.source.type, "read"),
       { kind: "unavailable", reason: "disjoint-shape" }, `${name} reverse`);
   }
 });
@@ -276,7 +315,7 @@ test("optional, widened and equal discriminants never hide missing required memb
     const selected = results[1];
     assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
     if (actual?.kind !== "available" || selected?.kind !== "available") continue;
-    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type, "read"),
       { kind: "unavailable", reason: "missing-required-member" }, name);
   }
 });
@@ -292,7 +331,7 @@ test("native absence is disjoint only from a proven present record, not an unres
       const from = argumentTypes[0]!;
       const to = argumentTypes[1]!;
       for (const [source, destination] of [[from, to], [to, from]]) {
-        assert.deepEqual(semantics.types.structuralMembers(source!, destination!),
+        assert.deepEqual(semantics.types.structuralMembers(source!, destination!, "read"),
           { kind: "unavailable", reason: "disjoint-shape" }, `${absent} / ${present}`);
       }
     }
@@ -302,7 +341,7 @@ test("native absence is disjoint only from a proven present record, not an unres
         declare const absent: ${absent}; declare const unresolved: ${unresolved};
         observe(absent); observe(unresolved);
       `);
-      assert.deepEqual(semantics.types.structuralMembers(argumentTypes[0]!, argumentTypes[1]!),
+      assert.deepEqual(semantics.types.structuralMembers(argumentTypes[0]!, argumentTypes[1]!, "read"),
         { kind: "unavailable", reason: "unresolved-shape" }, `${absent} / ${unresolved}`);
     }
   }

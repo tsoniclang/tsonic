@@ -29,7 +29,7 @@ test("the public structural query relates a variable to actual Node provider opt
         assert.ok(actual && selected);
         const destination = semantics.types.withoutMissingOrUndefined(selected);
         assert.ok(destination);
-        relations.push(semantics.types.structuralMembers(actual, destination));
+        relations.push(semantics.types.structuralMembers(actual, destination, "read"));
       }
     }
     for (const child of source.ast.children(node)) if (child !== undefined) visit(child);

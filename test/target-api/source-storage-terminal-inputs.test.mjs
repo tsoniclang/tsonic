@@ -10,6 +10,8 @@ import { createSourceStorageBindingInputs } from "../../packages/target-api/dist
 import { createSourceStorageInvocationInputs } from "../../packages/target-api/dist/target-analysis/source-storage/graph/invocation-inputs.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -33,9 +35,12 @@ function fixture() {
     transport.accessorTargets, call => transport.unresolvedInvocations.has(call));
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor),
+    ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined, creation);
   const keys = createSourceStorageScopedKeys(source, budget, { ...transport,
-    bindingInputFor: createSourceStorageBindingInputs(ast, transport, budget) }, scopes);
+    bindingInputFor: createSourceStorageBindingInputs(ast, transport, budget) }, scopes, creation);
   const pick = named("pick");
   const formal = transport.subject(ast.parameters(pick)[0], "input");
   const frame = name => scopes.frameFor(pick, initializer(name), scopes.empty, scopes.empty);

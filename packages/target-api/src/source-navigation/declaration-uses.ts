@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
-import { Node_Expression, sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Expression, SpreadAssignment_Expression, sourceTransparentExpressionOperand } from "./ast.js";
 import { isTypeSyntaxNode, sourceReferenceMeaning } from "./syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 import { sourceClassFieldIsTypeOnly } from "./class-members.js";
@@ -127,6 +127,11 @@ function sourceDeclarationUseRole(
       return { role: receiverPath ? "receiver" : "value", throughMember: receiverPath };
     }
     if (sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
+      current = parent;
+      continue;
+    }
+    if ((ast.is.IsSpreadElement(parent) || ast.is.IsSpreadAssignment(parent)) &&
+      sourceNodesEqual(ast, ast.is.IsSpreadAssignment(parent) ? SpreadAssignment_Expression(ast, parent) : Node_Expression(ast, parent), current)) {
       current = parent;
       continue;
     }
@@ -396,4 +401,5 @@ const comparisonOperators = new Set([
   "KindExclamationEqualsToken",
   "KindEqualsEqualsEqualsToken",
   "KindExclamationEqualsEqualsToken",
+  "KindInstanceOfKeyword",
 ]);

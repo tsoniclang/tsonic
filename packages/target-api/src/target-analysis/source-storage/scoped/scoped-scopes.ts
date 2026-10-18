@@ -12,8 +12,10 @@ import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js"
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js";
+import { createSourceStorageActivationKeys } from "./activation-keys.js";
+import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
-import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference,
+import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference,
   SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
@@ -32,7 +34,8 @@ function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: numb
 export function createSourceStorageScopes(source: TargetSourceProgram, budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
-  entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined) {
+  entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined,
+  creation: SourceStorageCreationContext) {
   const rows = budget.createRows();
   const identities = new Map<object, number>();
   const identity = (value: object): number => {
@@ -194,23 +197,35 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return Object.freeze({ ...term, scope });
   };
   const project = (entry: SourceStorageReference, origin: SourceStorageSubject, retain: (cost: number) => boolean,
-    selectedRoot?: SourceStorageSubject): readonly SourceStorageReference[] | undefined => {
+    selectedRoot?: SourceStorageSubject): readonly SourceStorageTerm[] | undefined => {
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
-    const selected: SourceStorageReference[] = [];
+    const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
       const projected = subject(entry.subject.node, entry.subject.kind, projection);
       if (projected !== undefined && retain(1)) selected.push(Object.freeze({ ...entry, subject: projected,
         kind: entry.scope.kind === "frame" && entry.scope.boundary === "declaration" ? "reference" : entry.kind }));
     };
-    if (!origin.projection.some(sourceStorageIsMemberProjection))
+    const memberIndex = origin.projection.findIndex(sourceStorageIsMemberProjection);
+    if (memberIndex < 0)
       collect([...entry.subject.projection, ...origin.projection]);
     else {
       const root = selectedRoot ?? subject(origin.node, origin.kind);
       const from = sourceStorageSubjectType(source, entry.subject);
       const to = root === undefined ? undefined : sourceStorageSubjectType(source, root);
       if (from === undefined || to === undefined) return undefined;
-      sourceStorageProjectComponents(entry.subject.projection, from, to, origin.projection,
-        source.semantics.forNode(entry.subject.node), source.ast, budget, collect);
+      const component = origin.projection[memberIndex];
+      const prefix = origin.projection.slice(0, memberIndex);
+      const contract = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...prefix]);
+      if (component === undefined || !sourceStorageIsMemberProjection(component) || contract === undefined) return undefined;
+      sourceStorageProjectComponents(entry.subject.projection, from, to, prefix,
+        source.semantics.forNode(entry.subject.node), source.ast, budget, projection => {
+          const receiver = subject(entry.subject.node, entry.subject.kind, projection);
+          if (receiver === undefined || !retain(1)) return;
+          selected.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: contract,
+            declaration: component.declaration, evaluation: undefined, before: undefined }),
+            receiver: Object.freeze({ ...entry, subject: receiver }), scope: entry.scope,
+            projection: origin.projection.slice(memberIndex + 1), mode: "value" }));
+        });
     }
     return budget.failure() === undefined ? selected : undefined;
   };
@@ -226,6 +241,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const selectEntries = (origin: SourceStorageSubject, entry: SourceStorageFrameInput,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean,
     selectedRoot?: SourceStorageSubject): SourceStorageScopeBinding | undefined => {
+    if (origin.projection.length === 0 && path === undefined)
+      return retain(1) ? Object.freeze({ kind: "replace", terms: entry.values, initialization: entry.initialization }) : undefined;
     const terms: SourceStorageTerm[] = [];
     for (const value of entry.values) {
       if (!budget.step()) return undefined;
@@ -293,7 +310,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       sourceStorageFormalOwner(origin, source.ast) === scope.owner) return undefined;
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
-    const withInputs = scope.kind === "substitution" && scope.scope.entries.has(root) ? withQueryMemo : withTraversal;
+    const frame = scope.kind === "substitution" ? scope.scope : scope;
+    const withInputs = frame.kind === "frame" && frame.entries.has(root) ? withQueryMemo : withTraversal;
     return withInputs(memo => {
       const selections = memo.lookups.get(scope);
       const retained = selections?.get(origin);
@@ -354,7 +372,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const consumer = source.semantics.forNode(invocation);
       const selection = consumer.operations.call(invocation);
       const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
-        { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step);
+        { kind: callback === undefined && source.ast.body(candidate) === undefined && selection?.sourceSelectedSignatureKind === "resolved" &&
+            consumer.declarations.signatureDeclaration(selection.selectedSignature) === candidate ? "selected-signature" : "source-implementation",
+          signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step);
       if (slots === undefined) return undefined;
       for (const slot of slots) {
         if (!budget.step()) return undefined;
@@ -441,97 +461,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       ? { scope: selected, invocation: frame.invocation, caller }
       : { scope: selected, nativeEntry: { invocation: frame.invocation, callback: frame.callback, caller } };
   });
-  const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
-  const activations = new Map<string, SourceStorageActivation>();
-  const noCreation: readonly SourceStorageActivation[] = Object.freeze([]);
-  const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
-    if (!budget.step()) return undefined;
-    if (activationKeys.has(scope)) return activationKeys.get(scope);
-    const intern = (key: string, variable: SourceStorageVariable | undefined, owner: Node | undefined,
-      creation: readonly SourceStorageActivation[],
-      context: { readonly invocation: Node; readonly parent: SourceStorageActivation; readonly nativeEntry?: string } | undefined): SourceStorageActivation | undefined => {
-      let selected = activations.get(key);
-      if (selected !== undefined) return selected;
-      if (!rows.add(2 + creation.length)) return undefined;
-      const closed = variable === undefined && creation.every(value => value.closed) &&
-        (context === undefined || context.parent.closed);
-      selected = Object.freeze(context === undefined
-        ? { key: `${activations.size}`, variable, closed, owner, creation, invocation: undefined, parent: undefined }
-        : { key: `${activations.size}`, variable, closed, owner, creation,
-          invocation: context.invocation, parent: context.parent, nativeEntry: context.nativeEntry });
-      activations.set(key, selected);
-      return selected;
-    };
-    const remember = (scope: SourceStorageScope, value: SourceStorageActivation): boolean => {
-      if (activationKeys.has(scope)) return true;
-      if (!rows.add(1)) return false;
-      activationKeys.set(scope, value);
-      return true;
-    };
-    const pending: ({ readonly kind: "visit"; readonly scope: SourceStorageScope } |
-      { readonly kind: "complete"; readonly scope: SourceStorageScope; readonly frame: SourceStorageFrame;
-        readonly captures: readonly SourceStorageScope[]; readonly caller: SourceStorageScope | undefined })[] =
-      [{ kind: "visit", scope }];
-    const active = new Set<SourceStorageScope>();
-    while (pending.length !== 0) {
-      if (!budget.step()) return undefined;
-      const current = pending.pop()!;
-      if (activationKeys.has(current.scope)) continue;
-      if (current.kind === "visit") {
-        if (active.has(current.scope)) {
-          budget.reject("Source storage activation ownership must be acyclic."); return undefined;
-        }
-        const frame = current.scope.kind === "substitution" ? current.scope.scope : current.scope;
-        if (frame.kind === "variable" || current.scope === empty) {
-          const selected = frame.kind === "variable"
-            ? intern(`v${frame.equation.identity}:${identity(frame.owner)}:${frame.capture === undefined ? "" : identity(frame.capture)}:${callbackKey(frame.callback)}`,
-              frame, frame.owner, noCreation, undefined)
-            : intern("root", undefined, undefined, noCreation, undefined);
-          if (selected === undefined || !remember(current.scope, selected)) return undefined;
-          continue;
-        }
-        if (!temporary.add(2 + frame.parents.length)) return undefined;
-        const captures: SourceStorageScope[] = [];
-        for (const captured of frame.parents) {
-          if (!budget.step()) return undefined;
-          const actual = current.scope.kind === "substitution" ? applyScope(captured, current.scope.substitutions) : captured;
-          if (actual === undefined) return undefined;
-          captures.push(actual);
-        }
-        const caller = frame.caller === undefined ? undefined : current.scope.kind === "substitution"
-          ? applyScope(frame.caller, current.scope.substitutions) : frame.caller;
-        if (frame.owner === undefined || frame.invocation !== undefined && caller === undefined) {
-          budget.reject("Source storage activation requires its actual callable owner and invocation caller."); return undefined;
-        }
-        active.add(current.scope);
-        pending.push({ kind: "complete", scope: current.scope, frame, captures, caller });
-        for (const captured of captures) pending.push({ kind: "visit", scope: captured });
-        if (caller !== undefined) pending.push({ kind: "visit", scope: caller });
-        continue;
-      }
-      const creation: SourceStorageActivation[] = [];
-      for (const captured of current.captures) {
-        if (!budget.step()) return undefined;
-        const selected = activationKeys.get(captured);
-        if (selected === undefined) return undefined;
-        creation.push(selected);
-      }
-      const parent = current.caller === undefined ? undefined : activationKeys.get(current.caller);
-      if (current.caller !== undefined && parent === undefined) return undefined;
-      const nativeEntry = current.frame.callback === undefined ? undefined : callbackKey(current.frame.callback);
-      const owner = current.frame.owner;
-      if (owner === undefined) return undefined;
-      const context = current.frame.invocation === undefined ? undefined : parent === undefined ? undefined
-        : { invocation: current.frame.invocation, parent, nativeEntry };
-      if (current.frame.invocation !== undefined && context === undefined) return undefined;
-      const selected = intern(
-        `${current.frame.invocation === undefined ? "d" : `f${identity(current.frame.invocation)}`}:${identity(owner)}:${nativeEntry ?? ""}:${parent?.key ?? ""}:${creation.map(value => value.key).join(":")}`,
-        undefined, owner, Object.freeze(creation), context);
-      if (selected === undefined || !remember(current.scope, selected)) return undefined;
-      active.delete(current.scope);
-    }
-    return activationKeys.get(scope);
-  });
+  const activation = createSourceStorageActivationKeys(budget, rows,
+    { empty, subject, identity, callbackKey, applyScope, owningScope }, creation);
   const formals = (scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => budget.withRows(temporary => {
     const selected = new Set<SourceStorageSubject>(); const visited = new Set<SourceStorageScope>(); const pending = [scope];
     while (pending.length !== 0) {
@@ -558,15 +489,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected;
   });
   return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, declarationFor,
-    nativeExecutionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
+    executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];
       const seen = new Set<SourceStorageScope>();
-      let native = false;
+      let entry = false;
       for (const direction of ["caller", "lexical"] as const) for (const current of traverse(scope, direction)) {
         if (!budget.step()) return undefined;
         if (current.scope.owner === undefined) continue;
-        native ||= current.scope.callback !== undefined;
+        entry ||= current.scope.callback !== undefined || current.scope.kind === "frame" &&
+          current.scope.boundary === "declaration" && source.ast.body(current.scope.owner) !== undefined;
         let bound: SourceStorageScope | undefined = current.scope;
         for (let path = current.path; path !== undefined && bound !== undefined; path = path.parent)
           bound = applyScope(bound, path.replacements);
@@ -577,7 +509,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         roots.push(Object.freeze({ owner: current.scope.owner, scope: bound, invocation: current.scope.kind === "frame" ? current.scope.invocation : undefined,
           callback: current.scope.callback }));
       }
-      return native ? Object.freeze(roots) : Object.freeze([]);
+      return entry ? Object.freeze(roots) : Object.freeze([]);
     })),
     isDeferred: (scope: SourceStorageScope): boolean => withTraversal(() => {
       for (const current of traverse(scope, "caller")) {
@@ -586,8 +518,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       }
       return false;
     }),
-    isSymbolic: (value: SourceStorageReference): boolean => value.kind === "leaf" && value.scope.kind === "frame" &&
-      value.scope.boundary === "declaration" && sourceStorageFormalOwner(value.subject, source.ast) === value.scope.owner,
+    isSymbolic: (value: SourceStorageReference): boolean => {
+      if (value.kind !== "leaf" || value.scope.kind !== "frame" ||
+        sourceStorageFormalOwner(value.subject, source.ast) !== value.scope.owner) return false;
+      if (value.scope.boundary === "declaration") return true;
+      if (value.scope.callback === undefined || value.subject.kind !== "input") return false;
+      const root = subject(value.subject.node, value.subject.kind);
+      const input = root === undefined ? undefined : value.scope.entries.get(root);
+      const original = input?.values.length === 1 ? input.values[0] : undefined;
+      return input?.initialization === "actual" && original?.kind === "leaf" &&
+        original.subject === root && original.scope === value.scope;
+    },
     owningScope, boundActivation, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
     withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
     withTraversal: <Value>(collect: () => Value): Value => withTraversal(() => collect()) });

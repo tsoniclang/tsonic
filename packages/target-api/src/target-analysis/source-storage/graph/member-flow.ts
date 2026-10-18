@@ -8,6 +8,7 @@ import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
+import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 
 interface MemberIndex {
   readonly members: readonly SourceStructuralMemberPair[];
@@ -38,13 +39,13 @@ export function createSourceStorageMemberFlow(
     let published = false;
     try {
       const queries = source.semantics.forFile(file);
-      const selected = queries.types.structuralMembers(from, to);
+      const selected = queries.types.structuralMembers(from, to, "storage");
       let index: MemberIndex | undefined;
       if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
       if (selected.kind === "available") {
         if (!rows.add(1 + selected.members.length)) return undefined;
-        const contextualMembers = contextual === undefined || !selected.members.some(member => member.kind === "absent")
-          ? undefined : queries.types.structuralMembers(contextual, to);
+        const contextualMembers = contextual === undefined
+          ? undefined : queries.types.structuralMembers(contextual, to, "storage");
         const contextualByDestination = new Map<SourceStructuralMemberPair["destination"]["property"]["symbol"], SourceStructuralMemberPair>();
         if (contextualMembers?.kind === "available") for (const member of contextualMembers.members) {
           if (!budget.step() || !temporary.add(1)) return undefined;
@@ -54,8 +55,10 @@ export function createSourceStorageMemberFlow(
         const members = new Map<Node, Set<Node>>();
         for (const member of selected.members) {
           if (!budget.step()) return undefined;
-          const physical = member.kind === "absent" && contextualByDestination.size !== 0
-            ? contextualByDestination.get(member.destination.property.symbol) ?? member : member;
+          const contract = contextualByDestination.get(member.destination.property.symbol);
+          const physical: SourceStructuralMemberPair = member.kind === "present" && contract?.kind === "present" && contract.source.property.readonly
+            ? Object.freeze({ ...member, source: Object.freeze({ ...member.source,
+              property: Object.freeze({ ...member.source.property, readonly: true }) }) }) : member;
           physicalMembers.push(physical);
           if (physical.kind !== "present") continue;
           for (const target of physical.destination.declarations) {
@@ -111,7 +114,7 @@ export function createSourceStorageMemberFlow(
     const queries = source.semantics.forFile(file);
     const type = sourceStorageSubjectType(source, owner, file);
     let declarations: readonly Node[] | undefined;
-    if (type !== undefined && queries.types.isIdentical(type, destinationType)) {
+    if (type !== undefined && type === destinationType) {
       const members = queries.types.propertyInfos(type).map(property => Object.freeze([...new Set(
         [property.symbol, ...property.rootSymbols].flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]));
       const selected = members.filter(declarations => declarations.includes(declaration));
@@ -156,7 +159,7 @@ export function createSourceStorageMemberFlow(
     const rest = sourceStorageObjectRestOwner(evaluation, source.ast) !== undefined;
     const excluded = rest ? restExcludedKeys(evaluation) : undefined;
     if (rest && excluded === undefined) return undefined;
-    const binding = !rest ? source.ast.as.AsBindingElement(evaluation) : undefined;
+    const binding = !rest && source.ast.is.IsBindingElement(evaluation) ? source.ast.as.AsBindingElement(evaluation) : undefined;
     const name = binding === undefined ? undefined : binding.PropertyName ?? source.ast.name(evaluation);
     const selected = name === undefined ? undefined : queries.operations.propertyName(name);
     if (binding !== undefined && selected === undefined) return undefined;
@@ -192,7 +195,7 @@ export function createSourceStorageMemberFlow(
     | { readonly kind: "absent" }
     | undefined => {
     const file = sourceFileFor(owner);
-    const object = source.ast.as.AsObjectLiteralExpression(owner.node);
+    const object = source.ast.is.IsObjectLiteralExpression(owner.node) ? source.ast.as.AsObjectLiteralExpression(owner.node) : undefined;
     const rest = sourceStorageObjectRestOwner(owner.node, source.ast);
     if (file === undefined || object === undefined && rest === undefined || owner.projection.length !== 0) return undefined;
     const queries = source.semantics.forFile(file);
@@ -360,13 +363,24 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
         const lineages = inputs.constructionLineagesFor(origin.node, originsFor);
         unknown ||= lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete);
         for (const lineage of lineages ?? []) {
-          const concrete = lineage.classes[0]?.subject.node;
-          const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
-          if (target?.kind !== "resolved") { unknown = true; continue; }
-          const original = target.implementation.declaration;
-          exact.add(original);
-          const slot = sourceStorageMemberSubject(original, ast, inputs.subject);
-          if (slot !== undefined && inputs.storesFor(slot) !== undefined) selectMember(original);
+          let found = false;
+          for (const captured of lineage.classes) {
+            if (!step()) return { nodes: selected, exact: false };
+            const instance = inputs.subject(captured.subject.node, "receiver");
+            const members = instance === undefined || receiverType === undefined ? undefined
+              : inputs.declarationsFor(instance, declaration, receiverType);
+            if (members === undefined) { unknown = true; break; }
+            const physical = members.filter(member => sourceMemberOwner(ast, member) === captured.subject.node &&
+              !ast.hasModifierKind(member, "static"));
+            if (physical.length === 0) continue;
+            for (const member of physical) {
+              if (!step()) return { nodes: selected, exact: false };
+              selectMember(member);
+            }
+            found = true;
+            break;
+          }
+          if (!found) unknown = true;
         }
       } else if (ast.is.IsObjectLiteralExpression(origin.node) || sourceStorageObjectRestOwner(origin.node, ast) !== undefined) {
         const members = receiverType === undefined ? undefined : inputs.declarationsFor(origin, declaration, receiverType);

@@ -16,7 +16,9 @@ import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject,
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
-import { Node_Initializer } from "../../../source-navigation/index.js";
+import { isSourceCallableBodyBoundary, Node_Initializer } from "../../../source-navigation/index.js";
+import { createSourceStorageContextFootprints } from "../graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "./activation-keys.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 
 export type SourceStorageSubstitutions = SourceStorageScope;
@@ -35,8 +37,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
   const { invocationInputs } = transport;
   const recursion = createSourceStorageScopedRecursion(source, budget, transport, invocationInputs);
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor);
-  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  const creation = Object.freeze({ footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor),
+    ownerFor: (subject: SourceStorageSubject) => sourceStorageActivationOwner(source, transport.regions.enclosing, subject) });
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation);
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
   interface ReferenceMemo {
@@ -462,31 +467,82 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return Object.freeze(inputs);
   });
-  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions,
+  const lexicalScopes = new Map<Node, SourceStorageScope>();
+  const lexicalRows = budget.createRows();
+  const forLexicalOwner = (node: Node): SourceStorageScope | undefined => budget.withRows(temporary => {
+    const owners: Node[] = [];
+    const visited = new Set<Node>();
+    let current: Node | undefined = node;
+    let parent: SourceStorageScope = scopes.empty;
+    while (current !== undefined) {
+      if (!budget.step()) return undefined;
+      const existing = lexicalScopes.get(current);
+      if (existing !== undefined) { parent = existing; break; }
+      if (visited.has(current)) {
+        budget.reject("Lexical substitution has a cyclic declaration ancestry."); return undefined;
+      }
+      if (!temporary.add(1)) return undefined;
+      visited.add(current);
+      if (isSourceCallableBodyBoundary(source.ast, current) || source.ast.is.IsClassDeclaration(current) ||
+        source.ast.is.IsClassExpression(current)) {
+        if (!temporary.add(1)) return undefined;
+        owners.push(current);
+      }
+      const region = transport.regions.enclosing(current);
+      current = region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    }
+    while (owners.length !== 0) {
+      if (!budget.step()) return undefined;
+      const owner = owners.pop()!;
+      const selected = scopes.declarationFor(owner, parent);
+      if (selected === undefined || !lexicalRows.add(1)) return undefined;
+      parent = selected;
+      lexicalScopes.set(owner, parent);
+    }
+    return parent;
+  });
+  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
         const subject = transport.subject(invocation);
         if (subject === undefined) return undefined;
         const target = transport.invocationTargets.get(invocation);
-        const operation = transport.accessorTargets.has(invocation)
-          ? source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
-            : source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
+        const accessors = transport.accessorTargets.get(invocation);
+        const operation = accessors === undefined ? undefined
+          : source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
+          : source.ast.is.IsElementAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
         const receiver = transport.subjectFor(operation?.receiver.expression);
         const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
         for (const scope of bindings) {
-          if (!budget.step() || !temporary.add(2)) return undefined;
-          let term: SourceStorageTerm;
-          if (target !== undefined) term = Object.freeze({ kind: "application", mode: "execution", demand: invocation,
-            invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) });
-          else if (receiver !== undefined) term = Object.freeze({ kind: "member", mode: "execution", demand: invocation,
-            selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
-            scope, projection: Object.freeze([]) });
-          else {
+          if (!budget.step() || !temporary.add(1)) return undefined;
+          const inputs: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[] = [];
+          const add = (term: SourceStorageTerm): boolean => {
+            if (!temporary.add(1)) return false;
+            inputs.push({ subject, term }); return true;
+          };
+          if (target !== undefined) {
+            if (!add(Object.freeze({ kind: "application", mode: "execution", demand: invocation,
+              invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) }))) return undefined;
+          } else if (receiver !== undefined) {
+            if (!add(Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+              selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
+              scope, projection: Object.freeze([]) }))) return undefined;
+          } else if (source.ast.is.IsSpreadAssignment(invocation) || source.ast.is.IsBindingElement(invocation)) {
+            for (const accessor of accessors ?? []) {
+              if (!budget.step()) return undefined;
+              const receiver = transport.subjectFor(accessor.receiver);
+              if (receiver === undefined || !add(Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+                selection: Object.freeze({ kind: "projection", subject: receiver, declaration: accessor.declaration,
+                  evaluation: invocation, before: undefined }), receiver: sourceStorageReference(receiver, scope),
+                scope, projection: Object.freeze([]) }))) return undefined;
+            }
+          }
+          if (inputs.length === 0) {
             budget.reject("An invocation context requires its exact checked callee or accessor receiver.");
             return undefined;
           }
-          states.push([{ subject, term }]);
+          states.push(inputs);
         }
         return keys.context(states);
       }));

@@ -32,6 +32,15 @@ export function createSourceStorageInvocationResults(
   const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions, capture?: SourceStorageBoundSubject) => {
     const target = queries.targetFor(invocation);
     const states = new Set<SourceStorageSubstitutions>();
+    const consumer = source.semantics.forNode(invocation);
+    const selected = consumer.operations.call(invocation);
+    const contract = selected?.sourceSelectedSignatureKind === "resolved"
+      ? consumer.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    if (capture === undefined && contract === candidate && source.ast.body(candidate) === undefined) {
+      const selected = queries.bindingsFor(candidate, invocation, bindings, bindings, target);
+      if (selected !== undefined) states.add(selected);
+      return states;
+    }
     if (target === undefined) {
       if (capture !== undefined) return states;
       const selected = queries.bindingsFor(candidate, invocation, bindings, bindings, undefined);

@@ -54,8 +54,8 @@ export function createSourceStructuralMemberQuery(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
-): (source: Type, destination: Type) => SourceStructuralMemberCorrespondence {
-  const cache = new WeakMap<Type, WeakMap<Type, SourceStructuralMemberCorrespondence>>();
+): (source: Type, destination: Type, purpose: "read" | "storage") => SourceStructuralMemberCorrespondence {
+  const cache = new WeakMap<Type, WeakMap<Type, Map<"read" | "storage", SourceStructuralMemberCorrespondence>>>();
   const unresolved = (type: Type): boolean => {
     const shape = types.isUnion(type) ? types.getApparentType(type) : type;
     return shape === undefined || types.isAny(shape) || types.isUnknown(shape) || types.isNever(shape) ||
@@ -92,7 +92,7 @@ export function createSourceStructuralMemberQuery(
       components: Object.freeze([...info.components]),
     }))),
   });
-  const select = (source: Type, destination: Type): SourceStructuralMemberCorrespondence => {
+  const select = (source: Type, destination: Type, purpose: "read" | "storage"): SourceStructuralMemberCorrespondence => {
     if (types.isNullish(source) && !unresolved(destination) || types.isNullish(destination) && !unresolved(source)) {
       return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
     }
@@ -140,7 +140,7 @@ export function createSourceStructuralMemberQuery(
         }
       }
       const sourceMember = describe(sourceProperty);
-      if (sourceMember.read === "unavailable") {
+      if (purpose === "read" && sourceMember.read === "unavailable") {
         return Object.freeze({ kind: "unavailable", reason: "unreadable-member" });
       }
       members.push(Object.freeze({
@@ -157,16 +157,22 @@ export function createSourceStructuralMemberQuery(
       members: Object.freeze(members),
     });
   };
-  return (source, destination) => {
+  return (source, destination, purpose) => {
+    if (purpose !== "read" && purpose !== "storage") throw new TypeError("Structural member correspondence requires its exact read or storage purpose.");
     let destinations = cache.get(source);
     if (destinations === undefined) {
       destinations = new WeakMap();
       cache.set(source, destinations);
     }
-    let result = destinations.get(destination);
+    let purposes = destinations.get(destination);
+    if (purposes === undefined) {
+      purposes = new Map();
+      destinations.set(destination, purposes);
+    }
+    let result = purposes.get(purpose);
     if (result === undefined) {
-      result = select(source, destination);
-      destinations.set(destination, result);
+      result = select(source, destination, purpose);
+      purposes.set(purpose, result);
     }
     return result;
   };

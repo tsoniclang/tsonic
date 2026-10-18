@@ -7,7 +7,7 @@ export function sourceObjectLiteralDestinationMember(
   destination: Type,
   semantics: Pick<SourceFileSemantics, "types">,
 ): SourceStructuralMember | undefined {
-  const correspondence = semantics.types.structuralMembers(element.objectLiteralType, destination);
+  const correspondence = semantics.types.structuralMembers(element.objectLiteralType, destination, "read");
   if (correspondence.kind !== "available") return undefined;
   const pairs = correspondence.members.filter(pair => pair.kind === "present" &&
     (pair.source.declarations.includes(element.element) || element.sourceElementSymbol !== undefined &&

@@ -701,6 +701,39 @@ for (const readonly of [false, true]) {
   });
 }
 
+test("a readonly recursive publication retains actual writable descendant exposure", async () => {
+  const current = await fixture("storage-domain-readonly-recursive-mutable-child", `
+    interface Tree extends ReadonlyArray<Tree> { readonly value: { token: {} }; }
+    declare const external: Tree;
+    export const exposed = external;
+  `);
+  const external = namedVariable(current.source.ast, current.file, "external");
+  const type = current.source.semantics.forNode(external).declarations.declaredValueType(external);
+  const queries = current.source.semantics.forNode(external);
+  const value = queries.types.propertyInfos(type).find(property => property.name === "value");
+  assert.equal(value !== undefined, true, "the exact authored readonly child exists");
+  const declarations = queries.declarations.symbolDeclarations(value.symbol);
+  assert.equal(declarations.length, 1, "one original readonly child declaration");
+  const declaration = declarations[0];
+  const token = queries.types.propertyInfos(value.type).find(property => property.name === "token");
+  assert.equal(token !== undefined, true, "the exact authored writable descendant exists");
+  const tokenDeclarations = queries.declarations.symbolDeclarations(token.symbol);
+  assert.equal(tokenDeclarations.length, 1, "one original writable descendant declaration");
+  const tokenDeclaration = tokenDeclarations[0];
+  for (const depth of [0, 1, 5]) {
+    const subject = current.storage.subject(external, "value", [
+      ...Array.from({ length: depth }, () => ({ kind: "array-element" })),
+      { kind: "member", declaration }, { kind: "member", declaration: tokenDeclaration },
+    ]);
+    assert.equal(subject.kind, "resolved", "actual checked readonly navigation preserves writable child components");
+    const selected = current.storage.closedOriginsFor(subject.subject);
+    assert.equal(selected.kind, "open", "read-only recursive navigation does not certify a writable/external descendant");
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" || boundary.kind === "external-write"), true,
+      "the original external/writable boundary is retained at every real finite depth");
+  }
+  assert.equal(current.storage.failureReason(), undefined, "read-only recurrence preserves all bounded exposure obligations");
+});
+
 for (const readonly of [false, true]) {
   test(`a recursive scalar-or-array union cannot license an unnarrowed component/${readonly}`, async () => {
     const current = await fixture(`storage-domain-recursive-union-projection-${readonly}`, `

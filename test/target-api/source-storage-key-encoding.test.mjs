@@ -3,6 +3,7 @@ import test from "node:test";
 import { createSourceStorageKeyEncoder } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
 
 const set = (...values) => ({ kind: "set", values });
 const budget = limits => createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -43,9 +44,11 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
   const current = budget({ maximumSteps: 512, maximumTransportRows: 1024 });
   const empty = {}; const scope = {};
   const identities = new Map(); const bindings = new Map();
+  const parameters = new Set();
   let term = { kind: "leaf", subject: { kind: "value", node: {} }, scope: empty };
   for (let depth = 0; depth < 20; depth += 1) {
     const subject = { kind: "input", node: {} };
+    parameters.add(subject.node);
     bindings.set(subject, { kind: "replace", terms: [term, term] });
     term = { kind: "reference", subject, scope };
   }
@@ -54,10 +57,16 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const keys = createSourceStorageScopedKeys({}, current, {
+  const owner = { parameters: [...parameters] };
+  const source = { ast: { parent: node => parameters.has(node) ? owner : undefined,
+    parameters: node => node === owner ? owner.parameters : [],
+    is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
+    as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } } };
+  const keys = createSourceStorageScopedKeys(source, current, {
     contextualInputs: () => new Set(),
     bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),
-  }, scopes);
+  }, scopes, { footprints: createSourceStorageContextFootprints(current, () => new Set(), () => undefined),
+    ownerFor: () => undefined });
   const selected = keys.encode(term);
   assert.equal(typeof selected === "string" && selected.length < 4096, true, "the exact 20-level binding DAG is a bounded key");
   assert.equal(current.failure() === undefined, true);
