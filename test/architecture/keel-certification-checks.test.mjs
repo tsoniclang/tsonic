@@ -2062,6 +2062,22 @@ test("QRC-14: nested declaration condition paths and arrays retain every indepen
     inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ ...metadata, main: "./src/ordinary.d.mts" })));
     assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "physical main authority remains independent of the nested declaration facet");
   }
+  for (const declaration of ["./src/*.d.mts", "./src/ordinary.d.mts#*"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "@control/nested", exports: {
+      "./*": { types: { import: declaration }, default: "./src/ordinary.mjs" },
+    } })));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const ordinary = 2;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, "a formal declaration facet keeps its complete authority through patterns and URL suffix elision");
+    assert.deepEqual(keelSafetyBuiltModuleEntries(inputs), ["tsonic-rust/src/ordinary.mjs"], "declaration patterns do not invent native inputs");
+    inputs.get("tsonic-rust").set("src/entry.mjs", safetyFile('import "@control/nested/ordinary";'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "an actual native pattern consumer strengthens the same declaration path and requires its bytes");
+    inputs.get("tsonic-rust").set("src/ordinary.d.mts", safetyFile('require("../test/helpers/native-ownership-cost.mjs");'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "an actual native pattern consumer cannot hide writer execution in a types facet");
+    inputs.get("tsonic-rust").delete("src/entry.mjs");
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ exports: { "./*": declaration } })));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "the same public native pattern never borrows absent declaration authority");
+  }
 });
 
 test("QRC-14: authored package exports use exact checked-source resolution and native edges strengthen them", () => {

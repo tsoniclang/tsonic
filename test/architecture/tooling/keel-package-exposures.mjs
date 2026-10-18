@@ -255,14 +255,19 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
       errors.push({ path, reason: "inconsistent native build-resource owner evidence" });
     }
   }
-  const select = (root, value, path, physical, conditions) => {
-    if (physical) return { role: "native-execution" };
+  const resourceFacet = (path, conditions) => {
     const resource = resources.get(path);
     if (resource !== undefined && JSON.stringify(files.get(path)?.packageResourceOwner) === JSON.stringify(resource) &&
       resource.artifacts.every(artifact => files.get(artifact.path)?.sha256 === artifact.sha256)) {
       return { role: "build-resource", authority: resource };
     }
     if (conditions.includes("types") && isDeclarationFile(path)) return { role: "build-resource", authority: "declaration-condition" };
+    return undefined;
+  };
+  const select = (root, value, path, physical, conditions) => {
+    if (physical) return { role: "native-execution" };
+    const resource = resourceFacet(path, conditions);
+    if (resource !== undefined) return resource;
     const owner = sourcePackages.get(root);
     if (owner !== undefined) {
       const selected = collectCompilerSourceExports(`/keel/${root}`, { exports: value }, owner.sourceFiles);
@@ -331,7 +336,7 @@ export function createKeelPackageExposures(packages, files, resolveAlias) {
     return owner === undefined ? [] : collectCompilerSourceExports(`/keel/${root}`, { exports: { [key]: value } }, owner.sourceFiles)
       .map(entry => Object.freeze({ path: entry.sourceFile.slice(6), sourceFile: entry.sourceFile.slice(6), role: "compiler-source" }));
   };
-  return Object.freeze({ select, authoredModule, authoredDeclarationInputs, knownPackage, compilerPattern, externalPackageRoot, externalPath, errors: Object.freeze(errors) });
+  return Object.freeze({ select, resourceFacet, authoredModule, authoredDeclarationInputs, knownPackage, compilerPattern, externalPackageRoot, externalPath, errors: Object.freeze(errors) });
 }
 
 export function moduleReferencePaths(packages, files, sourcePath, reference) {
@@ -536,11 +541,15 @@ export function packageModuleEntries(packages, scripts, files, exposures) {
     }
     const moduleTargets = (value, key, imports, conditions = []) => {
       if (typeof value === "string") {
+        const path = value.startsWith(".") ? packageTargetPath(root, value, false) : undefined;
+        if (path !== undefined && exposures.resourceFacet(path, conditions) !== undefined) {
+          add(value, false, imports, conditions); return;
+        }
         if (!key?.includes("*") || !value.includes("*")) { add(value, false, imports, conditions); return; }
         let marker = "__keel_package_capture__";
         while (`${root}/${value}`.includes(marker) || staticFileAddress(source, value).path?.includes(marker)) marker += "_";
         const markedPath = value.startsWith(".") ? packageTargetPath(root, value.replaceAll("*", marker), false) : undefined;
-        if (markedPath !== undefined && !markedPath.includes(marker)) { add(value, false, imports); return; }
+        if (markedPath !== undefined && !markedPath.includes(marker)) { add(value, false, imports, conditions); return; }
         const captures = requests.flatMap(request => {
           const specifier = packageOwner(packages, request.sourcePath)?.root === root ? request.specifier : undefined;
           const selection = specifier === undefined ? undefined : packageMappingSelection(metadata.imports, specifier);
