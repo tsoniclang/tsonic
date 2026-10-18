@@ -76,7 +76,14 @@ export type SourceCallableImplementationResult =
 export interface SourceBindingWrite {
   readonly reference: Node;
   readonly operation: Node;
-  readonly kind: "assignment" | "update" | "iteration";
+  readonly kind: "assignment" | "update" | "iteration" | "initialization";
+  readonly values: readonly SourceBindingWriteValue[];
+}
+
+export interface SourceBindingWriteValue {
+  readonly kind: "value" | "iteration-value" | "iteration-key";
+  readonly expression: Node;
+  readonly projection: readonly Node[];
 }
 
 export interface SourceDeclarationReference {

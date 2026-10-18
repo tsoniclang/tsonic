@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -23,6 +24,51 @@ function fixture(body) {
   const stores = (node, kind) => [...transport.storesFor(transport.subject(node, kind)) ?? []];
   return { source, budget, transport, declaration, field, variable, stores };
 }
+
+test("initializer-less declared iteration has one loop-owned initialization and no invented declaration store", () => {
+  const current = fixture(`
+    const values: object[] = [{}];
+    for (const item of values) void item;
+    for (const key in values) void key;
+    let assigned: object;
+    for (assigned of values) void assigned;
+  `);
+  const { ast } = current.source;
+  for (const name of ["item", "key"]) {
+    const declaration = current.variable(name);
+    const stores = current.stores(declaration);
+    assert.equal(stores.length, 1, `${name}: one actual per-iteration store`);
+    const store = stores[0];
+    assert.equal(store.kind === "initialization", true, `${name}: declared iteration initializes its binding`);
+    assert.equal(ast.is.IsForInStatement(store.operation) || ast.is.IsForOfStatement(store.operation), true,
+      `${name}: the loop, not its initializer-less declaration, owns the write`);
+    assert.equal(store.reference === ast.name(declaration), true, `${name}: exact checked write reference`);
+    assert.equal(current.transport.writeAt(store.reference)?.operation === store.operation, true,
+      `${name}: publication retains the identical canonical owner`);
+  }
+  const assigned = current.stores(current.variable("assigned"));
+  assert.equal(assigned.length === 1 && assigned[0].kind === "mutation" && ast.is.IsForOfStatement(assigned[0].operation), true,
+    "an uninitialized declaration is not a value-producing initialization");
+  const originalInputs = [...current.transport.storedInputsFor(current.transport.subject(current.variable("assigned"))) ?? []];
+  assert.equal(originalInputs.length === 1 && originalInputs[0] === assigned[0].value, true,
+    "the actual mutation of a checked binding retains its physical value without a fabricated initialization store");
+});
+
+test("duplicate occurrence admission rejects conflicting original values without replacing the first owner", () => {
+  const current = fixture("const first = {}; const second = {}; const value = first;");
+  const storage = current.transport.subject(current.variable("value"));
+  const reference = Node_Initializer(current.source.ast, current.variable("value"));
+  const original = current.transport.subjectFor(reference);
+  const replacement = current.transport.subjectFor(Node_Initializer(current.source.ast, current.variable("second")));
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  inventory.initialize(storage, reference, original);
+  inventory.initialize(storage, reference, replacement);
+  assert.equal(budget.failure()?.includes("one exact checked occurrence owner"), true,
+    "the same operation and location cannot silently substitute a different original value");
+  const retained = [...inventory.storesFor(storage)];
+  assert.equal(retained.length === 1 && retained[0].value === original, true, "the conflicting contribution is never published");
+});
 
 test("declaration names retain binding storage rather than manufacturing a runtime read", () => {
   const current = fixture(`
@@ -140,7 +186,7 @@ test("store rows reserve canonical records and both indexes before insertion and
   const node = current.variable("value");
   const storage = current.transport.subject(node);
   const occurrence = Node_Initializer(current.source.ast, node);
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 6 });
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 11 });
   assert.equal(budget.row(), true, "an independent live row leaves insufficient capacity for the complete store and indexes");
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
@@ -183,10 +229,81 @@ test("assignment-pattern properties and abstract declarations do not create auth
   const shorthand = current.transport.visitedNodes.find(current.source.ast.is.IsShorthandPropertyAssignment);
   assert.equal(current.stores(shorthand).length === 0 && current.stores(current.field("value")).length === 0, true);
   const stores = current.stores(current.variable("item"));
-  assert.equal(stores.some(store => store.kind === "mutation" && store.reason?.includes("component producer")), true,
-    "unsupported destructuring retains its exact unresolved component evidence, never a fabricated value");
+  const mutation = stores.find(store => store.kind === "mutation");
+  assert.equal(mutation !== undefined && mutation.reason === undefined && mutation.values.length === 1 &&
+    mutation.values[0].source.projection[0] === shorthand && mutation.values[0].subjects.length === 1 &&
+    mutation.values[0].subjects[0].projection[0].kind === "member", true,
+  "destructuring retains the exact checked selected component without fabricating an object slot");
   assert.equal(stores.filter(store => store.kind === "initialization").length === 1, true,
     "the actual variable initialization remains, but the assignment pattern creates no second object slot");
+});
+
+test("published write selections keep each nested input and default projection at its original occurrence", () => {
+  const current = fixture(`
+    const first = {}; const second = {}; const fallback = {};
+    let source: { nested?: { value?: object } } = { nested: { value: first } };
+    const outer = { value: second };
+    let { nested: { value = fallback } = outer } = source;
+    ({ nested: { value = fallback } = outer } = source);
+    const rows: [object?][] = [[first], [second]];
+    for (const [item = fallback] of rows) void item;
+  `);
+  const { ast } = current.source;
+  const binding = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "value");
+  const selected = current.transport.subjectFor(binding);
+  assert.equal(selected.node === binding && selected.projection.length === 0, true,
+    "a mutable destructured binding is not the original owner's component storage");
+  const stores = [...current.transport.storesFor(selected)];
+  assert.equal(stores.length === 2 && stores[0].reference !== stores[1].reference &&
+    stores.every(store => store.reason === undefined && store.values.length === 3), true,
+  "initialization and mutation each retain all original checked alternatives without RHS identity filtering");
+  for (const store of stores) {
+    assert.deepEqual(store.values.map(value => ast.text(value.source.expression)), ["source", "outer", "fallback"]);
+    assert.deepEqual(store.values.map(value => value.source.projection.length), [2, 1, 0]);
+    assert.equal(store.values.every(value => value.reason === undefined && value.subjects.length > 0 &&
+      Object.isFrozen(value) && Object.isFrozen(value.subjects)), true, "every alternative has its exact immutable selected subjects");
+    const published = current.transport.writeAt(store.reference);
+    assert.equal(published.values === store.values && published.destinations.includes(selected) && Object.isFrozen(published), true,
+      "the canonical published record preserves original selection and exact destination identity");
+  }
+  const item = current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === "item");
+  const iteration = [...current.transport.storesFor(current.transport.subjectFor(item))][0];
+  assert.equal(iteration.kind === "initialization" && iteration.reason === undefined && iteration.values.length === 2, true,
+    "the loop produces its actual element and conditional default once per iteration");
+  assert.equal(iteration.values[0].subjects[0].projection.length === 2 &&
+    iteration.values[0].subjects[0].projection.every(component => component.kind === "array-element" || component.kind === "tuple-element"), true,
+  "iteration selects collection element then tuple component, not the collection or a first-element guess");
+});
+
+test("write selections reject forged contexts, foreign nodes, and post-publication mutations", () => {
+  const current = fixture("const original = {}; let value = original; value = original;");
+  const other = fixture("const original = {}; let value = original; value = original;");
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const mutation = current.stores(current.variable("value")).find(store => store.kind === "mutation");
+  const selected = query.writeAt(mutation.reference, query.emptyBindings);
+  assert.equal(selected.kind === "resolved" && selected.write.reference === mutation.reference &&
+    selected.bindings === query.emptyBindings, true, "one exact authored occurrence is paired with the actual query-owned context");
+  assert.equal(query.writeAt(mutation.reference, Object.freeze({ ...query.emptyBindings })).kind === "unresolved", true,
+    "same-shaped bindings cannot impersonate the canonical context");
+  assert.equal(query.writeAt(other.stores(other.variable("value"))[1].reference, query.emptyBindings).kind === "unresolved", true,
+    "a foreign checked occurrence cannot impersonate this source program");
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  inventory.initialize(mutation.storage, mutation.reference, mutation.value);
+  inventory.publish();
+  assert.throws(() => inventory.publish(), /publish exactly once/u);
+  assert.throws(() => inventory.initialize(mutation.storage, mutation.reference, mutation.value), /cannot change/u);
+});
+
+test("unproven computed destructuring retains its exact unresolved writer rather than claiming an empty loan set", () => {
+  const current = fixture(`let value = {}; const source: { [key: string]: object } = {};
+    const key: string = "value"; ({ [key]: value } = source);`);
+  const mutation = current.stores(current.variable("value")).find(store => store.kind === "mutation");
+  assert.equal(mutation !== undefined && mutation.reason !== undefined && mutation.values.length === 1 &&
+    mutation.values[0].subjects.length === 0 && mutation.values[0].reason === mutation.reason, true,
+  "missing exact checked projection evidence is explicitly unresolved, never a fabricated safe value");
 });
 
 test("receiver resolution failure cannot publish a store or either secondary index", () => {
@@ -196,7 +313,8 @@ test("receiver resolution failure cannot publish a store or either secondary ind
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 1 });
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
     () => { budget.step(); return undefined; });
-  const write = { reference, operation: current.source.ast.parent(reference), value: storage };
+  const write = { reference, operation: current.source.ast.parent(reference), kind: "mutation", value: storage,
+    values: Object.freeze([{ source: undefined, subjects: Object.freeze([storage]), reason: undefined }]) };
   inventory.recordWrite(storage, write);
   assert.match(budget.failure(), /analysis-work/u);
   assert.equal(inventory.storesFor(storage) === undefined &&
@@ -215,12 +333,16 @@ test("physical producer values and rejection reasons use the identical member-ve
     const parameter = current.declaration("value", current.source.ast.is.IsParameterDeclaration);
     const storage = current.transport.subject(parameter, "member");
     const stores = current.stores(parameter, memberWrite ? "member" : "value");
-    assert.equal(stores.some(store => store.kind === "mutation" && store.reason?.includes("iteration writes")), true,
-      "the underlying checked unsupported writer remains in the canonical inventory");
+    assert.equal(stores.some(store => store.kind === "mutation" && store.reason === undefined &&
+      store.values.length === 1 && store.values[0].source.kind === "iteration-value" &&
+      store.values[0].subjects.length === 1 && store.values[0].subjects[0].projection[0]?.kind === "array-element"), true,
+    "the identical original iteration writer carries its checked element rather than the collection");
     const reason = current.transport.unresolvedStoredInputsFor(storage);
-    assert.equal(memberWrite ? reason?.includes("iteration writes") === true : reason === undefined, true,
+    assert.equal(reason === undefined, true,
       "only an actual member writer can poison its physical producer evidence");
-    assert.equal([...current.transport.storedInputsFor(storage)].length === 1, true,
-      "both cases retain the exact initialization producer independently of unresolved writer evidence");
+    const physical = [...current.transport.storedInputsFor(storage)];
+    assert.equal(physical.length === (memberWrite ? 2 : 1) &&
+      physical.includes(current.transport.subject(parameter, "input")), true,
+      "the initialization remains exact and only an actual member write adds the checked iteration element");
   }
 });

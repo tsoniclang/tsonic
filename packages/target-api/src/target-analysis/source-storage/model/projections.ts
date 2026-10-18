@@ -1,9 +1,10 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
-import { sourceIndexedStorageProjection, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
+import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
+import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export function createSourceStorageProjectionFlow(
   source: TargetSourceProgram,
@@ -34,26 +35,102 @@ export function createSourceStorageProjectionFlow(
       unresolved(value, "An indexed value has no exact checked array/tuple storage component.");
     return value;
   };
-  const binding = (reference: Node): SourceStorageSubject | undefined => {
+  const patternComponent = (originalOwner: SourceStorageSubject, reference: Node): readonly SourceStorageSubject[] | undefined => {
     const pattern = ast.parent(reference);
-    const owner = pattern === undefined ? undefined : ast.parent(pattern);
-    if (pattern === undefined || owner === undefined || !ast.is.IsArrayBindingPattern(pattern) ||
-      !ast.is.IsBindingElement(reference)) return undefined;
-    const originalOwner = subjectFor(owner);
-    const ownerType = originalOwner === undefined ? undefined : sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
-    const queries = semantics.forNode(owner);
+    if (pattern === undefined) return undefined;
+    if (ast.is.IsObjectBindingPattern(pattern) && ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined) return undefined;
+    const queries = semantics.forNode(reference);
+    const rawType = sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
+    const ownerType = rawType === undefined ? undefined : sourcePresentStorageType(rawType, queries) ?? rawType;
+    if (ast.is.IsObjectBindingPattern(pattern) || ast.is.IsObjectLiteralExpression(pattern)) {
+      const binding = ast.as.AsBindingElement(reference);
+      const name = binding?.PropertyName ?? ast.name(reference);
+      const selected = name === undefined ? undefined : queries.operations.propertyName(name);
+      const properties = ownerType === undefined || selected === undefined ? undefined : queries.types.propertyInfos(ownerType)
+        .filter(property => property.name === selected.name);
+      const declarations = properties?.flatMap(property => [...new Set([property.symbol, ...property.rootSymbols]
+        .flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]).filter(declaration =>
+        sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration));
+      if (declarations === undefined || declarations.length === 0) {
+        return undefined;
+      }
+      const values = new Set<SourceStorageSubject>();
+      for (const declaration of declarations) {
+        if (!step()) return undefined;
+        const value = project(originalOwner, { kind: sourceStorageIsMethodMember(declaration, ast) ? "method-value" : "member", declaration });
+        if (value === undefined) return undefined;
+        values.add(value);
+      }
+      return Object.freeze([...values]);
+    }
+    if (!ast.is.IsArrayBindingPattern(pattern) && !ast.is.IsArrayLiteralExpression(pattern)) return undefined;
     const index = ast.elements(pattern).indexOf(reference);
     const component: SourceStorageProjection | undefined = ownerType === undefined || index < 0 ? undefined
       : queries.types.isTuple(ownerType) ? { kind: "tuple-element", index }
         : queries.types.isArrayLike(ownerType) ? { kind: "array-element" } : undefined;
-    const rest = ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined;
-    const value = component === undefined || rest ? subject(reference) : project(originalOwner, component);
+    const rest = ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined || ast.is.IsSpreadElement(reference);
+    if (component === undefined) return undefined;
+    if (!rest) {
+      const value = project(originalOwner, component);
+      return value === undefined ? undefined : [value];
+    }
+    const value = subject(reference);
+    if (value === undefined || ownerType === undefined) return undefined;
+    const resultType = sourceStorageSubjectType(source, value, sourceFileFor(value));
+    if (resultType === undefined) return undefined;
+    for (const original of sourceStorageComponents(ownerType, queries)) {
+      if (!step()) return undefined;
+      if (original.kind === "tuple-element" && original.index < index) continue;
+      connect(project(originalOwner, original), project(value, original.kind === "tuple-element" && queries.types.isTuple(resultType)
+        ? { kind: "tuple-element", index: original.index - index } : { kind: "array-element" }));
+    }
+    return [value];
+  };
+  const binding = (reference: Node): SourceStorageSubject | undefined => {
+    const pattern = ast.parent(reference);
+    const owner = pattern === undefined ? undefined : ast.parent(pattern);
+    if (owner === undefined || !ast.is.IsBindingElement(reference)) return undefined;
+    const originalOwner = subjectFor(owner);
+    const selected = originalOwner === undefined ? undefined : patternComponent(originalOwner, reference);
+    if (selected?.length === 1) return selected[0];
+    const value = subject(reference);
     if (value !== undefined) {
-      if (component === undefined || rest && component.kind === "tuple-element")
-        unresolved(value, "A source binding has no exact selected array/tuple storage component.");
-      else if (rest) connect(project(originalOwner, component), project(value, { kind: "array-element" }));
+      if (selected === undefined) unresolved(value, "A source binding requires its exact checked readable storage component.");
+      else for (const original of selected) connect(original, value);
     }
     return value;
+  };
+  const writeValue = (input: SourceBindingWriteValue): readonly SourceStorageSubject[] | undefined => {
+    const original = subjectFor(input.expression);
+    if (original === undefined) return undefined;
+    let selected: readonly SourceStorageSubject[] = [original];
+    let offset = 0;
+    if (input.kind !== "value") {
+      const type = sourceStorageSubjectType(source, original, sourceFileFor(original));
+      const queries = semantics.forNode(input.expression);
+      if (input.kind === "iteration-key" || type === undefined) return undefined;
+      const values: SourceStorageSubject[] = [];
+      for (const component of sourceStorageComponents(type, queries)) {
+        if (!step()) return undefined;
+        const value = project(original, component);
+        if (value === undefined) return undefined;
+        values.push(value);
+      }
+      if (values.length === 0) return undefined;
+      selected = values;
+      offset = 1;
+    }
+    for (const component of input.projection.slice(offset)) {
+      const values = new Set<SourceStorageSubject>();
+      for (const owner of selected) {
+        if (!step()) return undefined;
+        const projected = patternComponent(owner, component);
+        if (projected === undefined) return undefined;
+        for (const value of projected) values.add(value);
+      }
+      selected = Object.freeze([...values]);
+    }
+    return Object.freeze([...selected]);
   };
   const literal = (node: Node): void => {
     const owner = subjectFor(node);
@@ -98,5 +175,5 @@ export function createSourceStorageProjectionFlow(
     return owner === undefined || components === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, ...components]);
   };
-  return Object.freeze({ indexed, binding, literal, ownerFor });
+  return Object.freeze({ indexed, binding, writeValue, literal, ownerFor });
 }

@@ -5,6 +5,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
+  SourceBindingWriteValue,
 } from "./types.js";
 
 const assignmentOperatorKinds = new Set([
@@ -40,7 +41,7 @@ export function sourceBindingWritesWithin(
   return Object.freeze(
     sourceSymbolReferencesWithin(ast, symbol, root, referencesForSymbol)
       .map((reference) => sourceBindingWriteAtReference(ast, reference))
-      .filter((write): write is SourceBindingWrite => write !== undefined),
+      .filter((write): write is SourceBindingWrite => write !== undefined && write.kind !== "initialization"),
   );
 }
 
@@ -71,45 +72,75 @@ export function sourceBindingWriteAtReference(
   reference: Node,
 ): SourceBindingWrite | undefined {
   let current = reference;
+  let selected: SourceBindingWrite | undefined;
+  let declaration: Node | undefined;
+  const projection: Node[] = [];
   for (;;) {
     const parent = ast.parent(current);
-    if (parent === undefined) {
-      return undefined;
-    }
+    if (parent === undefined) return selected;
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
-      if (
-        binary?.Left === current &&
-        assignmentOperatorKinds.has(ast.operatorKindName(parent) ?? "")
-      ) {
-        return bindingWrite(reference, parent, "assignment");
+      const operator = ast.operatorKindName(parent) ?? "";
+      if (binary?.Left === current && assignmentOperatorKinds.has(operator) && binary.Right !== undefined) {
+        const expression = operator === "KindEqualsToken" || operator === "KindBarBarEqualsToken" ||
+          operator === "KindAmpersandAmpersandEqualsToken" || operator === "KindQuestionQuestionEqualsToken" ? binary.Right : parent;
+        selected = bindingWrite(reference, parent, "assignment", [value(expression, projection), ...(selected?.values ?? [])]);
+        current = parent;
+        continue;
       }
-      return undefined;
+      return selected;
     }
     if (ast.is.IsPrefixUnaryExpression(parent)) {
       const unary = ast.as.AsPrefixUnaryExpression(parent);
       return unary?.Operand === current &&
         updateOperatorKinds.has(ast.operatorKindName(parent) ?? "")
-        ? bindingWrite(reference, parent, "update")
-        : undefined;
+        ? bindingWrite(reference, parent, "update", [value(parent, [])]) : selected;
     }
     if (ast.is.IsPostfixUnaryExpression(parent)) {
       const unary = ast.as.AsPostfixUnaryExpression(parent);
       return unary?.Operand === current &&
         updateOperatorKinds.has(ast.operatorKindName(parent) ?? "")
-        ? bindingWrite(reference, parent, "update")
-        : undefined;
+        ? bindingWrite(reference, parent, "update", [value(parent, [])]) : selected;
     }
     if (ast.is.IsForInStatement(parent) || ast.is.IsForOfStatement(parent)) {
       const statement = ast.as.AsForInOrOfStatement(parent);
-      return statement?.Initializer === current
-        ? bindingWrite(reference, parent, "iteration")
-        : undefined;
+      return statement?.Initializer === current && statement.Expression !== undefined
+        ? bindingWrite(reference, parent, "iteration", [Object.freeze({ kind: ast.is.IsForInStatement(parent)
+          ? "iteration-key" : "iteration-value", expression: statement.Expression,
+          projection: Object.freeze([declaration ?? current, ...projection]) }), ...(selected?.values ?? [])]) : selected;
+    }
+    if (ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent) || ast.is.IsBindingElement(parent)) {
+      if (ast.name(parent) !== current) return selected;
+      const initializer = ast.is.IsVariableDeclaration(parent) ? ast.as.AsVariableDeclaration(parent)?.Initializer
+        : ast.is.IsParameterDeclaration(parent) ? ast.as.AsParameterDeclaration(parent)?.Initializer : ast.as.AsBindingElement(parent)?.Initializer;
+      if (initializer !== undefined) {
+        selected = bindingWrite(reference, parent, "initialization", [value(initializer, projection), ...(selected?.values ?? [])]);
+        if (!ast.is.IsBindingElement(parent)) return selected;
+      }
+      if (ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent)) declaration = parent;
+      current = parent;
+      continue;
+    }
+    if (ast.is.IsVariableDeclarationList(parent)) {
+      if (!ast.as.AsVariableDeclarationList(parent)?.Declarations?.Nodes?.includes(current)) return selected;
+      current = parent;
+      continue;
+    }
+    if (ast.is.IsShorthandPropertyAssignment(parent) && ast.name(parent) === current) {
+      const initializer = ast.as.AsShorthandPropertyAssignment(parent)?.ObjectAssignmentInitializer;
+      if (initializer !== undefined) selected = bindingWrite(reference, parent, "assignment",
+        [value(initializer, projection), ...(selected?.values ?? [])]);
     }
     if (!isTransparentAssignmentTargetContainer(ast, parent, current)) {
-      return undefined;
+      return selected;
     }
+    if (ast.is.IsArrayLiteralExpression(parent) || ast.is.IsArrayBindingPattern(parent)) projection.unshift(current);
+    if (ast.is.IsObjectLiteralExpression(parent) || ast.is.IsObjectBindingPattern(parent)) projection.unshift(current);
     current = parent;
+  }
+
+  function value(expression: Node, projection: readonly Node[]): SourceBindingWriteValue {
+    return Object.freeze({ kind: "value", expression, projection: Object.freeze([...projection]) });
   }
 }
 
@@ -132,8 +163,9 @@ function bindingWrite(
   reference: Node,
   operation: Node,
   kind: SourceBindingWrite["kind"],
+  values: readonly SourceBindingWriteValue[],
 ): SourceBindingWrite {
-  return Object.freeze({ reference, operation, kind });
+  return Object.freeze({ reference, operation, kind, values: Object.freeze([...values]) });
 }
 
 function isTransparentAssignmentTargetContainer(
@@ -170,6 +202,9 @@ function isTransparentAssignmentTargetContainer(
   }
   if (ast.is.IsArrayLiteralExpression(parent)) {
     return ast.elements(parent).some((element) => element === child);
+  }
+  if (ast.is.IsArrayBindingPattern(parent) || ast.is.IsObjectBindingPattern(parent)) {
+    return ast.elements(parent).includes(child);
   }
   if (ast.is.IsObjectLiteralExpression(parent)) {
     return ast.properties(parent).some((property) => property === child);

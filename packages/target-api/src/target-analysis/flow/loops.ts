@@ -45,16 +45,22 @@ function sourceFlowLoopBody(build: SourceFlowConstruction, node: Node, next: num
           (resource, continuation, acquisitionContext) => {
             const binding = ast.name(resource);
             if (binding === undefined) throw new SourceFlowFailure("Source flow requires an exact iteration resource binding.", resource);
-            return build.pattern(binding, continuation, acquisitionContext, true);
+            return build.pattern(binding, continuation, acquisitionContext, true,
+              { kind: ast.is.IsForInStatement(node) ? "iteration-key" : "iteration-value",
+                expression: selected.Expression!, projection: [resource] });
           })
-        : build.pattern(name, build.statement(selected.Statement, anchor, bodyContext), bodyContext, true);
-    } else body = build.pattern(selected.Initializer, build.statement(selected.Statement, anchor, bodyContext), bodyContext, false);
+        : build.pattern(name, build.statement(selected.Statement, anchor, bodyContext), bodyContext, true,
+          { kind: ast.is.IsForInStatement(node) ? "iteration-key" : "iteration-value",
+            expression: selected.Expression, projection: [declaration!] });
+    } else body = build.pattern(selected.Initializer, build.statement(selected.Statement, anchor, bodyContext), bodyContext, false,
+      { kind: ast.is.IsForInStatement(node) ? "iteration-key" : "iteration-value",
+        expression: selected.Expression, projection: [selected.Initializer] });
     const branch = build.point(node, { kind: "iteration" });
     build.edge(branch, body, "true");
     build.edge(branch, next, "false");
     build.edge(branch, context.throwTo, "exception");
     const step = selected.AwaitModifier === undefined ? branch
-      : build.emit(node, { kind: "await" }, branch, context, true, "resume");
+      : build.emit(node, { kind: "await", value: undefined }, branch, context, true, "resume");
     build.edge(anchor, step);
     return build.expression(selected.Expression, build.emit(node, { kind: "evaluate" }, anchor, context, true), context);
   }

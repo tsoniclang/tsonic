@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceDeclarationUseSummary, SourceProgramNavigation } from "./types.js";
 import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+import { Node_Initializer } from "./ast.js";
 
 const repeatedKinds: ReadonlySet<string> = new Set([
   "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindWhileStatement", "KindDoStatement",
@@ -9,6 +10,45 @@ const repeatedKinds: ReadonlySet<string> = new Set([
 export type SourceSubtreeParticipation =
   | { readonly kind: "resolved"; readonly nodes: readonly Node[] }
   | { readonly kind: "unresolved"; readonly reason: string };
+
+type SourceLexicalFunctionNavigation = Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationSymbol" |
+  "referencesWithin" | "sourceReferenceFor" | "callableImplementation">;
+
+function lexicalFunctionUseSummaries(declaration: Node, ast: AstReader,
+  navigation: SourceLexicalFunctionNavigation): readonly SourceDeclarationUseSummary[] | undefined {
+  const sourceFile = ast.getSourceFile(declaration);
+  if (sourceFile === undefined) return undefined;
+  if (ast.is.IsArrowFunction(declaration)) {
+    const binding = ast.parent(declaration);
+    if (binding === undefined || !ast.is.IsVariableDeclaration(binding) ||
+      ast.variableDeclarationKind(binding) !== "const" || Node_Initializer(ast, binding) !== declaration ||
+      !ast.is.IsIdentifier(ast.name(binding))) return undefined;
+    const symbol = navigation.declarationSymbol(binding, sourceFile);
+    const implementation = navigation.callableImplementation(declaration);
+    if (symbol === undefined || implementation.kind !== "resolved" ||
+      implementation.implementation.declaration !== declaration || implementation.implementation.sourceFile !== sourceFile)
+      return undefined;
+    for (const reference of navigation.referencesWithin(symbol, sourceFile)) {
+      const selected = navigation.sourceReferenceFor(reference);
+      if (selected === undefined || selected.symbol !== symbol || selected.declaration !== binding) return undefined;
+    }
+    return Object.freeze([navigation.declarationUseSummary(binding)]);
+  }
+  const symbol = navigation.declarationSymbol(declaration, sourceFile);
+  const implementation = navigation.callableImplementation(declaration);
+  if (symbol === undefined || implementation.kind !== "resolved" || implementation.implementation.symbol !== symbol)
+    return undefined;
+  const declarations = new Set([declaration, implementation.implementation.declaration]);
+  for (const reference of navigation.referencesWithin(symbol, sourceFile)) {
+    const selected = navigation.sourceReferenceFor(reference);
+    if (selected === undefined || selected.symbol !== symbol) return undefined;
+    const candidate = navigation.callableImplementation(selected.declaration);
+    if (candidate.kind !== "resolved" || candidate.implementation.symbol !== symbol ||
+      candidate.implementation.declaration !== implementation.implementation.declaration) return undefined;
+    declarations.add(selected.declaration);
+  }
+  return Object.freeze([...declarations].map(selected => navigation.declarationUseSummary(selected)));
+}
 
 export function sourceNodesOutsideErasedSubtrees(
   ast: Pick<AstReader, "parent">,
@@ -63,18 +103,18 @@ export function sourceEnclosingCallable(node: Node | undefined, ast: AstReader):
 export function sourceLexicalFunctionIsUnused(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUseSummary">,
+  navigation: SourceLexicalFunctionNavigation,
 ): boolean {
   if (!ast.is.IsFunctionDeclaration(declaration) ||
     sourceEnclosingCallable(ast.parent(declaration), ast) === undefined) return false;
-  const summary = navigation.declarationUseSummary(declaration);
-  return !summary.exported && !summary.bindingWritten && !summary.hasUnclassifiedValueUse &&
-    summary.uses.every(use => use.kind === "type-only");
+  const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
+  return summaries !== undefined && summaries.every(summary => !summary.exported && !summary.bindingWritten &&
+    !summary.hasUnclassifiedValueUse && summary.uses.every(use => use.kind === "type-only"));
 }
 
 export function createSourceSingleInvocationQuery(
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUseSummary">,
+  navigation: SourceLexicalFunctionNavigation,
 ): (declaration: Node) => boolean {
   const memo = new WeakMap<Node, boolean>();
   return declaration => select(declaration, new Set());
@@ -82,7 +122,8 @@ export function createSourceSingleInvocationQuery(
   function select(declaration: Node, active: Set<Node>): boolean {
     const previous = memo.get(declaration);
     if (previous !== undefined) return previous;
-    if (active.has(declaration) || active.size >= 128 || !ast.is.IsFunctionDeclaration(declaration)) return false;
+    if (active.has(declaration) || active.size >= 128 ||
+      !ast.is.IsFunctionDeclaration(declaration) && !ast.is.IsArrowFunction(declaration)) return false;
     active.add(declaration);
     const result = classify(declaration, active);
     active.delete(declaration);
@@ -93,10 +134,12 @@ export function createSourceSingleInvocationQuery(
   function classify(declaration: Node, active: Set<Node>): boolean {
     const owner = sourceEnclosingCallable(ast.parent(declaration), ast);
     if (owner === undefined) return false;
-    const summary = navigation.declarationUseSummary(declaration);
-    const uses = summary.uses.filter(use => use.kind !== "type-only" && use.kind !== "source-linkage");
-    if (summary.exported || summary.bindingWritten || summary.hasUnclassifiedValueUse ||
-      uses.length !== 1 || uses[0]!.kind !== "direct-call" || uses[0]!.role !== "call-target") return false;
+    const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
+    if (summaries === undefined || summaries.some(summary => summary.exported || summary.bindingWritten || summary.hasUnclassifiedValueUse))
+      return false;
+    const uses = [...new Set(summaries.flatMap(summary => summary.uses))]
+      .filter(use => use.kind !== "type-only" && use.kind !== "source-linkage");
+    if (uses.length !== 1 || uses[0]!.kind !== "direct-call" || uses[0]!.role !== "call-target" || uses[0]!.throughMember) return false;
     const visited = new Set<Node>();
     for (let current = ast.parent(uses[0]!.reference); current !== undefined; current = ast.parent(current)) {
       if (visited.has(current) || visited.size >= 128) return false;
@@ -104,7 +147,7 @@ export function createSourceSingleInvocationQuery(
       if (current === owner) return true;
       const kind = ast.kindName(current);
       if (repeatedKinds.has(kind)) return false;
-      if (isSourceCallableBodyBoundary(ast, current)) return ast.is.IsFunctionDeclaration(current) &&
+      if (isSourceCallableBodyBoundary(ast, current)) return (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) &&
         sourceEnclosingCallable(ast.parent(current), ast) === owner && select(current, active);
     }
     return false;

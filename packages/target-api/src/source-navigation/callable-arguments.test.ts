@@ -9,6 +9,7 @@ function fixture(body: string, inline = false) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": `export {};
 declare function consume(callback: (value: unknown) => void): void;
+declare const construct: new (callback: (value: unknown) => void) => object;
 ${body}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
@@ -59,6 +60,50 @@ test("inline callable arguments retain their single exact checked invocation wit
     const checked = current.source.semantics.forNode(argument.call).operations.call(argument.call);
     assert.equal(checked?.sourceArguments[argument.argumentIndex]?.expression === argument.argument, true);
   }
+});
+
+test("checked constructor arguments retain the same original source-use identity as calls", () => {
+  for (const body of [
+    "new construct((value: unknown): void => {});",
+    "new construct((((value: unknown): void => {})));",
+    "new construct(function(value: unknown): void {});",
+    "new construct(((value: unknown): void => {}) satisfies ((value: unknown) => void));",
+  ]) {
+    const current = fixture(body, true);
+    const selected = current.select();
+    assert.equal(selected?.length, 1, body);
+    const argument = selected![0]!;
+    assert.equal(current.source.ast.is.IsNewExpression(argument.call), true, body);
+    assert.equal(current.source.semantics.forNode(argument.call).operations.call(argument.call)
+      ?.sourceArguments[argument.argumentIndex]?.expression === argument.argument, true,
+    "the constructor's actual checked source slot, not a reconstructed callback context");
+    assert.equal(Object.isFrozen(selected) && Object.isFrozen(argument), true, body);
+  }
+  const current = fixture(`const callback = (value: unknown): void => {};
+const alias = callback;
+new construct(alias);
+consume(callback);`);
+  const selected = current.select();
+  assert.equal(selected?.length, 2, "one stable callable retains both exact call and construction uses");
+  assert.equal(selected!.filter(argument => current.source.ast.is.IsNewExpression(argument.call)).length, 1,
+    "the original constructor use is included once");
+});
+
+test("checked constructor contexts reject missing and unrelated argument correspondence", () => {
+  const current = fixture("new construct((value: unknown): void => {});", true);
+  const argument = current.select()![0]!;
+  const checked = current.source.semantics.forNode(argument.call).operations.call(argument.call)!;
+  for (const selected of [undefined, { ...checked, sourceArguments: [] },
+    { ...checked, sourceArguments: [{ ...checked.sourceArguments[0]!, expression: argument.call }] }]) {
+    const source = { ...current.source, semantics: { ...current.source.semantics,
+      forNode: () => ({ operations: { call: () => selected } }) } } as unknown as typeof current.source;
+    assert.equal(sourceClosedCallableArguments(current.expression, source) === undefined, true,
+      "a checked constructor cannot substitute a missing or different source argument");
+  }
+  for (const body of [
+    "new construct(...[(value: unknown): void => {}]);",
+    "new construct(function recurse(value: unknown): void { recurse(value); });",
+  ]) assert.equal(fixture(body, true).select() === undefined, true, body);
 });
 
 test("inline callable context rejects named recursion, optional invocation and unchecked argument identity", () => {
