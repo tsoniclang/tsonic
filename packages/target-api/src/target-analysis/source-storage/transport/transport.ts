@@ -105,6 +105,7 @@ export function createSourceStorageTransport(
     if (!step()) return undefined;
     const cached = subjects.get(node);
     if (cached !== undefined) return cached;
+    if (ast.is.IsBindingElement(node) && ast.name(node) === undefined) return undefined;
     if (ast.kindName(node) === "KindThisKeyword") {
       const receiver = receiverFor(node);
       const value = receiver === undefined ? undefined : subject(node);
@@ -234,7 +235,7 @@ export function createSourceStorageTransport(
   };
   const visit = (node: Node): void => {
     visitedNodes.push(node);
-    if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
+    if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsBindingElement(node) ||
       ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) ||
       ast.is.IsElementAccessExpression(node) || valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);
     if ((ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||

@@ -5,6 +5,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageWriteOccurrence, SourceStorageWrittenValue } from "../model/types.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
+import type { SourceStorageWriteProjection } from "../model/projections.js";
 
 export interface SourceStorageWrite {
   readonly reference: Node;
@@ -13,6 +14,7 @@ export interface SourceStorageWrite {
   readonly value?: SourceStorageSubject;
   readonly values: readonly SourceStorageWrittenValue[];
   readonly reason?: string;
+  readonly birth?: NonNullable<SourceStorageWriteProjection["birth"]>;
 }
 
 export interface SourceStorageStore extends SourceStorageWrite {
@@ -41,6 +43,17 @@ export function createSourceStorageStoredValues(
     const kind = write.kind;
     if (storage === undefined || storage.kind !== "value" && storage.kind !== "member" || !budget.step()) return;
     if (published) throw new Error("Source store occurrences cannot change after their final publication.");
+    const originalProjection = write.values[0]?.source?.projection;
+    if (write.birth !== undefined && (kind !== "initialization" || write.value !== storage ||
+      !ast.is.IsBindingElement(storage.node) || ast.as.AsBindingElement(storage.node)?.DotDotDotToken === undefined ||
+      ast.name(storage.node) !== write.reference || write.values.length !== 1 || write.values[0]!.reason !== undefined ||
+      write.values[0]!.subjects.length !== 1 || write.values[0]!.subjects[0] !== storage ||
+      originalProjection?.[originalProjection.length - 1] !== storage.node || write.birth.some(component => !budget.step() ||
+        component.destination.node !== storage.node || component.destination.kind !== storage.kind ||
+        component.destination.projection.length === 0))) {
+      budget.reject("An original source rest birth requires its exact checked initialization and projected producer.");
+      return;
+    }
     let selected = locations.get(storage);
     if (kind === "initialization") {
       const declaration = storage.node;
@@ -59,7 +72,11 @@ export function createSourceStorageStoredValues(
     const previous = occurrences.get(write.reference);
     if (previous !== undefined) {
       if (previous.store.storage !== storage || previous.store.operation !== write.operation || previous.store.kind !== kind ||
-        previous.store.value !== write.value || previous.store.reason !== write.reason || previous.store.values.length !== write.values.length ||
+        previous.store.value !== write.value || previous.store.reason !== write.reason ||
+        (previous.store.birth === undefined) !== (write.birth === undefined) || previous.store.birth?.length !== write.birth?.length ||
+        previous.store.birth?.some((component, index) => !budget.step() || component.origin !== write.birth![index]!.origin ||
+          component.destination !== write.birth![index]!.destination) ||
+        previous.store.values.length !== write.values.length ||
         previous.store.values.some((value, index) => {
           const selected = write.values[index]!;
           return value.reason !== selected.reason || value.subjects.length !== selected.subjects.length ||
@@ -82,7 +99,7 @@ export function createSourceStorageStoredValues(
     const declarationName = kind === "initialization" ? ast.name(storage.node) : undefined;
     const alias = declarationName !== undefined && ast.is.IsIdentifier(declarationName) && declarationName !== write.reference
       ? declarationName : undefined;
-    if (!rows.add(6 + write.values.reduce((total, value) => total + 1 + value.subjects.length, 0) +
+    if (!rows.add(6 + (write.birth === undefined ? 0 : 1 + 3 * write.birth.length) + write.values.reduce((total, value) => total + 1 + value.subjects.length, 0) +
       (selected === undefined ? 1 : 0) + (regional === undefined ? 1 : 0) + (alias === undefined ? 0 : 1))) return;
     const destination = kind === "initialization"
       ? ast.is.IsVariableDeclaration(storage.node) || ast.is.IsBindingElement(storage.node) ? "binding" : "member"
@@ -98,21 +115,27 @@ export function createSourceStorageStoredValues(
     occurrences.set(write.reference, occurrence);
     if (alias !== undefined) occurrences.set(alias, occurrence);
   };
-  const writeFor = (reference: Node, valueFor: (input: SourceBindingWriteValue) => readonly SourceStorageSubject[] | undefined,
+  const writeFor = (reference: Node, valueFor: (input: SourceBindingWriteValue) => SourceStorageWriteProjection | undefined,
     aggregate: (values: readonly SourceStorageSubject[]) => SourceStorageSubject | undefined): SourceStorageWrite | undefined => {
     const write = sourceBindingWriteAtReference(ast, reference);
     if (write === undefined) return undefined;
     const declaration = ast.parent(reference);
     const initialization = write.kind === "initialization" || write.kind === "iteration" && declaration !== undefined &&
       ast.name(declaration) === reference && (ast.is.IsVariableDeclaration(declaration) || ast.is.IsBindingElement(declaration));
+    let birth: SourceStorageWriteProjection["birth"];
     const values = write.values.map(source => {
-      const subjects = valueFor(source);
-      return Object.freeze({ source, subjects: Object.freeze([...(subjects ?? [])]), reason: subjects === undefined
+      const selected = valueFor(source);
+      birth = selected?.birth;
+      return Object.freeze({ source, subjects: Object.freeze([...(selected?.subjects ?? [])]), reason: selected === undefined
         ? "Source storage writes require their exact checked original value producer, iteration element and component projection." : undefined });
     });
+    const value = aggregate(values.flatMap(value => value.subjects));
+    const originalProjection = values[0]?.source.projection;
+    const originalBirth = initialization && values.length === 1 && values[0]!.reason === undefined &&
+      value?.node === originalProjection?.[originalProjection.length - 1] ? birth : undefined;
     return Object.freeze({ reference, operation: write.operation,
       kind: initialization ? "initialization" : "mutation",
-      value: aggregate(values.flatMap(value => value.subjects)), values: Object.freeze(values),
+      value, values: Object.freeze(values), ...(originalBirth === undefined ? {} : { birth: originalBirth }),
       reason: values.find(value => value.reason !== undefined)?.reason });
   };
   const recordWrite = (storage: SourceStorageSubject | undefined, write: ReturnType<typeof writeFor>): void => {

@@ -84,6 +84,119 @@ test("declaration names retain binding storage rather than manufacturing a runti
   assert.equal(current.budget.failure(), undefined);
 });
 
+test("omitted slots have no value and every named binding is complete before the transport seals", () => {
+  const current = fixture(`
+    function consume(pair: [object, object]): void {
+      const [, second = {}] = pair;
+      const [unused] = pair;
+      const [[nestedUnused]] = [pair];
+      void second;
+    }
+  `);
+  const { ast } = current.source;
+  const before = current.transport.identities.size;
+  let omitted = 0;
+  let named = 0;
+  for (const node of current.transport.visitedNodes.filter(ast.is.IsBindingElement)) {
+    const value = current.transport.subjectFor(node);
+    if (ast.name(node) === undefined) {
+      omitted += 1;
+      assert.equal(value === undefined, true, "an omitted slot is not a physical binding or original value");
+      assert.equal(current.transport.writeAt(node) === undefined, true, "an omitted slot has no store occurrence");
+    } else {
+      named += 1;
+      assert.equal(value !== undefined && current.transport.subjectFor(node) === value, true,
+        "the existing named binding is an immutable completed lookup");
+    }
+  }
+  assert.equal(omitted, 1, "the exact omitted tuple position was exercised");
+  assert.equal(named, 4, "used, unused and nested binding subjects were exercised");
+  assert.equal(current.transport.identities.size, before, "post-seal binding lookups create no additional subject");
+  assert.equal(current.budget.failure(), undefined, "no post-seal lookup attempts to add a physical edge");
+});
+
+test("rest creation retains its exact original value and checked projected inputs without becoming a recursive assignment", () => {
+  const current = fixture(`
+    interface Pair { first: object; second: object; }
+    const first = {};
+    const second = {};
+    const last = {};
+    const source: Pair = { first, second };
+    const nested: [[object, object], object] = [[first, second], last];
+    const { first: removed, ...rest } = source;
+    const [[head], ...tail] = nested;
+    void rest.second;
+    void tail[0];
+  `);
+  const { ast } = current.source;
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const binding = name => current.transport.visitedNodes.find(node => ast.is.IsBindingElement(node) &&
+    ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+  for (const name of ["rest", "tail"]) {
+    const declaration = binding(name);
+    const selected = query.subjectFor(declaration);
+    assert.equal(selected.kind, "resolved", `${name}: the original checked binding has its published value`);
+    const occurrences = current.stores(declaration);
+    assert.equal(occurrences.length, 1, `${name}: one original initialization, not an invented extra write`);
+    assert.equal(occurrences[0].reason, undefined, `${name}: the exact producer and component correspondence are proven`);
+    assert.equal(occurrences[0].value === occurrences[0].storage, true,
+      `${name}: the native rest creation retains its own original identity`);
+    assert.equal(occurrences[0].birth !== undefined && Object.isFrozen(occurrences[0].birth) &&
+      occurrences[0].birth.every(component => Object.isFrozen(component) && component.destination.node === declaration), true,
+      `${name}: the producer publishes the immutable checked original-birth component mapping`);
+    const origins = query.closedOriginsFor(selected.subject);
+    assert.equal(origins.kind, "complete", `${name}: original creation is not an empty recursive relation`);
+    assert.equal(origins.origins.length === 1 && origins.origins[0].subject === selected.subject, true,
+      `${name}: the original creation is the unique complete value producer`);
+    const original = occurrences[0];
+    const rows = 11 + 3 * original.birth.length;
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: rows });
+    assert.equal(budget.row(), true, `${name}: exactly one canonical birth record no longer fits`);
+    const inventory = createSourceStorageStoredValues(ast, budget, current.transport.regions.enclosing, () => undefined);
+    inventory.recordWrite(original.storage, original);
+    assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
+      `${name}: original component mappings reserve every retained cell before insertion`);
+    assert.equal(inventory.storesFor(original.storage) === undefined && inventory.storesIn(original.region) === undefined, true,
+      `${name}: a failed birth reservation never publishes either store index`);
+  }
+  const rest = current.transport.subjectFor(binding("rest"));
+  const secondField = current.transport.visitedNodes.find(node => ast.is.IsPropertySignatureDeclaration(node) && ast.text(ast.name(node)) === "second");
+  const firstField = current.transport.visitedNodes.find(node => ast.is.IsPropertySignatureDeclaration(node) && ast.text(ast.name(node)) === "first");
+  const remaining = current.transport.subject(rest.node, rest.kind, [{ kind: "member", declaration: secondField }]);
+  assert.equal(current.transport.incomingFor(remaining).size > 0, true, "the retained field has its checked source-member edge");
+  const retained = current.transport.storedValuesFor(remaining);
+  const originalRest = current.stores(binding("rest"))[0];
+  assert.equal(retained.length > 0 && retained.every(input => input.store === originalRest &&
+    originalRest.birth.some(component => component.origin === input.value && component.destination === remaining)), true,
+  "stored rest projection consumes the original checked component mapping, not its self-value or later incoming writes");
+  const excluded = current.transport.subject(rest.node, rest.kind, [{ kind: "member", declaration: firstField }]);
+  assert.equal(current.transport.incomingFor(excluded).size, 0, "the removed field is not copied to the original rest value");
+  const selectedTail = query.subjectFor(binding("tail"));
+  const tailElement = query.subject(selectedTail.subject.node, "value", [{ kind: "tuple-element", index: 0 }]);
+  assert.equal(tailElement.kind, "resolved", "the first destination tuple element is checked");
+  const tailOrigins = query.closedOriginsFor(tailElement.subject);
+  assert.equal(tailOrigins.kind, "complete", "the tuple slice has a correlated component producer");
+  const originalLast = Node_Initializer(ast, current.variable("last"));
+  assert.equal(tailOrigins.origins.some(origin => origin.subject.node === originalLast), true,
+    "destination tuple index zero comes from original index one, not index zero");
+  assert.equal(query.failureReason(), undefined, "all rest lookups preserve the completed transport");
+});
+
+test("an arbitrary self-assignment cannot forge the producer's original rest birth", () => {
+  const current = fixture("const value = {};");
+  const declaration = current.variable("value");
+  const storage = current.transport.subject(declaration);
+  const reference = Node_Initializer(current.source.ast, declaration);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  inventory.recordWrite(storage, { reference, operation: declaration, kind: "initialization", value: storage, birth: Object.freeze([]),
+    values: Object.freeze([Object.freeze({ source: Object.freeze({ kind: "value", expression: reference, projection: Object.freeze([]) }),
+      subjects: Object.freeze([storage]), reason: undefined })]) });
+  assert.equal(budget.failure(), "An original source rest birth requires its exact checked initialization and projected producer.",
+    "only the exact checked producer can admit an original birth");
+  assert.equal(inventory.storesFor(storage) === undefined, true, "a forged self-birth never enters the canonical store inventory");
+});
+
 test("one store inventory retains exact creator, constructor, method, accessor and helper write regions", () => {
   const current = fixture(`
     class Box {
