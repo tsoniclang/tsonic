@@ -432,7 +432,7 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assert.match(generatedSource, /tags\.push\(tag\);/);
   assert.match(generatedSource, /public static double summarize\(Tsonic\.CSharp\.Js\.JSArray<double> values\)/);
   assert.match(generatedSource, /double first = Tsonic\.CSharp\.Js\.Array\.atValue\(values, 0\) \?\? 0D;/);
-  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.length - 1\) \?\? 0;/);
+  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.length - 1\) \?\? 0D;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.max\(first, last\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(count\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.slice\(Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.trim\(name\)\), 0, 8\);/);

@@ -320,7 +320,7 @@ test("CLI emits Buffer and crypto operations from selected Node provider-package
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHmac\("sha256", Tsonic\.CSharp\.Node\.Buffer\.from\(key\)\)\.update\(value\)\.digest\("hex"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.timingSafeEqual\(Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\), Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\)\);/);
   assert.match(generatedSource, /ints\.writeUInt16LE\(\(ushort\)4660, 0\);/);
-  assert.match(generatedSource, /ints\.writeInt16BE\(-2, 2\);/);
+  assert.match(generatedSource, /ints\.writeInt16BE\(\(short\)-2, 2\);/);
   assert.match(generatedSource, /ints\.writeUInt32BE\(16909060, 4\);/);
   assert.match(generatedSource, /floats\.writeFloatLE\(1\.5F, 0\);/);
   assert.match(generatedSource, /floats\.writeDoubleBE\(2\.5, 4\);/);

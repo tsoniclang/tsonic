@@ -462,7 +462,7 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   assert.match(generatedSource, /public static int mutate\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /values\.deleteAt\(index\);/);
   assert.match(generatedSource, /values\.setLength\(4D\);/);
-  assert.match(generatedSource, /values\[3\] = 7;/);
+  assert.match(generatedSource, /values\[3D\] = 7;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.doesNotMatch(generatedSource, /values\.Count =/);
   assert.doesNotMatch(generatedSource, /values\.Length =/);
