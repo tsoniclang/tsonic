@@ -5,6 +5,8 @@ export interface SourceStatementExitFacts {
   readonly erased: (node: Node) => boolean;
   readonly expressionExits: (node: Node) => boolean;
   readonly guardResult: (node: Node) => boolean | undefined;
+  readonly controlTarget?: (node: Node) => Node | undefined;
+  readonly continueFallsThrough?: (node: Node, target: Node | undefined) => boolean;
 }
 
 export function analyzeSourceStatementExits(
@@ -14,11 +16,17 @@ export function analyzeSourceStatementExits(
 ): ReadonlyMap<Node, boolean> {
   const breaks = new Set<Node>();
   const continues = new Set<Node>();
-  for (const node of nodes) {
-    if (facts.erased(node)) continue;
-    if (!ast.is.IsBreakStatement(node) && !ast.is.IsContinueStatement(node)) continue;
-    const target = sourceControlTransferTarget(ast, node);
-    if (target !== undefined) (ast.is.IsBreakStatement(node) ? breaks : continues).add(target);
+  const controlNodes = [...nodes];
+  const seenControlNodes = new Set<Node>();
+  while (controlNodes.length > 0) {
+    const node = controlNodes.pop()!;
+    if (seenControlNodes.has(node) || facts.erased(node)) continue;
+    seenControlNodes.add(node);
+    if (ast.is.IsBreakStatement(node) || ast.is.IsContinueStatement(node)) {
+      const target = facts.controlTarget === undefined ? sourceControlTransferTarget(ast, node) : facts.controlTarget(node);
+      if (target !== undefined) (ast.is.IsBreakStatement(node) ? breaks : continues).add(target);
+    }
+    ast.forEachChild(node, child => { if (child !== undefined) controlNodes.push(child); });
   }
   const exits = new Map<Node, boolean>();
   const sequence = (node: Node): readonly (Node | undefined)[] =>
@@ -46,6 +54,9 @@ export function analyzeSourceStatementExits(
       case "KindLabeledStatement": return [ast.as.AsLabeledStatement(node)?.Statement];
       case "KindSwitchStatement": return clauses(node);
       case "KindDoStatement": return [ast.as.AsDoStatement(node)?.Statement];
+      case "KindWhileStatement": return [ast.as.AsWhileStatement(node)?.Statement];
+      case "KindForStatement": return [ast.as.AsForStatement(node)?.Statement];
+      case "KindForInStatement": case "KindForOfStatement": return [ast.as.AsForInOrOfStatement(node)?.Statement];
       default: return [];
     }
   };
@@ -69,8 +80,12 @@ export function analyzeSourceStatementExits(
   const evaluate = (node: Node): boolean => {
     if (facts.erased(node)) return false;
     switch (ast.kindName(node)) {
-      case "KindReturnStatement": case "KindThrowStatement": case "KindBreakStatement": case "KindContinueStatement":
+      case "KindReturnStatement": case "KindThrowStatement": case "KindBreakStatement":
         return true;
+      case "KindContinueStatement": {
+        const target = facts.controlTarget === undefined ? sourceControlTransferTarget(ast, node) : facts.controlTarget(node);
+        return facts.continueFallsThrough?.(node, target) !== true;
+      }
       case "KindBlock": case "KindSourceFile": case "KindCaseClause": case "KindDefaultClause":
         return sequence(node).some(selectedExits);
       case "KindExpressionStatement": return expressionExits(ast.as.AsExpressionStatement(node)?.Expression);
@@ -120,7 +135,7 @@ export function analyzeSourceStatementExits(
   };
   const pending: { readonly node: Node; readonly expanded: boolean }[] = [];
   for (const node of nodes) {
-    if (ast.is.IsBlock(node) || ast.is.IsCaseClause(node) || ast.is.IsDefaultClause(node)) {
+    if (statementKinds.has(ast.kindName(node))) {
       pending.push({ node, expanded: false });
     }
   }
@@ -136,3 +151,11 @@ export function analyzeSourceStatementExits(
   }
   return exits;
 }
+
+const statementKinds: ReadonlySet<string> = new Set([
+  "KindSourceFile", "KindBlock", "KindCaseClause", "KindDefaultClause", "KindFunctionDeclaration",
+  "KindClassDeclaration", "KindTypeAliasDeclaration", "KindVariableStatement", "KindExpressionStatement",
+  "KindReturnStatement", "KindThrowStatement", "KindBreakStatement", "KindContinueStatement", "KindIfStatement",
+  "KindWhileStatement", "KindDoStatement", "KindForStatement", "KindForInStatement", "KindForOfStatement",
+  "KindLabeledStatement", "KindSwitchStatement", "KindTryStatement", "KindEmptyStatement", "KindDebuggerStatement",
+]);
