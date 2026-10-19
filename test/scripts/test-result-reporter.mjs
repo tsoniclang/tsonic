@@ -27,6 +27,8 @@ export default async function* reportTestResults(source) {
       names.length = data.nesting;
     } else if (event.type === "test:summary" && data.file === undefined) {
       yield `${JSON.stringify({ kind: "summary", success: data.success, counts: data.counts })}\n`;
+    } else if (event.type === "test:summary") {
+      yield `${JSON.stringify({ kind: "file-summary", file: data.file, success: data.success, counts: data.counts })}\n`;
     }
   }
 }
