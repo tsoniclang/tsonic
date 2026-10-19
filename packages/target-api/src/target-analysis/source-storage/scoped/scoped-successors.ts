@@ -326,13 +326,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (!budget.step()) return undefined;
       const original = captured.subject.node;
       const copied = sourceStorageObjectRestOwner(term.receiver.subject.node, ast) !== undefined || ast.is.IsObjectLiteralExpression(term.receiver.subject.node) &&
-        ast.parent(original) !== term.receiver.subject.node;
+        ast.parent(original) !== term.receiver.subject.node && !ast.is.IsPropertySignatureDeclaration(original) &&
+        ast.kindName(original) !== "KindMethodSignature";
       const subject = copied ? transport.subject(term.receiver.subject.node, term.receiver.subject.kind, [...term.receiver.subject.projection, {
         kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member", declaration: original,
       }, ...term.projection]) : sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
       if (subject === undefined) return undefined;
       if (copied) {
-        terms.push(Object.freeze({ ...term, selection: Object.freeze({ kind: "projection", subject: term.receiver.subject,
+        terms.push(Object.freeze({ ...term, selection: Object.freeze({ kind: "projection", subject: receiverView,
           declaration: original, evaluation: access, before: term.receiver.subject.node }) }));
       }
       const owner = sourceMemberOwner(ast, original);

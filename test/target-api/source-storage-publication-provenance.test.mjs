@@ -50,6 +50,37 @@ for (const recursive of [false, true]) for (const access of ["value.items", 'val
   });
 }
 
+test("observational checked-member refusal leaves private evidence intact and refuses the same demanded domain", () => {
+  const current = fixture(`
+    class Base {}
+    class Selected extends Base { constructor(readonly items: { token: {} }) { super(); } }
+    declare function lookup(): Base;
+    declare function consume(value: { token: {} }): void;
+    function inspect(value: Base): {} {
+      if (value instanceof Selected) {
+        const fields = value.items;
+        consume(fields);
+        return fields;
+      }
+      return {};
+    }
+    const input = lookup();
+    const result = inspect(input);
+    const original = {};
+    const privateValue = original;
+  `);
+  const selected = current.storage.closedOriginsFor(current.subject("privateValue"));
+  assert.equal(selected.kind === "complete", true, "publication observation does not poison an independent allocation");
+  assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer("original"), true,
+    "the original private allocation remains the only checked producer");
+  assert.equal(current.storage.failureReason() === undefined, true, "the observed refusal is local until demanded");
+  const demanded = current.storage.closedOriginsFor(current.subject("result"));
+  assert.equal(demanded.kind === "unresolved", true, "demanding the unknown member cannot publish successful evidence");
+  assert.equal(demanded.reason, "Source storage members require exact checked correspondence.", "the precise refusal is retained");
+  assert.equal(current.storage.failureReason(), "Source storage members require exact checked correspondence.",
+    "the actual demanded-domain owner promotes the original refusal");
+});
+
 test("unknown publication alternatives retain known exposed physical backing and exact opaque writers", () => {
   const current = fixture(`
     class Base {}

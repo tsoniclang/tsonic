@@ -7,6 +7,8 @@ import { createSourceStorageEquations } from "../../packages/target-api/dist/tar
 import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-transport.js";
+import { createSourceStorageInvocationInputs } from "../../packages/target-api/dist/target-analysis/source-storage/graph/invocation-inputs.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
 import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
@@ -186,7 +188,11 @@ function selectedEquationFixture() {
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "next");
   const entries = calls.filter(node => node !== recursive);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 65536 });
-  const transport = createSourceStorageTransport(source, [file], budget);
+  const original = createSourceStorageTransport(source, [file], budget);
+  const invocationInputs = createSourceStorageInvocationInputs(source, budget, original.subject, original.subjectFor,
+    original.accessorTargets, invocation => original.unresolvedInvocations.has(invocation));
+  const transport = { ...original, invocationInputs,
+    bindingInputFor: createSourceStorageBindingInputs(source.ast, original, budget) };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const creation = {

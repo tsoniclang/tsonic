@@ -352,7 +352,13 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
         return;
       }
       const slot = sourceStorageMemberSubject(member, ast, inputs.subject);
-      if (slot !== undefined) selectSlot(slot);
+      if (slot === undefined) return;
+      if (ast.is.IsMethodDeclaration(member) && ast.body(member) !== undefined &&
+        inputs.storesFor(slot)?.[Symbol.iterator]().next().done !== false) {
+        inputs.incomingFor(slot);
+        slots.add(slot);
+        exact.add(member);
+      } else selectSlot(slot);
     };
     for (const origin of origins ?? []) {
       if (!step()) return { nodes: selected, exact: false };

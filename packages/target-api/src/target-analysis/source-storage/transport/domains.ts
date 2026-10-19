@@ -15,7 +15,6 @@ import { createSourceStorageDomainPublications, type SourceStoragePublication } 
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
 import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
-import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -247,14 +246,9 @@ export function createSourceStorageDomains(
   };
   const closedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
     if (transport.unresolvedInvocations.has(invocation)) return false;
-    const region = transport.regions.enclosing(invocation);
-    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
-    const activation = owner === undefined ? region !== undefined && ast.is.IsSourceFile(region) ? transport.substitutions.empty : undefined
-      : transport.substitutions.ownerScope(bindings, owner);
-    if (activation === undefined) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const target = transport.invocationTargets.get(invocation);
-      const selected = target === undefined ? undefined : transport.substitutions.walk(target, activation);
+      const selected = target === undefined ? undefined : transport.substitutions.walk(target, bindings);
       if (selected === undefined || selected.reason !== undefined || selected.origins.size === 0) return false;
       for (const origin of selected.origins) {
         if (!budget.step() || !sourceStorageHasOriginalCallableValue(origin, ast)) return false;
@@ -263,6 +257,7 @@ export function createSourceStorageDomains(
       }
       for (const current of selected.subjects) {
         if (!budget.step()) return false;
+        if (!current.contributes) continue;
         const bound = transport.substitutions.isBound(current.subject, current.bindings);
         for (const boundary of boundariesFor(current.subject)) {
           if (!budget.step()) return false;
@@ -276,7 +271,7 @@ export function createSourceStorageDomains(
     if (sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
     if (target === undefined) return false;
-    const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
+    const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, bindings), {
       subjectFor: transport.subjectFor,
       valuesFor: transport.substitutions.values,
       nativeConstructorsFor: transport.nativeConstructorsFor,
@@ -338,21 +333,19 @@ export function createSourceStorageDomains(
     return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
-    const bindings = transport.substitutions.forLexicalOwner(subject.node);
+    const bindings = externalEntry ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
     if (bindings === undefined) {
       budget.reject("Source storage publication requires its completed original lexical creation bindings.");
       return;
     }
-    const frontier = externalEntry || subject.kind === "value" && ast.is.IsIdentifier(subject.node);
-    const selected = !frontier ? transport.substitutions.provenance(subject, bindings)
-      : transport.substitutions.walk(subject, bindings, current => {
+    const selected = transport.substitutions.walk(subject, bindings, current => {
       if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
         const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
         const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
         if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
           transport.guardedValues.appliesTo(current.subject.node) === true) return true;
       }
-      if (!externalEntry || transport.substitutions.isBound(current.subject, current.bindings)) return false;
+      if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
       domainInputs.read(current.subject);
       return domainInputs.has(current.subject);
     });
@@ -369,6 +362,7 @@ export function createSourceStorageDomains(
       return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
         (boundary.owner === undefined || stores === undefined));
     });
+    if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),
       boundSubjects: Object.freeze([] as import("../scoped/substitutions.js").SourceStorageBoundSubject[]),

@@ -306,6 +306,12 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
         if (visited.has(current)) continue;
         if (!rows.add(1)) return undefined;
         visited.add(current);
+        if (source.ast.body(candidate) === undefined && current.projection.length === 0 &&
+          source.ast.is.IsParameterDeclaration(current.node) && source.ast.parameters(candidate).includes(current.node) &&
+          source.ast.as.AsParameterDeclaration(current.node)?.DotDotDotToken !== undefined) {
+          origins.add(current);
+          continue;
+        }
         if (current.kind === "receiver" || current.kind === "input") {
           if (current.kind === "input" && source.ast.body(candidate) !== undefined &&
             sourceStorageFormalOwner(current, source.ast) === candidate) {
