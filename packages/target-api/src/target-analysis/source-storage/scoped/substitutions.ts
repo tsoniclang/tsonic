@@ -83,9 +83,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         witnesses.push({ subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes });
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
-        const input = transport.bindingInputFor(term.subject);
+        const input = term.subject.kind === "value" ? transport.bindingInputFor(term.subject) : undefined;
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
-        if (term.subject.kind === "receiver" || term.subject.kind === "input" && Node_Initializer(source.ast, term.subject.node) === undefined) {
+        if (term.scope !== scopes.empty && (term.subject.kind === "receiver" ||
+          term.subject.kind === "input" && Node_Initializer(source.ast, term.subject.node) === undefined)) {
           const selected = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, undefined)
             : scopes.lookup(term.subject, term.scope);
           if (selected?.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
@@ -160,8 +161,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
-    if (term.kind === "leaf" && !addWitness(selected, { subject: term.subject,
-      bindings: witnessScope(term.subject, term.scope) })) return undefined;
+    if (term.kind === "leaf" && (selected.term.kind !== "leaf" || selected.term.subject !== term.subject ||
+      selected.term.scope !== term.scope) && !addWitness(selected, { subject: term.subject,
+        bindings: witnessScope(term.subject, term.scope) })) return undefined;
     return selected;
   }));
   const derive = (relation: SourceStorageRelation,

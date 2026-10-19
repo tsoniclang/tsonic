@@ -576,9 +576,12 @@ export function createSourceStorageTransport(
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> =>
     invocationImplementationSelection(invocation, originsFor)?.nodes ?? new Set();
   const callbackEntriesFor = (invocation: Node): readonly SourceStorageCallbackEntry[] => {
+    if (!step()) return [];
+    const entries = callbackEntries.get(invocation);
+    if (entries === undefined || entries.length === 0) return entries ?? [];
     const selected = invocationImplementationSelection(invocation);
     if (selected?.exact === true && [...selected.nodes].some(candidate => ast.body(candidate) !== undefined)) return [];
-    return callbackEntries.get(invocation) ?? [];
+    return entries;
   };
   const callbackImplementationsFor = (entry: SourceStorageCallbackEntry): ReadonlySet<Node> => {
     const implementations = new Set<Node>();
@@ -654,26 +657,30 @@ export function createSourceStorageTransport(
         }
       }
     };
-    for (const invocation of invocationTargets.keys()) yield () => {
-      for (const callback of callbackEntriesFor(invocation)) {
-        if (!step()) return;
-        for (const candidate of callbackImplementationsFor(callback)) {
+    for (const [invocation, entries] of callbackEntries) {
+      if (!step()) return;
+      if (entries.length === 0) continue;
+      yield () => {
+        for (const callback of callbackEntriesFor(invocation)) {
           if (!step()) return;
-          const consumer = semantics.forNode(invocation);
-          const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
-            { kind: "source-implementation", signature: undefined }, step);
-          for (const slot of slots ?? []) {
+          for (const candidate of callbackImplementationsFor(callback)) {
             if (!step()) return;
-            if (slot.projection === undefined) continue;
-            const formal = subject(slot.parameter, "input", slot.projection);
-            if (formal === undefined) return;
-            const selected = invocationInputs(formal, candidate, invocation, callback);
-            for (const origin of selected.subjects) connect(origin, formal);
-            for (const origin of selected.calleeSubjects ?? []) connect(origin, formal);
+            const consumer = semantics.forNode(invocation);
+            const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
+              { kind: "source-implementation", signature: undefined }, step);
+            for (const slot of slots ?? []) {
+              if (!step()) return;
+              if (slot.projection === undefined) continue;
+              const formal = subject(slot.parameter, "input", slot.projection);
+              if (formal === undefined) return;
+              const selected = invocationInputs(formal, candidate, invocation, callback);
+              for (const origin of selected.subjects) connect(origin, formal);
+              for (const origin of selected.calleeSubjects ?? []) connect(origin, formal);
+            }
           }
         }
-      }
-    };
+      };
+    }
     for (const invocation of invocationTargets.keys()) yield once => {
       for (const candidate of invocationImplementations(invocation)) {
         if (!once(candidate)) continue;
