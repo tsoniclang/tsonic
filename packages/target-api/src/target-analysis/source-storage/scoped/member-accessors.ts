@@ -47,6 +47,24 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
     if (sites.has(access) || !budget.row()) return;
     sites.add(access);
   };
+  const accessorsFor = function* (declaration: Node, read: boolean): IterableIterator<Node> {
+    for (const accessor of declarationsFor(declaration) ?? []) {
+      if (!budget.step()) return;
+      if (read ? ast.is.IsGetAccessorDeclaration(accessor) : ast.is.IsSetAccessorDeclaration(accessor)) {
+        yield accessor;
+        continue;
+      }
+      if (read || !ast.is.IsGetAccessorDeclaration(accessor)) continue;
+      const file = ast.getSourceFile(accessor);
+      if (file === undefined || !semantics.includes(file)) continue;
+      const symbol = source.navigation.declarationSymbol(accessor, file);
+      if (symbol === undefined) continue;
+      for (const candidate of semantics.forFile(file).declarations.symbolDeclarations(symbol)) {
+        if (!budget.step()) return;
+        if (ast.is.IsSetAccessorDeclaration(candidate)) yield candidate;
+      }
+    }
+  };
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const access of sites) yield once => {
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
@@ -68,9 +86,7 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
         for (const declaration of sourceStorageAccessDeclarations(source, access, "write") ?? []) selected.push({ declaration, read: false });
       }
       for (const { declaration, read: readAccess } of selected) {
-        for (const accessor of declarationsFor(declaration) ?? []) {
-          if (!budget.step()) return;
-          if (readAccess ? !ast.is.IsGetAccessorDeclaration(accessor) : !ast.is.IsSetAccessorDeclaration(accessor)) continue;
+        for (const accessor of accessorsFor(declaration, readAccess)) {
           const implementations = queries.implementationsFor(accessor, access, receiver);
           if (readAccess && implementations.exact && !copying)
             for (const slot of implementations.slots ?? []) queries.connect(slot, queries.subjectFor(access));
