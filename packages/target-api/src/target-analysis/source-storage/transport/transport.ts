@@ -798,7 +798,7 @@ export function createSourceStorageTransport(
   });
   let nativeInputs: ReadonlyMap<Node, readonly { readonly invocation: Node; readonly candidate: Node;
     readonly callback: SourceStorageCallbackEntry }[]> | undefined;
-  const nativeInputsFor = (parameter: Node) => {
+  const nativeInputIndex = () => {
     if (nativeInputs === undefined) {
       const rows = budget.createRows();
       const selected = new Map<Node, { readonly invocation: Node; readonly candidate: Node; readonly callback: SourceStorageCallbackEntry }[]>();
@@ -827,12 +827,15 @@ export function createSourceStorageTransport(
         nativeInputs = selected; complete = true;
       } finally { if (!complete) rows.release(); }
     }
-    return nativeInputs.get(parameter) ?? [];
+    return nativeInputs;
   };
   const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings"> & {
     readonly callback?: SourceStorageCallbackEntry;
   }> | undefined => {
     const selected = new Set<Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry }>();
+    const nativeArguments = nativeInputIndex();
+    if (nativeArguments === undefined) return undefined;
+    if (nativeArguments.size === 0) return selected;
     const operands: { readonly subject: SourceStorageSubject; readonly callback?: SourceStorageCallbackEntry }[] = [];
     const target = invocationTargets.get(invocation);
     if (target !== undefined) operands.push({ subject: target });
@@ -847,8 +850,7 @@ export function createSourceStorageTransport(
         if (!step()) return undefined;
         const owner = sourceStorageFormalOwner(origin, ast);
         if (owner === undefined || origin.kind !== "input") continue;
-        const entries = nativeInputsFor(origin.node);
-        if (entries === undefined) return undefined;
+        const entries = nativeArguments.get(origin.node) ?? [];
         for (const entry of entries) {
           if (!step()) return undefined;
           if (entry.candidate !== owner) continue;

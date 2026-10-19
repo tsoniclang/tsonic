@@ -260,11 +260,10 @@ export function createSourceStorageDomains(
       for (const current of selected.subjects) {
         if (!budget.step()) return false;
         if (!current.contributes) continue;
-        const bound = transport.substitutions.isBound(current.subject, current.bindings);
         for (const boundary of boundariesFor(current.subject)) {
           if (!budget.step()) return false;
           if (boundary.kind === "external-input") {
-            if (!bound && !receiverBinding(current.subject, current.bindings)) return false;
+            if (!transport.substitutions.isBound(current.subject, current.bindings) && !receiverBinding(current.subject, current.bindings)) return false;
           } else if (boundary.kind === "external-write" || boundary.exposure !== invocation) return false;
         }
       }
@@ -359,10 +358,12 @@ export function createSourceStorageDomains(
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const isExternalInput = (current: SourceStorageBoundSubject): boolean => {
+      const boundaries = boundariesFor(current.subject);
+      if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
       if (transport.substitutions.isBound(current.subject, current.bindings) ||
         receiverBinding(current.subject, current.bindings)) return false;
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
-      return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
+      return boundaries.some(boundary => boundary.kind === "external-input" &&
         (boundary.owner === undefined || stores === undefined) &&
         !closedSourceInvocation(boundary.exposure, current.bindings));
     };
@@ -424,7 +425,6 @@ export function createSourceStorageDomains(
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       reason = transport.directlyUnresolvedFor(current.subject) ?? transport.unresolvedStoredInputsFor(current.subject);
       if (reason !== undefined) break;
-      const bound = transport.substitutions.isBound(current.subject, current.bindings);
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
@@ -432,7 +432,8 @@ export function createSourceStorageDomains(
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;
           if (closedSourceInvocation(boundary.exposure, current.bindings)) continue;
-          if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
+          if (transport.substitutions.isBound(current.subject, current.bindings) ||
+            stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
           if (boundary.owner !== undefined) {
             const members = selectedMembers(current.subject, boundary.owner, current.bindings);
             if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes }))); continue; }
