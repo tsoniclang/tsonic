@@ -190,3 +190,22 @@ test("explicit memory requests stay operator overrides and admitted origin survi
   assert.throws(() => readTestResourceBudget({ TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(removedShape) }), /Invalid inherited/u,
     "the old provenance-free budget is not a second accepted form");
 });
+
+test("C# proof caller data reserves two GiB per worker plus four GiB headroom without changing child budgets", () => {
+  const budget = testResourceBudget(machine, {
+    TSONIC_TEST_WORKERS: "7",
+    TSONIC_TEST_MEMORY_MIB: "18432",
+    TSONIC_TEST_HEAP_MIB: "3072",
+  });
+  assert.equal(budget.workers, 7, "the explicit proof uses seven workers");
+  assert.equal(budget.memoryMiB, 7 * 2048 + 4096, "the request retains the measured master and native headroom");
+  assert.equal(budget.heapMiB, 3072, "the V8 heap remains three GiB");
+  assert.equal(budget.memoryRequestSource, "explicit", "the request is caller data, not a new generic default");
+  assert.equal(budget.cpuBudget, 24, "the proof retains every CPU");
+  const child = testTaskEnvironment({ NODE_OPTIONS: "--max-old-space-size=3072" }, budget, { id: "proof-file" });
+  const inherited = readTestResourceBudget(child);
+  assert.equal(inherited.workers, 1, "each file is one task within the admitted outer group");
+  assert.equal(inherited.memoryMiB, 18_432, "the child refers to the same eighteen GiB group");
+  assert.equal(inherited.heapMiB, 3072, "the child keeps the admitted V8 heap");
+  assert.equal(inherited.memoryRequestSource, "explicit", "the child preserves the actual request origin");
+});
