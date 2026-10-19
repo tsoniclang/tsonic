@@ -118,7 +118,7 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
     const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
     const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
-      value.kind === "value" && source.ast.is.IsIdentifier(value.node);
+      value.kind === "value" && (source.ast.is.IsIdentifier(value.node) || source.ast.kindName(value.node) === "KindThisKeyword");
     selected = bindingContainer ? containerType !== undefined ? semantics.types.authoredType(containerType)
         : initializer !== undefined ? semantics.types.expressionType(initializer)
           : source.ast.is.IsParameterDeclaration(value.node) ? semantics.types.expressionType(value.node) : undefined
