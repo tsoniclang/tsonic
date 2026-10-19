@@ -6,6 +6,82 @@ import {
 } from "./tooling/keel-test-fixtures.mjs";
 
 for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
+  test(`${repo}: AC1 keeps reviewed native metadata normalization and projection at the provider owner`, () => {
+    const metadata = "src/providers/native/model/input.ts";
+    const types = "export interface NativeMetadata { readonly value: number; } export interface ProviderModel { readonly value: number; }";
+    const source = 'import type { NativeMetadata, ProviderModel } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return { value: value.value }; }';
+    for (const file of [
+      "src/providers/native/model/normalization/defaults.ts",
+      "src/providers/native/projection/members.ts",
+    ]) {
+      const model = keelFixtureModel([[metadata, types], [file,
+        file.includes("/normalization/") ? source.replace("../model/input.js", "../input.js") : source]]);
+      const functions = [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")];
+      assert.equal(evaluateKeelLayers(repo, model, { functions }).length, 0, `${file}: exact provider role`);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model), "AC1", "reviewed semantic-role classification"), true,
+        `${file}: unreviewed metadata processing is still discovered`);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+        functions: [{ ...functions[0], role: "analysis" }],
+      }), "AC1", "owned by analysis"), true, `${file}: source analysis cannot be relabelled as provider input`);
+    }
+    for (const [file, check] of [
+      ["src/providers/model/metadata.ts", "AC1"],
+      ["src/policy/operations/metadata.ts", "AC1"],
+      ["src/analysis/operations/metadata.ts", "AC1"],
+      ["src/backend/planner/expressions/metadata.ts", "AC2"],
+    ]) {
+      const model = keelFixtureModel([[metadata, types], [file,
+        source.replace("../model/input.js", file.startsWith("src/backend/")
+          ? "../../../providers/native/model/input.js" : "../../providers/native/model/input.js")]]);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+        functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
+      }), check, "owned by providers/native"), true, `${file}: provider role cannot hide a foreign owner`);
+    }
+  });
+
+  test(`${repo}: provider metadata refuses checked source inputs, non-model outputs and foreign decisions`, () => {
+    const metadata = "src/providers/native/model/input.ts";
+    const file = "src/providers/native/projection/members.ts";
+    const types = "export interface NativeMetadata { readonly value: number; } export interface ProviderModel { readonly value: number; }";
+    const external = "src/source/semantics.ts";
+    const checked = "export interface CheckedSource { readonly value: number; }";
+    const checkedModel = keelFixtureModel([
+      [external, checked], [metadata, types],
+      [file, 'import type { CheckedSource } from "../../../source/semantics.js"; import type { ProviderModel } from "../model/input.js"; export function selectMetadata(value: CheckedSource): ProviderModel { return { value: value.value }; }'],
+    ]);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, checkedModel, { functions: [
+      keelFixtureReview(checkedModel, file, "selectMetadata", "provider-metadata"),
+    ] }), "AC1", "metadata-only inputs"), true, "checked source is not provider metadata");
+    const nested = keelFixtureModel([
+      [external, checked], [metadata, 'import type { CheckedSource } from "../../../source/semantics.js"; export interface NativeMetadata { readonly source: CheckedSource; } export interface ProviderModel { readonly value: number; }'],
+      [file, 'import type { NativeMetadata, ProviderModel } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return { value: value.source.value }; }'],
+    ]);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, nested, { functions: [
+      keelFixtureReview(nested, file, "selectMetadata", "provider-metadata"),
+    ] }), "AC1", "metadata-only inputs"), true, "a metadata wrapper does not hide checked source");
+    for (const [foreign, type, role, check] of [
+      ["src/policy/types/native.ts", "CarrierDecision", "selection", "AC1"],
+      ["src/analysis/operations/native.ts", "AnalysisDecision", "analysis", "AC1"],
+      ["src/backend/target-ast/native.ts", "SyntaxDecision", "syntax", "AC1"],
+    ]) {
+      const output = keelFixtureModel([
+        [metadata, types], [foreign, `export interface ${type} { readonly value: number; }`],
+        [file, `import type { NativeMetadata } from "../model/input.js"; import type { ${type} } from "../../../${foreign.slice(4, -3)}.js"; export function selectMetadata(value: NativeMetadata): ${type} { return { value: value.value }; }`],
+      ]);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, output, { functions: [
+        keelFixtureReview(output, file, "selectMetadata", "provider-metadata"),
+      ] }), check, "metadata-only inputs"), true, `${type}: output must be provider model data`);
+      const model = keelFixtureModel([
+        [metadata, types], [foreign, `export function decide(value: number): number { return value; }`],
+        [file, `import type { NativeMetadata, ProviderModel } from "../model/input.js"; import { decide as invoke } from "../../../${foreign.slice(4, -3)}.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return { value: invoke(value.value) }; }`],
+      ]);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions: [
+        keelFixtureReview(model, file, "selectMetadata", "provider-metadata"),
+        keelFixtureReview(model, foreign, "decide", role),
+      ] }), check, "cannot read checked source"), true, `${type}: aliases cannot hide deciding calls`);
+    }
+  });
+
   test(`${repo}: AC1 distinguishes native selection from reviewed cross-construct analysis`, () => {
     const policy = "src/policy/types/select.ts";
     const analysis = "src/analysis/storage/select.ts";

@@ -7,6 +7,9 @@ import { keelSymbolIdentity } from "./keel-source-analysis.mjs";
 export function evaluateKeelLayers(repo, model, census = {}, roleObligations = []) {
   const findings = [];
   const declarations = groupBy(model.declarations, keelSymbolIdentity);
+  const metadataDeclarations = groupBy(model.typedDeclarations ?? [], entry => entry.file);
+  const metadataSites = groupBy([...model.calls, ...model.accesses], entry => entry.file);
+  const metadataFunctions = new Map(model.functions.map(entry => [keelSymbolIdentity(entry), entry]));
   const classifications = new Map();
   const obligations = new Map(roleObligations.map(entry => {
     requireReference(entry);
@@ -88,6 +91,42 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     }
     if (role === "analysis" && layer !== "analysis") {
       emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry, "Cross-construct computation is owned by analysis.");
+    }
+    if (role === "provider-metadata") {
+      const check = layer?.startsWith("backend/") ? "AC2" : "AC1";
+      if (!entry.file.startsWith("src/providers/native/")) {
+        emit(check, entry, "Native provider metadata processing is owned by providers/native.");
+      }
+      const boundaries = [entry.symbol, ...entry.parameters.map(name => `${entry.symbol}.${name}`)]
+        .map(symbol => metadataDeclarations.get(entry.file)?.find(candidate => candidate.symbol === symbol));
+      const references = boundaries.flatMap(boundary => boundary?.through ?? []);
+      const output = boundaries[0]?.through ?? [];
+      if (boundaries.some(boundary => boundary === undefined) ||
+        !output.some(reference => !reference.file.startsWith("libraries/")) ||
+        !providerMetadataReferences(references, metadataDeclarations)) {
+        emit(check, entry, "Native provider metadata requires metadata-only inputs and provider model data output.");
+      }
+      const pending = [entry];
+      const visited = new Set();
+      while (pending.length > 0) {
+        const current = pending.pop();
+        const identity = keelSymbolIdentity(current);
+        if (visited.has(identity)) continue;
+        visited.add(identity);
+        for (const site of (metadataSites.get(current.file) ?? []).filter(candidate =>
+          candidate.owner === current.symbol || candidate.owner.startsWith(`${current.symbol}.`))) {
+          const references = [site.target, site.expressionTarget, ...(site.through ?? []), ...(site.receiverThrough ?? [])]
+            .filter(reference => reference !== undefined);
+          if (!providerMetadataReferences(references, metadataDeclarations) || references.some(reference =>
+            ["selection", "analysis", "syntax", "planner-invariant"].includes(classifications.get(keelSymbolIdentity(reference))))) {
+            emit(check, entry, "Native provider metadata cannot read checked source or invoke policy, analysis or target syntax decisions.");
+          }
+          if (site.target !== undefined) {
+            const callee = metadataFunctions.get(keelSymbolIdentity(site.target));
+            if (callee !== undefined) pending.push(callee);
+          }
+        }
+      }
     }
     if (role === "sealed-reader" && !entry.file.startsWith("src/analysis/program/records/") &&
       !entry.file.startsWith("src/policy/model/")) {
@@ -313,6 +352,41 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     return false;
   }
 }
+
+function providerMetadataReferences(references, declarations) {
+  const pending = [...references];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const reference = pending.pop();
+    const identity = keelSymbolIdentity(reference);
+    if (visited.has(identity)) continue;
+    visited.add(identity);
+    if (!providerMetadataReference(reference)) return false;
+    for (const declaration of declarations.get(reference.file) ?? []) {
+      if (declaration.symbol === reference.symbol ||
+        declaration.symbol.startsWith(`${reference.symbol}.`)) {
+        pending.push(...(declaration.through ?? []));
+      }
+    }
+  }
+  return true;
+}
+
+function providerMetadataReference(reference) {
+  if (reference.file.startsWith("libraries/") || reference.file.startsWith("src/providers/native/") ||
+    ["identities", "metadata", "types", "operations", "conversions", "lifetimes"]
+      .some(family => reference.file.startsWith(`src/target-model/${family}/`))) return true;
+  return reference.file === "external/tsonic/packages/tsts/dist/src/extensions/host.d.ts" &&
+    providerDeclarationMetadata.has(reference.symbol.split(".")[0]);
+}
+
+const providerDeclarationMetadata = new Set([
+  "ExtensionEvidence", "ProviderIdentity", "ProviderDeclarationKind", "ProviderExportKind",
+  "ProviderTypeFamilyDeclaration", "ProviderPropertyName", "ProviderTypeParameterDeclaration",
+  "ProviderTypeExpression", "ProviderParameterDeclaration", "ProviderSignatureDeclaration",
+  "ProviderMemberDeclaration", "ProviderExportDeclaration", "ProviderImportDeclaration",
+  "ProviderHeritageDeclaration", "ProviderDeclarationModel", "ProviderRequestedExport",
+]);
 
 function requireReference(reference) {
   if (!validPath(reference.file) || typeof reference.symbol !== "string" || reference.symbol.length === 0 ||
