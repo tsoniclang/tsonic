@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@t
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse,
   sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "./ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -32,7 +32,7 @@ test("discarded callable creation includes nested definitions but not invoked or
         ? source.ast.as.AsVariableDeclaration(node)?.Initializer
         : source.ast.as.AsBindingElement(node)?.Initializer;
       if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
-        results.set(source.ast.text(name), sourceCallableDefinitionIsDiscarded(initializer, source.ast));
+        results.set(source.ast.text(name), sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
       }
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
@@ -42,9 +42,231 @@ test("discarded callable creation includes nested definitions but not invoked or
     ["erased", true], ["asyncErased", true], ["retained", false], ["retainedNested", false],
     ["invokedNested", false], ["selected", false],
   ]);
-  assert.equal(sourceCallableDefinitionIsDiscarded(file!, source.ast), false);
-  assert.throws(() => sourceCallableDefinitionIsDiscarded(file!, { ...source.ast, parent: () => file! }),
+  assert.equal(sourceCallableDefinitionIsDiscarded(file!, source.ast, source.navigation), false);
+  assert.throws(() => sourceCallableDefinitionIsDiscarded(file!, { ...source.ast, parent: () => file! }, source.navigation),
     /finite acyclic source boundary/u);
+});
+
+test("callable binding demand follows exact local aliases and retains every real observation", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      declare function consume(value: () => number): void;
+      export const exported = () => 1;
+      export function run() {
+        const discarded = () => 2;
+        void discarded;
+        const aliasRoot = () => 3;
+        const alias = aliasRoot;
+        void alias;
+        const typeOnly = () => 4;
+        type Signature = typeof typeOnly;
+        const invoked = () => 5;
+        void invoked();
+        const passed = () => 6;
+        consume(passed);
+        const captured = () => 7;
+        consume(() => { void captured; return 0; });
+        const compared = () => 8;
+        void (compared === compared);
+        const receiver = () => 9;
+        void receiver.name;
+        let rewritten = () => 10;
+        rewritten = () => 11;
+        void rewritten;
+        const returned = () => 12;
+        const stored = () => 13;
+        const object = { stored };
+        void object;
+        const shadowed = () => 14;
+        { const shadowed = () => 15; shadowed(); }
+        void shadowed;
+        const opaque = () => 16;
+        void typeof opaque;
+        return returned;
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+  assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the alias controls use their exact checked source file");
+  const results = new Map<string, boolean[]>();
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const name = source.ast.name(node);
+      const initializer = Node_Initializer(source.ast, node);
+      if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
+        const label = source.ast.text(name);
+        const values = results.get(label) ?? [];
+        values.push(sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
+        results.set(label, values);
+      }
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file!);
+  for (const label of ["discarded", "aliasRoot", "typeOnly"]) {
+    assert.equal(results.get(label)?.length, 1, label + ": the original checked binding is visited once");
+    assert.equal(results.get(label)?.[0], true, label + ": only discarded/type-only reads through local aliases");
+  }
+  for (const label of ["exported", "invoked", "passed", "captured", "compared", "receiver", "rewritten", "returned", "stored", "opaque"])
+    assert.equal(results.get(label)?.[0], false, label + ": an actual observation retains its callable body");
+  assert.equal(results.get("shadowed")?.length, 2, "same-spelling declarations remain separate identities");
+  assert.equal(results.get("shadowed")?.[0], true, "the outer binding has only its own discarded read");
+  assert.equal(results.get("shadowed")?.[1], false, "the inner binding has its own actual invocation");
+});
+function callableDemandFixture(sourceText: string) {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": sourceText,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0,
+    formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
+  const source = createTargetSourceProgram(checked);
+  const definitions = new Map<string, { readonly declaration: Node; readonly expression: Node }>();
+  const pending: Node[] = [checked.getSourceFile("/src/index.ts")!];
+  while (pending.length !== 0) {
+    const node = pending.pop()!;
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const name = source.ast.name(node);
+      let expression = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+      while (expression !== undefined) {
+        const operand = sourceTransparentExpressionOperand(source.ast, expression);
+        if (operand === undefined) break;
+        expression = operand;
+      }
+      if (name !== undefined && expression !== undefined &&
+        (source.ast.is.IsArrowFunction(expression) || source.ast.is.IsFunctionExpression(expression))) {
+        definitions.set(source.ast.text(name), { declaration: node, expression });
+      }
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+  }
+  const definition = (name: string) => {
+    const selected = definitions.get(name);
+    assert.equal(selected !== undefined, true, `${name}: the actual checked callable definition exists`);
+    return selected!;
+  };
+  return { source, definition };
+}
+
+for (const [form, literal] of [["arrow", "() => 1"], ["function expression", "function() { return 1; }"]]) {
+  for (const [use, statements] of [
+    ["no reads", ""],
+    ["discarded read", "selected;"],
+    ["void read", "void (selected);"],
+    ["immutable alias", "const alias = selected; alias;"],
+    ["forwarded immutable alias", "const alias = selected; const forwarded = alias; void forwarded;"],
+    ["type query only", "type Selected = typeof selected;"],
+  ]) {
+    test(`stored ${form} creation is discarded through its exact ${use}`, () => {
+      const { source, definition } = callableDemandFixture(`export function run() {
+        const selected = ${literal}; ${statements} return 3;
+      }`);
+      assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), true,
+        "every actual immutable source alias has only checked, unobserved reads");
+    });
+  }
+  for (const [use, statements] of [
+    ["direct invocation", "selected();"],
+    ["aliased invocation", "const alias = selected; alias();"],
+    ["return", "return selected;"],
+    ["argument", "observe(selected);"],
+    ["captured reference", "const capture = () => selected; void capture;"],
+    ["field storage", "const holder: { callback?: () => number } = {}; holder.callback = selected;"],
+    ["identity comparison", "selected === selected;"],
+    ["mutable alias", "let alias = selected; alias = () => 2; void alias;"],
+  ]) {
+    test(`stored ${form} creation retains its actual ${use} obligation`, () => {
+      const { source, definition } = callableDemandFixture(`declare function observe(value: () => number): void;
+        export function run() { const selected = ${literal}; ${statements} }
+      `);
+      assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false,
+        "observed, escaping or mutable source evidence never proves callable-body erasure");
+    });
+  }
+  test(`an exported ${form} retains its checked callable definition`, () => {
+    const { source, definition } = callableDemandFixture(`export const selected = ${literal};`);
+    assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false,
+      "a real module export is an observed source value");
+  });
+}
+
+test("discarded stored callable values keep their canonical assertion and satisfaction wrappers", () => {
+  for (const initializer of ["(() => 1) as (() => number)", "(function() { return 1; }) satisfies (() => number)"]) {
+    const { source, definition } = callableDemandFixture(`export function run() {
+      const selected = ${initializer}; const alias = selected; void alias;
+    }`);
+    assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), true,
+      "the original checked value selector reaches the same unobserved immutable binding");
+  }
+});
+
+test("stored callable erasure follows original bindings rather than shadowed source names", () => {
+  const { source, definition } = callableDemandFixture(`export function run() {
+    const selected = () => 1;
+    { const invoked = () => 2; const selected = invoked; selected(); }
+    void selected;
+  }`);
+  assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), true,
+    "a same-spelling foreign binding cannot invent an invocation of the original value");
+  assert.equal(sourceCallableDefinitionIsDiscarded(definition("invoked").expression, source.ast, source.navigation), false,
+    "the inner binding's real aliased invocation still retains its body");
+});
+
+test("conditionally discarded callable reads remain observed checked uses", () => {
+  const { source, definition } = callableDemandFixture(`export function run(selectedBranch: boolean) {
+    const selected = () => 1;
+    if (selectedBranch) void selected;
+  }`);
+  assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false,
+    "a conditional checked read never proves unconditional unused creation");
+});
+
+test("discarded callable creation rejects foreign, incomplete and unresolved checked navigation", () => {
+  const sourceText = `export function run() { const selected = () => 1; const other = () => 2; selected; other(); }`;
+  const current = callableDemandFixture(sourceText);
+  const foreign = callableDemandFixture(sourceText);
+  const { source, definition } = current;
+  const selected = definition("selected");
+  const other = definition("other");
+  const flow = source.navigation.expressionValueFlow(selected.expression);
+  const summary = source.navigation.declarationUseSummary(selected.declaration);
+  assert.equal(sourceCallableDefinitionIsDiscarded(selected.expression, source.ast, source.navigation), true,
+    "the unchanged exact checked owner proves the positive before inverse checks");
+  let symbolContexts = 0;
+  assert.equal(sourceCallableDefinitionIsDiscarded(selected.expression, source.ast, {
+    ...source.navigation,
+    declarationSymbol: (declaration, sourceFile) => {
+      assert.equal(sourceFile === source.ast.getSourceFile(selected.expression), true,
+        "each symbol lookup uses the actual checked creation context");
+      symbolContexts += 1;
+      return source.navigation.declarationSymbol(declaration, sourceFile);
+    },
+  }), true, "the required checked symbol context preserves the original erasure proof");
+  assert.equal(symbolContexts, flow.aliasDeclarations.length, "every immutable alias uses that actual checked context");
+  assert.equal(sourceCallableDefinitionIsDiscarded(foreign.definition("selected").expression,
+    foreign.source.ast, source.navigation), false, "a same-file-name foreign source is not this checked owner");
+  for (const [label, navigation] of [
+    ["missing source root", { ...source.navigation, sourceFiles: [] }],
+    ["foreign flow expression", { ...source.navigation, expressionValueFlow: () => ({ ...flow, expression: other.expression }) }],
+    ["foreign alias root", { ...source.navigation, expressionValueFlow: () => ({ ...flow, aliasDeclarations: [other.declaration] }) }],
+    ["foreign alias source", { ...source.navigation, expressionValueFlow: () => ({ ...flow,
+      aliasDeclarations: [foreign.definition("selected").declaration] }) }],
+    ["duplicate alias", { ...source.navigation, expressionValueFlow: () => ({ ...flow,
+      aliasDeclarations: [selected.declaration, selected.declaration] }) }],
+    ["missing source use", { ...source.navigation, expressionValueFlow: () => ({ ...flow, uses: [] }) }],
+    ["foreign declaration summary", { ...source.navigation, declarationUseSummary: () => ({ ...summary, declaration: other.declaration }) }],
+    ["unresolved binding", { ...source.navigation, sourceReferenceFor: () => undefined }],
+    ["unresolved symbol", { ...source.navigation, declarationSymbol: () => undefined }],
+    ["foreign binding", { ...source.navigation, sourceReferenceFor: () => source.navigation.sourceReferenceFor(source.ast.name(other.declaration)) }],
+    ["actual binding write", { ...source.navigation, declarationUseSummary: () => ({ ...summary, bindingWritten: true }) }],
+  ] as const) {
+    assert.equal(sourceCallableDefinitionIsDiscarded(selected.expression, source.ast, navigation), false,
+      `${label}: absence or foreign evidence cannot become an erasure proof`);
+  }
+  assert.throws(() => Reflect.apply(sourceCallableDefinitionIsDiscarded, undefined, [selected.expression, source.ast]),
+    /requires its checked source navigation/u, "the replaced two-argument API is rejected, not retained as a fallback");
 });
 
 test("async result dispositions preserve selected values and distinguish storage from scoped observation", () => {
@@ -119,6 +341,7 @@ test("async result dispositions preserve selected values and distinguish storage
   findWrapper(file);
   assert.equal(wrappers.length > 0, true, "checked transparent wrapper for the cyclic-boundary proof");
   const wrapper = wrappers[0]!;
+  assert.equal(source.ast.is.IsParenthesizedExpression(wrapper), true, "the cyclic-boundary witness retains its exact checked wrapper kind");
   const wrapperData = source.ast.as.AsParenthesizedExpression(wrapper)!;
   assert.throws(() => sourceExpressionResultDisposition({ ...source.ast, parent: () => wrapper,
     as: { ...source.ast.as, AsParenthesizedExpression: () => ({ ...wrapperData, Expression: wrapper }) } }, wrapper),
