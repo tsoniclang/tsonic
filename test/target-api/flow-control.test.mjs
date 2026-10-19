@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createSourceControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
@@ -18,7 +18,7 @@ async function fixture(text, name = "run", limits, globals) {
   const checked = await checkedSource(`flow-control-${caseNumber++}`, files);
   const source = createTargetSourceProgram(checked);
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
-  const selection = createSourceControlFlow(source, declaration, { limits });
+  const selection = createSourceControlFlow(source, declaration, { domain: { kind: "source" }, limits });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
   return { checked, source, ast: source.ast, declaration, graph: selection.graph };
 }
@@ -96,7 +96,7 @@ test("flow invocation entry omits only checked excluded parameter defaults", asy
   const ordered = invocations.sort((left, right) => current.ast.pos(left) - current.ast.pos(right));
   const initializer = current.ast.as.AsParameterDeclaration(current.ast.parameters(current.declaration)[0]).Initializer;
   for (const [index, invocation] of ordered.entries()) {
-    const selected = createSourceControlFlow(current.source, current.declaration, { invocation: { storage, call: invocation } });
+    const selected = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" }, invocation: { storage, call: invocation } });
     assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked entry");
     const entries = selected.graph.points.filter(point => point.source === initializer && point.operation.kind === "evaluate");
     assert.equal(entries.length > 0, index !== 0, `default region for checked call ${index}`);
@@ -118,11 +118,11 @@ test("flow invocation context rejects wrong owners, foreign calls and unverified
   const foreignInitializer = foreign.ast.as.AsParameterDeclaration(foreign.ast.parameters(foreign.declaration)[0]).Initializer;
   for (const context of [{ storage, call: wrong }, { storage: foreignStorage, call: invocation },
     { storage, call: foreignCall }, { storage, call: invocation, initializers: [foreignInitializer] }]) {
-    const selected = createSourceControlFlow(current.source, current.declaration, { invocation: context });
+    const selected = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" }, invocation: context });
     assert.equal(selected.kind, "unresolved");
     assert.equal("graph" in selected, false);
   }
-  const superseded = createSourceControlFlow(current.source, current.declaration, { maximumSteps: 1 });
+  const superseded = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" }, maximumSteps: 1 });
   assert.equal(superseded.kind, "unresolved", "the superseded flat-limits API is rejected, not silently ignored");
   assert.match(superseded.reason, /explicit limits/u);
 });
@@ -375,7 +375,7 @@ test("flow closure creation captures checked bindings without running its nested
 test("flow source identity excludes a callable from another checked program", async () => {
   const left = await fixture("function run() { return 1; }");
   const right = await fixture("function run() { return 2; }");
-  const selection = createSourceControlFlow(left.source, right.declaration);
+  const selection = createSourceControlFlow(left.source, right.declaration, { domain: { kind: "source" } });
   assert.equal(selection.kind, "unresolved");
   assert.match(selection.reason, /exact checked source/u);
 });
@@ -383,7 +383,7 @@ test("flow source identity excludes a callable from another checked program", as
 test("flow unsupported syntax and finite construction budgets fail closed without publishing partial graphs", async () => {
   const current = await fixture("function run(value: number) { return value + 1; }");
   for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }]) {
-    const selection = createSourceControlFlow(current.source, current.declaration, { limits });
+    const selection = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" }, limits });
     assert.equal(selection.kind, "unresolved");
     assert.equal("graph" in selection, false);
     assert.match(selection.reason, /finite/u);
@@ -392,7 +392,7 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
     "src/index.ts": "function run() { return import('./value.js'); }",
     "src/value.ts": "export const value = 1;",
   }));
-  const selection = createSourceControlFlow(checked, namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"));
+  const selection = createSourceControlFlow(checked, namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"), { domain: { kind: "source" } });
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false);
   assert.match(selection.reason, /KindImportKeyword/u);
@@ -457,7 +457,7 @@ test("flow constructor, method and expression-bodied arrow bodies stay separate 
   }
   assert.equal(declarations.length, 3);
   for (const declaration of declarations) {
-    const result = createSourceControlFlow(source, declaration);
+    const result = createSourceControlFlow(source, declaration, { domain: { kind: "source" } });
     assert.equal(result.kind, "resolved", result.kind === "unresolved" ? result.reason : "resolved");
     assert.equal(result.graph.declaration === declaration, true);
     assert.equal(result.graph.points.filter(point => point.operation.kind === "entry").length, 1);
@@ -509,7 +509,7 @@ test("flow closure capture facts are computed once per exact checked scope", asy
   const current = await fixture("function run(value: number) { class Entry { read() { return value; } } return Entry; }");
   const declaration = one(current, (point, ast) => point.operation.kind === "write" && ast.is.IsClassDeclaration(point.source)).source;
   let steps = 0;
-  const query = createSourceFlowCaptureQuery(current.source, () => { steps += 1; });
+  const query = createSourceFlowCaptureQuery(current.source, () => { steps += 1; }, "source");
   const first = query(declaration);
   const beforeRepeat = steps;
   const repeated = query(declaration);
@@ -531,7 +531,7 @@ test("flow budgets include capture-free closure scanning after syntax preflight"
     nodes.add(node);
     source.ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
   }
-  const selection = createSourceControlFlow(source, declaration, { limits: { maximumSteps: nodes.size + 64 } });
+  const selection = createSourceControlFlow(source, declaration, { domain: { kind: "source" }, limits: { maximumSteps: nodes.size + 64 } });
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false, "exhaustion never publishes a partial graph");
   assert.equal(selection.reason, "Source flow exceeds its finite work budget.");
@@ -548,7 +548,7 @@ test("flow capture queries never cache a partial selection after a work failure"
     steps += 1;
     remaining -= 1;
     if (remaining < 0) throw failure;
-  });
+  }, "source");
   assert.throws(() => query(declaration), error => error === failure);
   remaining = 100_000;
   const complete = query(declaration);
@@ -557,4 +557,43 @@ test("flow capture queries never cache a partial selection after a work failure"
   const beforeRepeat = steps;
   assert.equal(query(declaration) === complete, true, "the completed answer is canonical");
   assert.equal(steps - beforeRepeat, 1, "a completed lookup charges entry without rescanning");
+});
+
+test("flow refuses the removed implicit source-domain API", async () => {
+  const current = await fixture("function run() { return 1; }");
+  const selected = createSourceControlFlow(current.source, current.declaration);
+  assert.equal(selected.kind, "unresolved");
+  assert.equal(selected.reason, "Source flow requires explicit limits, checked invocation options and an explicit source domain.");
+  assert.equal(selected.source === current.declaration, true, "the refusal identifies the actual requested root");
+  assert.equal("graph" in selected, false, "a missing domain cannot publish a partial graph");
+});
+
+test("flow selected domains require the original checked factory identity", async () => {
+  const current = await fixture("function run() { return 1; }");
+  const foreign = await fixture("function run() { return 2; }");
+  const inventory = source => {
+    const nodes = [];
+    const pending = [...source.sourceFiles];
+    while (pending.length > 0) {
+      const node = pending.pop();
+      nodes.push(node);
+      for (const child of source.ast.children(node)) if (child !== undefined) pending.push(child);
+    }
+    return nodes;
+  };
+  const selected = createSourceControlFlowDomain(current.source, inventory(current.source));
+  const other = createSourceControlFlowDomain(foreign.source, inventory(foreign.source));
+  assert.equal(selected.kind, "resolved", "the actual checked inventory is admitted by its single owner");
+  assert.equal(other.kind, "resolved", "the other program has its own genuine canonical domain");
+  const valid = createSourceControlFlow(current.source, current.declaration, { domain: selected.domain });
+  assert.equal(valid.kind, "resolved", "the factory's original frozen domain remains usable");
+  const copied = Object.freeze({ ...selected.domain });
+  const reflected = Object.freeze(Object.defineProperties({}, Object.getOwnPropertyDescriptors(selected.domain)));
+  for (const [label, domain] of [["frozen copy", copied], ["reflected payload", reflected], ["foreign source", other.domain]]) {
+    const result = createSourceControlFlow(current.source, current.declaration, { domain });
+    assert.equal(result.kind, "unresolved", label);
+    assert.equal(result.reason, "Source flow selected domain must come from its original checked inventory boundary.", label);
+    assert.equal(result.source === current.declaration, true, label);
+    assert.equal("graph" in result, false, label);
+  }
 });

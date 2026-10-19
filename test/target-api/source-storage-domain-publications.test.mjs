@@ -7,7 +7,7 @@ const subject = (node = {}, kind = "value", projection = []) => ({ node, kind, p
 
 test("publication admission preserves all exact demand flags and their first ordered evidence", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const publications = createSourceStorageDomainPublications(budget);
+  const publications = createSourceStorageDomainPublications(budget, () => false);
   const selected = subject();
   const type = {};
   const sourceFile = {};
@@ -34,7 +34,7 @@ test("publication admission preserves all exact demand flags and their first ord
 
 test("publication keys keep subjects, native type identities and every exact input owner independent", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const publications = createSourceStorageDomainPublications(budget);
+  const publications = createSourceStorageDomainPublications(budget, () => false);
   const selected = subject();
   const returned = subject(selected.node, "return");
   const projected = subject(selected.node, "value", [{ kind: "array-element" }]);
@@ -57,7 +57,7 @@ test("publication keys keep subjects, native type identities and every exact inp
 
 test("repeat publication admission remains bounded without allocating another queued or indexed cell", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 5, maximumSteps: 128 });
-  const publications = createSourceStorageDomainPublications(budget);
+  const publications = createSourceStorageDomainPublications(budget, () => false);
   const selected = subject();
   const type = {};
   const args = [selected, type, {}, {}, true, "external-write", false];
@@ -75,7 +75,7 @@ test("repeat publication admission remains bounded without allocating another qu
 test("publication admission is atomic, and completion releases only its own construction rows", () => {
   for (const maximumTransportRows of [1, 2, 3, 4]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows });
-    const publications = createSourceStorageDomainPublications(budget);
+    const publications = createSourceStorageDomainPublications(budget, () => false);
     publications.add(subject(), {}, {}, {}, true, "external-write", false);
     assert.equal(publications.size() === 0 && budget.failure() !== undefined, true, "no incomplete admission");
     publications.finish();
@@ -83,7 +83,7 @@ test("publication admission is atomic, and completion releases only its own cons
   }
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 8 });
   assert.equal(budget.row(), true, "independent retained evidence");
-  const publications = createSourceStorageDomainPublications(budget);
+  const publications = createSourceStorageDomainPublications(budget, () => false);
   const args = [subject(), {}, {}, {}, true, "external-write", false];
   publications.add(...args);
   publications.finish();

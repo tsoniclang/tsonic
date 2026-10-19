@@ -74,7 +74,7 @@ test("instance initializers and accessor writes/reads share the exact execution-
   const calls = [...current.transport.regions.invocationsIn(initializer) ?? []];
   assert.equal(calls.length === 1 && calls[0] === initializer, true, "initializer calls execute in the initializer region itself");
   const construction = current.transport.visitedNodes.find(ast.is.IsNewExpression);
-  assert.equal(current.transport.regions.instance(construction).some(region => region.node === initializer), true);
+  assert.equal(current.transport.regions.instance(construction)?.regions.some(region => region.node === initializer), true);
   const file = ast.getSourceFile(field);
   const moduleInvocations = [...current.transport.regions.invocationsIn(file) ?? []];
   assert.equal(moduleInvocations.length === 4, true, "construction, RHS call, getter and setter all have original source identities");

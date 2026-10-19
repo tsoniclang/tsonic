@@ -64,6 +64,9 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
         semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
     }
     const expression = sourceStorageConstructionExpression(owner.node, source, budget.step);
+    const declaration = expression === undefined ? undefined : navigation.sourceReferenceFor(expression)?.declaration;
+    if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)))
+      return classMatches(declaration, target);
     const lineages = expression === undefined ? undefined : classValues(expression);
     if (lineages === undefined || lineages.length === 0) return undefined;
     let result: boolean | undefined;
@@ -110,6 +113,8 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     if (guard?.kind === "absence") return { sourceOperand: guard.sourceOperand,
       predicate: { kind: "absence", negated: guard.negated } };
     if (guard?.kind !== "nominal") return undefined;
+    if (ast.is.IsClassDeclaration(guard.declaration) || ast.is.IsClassExpression(guard.declaration))
+      return { sourceOperand: guard.sourceOperand, predicate: { kind: "nominal", declaration: guard.declaration } };
     const lineages = classValues(guard.sourceConstructor);
     if (lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete)) return undefined;
     const target = lineages[0]?.classes[0]?.subject.node;

@@ -101,10 +101,11 @@ export function createSourceStorageKeyEncoder(budget: SourceStorageBudget) {
               const references = current.unordered ? [...new Set(current.references)].sort((left, right) =>
                 typeof left === "number" && typeof right === "number" ? left - right : typeof left === "number" ? -1
                   : typeof right === "number" ? 1 : left < right ? -1 : left > right ? 1 : 0) : current.references;
-              current.result = select(JSON.stringify([current.unordered ? "set" : "sequence", references]));
-              if (current.result === undefined) return undefined;
+              const signature = JSON.stringify([current.unordered ? "set" : "sequence", references]);
               current.references.length = 0;
               current.rows.release();
+              current.result = select(signature);
+              if (current.result === undefined) return undefined;
               current = current.parent;
               continue;
             }

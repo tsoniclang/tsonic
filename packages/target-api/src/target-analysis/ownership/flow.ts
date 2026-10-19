@@ -55,7 +55,7 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
   "source" | "storage" | "budget" | "candidate" | "invocation" | "callerBindings" | "construction" | "limits"
 >): SourceOwnershipUnresolved | { readonly kind: "resolved"; readonly execution: SourceContinuationExecution } {
   const { source, storage, budget, candidate, invocation } = input;
-  const selected = createSourceControlFlow(source, candidate, { limits: input.limits,
+  const selected = createSourceControlFlow(source, candidate, { domain: { kind: "source" }, limits: input.limits,
     invocation: { storage, call: invocation, callerBindings: input.callerBindings, construction: input.construction } });
   if (selected.kind === "unresolved") return sourceOwnershipUnresolved(selected.source ?? candidate, selected.reason);
   const rows = budget.createRows();

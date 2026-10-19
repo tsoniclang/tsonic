@@ -76,7 +76,7 @@ export type {
   SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection, SourceStorageImplementationsSelection,
   SourceStorageOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection,
   SourceStorageConstructionClass, SourceStorageConstructionSelection,
-  SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject, SourceStorageProducer,
+  SourceStorageSubjectsSelection, SourceStorageTypedSubject, SourceStorageProducer,
   SourceStorageTypeSelection, SourceStorageUnresolved,
   SourceStorageWrittenValue, SourceStorageWriteOccurrence, SourceStorageWriteSelection,
   SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,

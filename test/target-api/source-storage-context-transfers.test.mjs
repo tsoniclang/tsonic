@@ -27,6 +27,7 @@ function fixture(limits = {}, callee = false) {
   }));
   let instantiations = 0;
   const selections = createSourceStorageContextApplications({ ast: {
+    hasModifierKind: () => false,
     is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsNewExpression: () => false },
     parameters: node => node === candidate ? parameters : [],
   } }, budget, {

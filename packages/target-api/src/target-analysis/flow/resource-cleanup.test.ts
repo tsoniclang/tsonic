@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceControlFlow } from "./graph.js";
+import { createSourceControlFlow, createSourceControlFlowDomain } from "./graph.js";
+import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
 import type { SourceControlFlowGraph, SourceFlowPoint } from "./model.js";
 import { sourceFlowStatement } from "./statements.js";
@@ -28,7 +29,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   visit(file!);
   const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "run");
   assert.equal(owner !== undefined, true, "resource fixture callable exists");
-  const selection = createSourceControlFlow(source, owner!);
+  const selection = createSourceControlFlow(source, owner!, { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "checked cleanup graph");
   if (selection.kind !== "resolved") throw new Error("Expected the checked resource flow graph.");
   const named = (name: string): Node => {
@@ -240,4 +241,33 @@ test("switch resource cleanup follows only acquired clause suffixes and preserve
   for (const cleanup of laterCleanup) assert.equal(cleanup.successors.some(edge =>
     edge.kind !== "exception" && reachable(current.graph, edge.to, cleanup.id)), false,
   "a cleanup point cannot recur on the acyclic exit route");
+});
+
+test("selected native resource domains omit erased acquisition and preserve the real cleanup route", () => {
+  const current = fixture("using erased = new Resource(); using retained = new Resource(); observe(retained); after();");
+  const erased = current.named("erased");
+  const retained = current.named("retained");
+  const selected = sourceNodesOutsideErasedSubtrees(current.source.ast, current.nodes, node => node === erased);
+  assert.equal(selected.kind, "resolved", "the original source participation owner closes erased descendants");
+  if (selected.kind !== "resolved") throw new Error("Expected the original selected resource inventory.");
+  const domain = createSourceControlFlowDomain(current.source, selected.nodes);
+  assert.equal(domain.kind, "resolved", "the identical checked selected inventory is admitted");
+  if (domain.kind !== "resolved") throw new Error("Expected the checked resource domain.");
+  const result = createSourceControlFlow(current.source, current.owner, { domain: domain.domain });
+  assert.equal(result.kind, "resolved", "the same cleanup graph handles the actual native domain");
+  if (result.kind !== "resolved") throw new Error("Expected the selected resource flow graph.");
+  const excluded = new Set(current.nodes.filter(node => !selected.nodes.includes(node)));
+  assert.equal(result.graph.points.some(point => point.source !== undefined && excluded.has(point.source)), false,
+    "erased acquisition, initializer and cleanup create no native points");
+  assert.equal(result.graph.bindings.has(erased), false, "an erased resource contributes no native owned binding");
+  const disposal = result.graph.points.filter(point => point.operation.kind === "dispose" && point.operation.declaration === retained);
+  assert.equal(disposal.length > 0, true, "the genuinely acquired resource keeps every required cleanup route");
+  const after = result.graph.points.find(point => point.operation.kind === "evaluate" && point.source !== undefined &&
+    current.source.ast.is.IsCallExpression(point.source) &&
+    current.source.ast.text(current.source.ast.as.AsCallExpression(point.source)?.Expression) === "after");
+  assert.equal(after !== undefined, true, "the participating body retains its original effect");
+  assert.equal(disposal.some(point => reachable(result.graph, after!.id, point.id)), true,
+    "normal completion still performs native cleanup after the last real use");
+  assert.equal(current.disposal("erased").length > 0, true,
+    "explicit full-source mode retains its original acquisition and cleanup contract");
 });

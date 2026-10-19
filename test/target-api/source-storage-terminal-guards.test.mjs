@@ -6,6 +6,7 @@ import { createSourceStorageGuardedValues } from "../../packages/target-api/dist
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function checked(body) {
@@ -35,7 +36,9 @@ function fixture(limits = {}) {
   `);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 16_384, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
-  const guards = createSourceStorageGuardedValues(current.source, budget);
+  const classValues = createSourceStorageTransport(current.source, current.source.navigation.sourceFiles,
+    createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
+  const guards = createSourceStorageGuardedValues(current.source, budget, classValues);
   return { ...current, budget, subject, guards, owner: name => subject(current.initializer(name)),
     reference: current.initializer("selected"), opposite: current.initializer("rejected") };
 }

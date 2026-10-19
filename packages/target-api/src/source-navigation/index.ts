@@ -23,7 +23,7 @@ export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexic
 export type { SourceSubtreeParticipation } from "./callable-invocations.js";
 export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
-export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
+export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 export type { SourceCallOnlyAlias } from "./callable-aliases.js";

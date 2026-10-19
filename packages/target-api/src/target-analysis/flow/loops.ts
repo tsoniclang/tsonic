@@ -8,7 +8,7 @@ export function sourceFlowLoop(build: SourceFlowConstruction, node: Node, next: 
   const { ast } = build.source;
   const initializer = ast.is.IsForStatement(node) ? ast.as.AsForStatement(node)?.Initializer : undefined;
   const kind = initializer === undefined ? undefined : ast.variableDeclarationKind(initializer);
-  if (initializer !== undefined && (kind === "using" || kind === "await using")) {
+  if (initializer !== undefined && build.includes(initializer) && (kind === "using" || kind === "await using")) {
     const declarations = ast.as.AsVariableDeclarationList(initializer)?.Declarations?.Nodes;
     if (declarations === undefined || declarations.length === 0 || declarations.some(declaration => declaration === undefined)) {
       throw new SourceFlowFailure("Source flow requires exact checked loop resources.", initializer);

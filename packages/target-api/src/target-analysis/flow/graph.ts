@@ -1,14 +1,53 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
+import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
 import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceFlowEntry, type SourceFlowInitializer } from "./entry.js";
 import { sourceFlowExpression } from "./expressions.js";
-import type { SourceControlFlowOptions, SourceControlFlowSelection } from "./model.js";
+import type { SourceControlFlowOptions, SourceControlFlowSelectedDomain, SourceControlFlowSelection, SourceFlowUnresolved } from "./model.js";
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
+
+const sourceControlFlowDomains = new WeakMap<SourceControlFlowSelectedDomain, {
+  readonly domain: SourceControlFlowSelectedDomain;
+  readonly source: TargetSourceProgram;
+  readonly members: ReadonlySet<Node>;
+}>();
+
+export function createSourceControlFlowDomain(source: TargetSourceProgram, nodes: readonly Node[]):
+  | { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain }
+  | SourceFlowUnresolved {
+  const fail = (reason: string, node?: Node): SourceFlowUnresolved => Object.freeze({ kind: "unresolved", reason, source: node });
+  if (!Array.isArray(nodes)) return fail("Source flow requires an explicit dense checked selected-node inventory.");
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(nodes, index) || nodes[index] === undefined || nodes[index] === null)
+      return fail("Source flow requires an explicit dense checked selected-node inventory.");
+  }
+  const selected = sourceNodesOutsideErasedSubtrees(source.ast, nodes, () => false);
+  if (selected.kind === "unresolved") return fail(selected.reason);
+  const files = new Set<Node>(source.sourceFiles);
+  const children = new Map<Node, ReadonlySet<Node>>();
+  for (const node of selected.nodes) {
+    const parent = source.ast.parent(node);
+    if (parent === undefined) {
+      if (!files.has(node)) return fail("Source flow selected nodes must belong to the identical checked source program.", node);
+      continue;
+    }
+    let actual = children.get(parent);
+    if (actual === undefined) {
+      actual = new Set(source.ast.children(parent).filter((child): child is Node => child !== undefined));
+      children.set(parent, actual);
+    }
+    if (!actual.has(node)) return fail("Source flow requires each original checked parent/child identity in its selected domain.", node);
+  }
+  const domain = Object.freeze({ kind: "selected", source, nodes: selected.nodes } satisfies SourceControlFlowSelectedDomain);
+  sourceControlFlowDomains.set(domain, Object.freeze({ domain, source, members: new Set(selected.nodes) }));
+  return Object.freeze({ kind: "resolved", domain });
+}
 
 type PatternKey = Node | string | number | boolean | undefined;
 interface PatternContinuation {
@@ -17,18 +56,33 @@ interface PatternContinuation {
 }
 
 export function createSourceControlFlow(source: TargetSourceProgram, declaration: Node,
-  options: SourceControlFlowOptions = {}): SourceControlFlowSelection {
+  options: SourceControlFlowOptions): SourceControlFlowSelection {
   try {
     const { ast } = source;
     const file = ast.getSourceFile(declaration);
     if (file === undefined || !source.sourceFiles.includes(file) ||
-      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) {
+      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
     if (options === null || typeof options !== "object" ||
-      Object.keys(options).some(key => key !== "limits" && key !== "invocation")) {
-      throw new SourceFlowFailure("Source flow requires explicit limits and checked invocation options.", declaration);
+      Reflect.ownKeys(options).some(key => key !== "domain" && key !== "limits" && key !== "invocation") ||
+      !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(options, "domain") ?? {}, "value")) {
+      throw new SourceFlowFailure("Source flow requires explicit limits, checked invocation options and an explicit source domain.", declaration);
     }
+    const domain = options.domain;
+    if (domain === undefined || domain === null || typeof domain !== "object" ||
+      !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(domain, "kind") ?? {}, "value"))
+      throw new SourceFlowFailure("Source flow requires an explicit checked source or canonical selected domain.", declaration);
+    let included: SourceNodeDomain;
+    if (domain.kind === "source" && Reflect.ownKeys(domain).length === 1) included = "source";
+    else if (domain.kind === "selected") {
+      const selected = sourceControlFlowDomains.get(domain);
+      if (selected === undefined || selected.domain !== domain || selected.source !== source)
+        throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
+      included = selected.members;
+      if (!included.has(declaration)) throw new SourceFlowFailure("Source flow requires its requested root in the canonical selected domain.", declaration);
+    } else throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
+    const includes = (node: Node): boolean => included === "source" || included.has(node);
     const selectedLimits = sourceFlowLimits(options.limits ?? {});
     const owner = createSourceFlowConstruction(declaration, selectedLimits);
     const selectedEntry = sourceFlowEntry(source, declaration, options.invocation, owner.step);
@@ -36,6 +90,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const pending = [declaration, ...selectedEntry.syntaxRoots].map(node => ({ node, depth: 0 }));
     while (pending.length > 0) {
       const current = pending.pop()!;
+      if (!includes(current.node)) continue;
       owner.step(current.node);
       if (current.depth >= selectedLimits.maximumDepth) {
         throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node);
@@ -53,13 +108,13 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
       return entry;
     };
     let patternWave: { readonly context: SourceFlowContext; readonly root: PatternContinuation } | undefined;
-    const build: SourceFlowConstruction = { source, parameterInitializers,
+    const build: SourceFlowConstruction = { source, parameterInitializers, includes,
       initializeSuper: (next, context) => initialize(superInitializers, next, context),
-      captures: createSourceFlowCaptureQuery(source, owner.step),
+      captures: createSourceFlowCaptureQuery(source, owner.step, included),
       point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
-      expression: (node, next, context) => owner.nested(node, () => sourceFlowExpression(build, node, next, context)),
-      statement: (node, next, context) => owner.nested(node, () => sourceFlowStatement(build, node, next, context)),
-      pattern: (node, next, context, initialization, value) => owner.nested(node, () => {
+      expression: (node, next, context) => includes(node) ? owner.nested(node, () => sourceFlowExpression(build, node, next, context)) : next,
+      statement: (node, next, context) => includes(node) ? owner.nested(node, () => sourceFlowStatement(build, node, next, context)) : next,
+      pattern: (node, next, context, initialization, value) => includes(node) ? owner.nested(node, () => {
         const previous = patternWave;
         const wave = previous?.context === context ? previous : {
           context, root: { children: new Map<PatternKey, PatternContinuation>(), entry: undefined },
@@ -89,7 +144,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
         } finally {
           patternWave = previous;
         }
-      }),
+      }) : next,
     };
     const exit = build.point(declaration, { kind: "exit" });
     const exceptionExit = build.point(declaration, { kind: "exception-exit" });
@@ -97,11 +152,11 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const completion = initialize(selectedEntry.completionInitializers, exit, context);
     const bodyContext = { ...context, returnTo: completion };
     let entry = owner.withExecution(bodyExecution, () => {
-      let entry = body === undefined ? completion : ast.is.IsBlock(body) ? build.statement(body, completion, bodyContext)
+      let entry = body === undefined ? completion : ast.is.IsBlock(body) || ast.is.IsSourceFile(body) ? build.statement(body, completion, bodyContext)
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
       const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      const receiver = implicit ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+      const receiver = implicit || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
         if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);

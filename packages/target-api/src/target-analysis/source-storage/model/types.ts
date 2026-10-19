@@ -1,5 +1,5 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
@@ -19,6 +19,7 @@ export interface SourceStorageCallEffect {
 
 export interface SourceStorageEffects {
   readonly call?: (node: Node, selected: ResolvedSourceCallInfo) => SourceStorageCallEffect | undefined;
+  readonly nativeConstructorsFor?: (declaration: Node, context: SourceFileSemantics) => readonly Node[] | undefined;
   readonly callbackEntries?: (node: Node, selected: ResolvedSourceCallInfo) => readonly {
     readonly parameterIndex: number;
     readonly timing: "synchronous" | "deferred";
@@ -141,13 +142,8 @@ export interface SourceStorageBoundary {
   readonly reason?: string;
 }
 
-export interface SourceStorageSubstitution {
-  readonly formal: SourceStorageSubject;
-  readonly actuals: readonly SourceStorageSubject[];
-}
-
 export interface SourceStorageBindings {
-  readonly substitutions: readonly SourceStorageSubstitution[];
+  readonly kind: "source-storage-bindings";
 }
 
 export type SourceStorageBindingsSelection =

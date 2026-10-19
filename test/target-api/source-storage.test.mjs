@@ -267,9 +267,10 @@ const rightResult = identity(right);
   assert.equal(other.subjects.length === 1 && other.subjects[0].node === initializer("right"), true);
   assert.equal(left.bindings !== right.bindings, true, "distinct selected contexts");
   assert.equal(storage.bindingsForInvocation(declaration, invocation("leftResult")).bindings === left.bindings, true, "interned immutable substitution context");
-  assert.equal(Object.isFrozen(left.bindings) && Object.isFrozen(left.bindings.substitutions) &&
-    left.bindings.substitutions.every(binding => Object.isFrozen(binding) && Object.isFrozen(binding.actuals)), true);
-  const forged = Object.freeze({ substitutions: left.bindings.substitutions });
+  assert.equal(Object.isFrozen(left.bindings) && left.bindings.kind === "source-storage-bindings" &&
+    Object.isFrozen(original.subjects) && Object.isFrozen(other.subjects) &&
+    original.subjects.every(Object.isFrozen) && other.subjects.every(Object.isFrozen), true);
+  const forged = Object.freeze({ kind: left.bindings.kind });
   assert.equal(storage.boundOriginsFor(formal, forged).kind, "unresolved", "shape cannot forge query ownership");
   const unrelated = namedDeclaration(source.ast, provider, "first");
   assert.equal(storage.bindingsForInvocation(unrelated, invocation("leftResult")).kind, "unresolved", "wrong callable is not selected");
@@ -452,10 +453,12 @@ export function make(): (value: number) => number {
 });
 
 test("opaque and unproved argument boundaries expose exact nodes without inventing an implementation", async () => {
-  const { source, storage, subject, call, provider } = await checked("source-storage-native-boundaries", `
+  const { source, storage, subject, call, provider, file } = await checked("source-storage-native-boundaries", `
 const callback = (): number => 3;
+declare const externalCallbacks: (() => number)[];
 native(callback);
 spread(callback);
+spread(...externalCallbacks);
 try { throwRest({ value: 3 }); } catch (caught) { const unprovedCatch = caught; }
 function forwardUnproved(): void { throwRest({ value: 7 }); }
 try { forwardUnproved(); } catch (caught) { const forwardedUnprovedCatch = caught; }
@@ -473,15 +476,36 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
     callbackSource.subjects[0] === subject("callback"), true, "callback read retains its exact source declaration");
   const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
   assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(callbackRead), true);
-  const rest = call("spread");
-  assert.equal(storage.argumentTransportsFor(rest).kind, "unresolved", "unsupported rest transport is explicit, never guessed");
+  const rest = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "spread" &&
+    !source.ast.is.IsSpreadElement(source.ast.arguments(node)[0]));
+  const restActual = resolvedSubject(storage.subjectFor(source.ast.arguments(rest)[0]), "concrete rest actual");
+  const arguments_ = storage.argumentTransportsFor(rest);
+  assert.equal(arguments_.kind === "resolved" && arguments_.arguments.length === 1 &&
+    arguments_.arguments[0].actual === restActual && arguments_.arguments[0].formal.projection.length === 1 &&
+    arguments_.arguments[0].formal.projection[0].kind === "array-element", true,
+  "the concrete checked argument retains its selected rest element slot");
   const restDeclaration = namedDeclaration(source.ast, provider, "spread");
   const restFormal = resolvedSubject(storage.subject(source.ast.parameters(restDeclaration)[0]), "rest formal");
-  assert.equal(storage.bindingsForInvocation(restDeclaration, rest).kind, "unresolved", "unsupported bindings cannot manufacture an exact context");
-  assert.equal(storage.invocationOriginsFor(restFormal, restDeclaration, rest).kind, "unresolved", "unsupported bindings cannot manufacture scalar origins");
+  assert.equal(storage.bindingsForInvocation(restDeclaration, rest).kind, "resolved", "the concrete slot has an exact invocation context");
+  const restOrigins = storage.invocationOriginsFor(restFormal, restDeclaration, rest);
+  assert.equal(restOrigins.kind === "resolved" && restOrigins.subjects.length === 1 && restOrigins.subjects[0] === restFormal, true,
+    "the unprojected rest container is not replaced with a scalar callback origin");
   assert.equal(storage.originSubjectsFor(subject("unprovedCatch")).kind, "unresolved", "unsupported throw argument transport is never guessed");
   assert.equal(storage.originSubjectsFor(subject("forwardedUnprovedCatch")).kind, "unresolved", "unproved throw transport survives callable forwarding");
-  assert.equal(storage.boundaries.some(boundary => boundary.invocation === rest && boundary.kind === "unresolved-transport"), true);
+  assert.equal(storage.boundaries.some(boundary => boundary.invocation === rest && boundary.kind === "opaque-invocation"), true);
+  const unknownRest = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "spread" &&
+    source.ast.is.IsSpreadElement(source.ast.arguments(node)[0]));
+  const reason = "Source storage argument transport requires exact selected scalar formal and actual subjects.";
+  for (const selected of [storage.argumentTransportsFor(unknownRest),
+    storage.bindingsForInvocation(restDeclaration, unknownRest),
+    storage.invocationOriginsFor(restFormal, restDeclaration, unknownRest)]) {
+    assert.equal(selected.kind === "unresolved" && selected.reason === reason, true,
+      "an unknown-length spread retains its exact transport refusal");
+  }
+  assert.equal(storage.boundaries.some(boundary => boundary.invocation === unknownRest &&
+    boundary.kind === "unresolved-transport" && boundary.reason === reason), true);
   assert.equal(storage.failureReason() === undefined, true, "local boundary does not contaminate independent graph ownership");
 });
 

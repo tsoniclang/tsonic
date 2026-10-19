@@ -37,14 +37,14 @@ export function createSourceStorageStructuralFlow(
       if (fromPresent === undefined || toPresent === undefined) continue;
       for (const component of sourceStorageComponents(toPresent, semantics)) {
         if (!step()) break;
-        const toComponent = sourceStorageComponentType(toPresent, component, semantics);
+        const toComponent = sourceStorageComponentType(toPresent, component, semantics, source.ast);
         if (toComponent === undefined) continue;
         const components: Iterable<SourceStorageProjection> = component.kind === "array-element"
           ? sourceStorageComponents(fromPresent, semantics)
           : [semantics.types.isTuple(fromPresent) ? component : { kind: "array-element" }];
         for (const originalComponent of components) {
           if (!step()) break;
-          const fromComponent = sourceStorageComponentType(fromPresent, originalComponent, semantics);
+          const fromComponent = sourceStorageComponentType(fromPresent, originalComponent, semantics, source.ast);
           if (fromComponent === undefined) continue;
           pending.push({ from: fromComponent, to: toComponent, semantics });
         }
@@ -53,8 +53,9 @@ export function createSourceStorageStructuralFlow(
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
         if (!step()) break;
-        if (member.kind !== "present") continue;
-        for (const original of member.source.declarations) {
+        if (member.kind !== "present" || member.destination.read === "accessor") continue;
+        const originals = member.source.read === "accessor" ? member.source.getters : member.source.declarations;
+        for (const original of originals) {
           if (!step() || !retainCheckedContext(original, semantics.sourceFile)) break;
           const origin = sourceStorageMemberSubject(original, source.ast, subject);
           for (const target of member.destination.declarations) {

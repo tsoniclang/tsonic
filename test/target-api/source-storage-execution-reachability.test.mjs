@@ -8,9 +8,12 @@ function fixture(length = 16, maximumTransportRows = 128) {
   const regions = Array.from({ length: length + 1 }, () => ({}));
   const calls = regions.slice(0, -1).map((region, index) => ({ region, candidate: { region: regions[index + 1] } }));
   let inspect = () => {}; let inspected = 0;
-  const query = createSourceStorageExecutionReachability({ ast: { is: { IsNewExpression: () => false } } }, budget, {
+  const query = createSourceStorageExecutionReachability({ ast: {
+    is: { IsNewExpression: () => false, IsCallExpression: () => false },
+  } }, budget, {
     invocations: new Set(calls), accessorTargets: new Map(),
-    regions: { enclosing: node => node.region, callable: node => [node.region], instance: () => [] },
+    regions: { enclosing: node => node.region, callable: node => [node.region], instance: () => ({ regions: [], exact: true }) },
+    callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],
     invocationImplementations: node => { inspected += 1; inspect(node); return new Set([node.candidate]); },
   });
   return { query, budget, calls, regions, inspected: () => inspected, inspect: callback => { inspect = callback; } };
@@ -59,9 +62,18 @@ test("forward execution retains calls, accessors, constructor initializers and c
   ];
   const access = { region: helper, target: accessor };
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 256, maximumTransportRows: 128 });
-  const query = createSourceStorageExecutionReachability({ ast: { is: { IsNewExpression: node => node.initialize !== undefined } } }, budget, {
+  const query = createSourceStorageExecutionReachability({ ast: {
+    is: { IsNewExpression: node => node.initialize !== undefined, IsCallExpression: () => false,
+      IsExpressionStatement: () => false, IsReturnStatement: () => false, IsThrowStatement: () => false,
+      IsIfStatement: () => false, IsWhileStatement: () => false, IsDoStatement: () => false,
+      IsForOfStatement: () => false, IsForInStatement: () => false,
+      IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false },
+    as: { AsNewExpression: node => ({ Expression: node.target }) },
+  } }, budget, {
     invocations: new Set(calls), accessorTargets: new Map([[access, [access.target]]]),
-    regions: { enclosing: node => node.region, callable: node => [node], instance: node => [{ node: node.initialize }] },
+    regions: { enclosing: node => node.region, callable: node => [node],
+      instance: node => ({ regions: [{ node: node.initialize }], exact: true }) },
+    callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],
     invocationImplementations: node => new Set([node.target]),
   });
   const reachable = query.reachableFrom(entry);

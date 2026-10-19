@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { sourceStorageActivationOwner } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/activation-keys.js";
 
 function fixture(count = 4, limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -32,12 +34,14 @@ function fixture(count = 4, limits = {}) {
     } },
   };
   const scopes = { empty, owningScope: (scope, selected) => scope.owners.get(selected),
-    activation: scope => ({ key: scope.key, variable: scope.variable }), lookup: () => undefined,
+    activation: scope => ({ key: scope.key, variable: scope.variable, closed: scope.variable === undefined }), lookup: () => undefined,
     identity: value => {
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation),
+    ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const reference = (scope, selected = root) => ({ kind: "reference", subject: selected, scope });
   return { budget, owner, subject, root, locations, inputs, empty, first, second, keys, reference, failure,
     locationReads: () => locationReads, unavailable: value => { unavailable = value; } };
@@ -60,8 +64,8 @@ test("context owner sharing preserves caller identity and distinct physical allo
   const [left, right] = current.locations;
   const leaf = selected => ({ kind: "leaf", subject: selected, scope: current.first });
   assert.equal(current.keys.encode(leaf(left)) === current.keys.encode(leaf(right)), false, "different sites are never one allocation");
-  assert.equal(current.keys.birthKey(left, current.first) === current.keys.birthKey(right, current.first), false);
-  assert.equal(current.keys.birthKey(left, current.first) === current.keys.birthKey(left, current.second), false);
+  assert.equal(current.keys.birth(left, current.first).key === current.keys.birth(right, current.first).key, false);
+  assert.equal(current.keys.birth(left, current.first).key === current.keys.birth(left, current.second).key, false);
 });
 
 test("each independent lexical owner retains its own selected captured activation", () => {

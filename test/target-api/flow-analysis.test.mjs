@@ -21,7 +21,7 @@ let caseNumber = 0;
 async function fixture(text, name = "run") {
   const source = createTargetSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }));
   const file = projectSourceFile(source, "src/index.ts");
-  const selection = createSourceControlFlow(source, namedDeclaration(source.ast, file, name));
+  const selection = createSourceControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
   return { source, ast: source.ast, graph: selection.graph, file };
 }

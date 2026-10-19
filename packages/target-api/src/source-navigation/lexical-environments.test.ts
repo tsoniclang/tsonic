@@ -25,7 +25,7 @@ function fixture(body: string) {
   visit(file!);
   return { source, declarations, select(name: string) {
     const declaration = declarations.get(name)!;
-    return sourceLexicalEnvironment(declaration, [declaration], source.ast, source.navigation);
+    return sourceLexicalEnvironment(declaration, [declaration], source.ast, source.navigation, "source");
   } };
 }
 
@@ -62,7 +62,7 @@ test("parameter-property member names are not lexical parameter captures", () =>
     assert.equal(current.source.ast.is.IsVariableDeclaration(declaration), true);
     const expression = current.source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
     assert.equal(expression !== undefined, true);
-    return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation);
+    return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation, "source");
   };
   const read = select("read");
   const input = select("input");
@@ -89,7 +89,7 @@ test("first-class lexical captures retain callable identity without duplicating 
   assert.equal(selected.captures[0]?.declaration === current.declarations.get("next"), true, "exact retained callable");
   assert.equal(selected.callableRoots.length, 1);
   const ordered = sourceLexicalFunctionValueOrder(
-    [current.declarations.get("get")!, current.declarations.get("next")!], current.source.ast, current.source.navigation);
+    [current.declarations.get("get")!, current.declarations.get("next")!], current.source.ast, current.source.navigation, "source");
   assert.equal(ordered.kind, "resolved");
   if (ordered.kind !== "resolved") return;
   assert.equal(ordered.declarations[0] === current.declarations.get("next"), true, "dependency initializes first");
@@ -107,7 +107,7 @@ test("recursive direct-call graphs are finite and lost callable evidence fails c
   const invalid = sourceLexicalEnvironment(current.declarations.get("left")!, [current.declarations.get("left")!],
     current.source.ast, { ...current.source.navigation, declarationUseSummary(declaration) {
       return { ...current.source.navigation.declarationUseSummary(declaration), uses: [] };
-    } });
+    } }, "source");
   assert.equal(invalid.kind, "unresolved");
 });
 

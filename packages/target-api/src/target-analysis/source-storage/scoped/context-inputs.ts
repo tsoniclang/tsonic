@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, sourceLexicalCaptures } from "../../../source-navigation/index.js";
+import { Node_Expression, sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -36,32 +36,37 @@ export function createSourceStorageContextInputs(
     if (cached !== undefined) return cached;
     const { ast, navigation, semantics } = source;
     const node = origin.node;
+    if ((origin.kind === "input" || origin.kind === "receiver") && origin.projection.length !== 0) {
+      const owner = queries.subject(node, origin.kind);
+      if (owner === undefined || !budget.row()) return undefined;
+      const inputs = new Set([owner]);
+      selections.set(origin, inputs);
+      return inputs;
+    }
     const invocation = queries.isInvocation(node);
     const access = origin.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
     const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
     if (access && member === undefined) return undefined;
-    const incoming = invocation || access || ast.is.IsBindingElement(node) ? undefined : queries.incomingFor(origin);
+    const incoming = invocation || access ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
     try {
-      if (!rows.add(1 + (incoming?.size ?? 0))) return undefined;
-      const inputs = new Set(incoming);
+      if (!rows.add(1)) return undefined;
+      const inputs = new Set<SourceStorageSubject>();
       const add = (selected: SourceStorageSubject | undefined): void => {
-        if (selected !== undefined && !inputs.has(selected) && rows.add(1)) inputs.add(selected);
+        const input = selected !== undefined && (selected.kind === "input" || selected.kind === "receiver") &&
+          selected.projection.length !== 0 ? queries.subject(selected.node, selected.kind) : selected;
+        if (input !== undefined && !inputs.has(input) && rows.add(1)) inputs.add(input);
       };
+      for (const input of incoming ?? []) {
+        if (!budget.step()) return undefined;
+        add(input);
+      }
       if (member !== undefined) {
         const receiver = queries.subjectFor(member.receiver.expression);
         if (receiver === undefined) return undefined;
         add(receiver);
-      }
-      if (ast.is.IsBindingElement(node)) {
-        const pattern = ast.parent(node);
-        const owner = pattern === undefined ? undefined : ast.parent(pattern);
-        const binding = queries.subjectFor(owner);
-        if (binding === undefined) return undefined;
-        add(binding);
-        add(queries.subjectFor(Node_Initializer(ast, node)));
       }
       if (origin.kind === "value" && origin.projection.length === 0) {
         if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {
@@ -77,14 +82,18 @@ export function createSourceStorageContextInputs(
           }
         }
         if (ast.body(node) !== undefined || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-          const captures = sourceLexicalCaptures(node, [node], ast, navigation);
+          const captures = sourceLexicalCaptures(node, [node], ast, navigation, "source");
           for (const capture of captures.captures) {
             if (!budget.step()) return undefined;
             add(queries.subjectFor(capture.declaration));
           }
           for (const receiver of captures.receivers) {
-            if (!budget.step()) return undefined;
-            add(queries.subject(receiver.owner, "receiver"));
+            for (const reference of receiver.references) {
+              if (!budget.step()) return undefined;
+              const owner = sourceReceiverOwner(reference, ast, "storage", budget.step);
+              if (owner === undefined) return undefined;
+              add(queries.subject(owner, "receiver"));
+            }
           }
         }
       }

@@ -6,6 +6,7 @@ import { createSourceStorageQuery } from "../../packages/target-api/dist/public/
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, limits = {}, files = {}) {
@@ -17,7 +18,9 @@ function fixture(body, limits = {}, files = {}) {
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 65_536, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
-  const guards = createSourceStorageGuardedValues(source, budget);
+  const classValues = createSourceStorageTransport(source, source.navigation.sourceFiles,
+    createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
+  const guards = createSourceStorageGuardedValues(source, budget, classValues);
   const declaration = name => namedVariable(source.ast, file, name);
   const initializer = name => Node_Initializer(source.ast, declaration(name));
   const owner = name => subject(initializer(name) ?? declaration(name));

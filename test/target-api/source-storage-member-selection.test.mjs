@@ -5,6 +5,7 @@ import { createTargetSourceProgram, Node_Initializer } from "../../packages/targ
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, extraFiles = {}) {
@@ -443,14 +444,16 @@ test("exact nominal member selection preserves independent finite work and hiera
   assert.equal(selected.kind === "resolved", true);
   const access = current.initializer("read");
   const receiver = current.source.ast.as.AsPropertyAccessExpression(access).Expression;
+  const classValues = createSourceStorageTransport(current.source, current.source.navigation.sourceFiles,
+    createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const guarded = createSourceStorageGuardedValues(current.source, budget);
+    const guarded = createSourceStorageGuardedValues(current.source, budget, classValues);
     assert.equal(guarded.admits(selected.subject, receiver) === undefined, true, "no result publishes around independent exhaustion");
     assert.equal(budget.failure() !== undefined, true, "the failed proof preserves its owning resource diagnostic");
   }
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
-  const guarded = createSourceStorageGuardedValues(current.source, budget);
+  const guarded = createSourceStorageGuardedValues(current.source, budget, classValues);
   for (let replay = 0; replay < 100; replay += 1) {
     assert.equal(guarded.admits(selected.subject, receiver), false);
   }
@@ -499,25 +502,35 @@ test("opaque missing members are not silently certified as an impossible allocat
     "unavailable evidence remains an explicit failure, not an empty certificate");
 });
 
-test("mutable and opaque constructor bindings cannot certify an exact missing member", () => {
+test("constructor bindings certify missing members only for closed checked writes", () => {
   for (const [name, constructor] of [
     ["mutable", "let constructor = Scalar; constructor = Scalar;"],
     ["opaque", "declare const constructor: new () => Scalar;"],
+    ["conditional", "declare const flag: boolean; declare const other: new () => Scalar; let constructor = Scalar; if (flag) constructor = other;"],
   ]) {
     const current = fixture(`
       class Base { kind: string = "base"; }
       class Scalar extends Base { readonly value: {} = {}; }
       class List extends Base { constructor(readonly items: {}) { super(); } }
       ${constructor}
+      const fallback = {};
       function select(value: Base): {} {
         if (value instanceof List) return value.items;
-        return {};
+        return fallback;
       }
       const result = select(new constructor());
     `);
     const selected = current.storage.subjectFor(current.variable("result"));
     assert.equal(selected.kind === "resolved", true, name);
     const origins = current.storage.closedOriginsFor(selected.subject);
-    assert.equal(origins.kind === "complete", false, `${name}: no exact project constructor evidence`);
+    if (name === "mutable") {
+      assert.equal(origins.kind === "complete" && origins.origins.length === 1 &&
+        origins.origins[0].subject.node === current.initializer("fallback"), true,
+      "the identical checked Scalar writes retain the exact fallback producer");
+    } else {
+      assert.equal(origins.kind === "unresolved" &&
+        origins.reason === "Source storage members require exact checked correspondence.", true,
+      `${name}: no exact project constructor evidence`);
+    }
   }
 });
