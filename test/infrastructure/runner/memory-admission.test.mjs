@@ -55,7 +55,7 @@ test("stale PID reuse releases only dead reservations and never a living scope",
 
 test("every job meets the same physical headroom and aggregate admission rules", () => {
   for (const requestedMiB of [4096, 8192, 12_288, 20_480]) {
-    const pressured = { ...machine, availableMemoryMiB: requestedMiB + 16_383 };
+    const pressured = { ...machine, availableMemoryMiB: requestedMiB + 8_191 };
     assert.equal(planTestMemoryAdmission(pressured, [], [], requestedMiB).admitted, false);
     assert.equal(planTestMemoryAdmission({ ...pressured, availableMemoryMiB: pressured.availableMemoryMiB + 1 },
       [], [], requestedMiB).admitted, true);
@@ -66,14 +66,35 @@ test("every job meets the same physical headroom and aggregate admission rules",
 });
 
 test("an explicit group reserve changes admission once, never per test", () => {
-  const trial = { ...machine, availableMemoryMiB: 45_056, reserveMiB: 20_480 };
-  const admitted = planTestMemoryAdmission(trial, [], [], 24_576);
+  const explicitReserve = { ...machine, availableMemoryMiB: 32_768, reserveMiB: 20_480 };
+  const admitted = planTestMemoryAdmission(explicitReserve, [], [], 24_576);
   assert.equal(admitted.admitted, true);
   assert.equal(admitted.reserveMiB, 20_480);
   assert.equal(admitted.reservedMiB, 0);
-  assert.equal(planTestMemoryAdmission({ ...trial, availableMemoryMiB: 45_055 }, [], [], 24_576).admitted, false);
-  assert.equal(planTestMemoryAdmission({ ...trial, reserveMiB: 24_576 }, [], [], 24_576).admitted, false);
+  assert.equal(planTestMemoryAdmission({ ...explicitReserve, availableMemoryMiB: 32_767 }, [], [], 24_576).admitted, false);
+  assert.equal(planTestMemoryAdmission(explicitReserve, [scope("reserved", 16_384)], [], 24_576).admitted, true,
+    "the explicit table reserve permits its exact aggregate capacity");
+  assert.equal(planTestMemoryAdmission({ ...explicitReserve, reserveMiB: 24_576 }, [scope("reserved", 16_384)], [], 24_576).admitted, false,
+    "a larger explicit table reserve refuses the same aggregate claim");
   for (const reserveMiB of [0, -1, 6144, 8192, 16_383, NaN, Infinity]) {
-    assert.throws(() => planTestMemoryAdmission({ ...trial, reserveMiB }, [], [], 24_576), /reserve/u);
+    assert.throws(() => planTestMemoryAdmission({ ...explicitReserve, reserveMiB }, [], [], 24_576), /reserve/u);
+  }
+});
+
+test("admission uses the smaller table remainder and live availability minus eight GiB", () => {
+  for (const requestedMiB of [1, 2048, 8192, 14_336, 24_576]) {
+    for (const tableDeltaMiB of [-1, 0, 1]) {
+      for (const liveDeltaMiB of [-1, 0, 1]) {
+        const reservedMiB = 45_770 - requestedMiB + tableDeltaMiB;
+        const availableMemoryMiB = requestedMiB + 8_192 + liveDeltaMiB;
+        const label = `request=${requestedMiB}, tableDelta=${tableDeltaMiB}, liveDelta=${liveDeltaMiB}`;
+        const result = planTestMemoryAdmission({ totalMemoryMiB: 62_154, availableMemoryMiB },
+          [scope("running", reservedMiB)], [], requestedMiB);
+        assert.equal(result.admitted, tableDeltaMiB <= 0 && liveDeltaMiB >= 0, label);
+        assert.equal(result.capacityMiB, 45_770, `${label}: sixteen-GiB table reserve`);
+        assert.equal(result.reserveMiB, 16_384, `${label}: table reserve is not the live margin`);
+        assert.equal(result.reservedMiB, reservedMiB, `${label}: entire MemoryMax remains reserved`);
+      }
+    }
   }
 });
