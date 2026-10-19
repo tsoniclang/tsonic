@@ -17,6 +17,33 @@ function fixture(limits = {}) {
   return { budget, subject, parameter, inputs, ports, reads: () => reads };
 }
 
+test("independent context roots reuse every completed suffix within the original finite work bound", () => {
+  const { subject, parameter, inputs, ports, budget, reads } = fixture({ maximumSteps: 4_096 });
+  const chain = Array.from({ length: 256 }, () => subject({}));
+  const port = parameter();
+  for (const [index, node] of chain.entries()) inputs.set(node, new Set([chain[index + 1] ?? port]));
+  const roots = Array.from({ length: 32 }, () => subject({}));
+  for (const [index, root] of roots.entries()) inputs.set(root, new Set([chain[index * 8]]));
+  const selected = ports.select(roots[0]);
+  assert.equal(selected?.ports.size === 1 && selected.ports.has(port), true, "the complete original formal relation");
+  for (const root of [...roots, ...chain]) assert.equal(ports.select(root) === selected, true,
+    "all completed roots and suffixes share the identical immutable relation");
+  assert.equal(reads(), 288, "each non-port source node is loaded once, not once per query");
+  assert.equal(budget.failure() === undefined, true, "near-linear traversal fits the original work cap");
+  assert.equal(budget.usage().rows, 291, "289 exact subject indexes plus the single two-row footprint");
+});
+
+test("finite row exhaustion is not mislabeled as an invalid positive reservation", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4 });
+  const rows = budget.createRows();
+  assert.equal(rows.add(4), true, "the first valid reservation owns the complete finite capacity");
+  assert.equal(rows.add(1), false, "an individually valid reservation beyond the live total fails atomically");
+  assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.");
+  assert.equal(budget.usage().rows, 4, "a rejected reservation adds no rows and preserves existing ownership");
+  rows.release();
+  assert.equal(budget.usage().rows, 0, "the original owner releases only its own retained rows");
+});
+
 test("missing contextual evidence cannot become an empty completed port relation", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);

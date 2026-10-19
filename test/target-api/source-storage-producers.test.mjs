@@ -157,18 +157,39 @@ test("numeric updates and compound writes retain the operation result while logi
   assert.equal(members.length === 2 && members.some(producer => current.source.ast.is.IsBinaryExpression(producer.subject.node)), true);
 });
 
-test("unsupported delete and iteration producer evidence rejects rather than inventing a value", async () => {
+test("unsupported delete and iteration-key producer evidence rejects rather than inventing a value", async () => {
   const current = await fixture("storage-producer-unresolved-writes", `
     const box: { amount?: number } = { amount: 1 };
     delete box.amount;
-    let value = 0;
-    for (value of [1, 2]) {}
+    let value = "";
+    for (value in { item: 1 }) {}
   `);
-  const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node));
+  const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "amount");
   for (const declaration of [property, current.variable("value")]) {
     const selected = current.storage.storageProducersFor(current.subject(declaration));
     assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial producer claim");
   }
+  assert.equal(current.storage.storageProducersFor(current.subject(property)).reason,
+    "Source storage mutation requires its exact selected value producer.", "deletion keeps its precise unresolved producer");
+  assert.equal(current.storage.storageProducersFor(current.subject(current.variable("value"))).reason,
+    "Source storage writes require their exact checked original value producer, iteration element and component projection.",
+    "iteration keys keep their precise unresolved producer");
+});
+
+test("array iteration producers retain actual elements rather than the collection or a synthetic value", async () => {
+  const current = await fixture("storage-producer-array-iteration", `
+    const first = { value: 1 }; const second = { value: 2 };
+    const rows = [first, second];
+    let selected = first;
+    for (selected of rows) {}
+  `);
+  const values = producers(current.storage.storageProducersFor(current.subject(current.variable("selected"))));
+  const expected = [current.initializer("first"), current.initializer("second")];
+  assert.equal(values.length === expected.length && expected.every(node => values.some(value => value.subject.node === node)), true,
+    "only the exact original initializer and actual iteration elements are producers");
+  assert.equal(values.some(value => value.subject.node === current.initializer("rows")), false,
+    "the collection itself is never substituted for its selected element");
 });
 
 test("provider-only declarations and external formal members never acquire an authored producer inventory", async () => {

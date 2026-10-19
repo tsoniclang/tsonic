@@ -1,6 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export interface SourceStorageLimits {
   readonly maximumNodes: number;
@@ -47,6 +48,31 @@ export interface SourceStorageTypedSubject {
   readonly type: Type;
   readonly sourceFile: SourceFile;
 }
+
+export interface SourceStorageWrittenValue {
+  readonly source: SourceBindingWriteValue | undefined;
+  readonly subjects: readonly SourceStorageSubject[];
+  readonly reason: string | undefined;
+}
+
+export interface SourceStorageWriteOccurrence {
+  readonly reference: Node;
+  readonly operation: Node;
+  readonly region: Node;
+  readonly kind: "initialization" | "mutation";
+  readonly destination: "binding" | "member" | "element";
+  readonly receiver: SourceStorageSubject | undefined;
+  readonly value: SourceStorageSubject | undefined;
+  readonly values: readonly SourceStorageWrittenValue[];
+  readonly reason: string | undefined;
+  readonly destinations: readonly SourceStorageSubject[];
+}
+
+export type SourceStorageWriteSelection = SourceStorageUnresolved | {
+  readonly kind: "resolved";
+  readonly write: SourceStorageWriteOccurrence;
+  readonly bindings: SourceStorageBindings;
+};
 
 export interface SourceStorageProducer extends SourceStorageTypedSubject {
   readonly bindings: SourceStorageBindings;
@@ -193,6 +219,7 @@ export interface SourceStorageQueries {
   subjectFor(node: Node): SourceStorageSubjectSelection;
   memberSubjectFor(node: Node): SourceStorageSubjectSelection;
   storageSubjectFor(node: Node, projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
+  writeAt(reference: Node, bindings: SourceStorageBindings): SourceStorageWriteSelection;
   typeFor(subject: SourceStorageSubject): SourceStorageTypeSelection;
   incomingFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   ancestorsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;

@@ -7,12 +7,20 @@ import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/tar
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 let caseNumber = 0;
-async function fixture(text, name = "run", limits) {
-  const source = createTargetSourceProgram(await checkedSource(`flow-control-${caseNumber++}`, { "src/index.ts": text }));
+const checkedGlobals = `interface Object {} interface Function {} interface CallableFunction extends Function {}
+  interface NewableFunction extends Function {} interface IArguments {} interface Boolean {}
+  interface Number {} interface String {} interface RegExp {}
+  interface Array<Value> { [index: number]: Value; length: number; }
+  interface ReadonlyArray<Value> { readonly [index: number]: Value; readonly length: number; }`;
+async function fixture(text, name = "run", limits, globals) {
+  const files = { "src/index.ts": text };
+  if (globals !== undefined) files["globals.d.ts"] = globals;
+  const checked = await checkedSource(`flow-control-${caseNumber++}`, files);
+  const source = createTargetSourceProgram(checked);
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
   const selection = createSourceControlFlow(source, declaration, { limits });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
-  return { source, ast: source.ast, declaration, graph: selection.graph };
+  return { checked, source, ast: source.ast, declaration, graph: selection.graph };
 }
 
 function points(current, predicate) { return current.graph.points.filter(point => predicate(point, current.ast)); }
@@ -233,6 +241,52 @@ test("flow finally preserves return completion instead of merging it with normal
   assert.equal(reachable(current.graph, route, current.graph.exit), true);
   assert.equal(reachable(current.graph, route, call(current, "after")[0].id), false);
   assert.equal(reachable(current.graph, current.graph.entry, call(current, "after")[0].id), true);
+});
+
+test("flow writes and the canonical store retain identical original nested default and iterator inputs", async () => {
+  const current = await fixture(`
+    function run(source: { nested?: { value?: object } }, outer: { value?: object },
+    fallback: object, rows: [object?][]) {
+    let { nested: { value = fallback } = outer } = source;
+    ({ nested: { value = fallback } = outer } = source);
+    for (const [iterated = fallback] of rows) void iterated;
+    for ([value = fallback] of rows) void value;
+    return value;
+  }`, "run", undefined, checkedGlobals);
+  assert.equal(current.checked.diagnostics.length === 0, true, "the complete original array and tuple source is checked");
+  const storage = createSourceStorageQuery(current.source, current.source.sourceFiles);
+  const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
+    point.operation.value !== undefined && ["value", "iterated"].includes(current.ast.text(current.ast.name(point.operation.binding))));
+  assert.equal(writes.length, 10, "every original incoming/default/iteration branch has its own exact checked write event");
+  for (const point of writes) {
+    const operation = point.operation;
+    const selected = storage.writeAt(operation.reference, storage.emptyBindings);
+    assert.equal(selected.kind === "resolved" && selected.write.reason === undefined, true,
+      "the actual CFG occurrence has complete canonical source-storage evidence");
+    assert.equal(selected.write.values.some(value => value.source.kind === operation.value.kind &&
+      value.source.expression === operation.value.expression && value.source.projection.length === operation.value.projection.length &&
+      value.source.projection.every((part, index) => part === operation.value.projection[index])), true,
+    "the source store and the same CFG consume identical original expression and full projection, not RHS-node coincidence");
+  }
+});
+
+test("nested default patterns share identical continuations and retain bounded construction", async () => {
+  for (const depth of [4, 8, 16]) {
+    let type = "{ value?: number }";
+    let pattern = "{ value = 0 }";
+    for (let index = 0; index < depth; index += 1) {
+      type = `{ child?: ${type} }`;
+      pattern = `{ child: ${pattern} = {} }`;
+    }
+    const current = await fixture(`function run(input: ${type}) { const ${pattern} = input; return value; }`, "run",
+      { maximumSteps: 12000, maximumPoints: 2500, maximumEdges: 5000 }, checkedGlobals);
+    assert.equal(current.checked.diagnostics.length === 0, true, "the nested optional defaults are ordinary checked source");
+    const writes = current.graph.points.filter(point => point.operation.kind === "write" &&
+      current.ast.text(current.ast.name(point.operation.binding)) === "value");
+    assert.equal(writes.length, depth + 2, "one checked event for each distinct input and one shared terminal default");
+    assert.equal(current.graph.points.length < 8 * (depth + 2) ** 2, true,
+      "nested defaults cannot multiply the same continuation exponentially");
+  }
 });
 
 test("flow return and throw in finally replace the original completion", async () => {

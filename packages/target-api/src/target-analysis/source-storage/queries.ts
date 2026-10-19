@@ -272,6 +272,13 @@ export function createSourceStorageQuery(
     storageSubjectFor(node, projection) {
       return selectedSubject(checkedNode(node) ? transport.storageSubject(node, projection) : undefined);
     },
+    writeAt(reference, bindings) {
+      if (!checkedNode(reference)) return unresolved(budget.failure() ?? "A source write requires its original checked occurrence.");
+      if (!bindingStates.has(bindings)) return unresolved("A source write requires bindings from the identical source storage query.");
+      const write = transport.writeAt(reference);
+      if (write === undefined) return unresolved(budget.failure() ?? "A source write has no original published store occurrence.");
+      return Object.freeze({ kind: "resolved", write, bindings });
+    },
     typeFor(subject) {
       const reason = subjectReason(subject);
       if (reason !== undefined) return unresolved(reason);

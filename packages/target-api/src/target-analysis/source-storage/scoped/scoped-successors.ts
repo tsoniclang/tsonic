@@ -778,7 +778,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (store.reason !== undefined) continue;
         if (value === undefined) continue;
         if (store.kind === "initialization") {
-          terms.push(sourceStorageReference(value, creatorScope(store.storage.node, term.scope))); continue;
+          const creator = creatorScope(store.storage.node, term.scope);
+          terms.push(store.birth !== undefined && value === store.storage ? leaf(value, creator)
+            : sourceStorageReference(value, creator));
+          continue;
         }
         if (store.destination === "member" && term.scope === scopes.empty) {
           terms.push(sourceStorageReference(value, scopes.empty)); continue;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../public/source.js";
-import { sourceReferenceMeaning } from "./syntax.js";
+import { referenceQueryNode, sourceReferenceMeaning } from "./syntax.js";
 
 for (const valueFirst of [false, true]) {
   test(`merged source symbols retain type and value meaning with value-first=${valueFirst}`, () => {
@@ -48,6 +48,34 @@ ${valueFirst ? values + types : types + values}
     }
   });
 }
+
+test("iteration collections are exact receiver uses while their assigned binding remains a write", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", compilerOptions: {
+    strict: true, target: "es2022", module: "esnext",
+  }, files: { "/src/index.ts": `export {}; const rows = [1, 2]; let value = 0; for (value of rows) {}` } }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "the ordinary iteration source is accepted");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the original checked source file exists");
+  if (file === undefined) throw new Error("Expected the checked iteration file.");
+  const declarations = new Map<string, Node>();
+  const visit = (node: Node): void => {
+    const name = source.ast.name(node);
+    if (source.ast.is.IsVariableDeclaration(node) && name !== undefined && source.ast.is.IsIdentifier(name))
+      declarations.set(source.ast.text(name), node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  for (const [name, role] of [["rows", "receiver"], ["value", "write"]] as const) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true, `${name}: exact authored declaration`);
+    if (declaration === undefined) throw new Error("Expected the authored iteration declaration.");
+    const summary = source.navigation.declarationUseSummary(declaration);
+    assert.equal(summary.uses.length === 1 && summary.uses[0]?.role === role, true,
+      `${name}: iteration value consumption and binding write have distinct checked roles`);
+    assert.equal(summary.hasUnclassifiedValueUse, false, `${name}: no invented unknown escape`);
+  }
+});
 
 test("imported re-exported and qualified source types retain their exact declaration facet", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -240,3 +268,142 @@ export const constructor = First.Native;
   assert.equal(foreignAccess !== undefined, true, "the second checked program has the same actual source syntax");
   assert.equal(source.navigation.sourceReferenceFor(foreignAccess) === undefined, true, "foreign AST identity never enters the sealed index");
 });
+
+test("checked overload, merged and accessor definitions remain selectable but never become reverse uses", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+export function exercise(): number {
+  function pass(value: number): number;
+  function pass(value: string): string;
+  function pass(value: number | string): number | string { return value; }
+  interface Token { readonly count: number; }
+  const Token = 7;
+  class Holder {
+    private stored = 0;
+    get value(): number { return this.stored; }
+    set value(next: number) { this.stored = next; }
+  }
+  const holder = new Holder();
+  const token: Token = { count: 1 };
+  holder.value = pass(Token);
+  const alias = pass;
+  function recurse(count: number): number { return count === 0 ? pass(2) : recurse(count - 1); }
+  { function pass(value: boolean): boolean { return value; } if (pass(true)) holder.value = token.count; }
+  return holder.value + alias(3) + recurse(0);
+}
+`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const checker = checked.getSourceFileQueries(file).checker;
+  const definitions = new Map<string, Node[]>();
+  const uses = new Map<string, Node[]>();
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsIdentifier(node) && ["pass", "Token", "value", "recurse"].includes(source.ast.text(node))) {
+      const selected = source.navigation.sourceReferenceFor(node);
+      assert.equal(selected !== undefined && selected.symbol !== undefined, true, "each actual checked definition and use keeps its source fact");
+      const owner = source.ast.parent(node);
+      const definition = owner !== undefined && source.ast.name(owner) === node &&
+        checker.getSymbolDeclarations(selected!.symbol).includes(owner);
+      const reverse = source.navigation.referencesWithin(selected!.symbol!, file);
+      assert.equal(reverse.includes(referenceQueryNode(source.ast, node)!), !definition, definition
+        ? "an exact native declaration name never becomes a runtime source use"
+        : "an actual property, recursive, escape, shadow or ordinary use remains indexed");
+      const entries = definition ? definitions : uses;
+      const name = source.ast.text(node);
+      if (name !== "value" || checker.getSymbolDeclarations(selected!.symbol).some(declaration =>
+        source.ast.is.IsGetAccessorDeclaration(declaration) || source.ast.is.IsSetAccessorDeclaration(declaration)))
+        entries.set(name, [...entries.get(name) ?? [], node]);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(definitions.get("pass")?.length, 4, "all overload definitions and the distinct shadow declaration retain by-reference facts");
+  assert.equal(definitions.get("Token")?.length, 2, "both native type and value declarations retain their original facts");
+  assert.equal(definitions.get("value")?.length, 2, "both accessor definitions are definitions of the same checked property");
+  assert.equal(uses.get("pass")?.length, 4, "direct calls, the escaping value and the distinct shadow call remain real uses");
+  assert.equal(uses.get("Token")?.length, 2, "both ordinary value and type uses remain indexed");
+  assert.equal(uses.get("value")?.length, 3, "both property writes and the property read remain real uses");
+  assert.equal(uses.get("recurse")?.length, 2, "self-recursion and the outer invocation remain separate original uses");
+});
+
+test("ordinary import and export linkage keep their original reverse uses across canonical declarations", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/library.ts": `export function read(value: number): number { return value; }`,
+    "/src/public.ts": `export { read as forwarded } from "./library.js";`,
+    "/src/index.ts": `
+import { forwarded } from "./public.js";
+import * as Library from "./library.js";
+export { forwarded };
+export const value = forwarded(1) + Library.read(2);
+`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+  const source = createTargetSourceProgram(checked);
+  const library = checked.getSourceFile("/src/library.ts");
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(library && file);
+  const declaration = source.ast.statements(library).find(node => source.ast.is.IsFunctionDeclaration(node));
+  assert.ok(declaration);
+  const symbol = source.navigation.declarationSymbol(declaration, library);
+  assert.ok(symbol);
+  const references: Node[] = [];
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsIdentifier(node) && ["forwarded", "read"].includes(source.ast.text(node))) references.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(references.length, 4, "the ordinary import, export, direct call and member call all remain source linkage");
+  for (const reference of references) {
+    assert.equal(source.navigation.sourceReferenceFor(reference)?.declaration === declaration, true,
+      "a linkage or member use keeps its actual imported original declaration");
+    assert.equal(source.navigation.referencesWithin(symbol, file).includes(referenceQueryNode(source.ast, reference)!), true,
+      "an import/export/property name is not mistaken for the imported symbol's own declaration name");
+  }
+  assert.equal(source.navigation.referencesWithin(symbol, library).includes(source.ast.name(declaration)!), false,
+    "the actual remote function definition remains indexed only as a definition");
+});
+
+for (const [label, parameterType, body, role, escapes] of [
+  ["returned array spread", "uint8[]", "return [...values];", "value", false],
+  ["local array spread", "uint8[]", "const copied = [...values]; return copied;", "value", false],
+  ["returned object spread", "{ readonly item: number }", "return { ...values };", "value", false],
+  ["returned container identity", "uint8[]", "return values;", "return", true],
+  ["stored container identity", "uint8[]", "return [values];", "storage", true],
+  ["call spread", "uint8[]", "forward(...values);", "value", false],
+  ["construction spread", "uint8[]", "new Container(...values);", "value", false],
+  ["wrapped array spread", "uint8[]", "return [...(values as uint8[])];", "value", false],
+] as const) {
+  test(`spread operand container identity: ${label}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+      "/src/index.ts": `
+type uint8 = number;
+declare function forward(...items: uint8[]): void;
+declare class Container { constructor(...items: uint8[]); }
+export function inspect(values: ${parameterType}) { ${body} }
+`,
+    }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0,
+      formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+    const source = createTargetSourceProgram(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    assert.ok(file !== undefined, label);
+    const declaration = source.ast.statements(file).find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "inspect");
+    assert.ok(declaration !== undefined, label);
+    const parameter = source.ast.parameters(declaration)[0];
+    assert.ok(parameter !== undefined, label);
+    const summary = source.navigation.parameterUseSummary(parameter);
+    assert.ok(summary !== undefined, label);
+    assert.equal(summary.uses.length, 1, label);
+    const use = summary.uses[0]!;
+    assert.equal(use.role, role, label);
+    assert.equal(use.throughMember, false, label);
+    assert.equal(use.captured, false, label);
+    const flow = source.navigation.expressionValueFlow(use.reference);
+    assert.equal(flow.escapes, escapes, label);
+    assert.equal(flow.storedOutsideBinding, role === "storage", label);
+  });
+}

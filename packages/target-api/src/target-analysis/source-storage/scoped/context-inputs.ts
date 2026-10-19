@@ -41,7 +41,7 @@ export function createSourceStorageContextInputs(
     const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
     if (access && member === undefined) return undefined;
-    const incoming = invocation || access ? undefined : queries.incomingFor(origin);
+    const incoming = invocation || access || ast.is.IsBindingElement(node) ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
     try {

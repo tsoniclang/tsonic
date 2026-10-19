@@ -32,11 +32,11 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
     let entry = next;
     for (let index = declarations.length - 1; index >= 0; index -= 1) {
       const declaration = declarations[index];
-      if (declaration !== undefined) entry = build.pattern(declaration, entry, context, true);
+      if (declaration !== undefined) entry = build.pattern(declaration, entry, context, true, undefined);
     }
     return entry;
   }
-  if (ast.is.IsVariableDeclaration(node)) return build.pattern(node, next, context, true);
+  if (ast.is.IsVariableDeclaration(node)) return build.pattern(node, next, context, true, undefined);
   if (ast.is.IsIfStatement(node)) {
     const selected = ast.as.AsIfStatement(node);
     if (selected?.Expression === undefined || selected.ThenStatement === undefined) {
@@ -74,7 +74,8 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
   if (ast.is.IsTryStatement(node)) return tryStatement(build, node, next, context);
   if (ast.is.IsFunctionDeclaration(node)) return sourceFlowClosure(build, node, next, context);
   if (ast.is.IsClassDeclaration(node)) {
-    const write = build.emit(node, { kind: "write", binding: node, initialization: true }, next, context);
+    const write = build.emit(node, { kind: "write", binding: node, reference: node, initialization: true,
+      value: { kind: "value", expression: node, projection: [] } }, next, context);
     return build.expression(node, write, context);
   }
   throw new SourceFlowFailure(`Source flow does not support checked statement ${ast.kindName(node)}.`, node);
@@ -106,7 +107,7 @@ export function sourceFlowStatements(build: SourceFlowConstruction, statements: 
   let entry = completion;
   for (let index = sequence.length - 1; index >= 0; index -= 1) {
     const selected = sequence[index]!;
-    entry = selected.acquisition ? build.pattern(selected.node, entry, selected.context, true)
+    entry = selected.acquisition ? build.pattern(selected.node, entry, selected.context, true, undefined)
       : build.statement(selected.node, entry, selected.context);
   }
   return entry;
@@ -186,7 +187,7 @@ function tryStatement(build: SourceFlowConstruction, node: Node, next: number, c
     if (handler.VariableDeclaration !== undefined) {
       const name = ast.name(handler.VariableDeclaration);
       if (name === undefined) throw new SourceFlowFailure("Source flow requires a checked catch binding.", handler.VariableDeclaration);
-      entry = build.pattern(name, entry, protectedContext, true);
+      entry = build.pattern(name, entry, protectedContext, true, undefined);
     }
     throwTo = build.emit(selected.CatchClause, { kind: "catch" }, entry, protectedContext);
   }

@@ -10,6 +10,12 @@ import type { SourceControlFlowOptions, SourceControlFlowSelection } from "./mod
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
 
+type PatternKey = Node | string | number | boolean | undefined;
+interface PatternContinuation {
+  readonly children: Map<PatternKey, PatternContinuation>;
+  entry: number | undefined;
+}
+
 export function createSourceControlFlow(source: TargetSourceProgram, declaration: Node,
   options: SourceControlFlowOptions = {}): SourceControlFlowSelection {
   try {
@@ -46,13 +52,44 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
       }
       return entry;
     };
+    let patternWave: { readonly context: SourceFlowContext; readonly root: PatternContinuation } | undefined;
     const build: SourceFlowConstruction = { source, parameterInitializers,
       initializeSuper: (next, context) => initialize(superInitializers, next, context),
       captures: createSourceFlowCaptureQuery(source, owner.step),
       point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
       expression: (node, next, context) => owner.nested(node, () => sourceFlowExpression(build, node, next, context)),
       statement: (node, next, context) => owner.nested(node, () => sourceFlowStatement(build, node, next, context)),
-      pattern: (node, next, context, initialization) => owner.nested(node, () => sourceFlowPattern(build, node, next, context, initialization)),
+      pattern: (node, next, context, initialization, value) => owner.nested(node, () => {
+        const previous = patternWave;
+        const wave = previous?.context === context ? previous : {
+          context, root: { children: new Map<PatternKey, PatternContinuation>(), entry: undefined },
+        };
+        patternWave = wave;
+        try {
+          let selected = wave.root;
+          const select = (key: PatternKey): void => {
+            owner.step(node);
+            let child = selected.children.get(key);
+            if (child === undefined) {
+              child = { children: new Map(), entry: undefined };
+              selected.children.set(key, child);
+            }
+            selected = child;
+          };
+          select(node);
+          select(value?.kind);
+          select(value?.expression);
+          for (const part of value?.projection ?? []) select(part);
+          select(next);
+          select(initialization);
+          if (selected.entry !== undefined) return selected.entry;
+          const entry = sourceFlowPattern(build, node, next, context, initialization, value);
+          selected.entry = entry;
+          return entry;
+        } finally {
+          patternWave = previous;
+        }
+      }),
     };
     const exit = build.point(declaration, { kind: "exit" });
     const exceptionExit = build.point(declaration, { kind: "exception-exit" });
@@ -67,7 +104,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
       const receiver = implicit ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
-        if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true);
+        if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
       }
       return entry;
     });

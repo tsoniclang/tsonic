@@ -406,6 +406,7 @@ function acceptsNoConstructorArguments(
 
 export type {
   SourceBindingWrite,
+  SourceBindingWriteValue,
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,

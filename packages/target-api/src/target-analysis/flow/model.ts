@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection,
   SourceStorageQueries } from "../source-storage/model/types.js";
 
@@ -13,12 +14,15 @@ export interface SourceFlowEdge {
 
 export type SourceFlowOperation =
   | { readonly kind: "entry" | "exit" | "exception-exit" | "merge" | "branch" |
-      "evaluate" | "iteration" | "catch" | "await" | "yield" | "return" | "throw" }
+      "evaluate" | "iteration" | "catch" | "yield" | "return" | "throw" }
+  | { readonly kind: "await"; readonly value: Node | undefined }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
   | { readonly kind: "dispose"; readonly declaration: Node; readonly asynchronous: boolean }
-  | { readonly kind: "write"; readonly binding: Node; readonly initialization: boolean };
+  | { readonly kind: "write-location"; readonly location: Node; readonly value: SourceBindingWriteValue }
+  | { readonly kind: "write"; readonly binding: Node; readonly reference: Node; readonly initialization: boolean;
+      readonly value: SourceBindingWriteValue | undefined };
 
 export interface SourceFlowPoint {
   readonly id: number;

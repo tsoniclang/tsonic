@@ -40,7 +40,12 @@ export function createSourceStorageStoreProjections(budget: SourceStorageBudget,
         for (const store of storesFor(prefix) ?? []) {
           if (!budget.step()) return undefined;
           hasStores = true;
-          if (store.value === undefined) collect(store, undefined);
+          if (store.birth !== undefined && selected !== prefix) {
+            for (const component of store.birth) {
+              if (!budget.step()) return undefined;
+              projectOrigin(component.origin, component.destination, selected, value => collect(store, value));
+            }
+          } else if (store.value === undefined) collect(store, undefined);
           else projectOrigin(store.value, prefix, selected, value => collect(store, value));
         }
       }
