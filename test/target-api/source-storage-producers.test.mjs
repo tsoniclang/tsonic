@@ -103,6 +103,47 @@ test("unknown constructor inputs and shallow readonly descendants do not become 
   open(current.storage.storageProducersFor(current.subject(current.variable("selected"))), "external-write");
 });
 
+for (const reverse of [false, true]) {
+  test(`an external constructor frontier never supplies a private executed producer (${reverse})`, async () => {
+    const current = await fixture("storage-producer-external-frontier-order", `
+      export class External {
+        readonly callback: () => number;
+        constructor(input: () => number) { this.callback = input; }
+      }
+      class Local {
+        callback = (): number => 1;
+        replace(input: () => number): void { this.callback = input; }
+      }
+      const local = new Local();
+      const selected = local.callback;
+    `);
+    const { ast } = current.source;
+    const external = namedDeclaration(ast, current.file, "External");
+    const local = namedDeclaration(ast, current.file, "Local");
+    const constructor = ast.members(external).find(member => ast.is.IsConstructorDeclaration(member));
+    const externalField = ast.members(external).find(member => ast.is.IsPropertyDeclaration(member));
+    const localField = ast.members(local).find(member => ast.is.IsPropertyDeclaration(member));
+    assert.equal(constructor !== undefined && externalField !== undefined && localField !== undefined, true,
+      "the exact original constructor and two field declarations exist");
+    const formal = ast.parameters(constructor)[0];
+    const original = ast.as.AsPropertyDeclaration(localField).Initializer;
+    const checks = [() => {
+      const selected = current.storage.storageProducersFor(current.subject(externalField));
+      assert.equal(selected.kind === "open", true, "the unconstructed exported field remains open");
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" && boundary.subject.node === formal), true,
+        "the frontier is the exact original external constructor formal");
+      assert.equal(selected.producers.length === 0, true, "an external frontier never fabricates an executed producer");
+    }, () => {
+      const selected = current.storage.closedOriginsFor(current.subject(current.variable("selected")));
+      assert.equal(selected.kind === "complete", true, "the actual private construction stays closed");
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === original, true,
+        "only the original local field arrow executes; the replacement method was not called");
+    }];
+    for (const check of reverse ? checks.reverse() : checks) check();
+    assert.equal(current.storage.failureReason() === undefined, true, "the independent query orders do not poison their owner");
+  });
+}
+
 test("physical producers preserve external and opaque writes instead of treating readonly views as closure", async () => {
   const current = await fixture("storage-producer-writer-boundaries", `
     export class Mutable { externalCallback = (): number => 1; }

@@ -16,7 +16,7 @@ import { createSourceStorageExecutionRegions } from "../graph/execution-regions.
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageClassLineages, sourceStorageConstructionExpression, sourceStorageSuperConstructor } from "../model/construction.js";
 import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
-import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
+import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
@@ -887,7 +887,11 @@ export function createSourceStorageTransport(
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
-    selected => substitutions.walk(selected, substitutions.empty), unresolvedSubjects);
+    selected => {
+      const result = substitutions.walk(selected, substitutions.empty);
+      return result === undefined ? undefined : { subjects: result.subjects,
+        reason: result.fatalReason ?? result.reason ?? (result.emptyDemands.length === 0 ? undefined : sourceStorageMissingProducerReason) };
+    }, unresolvedSubjects);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;
@@ -924,6 +928,7 @@ export function createSourceStorageTransport(
   sealed = true;
   return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
+    storedValuesFor: storedProjections,
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
     writeAt: storedValues.writeAt,

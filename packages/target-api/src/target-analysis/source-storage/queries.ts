@@ -10,6 +10,7 @@ import type { SourceStorageSubject } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection,
   sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
+import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import type {
@@ -140,8 +141,10 @@ export function createSourceStorageQuery(
     const subjects = new Set<SourceStorageSubject>();
     for (const state of states) {
       const selected = transport.substitutions.walk(subject, state);
-      if (selected === undefined || selected.reason !== undefined)
-        return unresolved(budget.failure() ?? selected?.reason ?? "Source storage has no completed bound-origin selection.");
+      if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0)
+        return unresolved(budget.failure() ?? selected?.fatalReason ?? selected?.reason ??
+          (selected !== undefined && selected.emptyDemands.length !== 0 ? sourceStorageMissingProducerReason
+            : "Source storage has no completed bound-origin selection."));
       for (const current of selected.subjects) {
         const reason = transport.directlyUnresolvedFor(current.subject);
         if (reason !== undefined) return unresolved(reason);
@@ -161,8 +164,10 @@ export function createSourceStorageQuery(
       if (origin.kind !== "input" || Node_Initializer(source.ast, origin.node) === undefined)
         return transport.incomingFor(origin);
       const selected = transport.substitutions.walk(origin, transport.substitutions.empty);
-      if (selected === undefined || selected.reason !== undefined) {
-        failure ??= selected?.reason ?? budget.failure() ?? "An initialized source input requires its completed value correspondence.";
+      if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) {
+        failure ??= selected?.fatalReason ?? selected?.reason ?? budget.failure() ??
+          (selected !== undefined && selected.emptyDemands.length !== 0 ? sourceStorageMissingProducerReason
+            : "An initialized source input requires its completed value correspondence.");
         return new Set();
       }
       return selected.origins;

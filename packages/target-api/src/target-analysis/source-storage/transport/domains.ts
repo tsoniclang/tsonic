@@ -7,7 +7,8 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
-import type { SourceStorageSubstitutions } from "../scoped/substitutions.js";
+import type { SourceStorageBoundSubject, SourceStorageSubstitutions } from "../scoped/substitutions.js";
+import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
 import { createSourceStorageDomainWitnesses } from "../graph/domain-witnesses.js";
@@ -249,7 +250,8 @@ export function createSourceStorageDomains(
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const target = transport.invocationTargets.get(invocation);
       const selected = target === undefined ? undefined : transport.substitutions.walk(target, bindings);
-      if (selected === undefined || selected.reason !== undefined || selected.origins.size === 0) return false;
+      if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
+        selected.emptyDemands.length !== 0 || selected.origins.size === 0) return false;
       for (const origin of selected.origins) {
         if (!budget.step() || !sourceStorageHasOriginalCallableValue(origin, ast)) return false;
         const implementation = navigation.callableImplementation(origin.node);
@@ -350,19 +352,21 @@ export function createSourceStorageDomains(
       return domainInputs.has(current.subject);
     });
     yield* selected?.origins ?? [];
-    if (selected?.reason !== undefined && !selected.origins.has(subject)) yield subject;
+    if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) &&
+      !selected.origins.has(subject)) yield subject;
   };
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const selected = transport.substitutions.walk(subject, bindings, current => {
+    const isExternalInput = (current: SourceStorageBoundSubject): boolean => {
       if (transport.substitutions.isBound(current.subject, current.bindings) ||
         receiverBinding(current.subject, current.bindings)) return false;
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
         (boundary.owner === undefined || stores === undefined) &&
         !closedSourceInvocation(boundary.exposure, current.bindings));
-    });
+    };
+    const selected = transport.substitutions.walk(subject, bindings, isExternalInput);
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),
@@ -376,10 +380,40 @@ export function createSourceStorageDomains(
         selected.owner === boundary.owner && selected.exposure === boundary.exposure && selected.bindings === bindings)) return;
       if (rows.add(1)) boundaries.push(Object.freeze({ ...boundary, bindings }));
     };
+    let reason: string | undefined;
+    for (const demand of selected.emptyDemands) {
+      if (!budget.step()) break;
+      if (demand.kind !== "reference" && demand.kind !== "leaf") { reason = sourceStorageMissingProducerReason; break; }
+      const stores = transport.storedValuesFor(demand.subject);
+      let explained = false;
+      for (const entry of stores ?? []) {
+        if (!budget.step()) break;
+        if (entry.store.reason !== undefined) { reason = sourceStorageMissingProducerReason; break; }
+        if (entry.value === undefined) continue;
+        const frontier = transport.substitutions.walk(entry.value, demand.scope, isExternalInput);
+        if (frontier?.fatalReason !== undefined) budget.reject(frontier.fatalReason);
+        if (frontier === undefined || frontier.reason !== undefined || frontier.fatalReason !== undefined || frontier.emptyDemands.length !== 0) {
+          reason = budget.failure() ?? frontier?.reason ?? sourceStorageMissingProducerReason;
+          break;
+        }
+        for (const current of frontier.subjects) {
+          if (!budget.step()) break;
+          if (!current.contributes || !frontier.origins.has(current.subject) || !isExternalInput(current)) continue;
+          for (const boundary of boundariesFor(current.subject)) {
+            if (!budget.step()) break;
+            if (boundary.kind !== "external-input" || closedSourceInvocation(boundary.exposure, current.bindings)) continue;
+            retainBoundary(boundary, current.bindings);
+            explained = true;
+          }
+        }
+        if (budget.failure() !== undefined) break;
+      }
+      if (reason !== undefined || budget.failure() !== undefined) break;
+      if (!explained) { reason = sourceStorageMissingProducerReason; break; }
+    }
     const pending = [...selected.subjects];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
-    let reason: string | undefined;
-    while (pending.length !== 0) {
+    while (reason === undefined && pending.length !== 0) {
       if (!budget.step()) break;
       const current = pending.pop()!;
       const seen = visited.get(current.bindings);
