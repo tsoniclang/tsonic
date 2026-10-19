@@ -264,6 +264,222 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         return values;
       };
     },
+    closure<Key, Value>(collect: (key: Key, emit: (value: Value) => boolean, follow: (key: Key) => boolean) => boolean):
+      (key: Key) => ReadonlySet<Value> | undefined {
+      interface Pending {
+        readonly index: number;
+        lowlink: number;
+        stacked: boolean;
+        readonly rows: SourceStorageRows;
+        readonly inputs: Set<Key>;
+        readonly values: Set<Value>;
+        readonly iterator: SetIterator<Key>;
+      }
+      interface Component {
+        readonly entry: QueryEntry;
+        readonly values: Set<Value>;
+        readonly view: ReadonlySet<Value>;
+        head: Member | undefined;
+        complete: boolean;
+      }
+      interface Member {
+        readonly key: Key;
+        readonly entry: QueryEntry;
+        pending: Pending | undefined;
+        component: Component | undefined;
+        next: Member | undefined;
+      }
+      const selections = new Map<Key, Member>();
+      let running = false;
+      const releasePending = (member: Member): void => {
+        const pending = member.pending;
+        member.pending = undefined;
+        pending?.inputs.clear();
+        pending?.values.clear();
+        pending?.rows.release();
+      };
+      const remove = (member: Member): void => {
+        selections.delete(member.key);
+        releasePending(member);
+        const component = member.component;
+        member.component = undefined;
+        if (component?.entry !== member.entry) return;
+        let current = component.head;
+        component.head = undefined;
+        while (current !== undefined) {
+          const next = current.next;
+          current.next = undefined;
+          current.component = undefined;
+          if (current !== member && current.entry.live) discard(current.entry);
+          current = next;
+        }
+      };
+      return key => {
+        if (!budget.step()) return undefined;
+        if (running) {
+          budget.reject("Source storage origin closures cannot expose an unfinished family.");
+          return undefined;
+        }
+        const parent = active;
+        const cached = selections.get(key);
+        if (cached?.component?.complete && cached.entry.live)
+          return depend(parent, cached.component.entry) ? cached.component.view : undefined;
+        return budget.withRows(workRows => {
+          const wave = new Set<Member>();
+          const frames: Member[] = [];
+          const stack: Member[] = [];
+          let index = 0;
+          let complete = false;
+          const admit = (selected: Key): Member | undefined => {
+            if (!budget.step()) return undefined;
+            const known = selections.get(selected);
+            if (known !== undefined) return known;
+            const rows = budget.createRows();
+            const pendingRows = budget.createRows();
+            if (!rows.add(1) || !workRows.add(1) || !pendingRows.add(2)) {
+              rows.release(); pendingRows.release(); return undefined;
+            }
+            const inputs = new Set<Key>();
+            const pending: Pending = { index, lowlink: index, stacked: true, rows: pendingRows,
+              inputs, values: new Set(), iterator: inputs.values() };
+            index += 1;
+            const member: Member = { key: selected, pending, component: undefined, next: undefined,
+              entry: { live: true, rows, dependencyRows: budget.createRows(), remove: () => remove(member),
+                reads: new Set(), parents: new Set(), children: new Set(), inheritedReads: undefined } };
+            selections.set(selected, member);
+            wave.add(member);
+            stack.push(member);
+            frames.push(member);
+            let collecting = true;
+            const accepts = (): boolean => {
+              if (!budget.step()) return false;
+              if (collecting && active === member.entry && member.entry.live) return true;
+              budget.reject("Source storage origin closure writes require their active collector.");
+              return false;
+            };
+            active = member.entry;
+            let collected: boolean;
+            try {
+              collected = collect(selected, value => {
+                if (!accepts()) return false;
+                if (pending.values.has(value)) return true;
+                if (!pendingRows.add(1)) return false;
+                pending.values.add(value);
+                return true;
+              }, input => {
+                if (!accepts()) return false;
+                if (inputs.has(input)) return true;
+                if (!pendingRows.add(1)) return false;
+                inputs.add(input);
+                return true;
+              });
+            } finally {
+              collecting = false;
+              active = parent;
+            }
+            if (!member.entry.live) budget.reject("Source storage graph inputs changed during query selection.");
+            if (!collected) budget.reject("Source storage origin closure collectors require an exact positive result.");
+            return budget.failure() === undefined ? member : undefined;
+          };
+          const close = (root: Member): boolean => {
+            const pending = root.pending!;
+            const values = new Set<Value>();
+            const component: Component = { entry: root.entry, values, view: readonlyValues(values), head: undefined, complete: false };
+            root.component = component;
+            let current: Member;
+            do {
+              if (!budget.step()) return false;
+              current = stack.pop()!;
+              current.pending!.stacked = false;
+              current.component = component;
+              current.next = component.head;
+              component.head = current;
+            } while (current !== root);
+            const dependencies = new Set<Component>();
+            const emit = (value: Value): boolean => {
+              if (!budget.step()) return false;
+              if (values.has(value)) return true;
+              if (!root.entry.rows.add(1)) return false;
+              values.add(value);
+              return true;
+            };
+            for (let member = component.head; member !== undefined; member = member.next) {
+              if (!budget.step()) return false;
+              if (!member.entry.live) {
+                budget.reject("Source storage graph inputs changed during query selection.");
+                return false;
+              }
+              if (member !== root && !depend(root.entry, member.entry)) return false;
+              for (const value of member.pending!.values) if (!emit(value)) return false;
+              for (const input of member.pending!.inputs) {
+                if (!budget.step()) return false;
+                const selected = selections.get(input)?.component;
+                if (selected === component) continue;
+                if (selected?.complete !== true || !selected.entry.live) {
+                  budget.reject("Source storage origin closures require completed dependency components.");
+                  return false;
+                }
+                if (dependencies.has(selected)) continue;
+                if (!pending.rows.add(1)) return false;
+                dependencies.add(selected);
+              }
+            }
+            for (const dependency of dependencies) {
+              if (!budget.step() || !depend(root.entry, dependency.entry)) return false;
+              for (const value of dependency.values) if (!emit(value)) return false;
+            }
+            dependencies.clear();
+            for (let member = component.head; member !== undefined; member = member.next) releasePending(member);
+            if (!sealed && root.entry.children.size === 1) {
+              const child = root.entry.children.values().next().value!;
+              root.entry.inheritedReads = child.children.size === 0 ? child.reads : child.inheritedReads;
+            }
+            component.complete = true;
+            return true;
+          };
+          running = true;
+          try {
+            const root = admit(key);
+            if (root === undefined) return undefined;
+            while (frames.length !== 0) {
+              if (!budget.step()) return undefined;
+              const member = frames[frames.length - 1]!;
+              const pending = member.pending!;
+              const input = pending.iterator.next();
+              if (!input.done) {
+                const selected = selections.get(input.value);
+                if (selected === undefined) {
+                  if (admit(input.value) === undefined) return undefined;
+                } else if (selected.pending?.stacked) pending.lowlink = Math.min(pending.lowlink, selected.pending.index);
+                continue;
+              }
+              if (pending.lowlink === pending.index && !close(member)) return undefined;
+              frames.pop();
+              const caller = frames[frames.length - 1]?.pending;
+              if (caller !== undefined && member.pending?.stacked) caller.lowlink = Math.min(caller.lowlink, member.pending.lowlink);
+            }
+            for (const member of wave) {
+              if (!budget.step()) return undefined;
+              if (!member.entry.live) {
+                budget.reject("Source storage graph inputs changed during query selection.");
+                return undefined;
+              }
+            }
+            const component = root.component;
+            if (component?.complete !== true || budget.failure() !== undefined || !depend(parent, component.entry)) return undefined;
+            complete = true;
+            return component.view;
+          } finally {
+            active = parent;
+            running = false;
+            frames.length = 0;
+            stack.length = 0;
+            if (!complete) for (const member of wave) if (member.entry.live) discard(member.entry);
+            wave.clear();
+          }
+        });
+      };
+    },
     fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
       add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();

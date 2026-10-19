@@ -5,6 +5,153 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../pac
 
 const subject = (node, kind = "value", projection = []) => ({ node, kind, projection });
 
+test("origin closure owns overlapping cyclic dependencies once and invalidates only actual readers", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const graph = createSourceStorageGraphQueries(budget);
+  const root = subject({});
+  const left = subject({});
+  const right = subject({});
+  const first = subject({});
+  const second = subject({});
+  const unrelated = subject({});
+  const inputs = new Map([[root, new Set([left, right])], [left, new Set([right])],
+    [right, new Set([left, first])]]);
+  const visits = new Map();
+  const select = graph.closure((key, emit, follow) => {
+    graph.read(key);
+    visits.set(key, (visits.get(key) ?? 0) + 1);
+    const parents = inputs.get(key);
+    if (parents === undefined || parents.size === 0) return emit(key);
+    for (const parent of parents) if (!follow(parent)) return false;
+    return true;
+  });
+  const original = select(root);
+  assert.equal(original?.size === 1 && original.has(first), true, "exact original component origin");
+  for (let repeat = 0; repeat < 32; repeat += 1) {
+    assert.equal(select(root) === original, true, "completed root result identity");
+    assert.equal(select(left)?.has(first) === true && select(right)?.has(first) === true, true,
+      "both cyclic suffixes already complete");
+  }
+  assert.equal([root, left, right, first].every(key => visits.get(key) === 1), true,
+    "one direct collector per unchanged origin dependency, not per root");
+  const separate = select(unrelated);
+  inputs.set(right, new Set([left, second]));
+  graph.invalidate(right);
+  const updated = select(root);
+  assert.equal(updated !== original && updated?.size === 1 && updated.has(second), true,
+    "current pre-seal dependency replaces the old immutable answer");
+  assert.equal(updated?.has(first) === false, true, "no stale origin remains after invalidation");
+  assert.equal(select(unrelated) === separate, true, "unrelated completed owner stays valid");
+  graph.seal();
+  assert.equal(select(root) === updated, true, "same completed result after the existing seal");
+  assert.equal(budget.failure() === undefined, true, "no failure or unfinished answer");
+});
+
+test("origin closure retires a throwing wave without caching partial or stopping evidence", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const graph = createSourceStorageGraphQueries(budget);
+  const root = subject({});
+  const expected = new Error("original origin collector failure");
+  const warmRead = graph.query(key => { graph.read(key); return new Set(); });
+  warmRead(root);
+  graph.invalidate(root);
+  const before = budget.usage().rows;
+  let throwing = true;
+  const select = graph.closure((key, emit) => {
+    graph.read(key);
+    if (throwing) throw expected;
+    return emit(key);
+  });
+  for (let repeat = 0; repeat < 16; repeat += 1) {
+    assert.throws(() => select(root), error => error === expected);
+    assert.equal(budget.usage().rows === before, true, "failed wave retains no owned rows");
+  }
+  throwing = false;
+  const completed = select(root);
+  assert.equal(completed?.size === 1 && completed.has(root), true, "later real completed result");
+  assert.equal(select(root) === completed, true, "only the completed result is reused");
+  assert.equal(budget.failure() === undefined, true, "throw did not manufacture sticky budget failure");
+});
+
+test("origin closure never publishes through independent row or work exhaustion", () => {
+  for (const limits of [{ maximumTransportRows: 1 }, { maximumSteps: 1 }]) {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
+    const graph = createSourceStorageGraphQueries(budget);
+    const root = subject({});
+    const select = graph.closure((key, emit) => { graph.read(key); return emit(key); });
+    assert.equal(select(root) === undefined, true, "exhausted owner returns no evidence");
+    assert.equal(budget.failure() !== undefined, true, "original finite failure remains visible");
+    assert.equal(select(root) === undefined, true, "failed wave cannot become a cached success");
+  }
+});
+
+test("completed origin components replace former leaf seeds and merge new cycles in either query order", () => {
+  for (const reverse of [false, true]) {
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    const graph = createSourceStorageGraphQueries(budget);
+    const left = subject({});
+    const right = subject({});
+    const first = subject({});
+    const second = subject({});
+    const inputs = new Map([[left, new Set([first])], [right, new Set([second])]]);
+    const select = graph.closure((key, emit, follow) => {
+      graph.read(key);
+      const parents = inputs.get(key);
+      if (parents === undefined || parents.size === 0) return emit(key);
+      for (const parent of parents) if (!follow(parent)) return false;
+      return true;
+    });
+    for (const key of reverse ? [right, left] : [left, right]) assert.equal(select(key)?.size === 1, true,
+      "both original components complete before a real new edge");
+    const before = select(left);
+    const independent = select(right);
+    inputs.set(first, new Set([right]));
+    graph.invalidate(first);
+    const after = select(left);
+    assert.equal(after !== before && after?.size === 1 && after.has(second) && !after.has(first), true,
+      "a formerly closed leaf loses its obsolete seed after the new edge");
+    assert.equal(before?.has(first) === true, true, "the retired result stays immutable");
+    assert.equal(select(right) === independent, true, "an unrelated suffix retains its exact result");
+    inputs.set(second, new Set([left]));
+    graph.invalidate(second);
+    for (const key of reverse ? [right, left] : [left, right]) assert.equal(select(key)?.size === 0, true,
+      "the new fully closed rootless cycle never manufactures an origin");
+    assert.equal(select(left) === select(right), true, "all keys in the new component share its completed union");
+    assert.equal(budget.failure() === undefined, true, "both query orders preserve finite ownership");
+  }
+});
+
+test("a failed origin wave retires already folded suffixes and all of its own state", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const graph = createSourceStorageGraphQueries(budget);
+  const root = subject({});
+  const left = subject({});
+  const right = subject({});
+  const warmRead = graph.query(key => { graph.read(key); return new Set(); });
+  for (const key of [root, left, right]) { warmRead(key); graph.invalidate(key); }
+  const before = budget.usage().rows;
+  const expected = new Error("later origin dependency failed");
+  let throwing = true;
+  let leftVisits = 0;
+  const select = graph.closure((key, emit, follow) => {
+    graph.read(key);
+    if (key === root) return follow(left) && follow(right);
+    if (key === left) leftVisits += 1;
+    if (key === right && throwing) throw expected;
+    return emit(key);
+  });
+  for (let repeat = 0; repeat < 16; repeat += 1) {
+    assert.throws(() => select(root), error => error === expected);
+    assert.equal(budget.usage().rows === before, true, "no unfinished member, result, dependency or temporary row survives");
+    assert.equal(leftVisits === repeat + 1, true, "the unpublished folded child was retired with the failed wave");
+  }
+  throwing = false;
+  const result = select(root);
+  assert.equal(result?.size === 2 && result.has(left) && result.has(right), true, "later complete wave publishes both real seeds");
+  assert.equal(select(root) === result, true, "only the complete wave remains cached");
+  assert.equal(budget.failure() === undefined, true, "the identical original exception did not become an unrelated refusal");
+});
+
 test("graph queries retain unaffected selections and invalidate exact nested dependencies", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const graph = createSourceStorageGraphQueries(budget);

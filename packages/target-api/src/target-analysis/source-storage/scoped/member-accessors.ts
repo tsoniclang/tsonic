@@ -1,6 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import type { SourceStorageIncomingQuery } from "../graph/edges.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -24,23 +23,16 @@ interface SourceStorageAccessorQueries {
 export function createSourceStorageMemberAccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   queries: SourceStorageAccessorQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
   const { ast, semantics } = source;
-  const noInputs: ReadonlySet<SourceStorageSubject> = new Set();
-  const ancestors = createSourceStorageAncestorQuery(budget, subject =>
-    subject.kind === "member" ? queries.incomingFor(subject) : noInputs);
-  const declarationsFor = graph.query((declaration: Node): ReadonlySet<Node> | undefined => {
-    const subject = sourceStorageMemberSubject(declaration, ast, queries.subject);
-    if (subject === undefined) return undefined;
-    return budget.withRows(rows => {
-      const selected = new Set<Node>();
-      for (const original of ancestors(subject)) {
-        if (!budget.step()) return undefined;
-        if (!ast.is.IsGetAccessorDeclaration(original.node) && !ast.is.IsSetAccessorDeclaration(original.node)) continue;
-        if (!selected.has(original.node) && !rows.add(1)) return undefined;
-        selected.add(original.node);
-      }
-      return budget.failure() === undefined ? selected : undefined;
-    });
+  const accessorDeclarations = graph.closure<SourceStorageSubject, Node>((original, emit, follow) => {
+    if (!budget.step()) return false;
+    if ((ast.is.IsGetAccessorDeclaration(original.node) || ast.is.IsSetAccessorDeclaration(original.node)) && !emit(original.node)) return false;
+    if (original.kind === "member") for (const input of queries.incomingFor(original)) if (!follow(input)) return false;
+    return budget.failure() === undefined;
   });
+  const declarationsFor = (declaration: Node): ReadonlySet<Node> | undefined => {
+    const subject = sourceStorageMemberSubject(declaration, ast, queries.subject);
+    return subject === undefined ? undefined : accessorDeclarations(subject);
+  };
   const sites = new Set<Node>();
   const targets = new Map<Node, readonly SourceStorageAccessorInvocation[]>();
   const record = (access: Node): void => {
