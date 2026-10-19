@@ -360,7 +360,8 @@ export function createSourceStorageDomains(
         receiverBinding(current.subject, current.bindings)) return false;
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input" &&
-        (boundary.owner === undefined || stores === undefined));
+        (boundary.owner === undefined || stores === undefined) &&
+        !closedSourceInvocation(boundary.exposure, current.bindings));
     });
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
@@ -396,6 +397,7 @@ export function createSourceStorageDomains(
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;
+          if (closedSourceInvocation(boundary.exposure, current.bindings)) continue;
           if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
           if (boundary.owner !== undefined) {
             const members = selectedMembers(current.subject, boundary.owner, current.bindings);
