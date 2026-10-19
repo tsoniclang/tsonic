@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { BreakOrContinueStatement_Label, LabeledStatement_Label, LabeledStatement_Statement } from "./ast.js";
+import { BreakOrContinueStatement_Label, IterationStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement } from "./ast.js";
 import { sourceBindingCallableKinds } from "./binding-mutation-exposure.js";
 
 export function sourceControlTransferTarget(ast: AstReader, node: Node): Node | undefined {
@@ -33,4 +33,19 @@ export function sourceNodeIsIteration(ast: AstReader, node: Node): boolean {
   const kind = ast.kindName(node);
   return kind === "KindWhileStatement" || kind === "KindForStatement" || kind === "KindForOfStatement" ||
     kind === "KindForInStatement" || kind === "KindDoStatement";
+}
+
+export interface SourceLabeledStatementTarget {
+  readonly body: Node;
+  readonly loop: Node | undefined;
+  readonly loopBody: Node | undefined;
+}
+
+export function sourceLabeledStatementTarget(ast: AstReader, node: Node): SourceLabeledStatementTarget | undefined {
+  const body = LabeledStatement_Statement(ast, node);
+  if (body === undefined) return undefined;
+  let current: Node | undefined = body;
+  while (current !== undefined && ast.is.IsLabeledStatement(current)) current = LabeledStatement_Statement(ast, current);
+  const loop = current !== undefined && sourceNodeIsIteration(ast, current) ? current : undefined;
+  return Object.freeze({ body, loop, loopBody: loop === undefined ? undefined : IterationStatement_Statement(ast, loop) });
 }
