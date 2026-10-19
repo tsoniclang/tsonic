@@ -83,6 +83,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         witnesses.push({ subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes });
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
+        if (term.subject.kind === "value" && term.subject.projection.length === 0 &&
+          (source.ast.is.IsObjectLiteralExpression(term.subject.node) || source.ast.is.IsArrayLiteralExpression(term.subject.node) ||
+            source.ast.is.IsArrowFunction(term.subject.node) || source.ast.is.IsFunctionExpression(term.subject.node)))
+          return Object.freeze({ kind: "leaf", subject: term.subject, scope: witnessScope(term.subject, term.scope) });
         const input = term.subject.kind === "value" ? transport.bindingInputFor(term.subject) : undefined;
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
         if (term.scope !== scopes.empty && (term.subject.kind === "receiver" ||

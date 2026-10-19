@@ -544,9 +544,7 @@ export function createSourceStorageTransport(
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
     let exact = !member && target !== undefined;
     if (member) {
-      const selected = implementationsFor(declaration, invocation, originsFor);
-      if (selected.exact) return selected;
-      for (const implementation of selected.nodes) implementations.add(implementation);
+      return implementationsFor(declaration, invocation, originsFor);
     }
     const origins = target === undefined ? undefined : originsFor(target);
     if (target !== undefined && origins === undefined) exact = false;
