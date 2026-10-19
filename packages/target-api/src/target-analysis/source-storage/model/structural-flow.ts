@@ -53,8 +53,9 @@ export function createSourceStorageStructuralFlow(
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
         if (!step()) break;
-        if (member.kind !== "present") continue;
-        for (const original of member.source.declarations) {
+        if (member.kind !== "present" || member.destination.read === "accessor") continue;
+        const originals = member.source.read === "accessor" ? member.source.getters : member.source.declarations;
+        for (const original of originals) {
           if (!step() || !retainCheckedContext(original, semantics.sourceFile)) break;
           const origin = sourceStorageMemberSubject(original, source.ast, subject);
           for (const target of member.destination.declarations) {
