@@ -139,7 +139,7 @@ mutate(spread);
   }
 });
 
-test("Error writes through unproved scalar bindings remain unresolved without changing independent storage", async () => {
+test("Error writes through proven scalar bindings retain writable demand and exact closed origins without changing independent storage", async () => {
   const { source, file, demands, variable, storage } = await checked("error-unproved-scalar-binding", `
 const original: Stored = { message: "original" };
 const container = { value: original };
@@ -148,8 +148,94 @@ const untouched = { message: "untouched" };
 selected.message = "changed";
 `);
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
-  assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not writable evidence");
-  assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not exact origin evidence");
+  const selected = requiredStorageSubject(storage, binding);
+  assert.equal(demands.storageFor(selected).kind, "writable", "the proven binding retains its actual mutation demand");
+  const origins = demands.closedStorageOriginsFor(selected);
+  const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+  assert.equal(origins.kind, "complete", "the proven binding has closed physical-origin evidence");
+  assert.equal(origins.origins.length, 1, "exactly the original object allocation");
+  assert.equal(origins.origins[0].subject.node === original, true, "the exact original object identity");
+  assert.equal(origins.origins[0].subject.projection.length, 0, "the complete original allocation has no projection");
+  const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
+  assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
+});
+
+for (const [name, statements] of [
+  ["named property", `const container = { value: original }; const { value: selected } = container;`],
+  ["shorthand property", `const container = { original }; const { original: selected } = container;`],
+  ["nested properties", `const container = { outer: { value: original } }; const { outer: { value: selected } } = container;`],
+]) {
+  test(`Error literal-member mutation reaches the original physical allocation through ${name}`, async () => {
+    const { source, file, provider, demands, variable, storage } = await checked(`error-literal-member-${name}`, `
+const original: Stored = { message: "original" };
+${statements}
+const untouched = { message: "untouched" };
+selected.message = "changed";
+`);
+    const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node) &&
+      source.ast.is.IsIdentifier(source.ast.name(node)) && source.ast.text(source.ast.name(node)) === "selected");
+    const selectedSubject = requiredStorageSubject(storage, binding);
+    const selected = demands.storageFor(selectedSubject);
+    assert.equal(selected.kind, "writable", `${name}: selected storage is writable`);
+    assert.equal(selected.writes.length, 1, `${name}: one exact write`);
+    const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+    assert.equal(original !== undefined && source.ast.is.IsObjectLiteralExpression(original), true, `${name}: checked original allocation`);
+    for (const node of [variable("original"), original]) {
+      const physical = demands.storageFor(requiredStorageSubject(storage, node));
+      assert.equal(physical.kind, "writable", `${name}: original ${source.ast.kindName(node)} storage is writable`);
+      assert.equal(physical.writes.length, 1, `${name}: original storage receives one write`);
+      assert.equal(physical.writes[0] === selected.writes[0], true, `${name}: original receives the identical mutation`);
+    }
+    const origins = demands.closedStorageOriginsFor(selectedSubject);
+    assert.equal(origins.kind, "complete", `${name}: selected origin is closed`);
+    assert.equal(origins.origins.length, 1, `${name}: one original allocation`);
+    assert.equal(origins.origins[0].subject.node === original, true, `${name}: exact original allocation identity`);
+    assert.equal(origins.origins[0].subject.projection.length, 0, `${name}: the origin is the allocation itself`);
+    const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))[0];
+    assert.equal(field !== undefined, true, `${name}: checked Stored.message declaration`);
+    const component = demands.closedStorageOriginsFor(requiredStorageSubject(storage, binding, [{ kind: "member", declaration: field }]));
+    const originalMessage = requiredNode(source.ast, original, node => source.ast.is.IsStringLiteral(node));
+    const writeOperation = source.ast.parent(selected.writes[0]);
+    assert.equal(writeOperation !== undefined && source.ast.is.IsBinaryExpression(writeOperation), true, `${name}: actual checked assignment`);
+    const writtenMessage = source.ast.as.AsBinaryExpression(writeOperation).Right;
+    assert.equal(writtenMessage !== undefined && source.ast.is.IsStringLiteral(writtenMessage), true, `${name}: actual checked assignment RHS`);
+    assert.equal(writtenMessage === originalMessage, false, `${name}: initializer and assignment have distinct checked identities`);
+    assert.equal(component.kind, "complete", `${name}: selected message origin is closed`);
+    assert.equal(component.origins.length, 2, `${name}: exactly the initializer and assigned message values`);
+    assert.equal(component.origins.some(origin => origin.subject.node === originalMessage), true, `${name}: exact original message initializer identity`);
+    assert.equal(component.origins.some(origin => origin.subject.node === writtenMessage), true, `${name}: exact assignment RHS identity`);
+    assert.equal(component.origins.every(origin => origin.subject.projection.length === 0), true, `${name}: message values have no remaining projection`);
+    const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
+    assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
+    assert.equal(demands.receivesWritableNative(selectedSubject), false, `${name}: ordinary allocation is not a native constructor`);
+    assert.equal(demands.nativeConstructors.length, 0, `${name}: no manufactured native constructor`);
+  });
+}
+
+test("Error open-formal mutation is raw writable while its closed message origin remains unresolved", async () => {
+  const { source, file, provider, demands, variable, storage } = await checked("error-open-formal-storage-questions", `
+export function write(container: { value: Stored }): void {
+  const { value: selected } = container;
+  selected.message = "changed";
+}
+const untouched = { message: "untouched" };
+`);
+  const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
+  const selectedSubject = requiredStorageSubject(storage, binding);
+  const selected = demands.storageFor(selectedSubject);
+  assert.equal(selected.kind, "writable", "the formal's selected storage receives its actual mutation demand");
+  assert.equal(selected.writes.length, 1, "the formal receives one exact write");
+  const origins = demands.closedStorageOriginsFor(selectedSubject);
+  assert.equal(origins.kind, "open", "an external formal is not a closed physical allocation");
+  assert.equal(origins.boundaries.length, 2, "exact formal and member input boundaries");
+  assert.equal(origins.boundaries.every(boundary => boundary.kind === "external-input"), true, "only actual external-input boundaries");
+  const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))[0];
+  assert.equal(field !== undefined, true, "checked Stored.message declaration");
+  const component = demands.closedStorageOriginsFor(requiredStorageSubject(storage, binding, [{ kind: "member", declaration: field }]));
+  assert.equal(component.kind, "unresolved", "an unknown formal does not invent an exact message origin");
+  assert.equal(component.reason, "A demanded source storage relation has no completed correlated producer or absence proof.");
+  assert.equal(demands.receivesWritableNative(selectedSubject), false, "an unbound formal is not a native constructor");
+  assert.equal(demands.nativeConstructors.length, 0, "no manufactured native constructor");
   const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
   assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
 });

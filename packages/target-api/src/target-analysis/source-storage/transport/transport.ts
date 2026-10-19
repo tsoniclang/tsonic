@@ -323,8 +323,6 @@ export function createSourceStorageTransport(
       storedValues.initialize(member, ObjectLiteralProperty_Value(ast, node) ?? node, subjectFor(ObjectLiteralProperty_Value(ast, node)));
       if (parent !== undefined && ast.is.IsObjectLiteralExpression(parent))
         connect(subject(node), subject(parent, "value", [{ kind: "member", declaration: node }]));
-      if (parent !== undefined && ast.is.IsObjectLiteralExpression(parent))
-        connect(member, subject(parent, "value", [{ kind: "member", declaration: node }]));
     }
     if (ast.is.IsMethodDeclaration(node) && parent !== undefined && ast.is.IsObjectLiteralExpression(parent)) {
       connect(subject(node), subject(parent, "value", [{ kind: "method-value", declaration: node }]));
