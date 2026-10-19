@@ -132,14 +132,14 @@ const pointerOperationOldEvidenceAbsence = Object.freeze({
     "The portable typed-location operations are new final-architecture contracts. Historical pointer evidence remains mapped only to Pointer and function-pointer type capabilities; current positive and negative tests prove each operation.",
 });
 const slice4DotnetProviderContractPositiveTests = Object.freeze([
-  "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
 ]);
 const slice4DotnetProviderContractNegativeTests = Object.freeze([
-  "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
 ]);
 const slice4DotnetProviderContractOldEvidence = Object.freeze([
   "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
@@ -435,14 +435,14 @@ const slice4SourceCoreContractRows = Object.freeze([
   },
 ]);
 const slice4ProviderCallContractPositiveTests = Object.freeze([
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
 ]);
 const slice4ProviderCallContractNegativeTests = Object.freeze([
-  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
@@ -2593,8 +2593,8 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.module.virtual-import": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -2615,8 +2615,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/host/dependencies/surface-composition.test.mjs",
@@ -2643,7 +2643,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-performance.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -2653,7 +2653,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-performance.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2666,16 +2666,16 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-performance.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-performance.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -2688,15 +2688,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2754,17 +2754,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.virtual-module.constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -2909,7 +2909,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -2918,7 +2918,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2957,8 +2957,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
@@ -3970,8 +3970,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ],
     oldEvidence: [
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
@@ -4022,8 +4022,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ],
     oldEvidence: [
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
@@ -4036,8 +4036,8 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-assembly-identity.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/providers/native/acquisition/dotnet-provider-assembly-identity.test.mjs",
@@ -4052,14 +4052,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.type-model": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
@@ -4072,17 +4072,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.member-methods": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4099,15 +4099,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.member-fields-properties-events": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4121,17 +4121,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.constructors": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4144,16 +4144,16 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -4172,16 +4172,16 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4195,10 +4195,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -4206,10 +4206,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4238,17 +4238,17 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emission may use T[] element access and Length only from finalized provider/native-array facts; assignment to native-array length must remain a read-only diagnostic, and normal source T[] stays TypeScript Array<T> semantics instead of becoming explicit CLR Array<T> by spelling.",
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4299,15 +4299,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4368,9 +4368,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -4380,9 +4380,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -4401,9 +4401,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4411,9 +4411,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4434,9 +4434,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4446,7 +4446,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
       "../tsonic-csharp/test/backend/planner/declarations/direct-translation-inheritance-generics.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -6771,13 +6771,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6829,7 +6829,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Strings/StringTests.cs",
@@ -6898,19 +6898,19 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6922,7 +6922,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6930,7 +6930,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6947,7 +6947,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6956,7 +6956,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6973,9 +6973,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6983,7 +6983,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -7032,12 +7032,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/direct-provider-relations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/direct-provider-relations.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
@@ -7495,7 +7495,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "../tsonic-csharp/test/backend/planner/declarations/direct-translation-inheritance-defaults.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -7506,7 +7506,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -7523,7 +7523,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "expression.new": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -8094,8 +8094,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -8114,8 +8114,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -8162,12 +8162,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-optional-params.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8180,13 +8180,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "function.delegate-carrier": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8302,15 +8302,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "carrier.function-delegate": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
     ]),
@@ -8326,12 +8326,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
     ]),
@@ -9413,14 +9413,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
     ]),
@@ -9436,12 +9436,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.target-constraint": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -9542,12 +9542,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
     ]),
@@ -9615,13 +9615,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "The C# backend emits a provider-backed library from finalized facts, includes explicit ASP.NET framework references from target-owned project options, suppresses artifacts on diagnostics, and leaves ASP.NET/Web SDK behavior to the downstream .NET project through ProjectReference.",
     positiveTests: Object.freeze([
       "test/cli-build/toolchain/downstream-smoke.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/toolchain/downstream-smoke.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/projection/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/aspnetcore-dotnet/",
