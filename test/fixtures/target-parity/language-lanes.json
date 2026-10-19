@@ -399,7 +399,7 @@
     "source": "import { constrained } from \"@tsonic/rust/crates/library/index.js\";",
     "classification": "implemented",
     "action": "retain exact Clone and Copy provider bounds through declaration models and generated generic requirements",
-    "csharpReference": "tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+    "csharpReference": "tsonic-csharp/test/providers/native/projection/dotnet-provider-generic-constraints.test.mjs",
     "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
