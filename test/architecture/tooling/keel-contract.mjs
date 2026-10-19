@@ -9,7 +9,7 @@ export const keelWorkspaceRepositories = Object.freeze([
 ]);
 export const keelRoles = Object.freeze([
   "selection", "analysis", "syntax", "sealed-reader", "planner-invariant",
-  "vocabulary", "orchestration",
+  "vocabulary", "orchestration", "provider-metadata",
 ]);
 
 export const keelSkeletonFamilies = Object.freeze({
@@ -33,6 +33,18 @@ export const keelRootFamilies = Object.freeze([
 ]);
 
 export const keelNativeDifferences = Object.freeze([
+  { path: "policy/operations/provider-selection", target: "tsonic-rust",
+    reason: "Checked native operation/export identity rows from rustdoc correspond to CLR member-relation selection in C# policy/operations/members/selection; both targets keep this decision in policy.",
+    evidence: "C399; tsonic-rust/src/policy/operations/provider-selection.ts:28,37,62; tsonic-csharp/src/policy/operations/members/selection/call-selection.ts:68,property-selection.ts:60,element-selection.ts:63,value-selection.ts:21" },
+  { path: "providers/native/model/normalization", target: "tsonic-rust", tree: "test",
+    reason: "Rust's raw rustdoc owner tests normalize trait defaults, associated types and impl generic arguments; C# validates a structured CLR model with provider contract tests. Both current source owners are providers/native/model/normalization after CH15; this test-only native-input difference cannot excuse source asymmetry.",
+    evidence: "C399/C401; Rust test/providers/native/model/normalization/default-methods.test.mjs:1,implementation-bindings.test.mjs:1 and src/providers/native/model/rustdoc-schema.ts:13; C# CH15 b7bc297c src/providers/native/model/normalization/entry.ts:10,20 and test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs:1; b4 contract/entry.ts is historical, not a required folder" },
+  { path: "providers/native/model", target: "tsonic-rust", tree: "test",
+    reason: "Rust model-owner tests exercise raw rustdoc JSON and its native normalization; C# exercises the structured CLR model under native projection/target-binding contract tests rather than fabricating rustdoc fixtures.",
+    evidence: "C399/C401; tsonic-rust/test/providers/native/model/normalization/default-methods.test.mjs:1,implementation-bindings.test.mjs:1; tsonic-csharp/test/providers/native/projection/declarations/dotnet-provider-contract.test.mjs:1; source contracts: Rust src/providers/native/model/rustdoc-schema.ts:13 and C# CH15 b7bc297c src/providers/native/model/normalization/entry.ts:10,20" },
+  { path: "providers/native/session", target: "tsonic-rust",
+    reason: "Rust owns a rustdoc worker, separate Cargo/std registries and snapshot leases with one seal/close lifecycle; C# composes registered CLR data providers and resolves their structured model contract in providers/native/projection/provider.ts on CH15.",
+    evidence: "C399/C401/C404; Rust src/providers/native/session.ts:60,69,149,153,163 and acquisition/worker-client.ts:44,124; C# CH15 b7bc297c src/providers/native/projection/provider.ts:117,124,230; b4 native/provider.ts is historical" },
   { path: "analysis/attributes", target: "tsonic-csharp", reason: "CLR custom attributes", evidence: "Keel §4.7" },
   { path: "target-model/lifetimes", target: "tsonic-rust", reason: "Rust lifetime vocabulary", evidence: "Keel §4.7" },
   { path: "analysis/ownership", target: "tsonic-rust", reason: "Native borrow checking", evidence: "Keel §4.7" },
@@ -83,6 +95,7 @@ export function validateKeelDifferences(differences) {
   for (const entry of differences) {
     const key = `${entry.target}:${entry.path}`;
     if (!keelTargetNames.includes(entry.target) || !validPath(entry.path) ||
+      entry.tree !== undefined && entry.tree !== "src" && entry.tree !== "test" ||
       typeof entry.reason !== "string" || entry.reason.length === 0 ||
       typeof entry.evidence !== "string" || entry.evidence.length === 0 || seen.has(key)) {
       throw new Error(`Invalid or duplicate native difference '${key}'.`);

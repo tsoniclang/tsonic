@@ -67,6 +67,34 @@ test("AC7 mirrors source ownership moves in target tests", () => {
 });
 
 for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
+  test(`${repo}: AC7 native-input test evidence cannot exempt source ownership`, () => {
+    const peer = repo === "tsonic-csharp" ? "tsonic-rust" : "tsonic-csharp";
+    const registration = { path: "providers/native/model/normalization", target: repo, tree: "test",
+      reason: "Native input fixtures exercise the target's actual metadata format.", evidence: "Exact owner fixture" };
+    const source = new Map([
+      [repo, new Map([["src/providers/native/model/normalization/read.ts", "export {};"]])],
+      [peer, new Map([["src/providers/native/model/entry.ts", "export {};"]])],
+    ]);
+    assert.equal(keelFixtureHas(evaluateKeelSkeleton(source, [registration]), "AC7", "one-sided"), true,
+      "test-only evidence does not waive source asymmetry");
+    source.get(peer).set("src/providers/native/model/normalization/read.ts", "export {};");
+    assert.equal(evaluateKeelSkeleton(source, [registration]).length, 0, "actual paired source owns normalization");
+    const tests = new Map([
+      [repo, ["test/providers/native/model/normalization/read.test.mjs"]],
+      [peer, ["test/providers/native/model/entry.test.mjs"]],
+    ]);
+    assert.equal(evaluateKeelTestSkeleton(tests, [registration]).length, 0,
+      "exact native-input test-only evidence is admitted");
+    assert.equal(keelFixtureHas(evaluateKeelTestSkeleton(tests, [{ ...registration, tree: "src" }]),
+      "AC7", "one-sided"), true, "source-only evidence does not waive test asymmetry");
+    assert.equal(keelFixtureHas(evaluateKeelTestSkeleton(tests, [{ ...registration, target: peer }]),
+      "AC7", "one-sided"), true, "registration stays bound to its actual target");
+    assert.throws(() => validateKeelDifferences([{ ...registration, tree: "all-other-trees" }]), /Invalid/u,
+      "unknown tree scopes are rejected");
+  });
+}
+
+for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
   test(`${repo}: AC7 inspects recursive responsibility decomposition below a recognized family`, () => {
     const peer = repo === "tsonic-csharp" ? "tsonic-rust" : "tsonic-csharp";
     const targets = new Map([
