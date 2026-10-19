@@ -244,7 +244,9 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
-  const closedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
+  const completedSourceInvocations = new Map<Node, Set<SourceStorageSubstitutions>>();
+  const completedSourceInvocationRows = budget.createRows();
+  const proveClosedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
     if (transport.unresolvedInvocations.has(invocation)) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const target = transport.invocationTargets.get(invocation);
@@ -278,6 +280,17 @@ export function createSourceStorageDomains(
     });
     return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete &&
       lineage.classes.length !== 0 && lineage.classes.every(value => navigation.isProjectDeclaration(value.subject.node)));
+  };
+  const closedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
+    if (!budget.step()) return false;
+    const previous = completedSourceInvocations.get(invocation);
+    if (previous?.has(bindings)) return true;
+    if (!proveClosedSourceInvocation(invocation, bindings) || budget.failure() !== undefined ||
+      !completedSourceInvocationRows.add(previous === undefined ? 2 : 1)) return false;
+    const selected = previous ?? new Set<SourceStorageSubstitutions>();
+    selected.add(bindings);
+    completedSourceInvocations.set(invocation, selected);
+    return true;
   };
   const selectedMembers = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     const bound = transport.substitutions.selection(owner, bindings);
