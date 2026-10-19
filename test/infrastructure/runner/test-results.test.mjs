@@ -457,3 +457,74 @@ test("one parallel count contract covers Host and Rust without losing cancellati
   assert.deepEqual(aggregateTestCounts(base.results), { reportedShards: 1, ...counts });
   assert.throws(() => parallelReportCounts({ ...base, bank: "node", preRuns: [], testCounts: { ...counts, passed: 1 } }), /per-test/u);
 });
+
+test("per-file summaries preserve native completion separately from cumulative and abnormal outcomes", async () => {
+  const passedCounts = { tests: 1, passed: 1, failed: 0 };
+  const failedCounts = { tests: 1, passed: 0, failed: 1 };
+  const cumulativeCounts = { tests: 2, passed: 1, failed: 1 };
+  const events = [
+    { type: "test:summary", data: { file: "/repo/passed.test.mjs", success: true, counts: passedCounts } },
+    { type: "test:summary", data: { file: "/repo/failed.test.mjs", success: false, counts: failedCounts } },
+    { type: "test:summary", data: { success: false, counts: cumulativeCounts } },
+  ];
+  const records = [];
+  for await (const line of reportTestResults(events)) records.push(JSON.parse(line));
+  assert.equal(records.length, 3, "each native file summary and the cumulative summary are retained");
+  assert.deepEqual(records[0], { kind: "file-summary", file: "/repo/passed.test.mjs", success: true, counts: passedCounts });
+  assert.deepEqual(records[1], { kind: "file-summary", file: "/repo/failed.test.mjs", success: false, counts: failedCounts });
+  assert.equal(JSON.stringify(records[2]), JSON.stringify({ kind: "summary", success: false, counts: cumulativeCounts }),
+    "the original cumulative record is byte-for-byte unchanged");
+  const incomplete = [{ type: "test:fail", data: { name: "interrupted", file: "/repo/interrupted.test.mjs", nesting: 0,
+    details: { type: "test", error: { failureType: "testCodeFailure", signal: "SIGTERM" } } } }];
+  const unfinished = [];
+  for await (const line of reportTestResults(incomplete)) unfinished.push(JSON.parse(line));
+  assert.equal(unfinished.length, 1, "an incomplete stream retains its observed failure");
+  assert.equal(unfinished[0].signal, "SIGTERM", "the native signal remains observable");
+  assert.equal(unfinished.some(record => record.kind === "file-summary" || record.kind === "summary"), false,
+    "neither a case outcome nor a signal manufactures a terminal summary");
+
+  const root = mkdtempSync(resolve(".temp/test-result-tests/file-summary-"));
+  const passedFile = resolve(root, "passed.test.mjs");
+  const failedFile = resolve(root, "failed.test.mjs");
+  const interruptedFile = resolve(root, "interrupted.test.mjs");
+  writeFileSync(passedFile, "import test from 'node:test'; test('completed pass', () => {});\n");
+  writeFileSync(failedFile, "import test from 'node:test'; test('completed failure', () => { throw Error('ordinary assertion'); });\n");
+  writeFileSync(interruptedFile, "process.kill(process.pid, 'SIGTERM');\n");
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  for (const [label, files] of [["completed", [passedFile, failedFile]], ["interrupted", [interruptedFile]]]) {
+    const output = resolve(root, `${label}.jsonl`);
+    const run = spawnSync(process.execPath, ["--test", "--test-concurrency=1",
+      `--test-reporter=${resolve("test/scripts/test-result-reporter.mjs")}`, `--test-reporter-destination=${output}`, ...files],
+    { env: environment, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
+    assert.equal(run.error === undefined, true, `${label}: the native runner completes without an outer timeout`);
+    assert.equal(run.status, 1, `${label}: the native failure exit is preserved`);
+    assert.equal(run.signal, null, `${label}: the outer runner itself is not terminated`);
+    const actual = readFileSync(output, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    const summaries = actual.filter(record => record.kind === "file-summary");
+    const cumulative = actual.filter(record => record.kind === "summary");
+    assert.equal(cumulative.length, 1, `${label}: one original cumulative summary remains`);
+    assert.equal(actual.at(-1).kind, "summary", `${label}: the cumulative summary remains last`);
+    assert.equal(cumulative[0].success, false, `${label}: completion does not become success`);
+    if (label === "completed") {
+      assert.equal(summaries.length, 2, "each normally completed file has one native terminal record");
+      for (const [file, success] of [[passedFile, true], [failedFile, false]]) {
+        const summary = summaries.find(record => record.file === file);
+        assert.equal(summary !== undefined, true, `${file}: exact native file identity retained`);
+        assert.equal(summary.success, success, `${file}: the native success flag is unchanged`);
+        assert.equal(summary.counts.tests, 1, `${file}: counts belong to this file alone`);
+        assert.equal(summary.counts.failed, success ? 0 : 1, `${file}: a failed file is not marked passing`);
+      }
+      assert.equal(cumulative[0].counts.tests, 2, "per-file records do not inflate cumulative counts");
+      assert.equal(cumulative[0].counts.failed, 1, "the original failed-case count remains");
+      assert.equal(readNodeTestResults(output, process.cwd()).tests.length, 2,
+        "the current consumer still selects only the two named case records");
+    } else {
+      assert.equal(summaries.length, 0, "an abnormal child with no native summary has no file-completion record");
+      const named = actual.filter(record => record.kind === "test");
+      assert.equal(named.length, 1, "the observed abnormal file failure is retained");
+      assert.equal(named[0].status, "failed", "an interrupted file never becomes a pass");
+      assert.equal(named[0].signal, "SIGTERM", "the native terminal signal remains exact");
+    }
+  }
+});
