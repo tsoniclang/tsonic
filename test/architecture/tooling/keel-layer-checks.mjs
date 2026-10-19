@@ -8,7 +8,7 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
   const findings = [];
   const declarations = groupBy(model.declarations, keelSymbolIdentity);
   const metadataDeclarations = groupBy(model.typedDeclarations ?? [], entry => entry.file);
-  const metadataSites = groupBy([...model.calls, ...model.accesses], entry => entry.file);
+  const metadataSites = groupBy([...model.calls, ...model.accesses, ...model.valueReads], entry => entry.file);
   const metadataFunctions = new Map(model.functions.map(entry => [keelSymbolIdentity(entry), entry]));
   const classifications = new Map();
   const obligations = new Map(roleObligations.map(entry => {
@@ -103,7 +103,7 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
       const output = boundaries[0]?.through ?? [];
       if (boundaries.some(boundary => boundary === undefined) ||
         !output.some(reference => !reference.file.startsWith("libraries/")) ||
-        !providerMetadataReferences(references, metadataDeclarations)) {
+        !references.every(providerMetadataReference)) {
         emit(check, entry, "Native provider metadata requires metadata-only inputs and provider model data output.");
       }
       const pending = [entry];
@@ -117,12 +117,12 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
           candidate.owner === current.symbol || candidate.owner.startsWith(`${current.symbol}.`))) {
           const references = [site.target, site.expressionTarget, ...(site.through ?? []), ...(site.receiverThrough ?? [])]
             .filter(reference => reference !== undefined);
-          if (!providerMetadataReferences(references, metadataDeclarations) || references.some(reference =>
+          if (!references.every(providerMetadataReference) || references.some(reference =>
             ["selection", "analysis", "syntax", "planner-invariant"].includes(classifications.get(keelSymbolIdentity(reference))))) {
             emit(check, entry, "Native provider metadata cannot read checked source or invoke policy, analysis or target syntax decisions.");
           }
-          if (site.target !== undefined) {
-            const callee = metadataFunctions.get(keelSymbolIdentity(site.target));
+          for (const reference of references) {
+            const callee = metadataFunctions.get(keelSymbolIdentity(reference));
             if (callee !== undefined) pending.push(callee);
           }
         }
@@ -351,42 +351,14 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     }
     return false;
   }
-}
 
-function providerMetadataReferences(references, declarations) {
-  const pending = [...references];
-  const visited = new Set();
-  while (pending.length > 0) {
-    const reference = pending.pop();
-    const identity = keelSymbolIdentity(reference);
-    if (visited.has(identity)) continue;
-    visited.add(identity);
-    if (!providerMetadataReference(reference)) return false;
-    for (const declaration of declarations.get(reference.file) ?? []) {
-      if (declaration.symbol === reference.symbol ||
-        declaration.symbol.startsWith(`${reference.symbol}.`)) {
-        pending.push(...(declaration.through ?? []));
-      }
-    }
+  function providerMetadataReference(reference) {
+    return reference.file.startsWith("libraries/") || reference.file.startsWith("src/providers/native/") ||
+      ["identities", "metadata", "types", "operations", "conversions", "lifetimes"]
+        .some(family => reference.file.startsWith(`src/target-model/${family}/`)) ||
+      declarations.get(keelSymbolIdentity(reference))?.some(declaration => declaration.providerMetadata === true) === true;
   }
-  return true;
 }
-
-function providerMetadataReference(reference) {
-  if (reference.file.startsWith("libraries/") || reference.file.startsWith("src/providers/native/") ||
-    ["identities", "metadata", "types", "operations", "conversions", "lifetimes"]
-      .some(family => reference.file.startsWith(`src/target-model/${family}/`))) return true;
-  return reference.file === "external/tsonic/packages/tsts/dist/src/extensions/host.d.ts" &&
-    providerDeclarationMetadata.has(reference.symbol.split(".")[0]);
-}
-
-const providerDeclarationMetadata = new Set([
-  "ExtensionEvidence", "ProviderIdentity", "ProviderDeclarationKind", "ProviderExportKind",
-  "ProviderTypeFamilyDeclaration", "ProviderPropertyName", "ProviderTypeParameterDeclaration",
-  "ProviderTypeExpression", "ProviderParameterDeclaration", "ProviderSignatureDeclaration",
-  "ProviderMemberDeclaration", "ProviderExportDeclaration", "ProviderImportDeclaration",
-  "ProviderHeritageDeclaration", "ProviderDeclarationModel", "ProviderRequestedExport",
-]);
 
 function requireReference(reference) {
   if (!validPath(reference.file) || typeof reference.symbol !== "string" || reference.symbol.length === 0 ||

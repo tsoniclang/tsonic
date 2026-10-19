@@ -19,6 +19,18 @@ const loopKinds = new Set([
   "KindWhileStatement", "KindDoStatement", "KindForStatement",
   "KindForInStatement", "KindForOfStatement",
 ]);
+const typeArgumentKinds = new Set([
+  "KindCallExpression", "KindNewExpression", "KindTaggedTemplateExpression",
+  "KindTypeReference", "KindExpressionWithTypeArguments", "KindImportType",
+  "KindTypeQuery", "KindJsxOpeningElement", "KindJsxSelfClosingElement",
+]);
+const providerMetadataRoots = new Set([
+  "ExtensionEvidence", "ProviderIdentity", "ProviderDeclarationKind", "ProviderExportKind",
+  "ProviderTypeFamilyDeclaration", "ProviderPropertyName", "ProviderTypeParameterDeclaration",
+  "ProviderTypeExpression", "ProviderParameterDeclaration", "ProviderSignatureDeclaration",
+  "ProviderMemberDeclaration", "ProviderExportDeclaration", "ProviderImportDeclaration",
+  "ProviderHeritageDeclaration", "ProviderDeclarationModel", "ProviderRequestedExport",
+]);
 
 export function keelDigest(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -32,7 +44,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   resolveReferences = true, declarationFiles = new Map(), modulePaths = {},
 } = {}) {
   if (sourceFiles.size === 0) return Object.freeze(Object.fromEntries([
-    "declarations", "functions", "calls", "accesses", "loops", "comparisons",
+    "declarations", "functions", "calls", "accesses", "valueReads", "loops", "comparisons",
     "assertions", "throws", "edges", "suppressions", "stringLiterals", "mutations", "objectFields", "typedDeclarations", "moduleFiles", "selectionExports",
   ].map(name => [name, Object.freeze([])])));
   const session = createCompilerSessionFromFiles({
@@ -54,6 +66,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   const functions = [];
   const calls = [];
   const accesses = [];
+  const valueReads = [];
   const loops = [];
   const comparisons = [];
   const assertions = [];
@@ -67,6 +80,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   const typedDeclarations = [];
   const selectionExports = [];
   const typeOrigins = new WeakMap();
+  const boundaryTypeOrigins = new WeakMap();
   const libraryFiles = new Map(resolveReferences ? getBundledLibraryClosure(["lib.es2022.d.ts"])
     .map(library => [library.path, `libraries/${library.name}`]) : []);
   const syntaxErrors = session.getDiagnostics("syntactic");
@@ -152,12 +166,19 @@ export function analyzeKeelTypeScript(sourceFiles, {
       const owner = owningFunction(node);
       const base = location(file, node, owner);
       if (namedKinds.has(kind)) {
-        const type = ast.typeNode(node);
-        if (type !== undefined) {
+        const types = [ast.typeNode(node), ...(["KindInterfaceDeclaration", "KindClassDeclaration"].includes(kind)
+          ? [...ast.extendsHeritageElements(node), ...ast.implementsHeritageElements(node)] : [])]
+          .filter(type => type !== undefined);
+        if (types.length > 0) {
           const references = [];
-          walk(type, child => {
-            if (ast.kindName(child) === "KindIdentifier") references.push(...origins(checker, child));
-          });
+          for (const type of types) {
+            walk(type, child => {
+              if (ast.kindName(child) === "KindIdentifier") references.push(...origins(checker, child));
+            });
+            const checkedType = checker?.getTypeAtLocation(type);
+            if (checkedType !== undefined) references.push(...checkedTypeOrigins(checker,
+              source.getSourceFileQueries(sourceFile).typeShape, checkedType, true));
+          }
           const declaration = declarationFor(node);
           if (declaration !== undefined) typedDeclarations.push(Object.freeze({
             ...declaration, kind, through: Object.freeze(references),
@@ -208,6 +229,15 @@ export function analyzeKeelTypeScript(sourceFiles, {
           receiverThrough: Object.freeze(origins(checker, node, new Set(), true)),
         }));
       }
+      if (["KindIdentifier", "KindThisKeyword", "KindSuperKeyword"].includes(kind) && isValueRead(node)) {
+        const checkedType = checker?.getTypeAtLocation(node);
+        valueReads.push(Object.freeze({
+          ...base, target: symbolFor(checker, node),
+          through: Object.freeze([...origins(checker, node, new Set(), true),
+            ...(checkedType === undefined ? [] : checkedTypeOrigins(checker,
+              source.getSourceFileQueries(sourceFile).typeShape, checkedType, true))]),
+        }));
+      }
       if (loopKinds.has(kind)) loops.push(Object.freeze({ ...base, kind }));
       if (kind === "KindBinaryExpression") {
         const binary = ast.as.AsBinaryExpression(node);
@@ -237,9 +267,13 @@ export function analyzeKeelTypeScript(sourceFiles, {
     });
   }
 
+  const metadataDeclarations = providerMetadataDeclarations();
   return Object.freeze({
-    declarations: Object.freeze(declarations), functions: Object.freeze(functions),
-    calls: Object.freeze(calls), accesses: Object.freeze(accesses), loops: Object.freeze(loops),
+    declarations: Object.freeze(declarations.map(declaration => metadataDeclarations.has(keelSymbolIdentity(declaration))
+      ? Object.freeze({ ...declaration, providerMetadata: true }) : declaration)),
+    functions: Object.freeze(functions),
+    calls: Object.freeze(calls), accesses: Object.freeze(accesses),
+    valueReads: Object.freeze(valueReads), loops: Object.freeze(loops),
     comparisons: Object.freeze(comparisons), assertions: Object.freeze(assertions),
     throws: Object.freeze(throws), edges: Object.freeze(edges),
     suppressions: Object.freeze(suppressions),
@@ -250,6 +284,70 @@ export function analyzeKeelTypeScript(sourceFiles, {
     moduleFiles: Object.freeze(moduleAnalysis.modules.map(entry => entry.file)),
     selectionExports: Object.freeze(selectionExports),
   });
+
+  function providerMetadataDeclarations() {
+    const eligible = new Set();
+    if (!resolveReferences) return eligible;
+    const publicRoot = "external/tsonic/packages/tsts/dist/";
+    const providerFile = `${publicRoot}src/extensions/host.d.ts`;
+    const nodes = new Map([...byNode].map(([node, row]) => [keelSymbolIdentity(row), { node, row }]));
+    const pending = [];
+    for (const [node, row] of byNode) {
+      if (row.file.startsWith("src/target-model/syntax/") && row.kind === "KindTypeAliasDeclaration") {
+        const { checker, typeShape } = source.getSourceFileQueries(ast.getSourceFile(node));
+        if (finite(typeShape, checker.getTypeAtLocation(node))) eligible.add(keelSymbolIdentity(row));
+      }
+      if (row.file !== providerFile || !declarationFiles.has(row.file) ||
+        !providerMetadataRoots.has(row.symbol.split(".")[0])) continue;
+      eligible.add(keelSymbolIdentity(row));
+      const { checker, typeShape } = source.getSourceFileQueries(ast.getSourceFile(node));
+      pending.push(...annotationOrigins(checker, node, new Set(), false));
+      if (!providerMetadataRoots.has(row.symbol) ||
+        !["KindInterfaceDeclaration", "KindTypeAliasDeclaration"].includes(row.kind)) continue;
+      const symbol = checker.getSymbolAtLocation(ast.name(node));
+      const type = symbol === undefined ? undefined : checker.getDeclaredTypeOfSymbol(symbol);
+      if (type !== undefined) pending.push(...checkedTypeOrigins(checker, typeShape, type, true));
+    }
+    const visited = new Set();
+    while (pending.length > 0) {
+      const identity = keelSymbolIdentity(pending.pop());
+      if (visited.has(identity)) continue;
+      visited.add(identity);
+      const candidate = nodes.get(identity);
+      if (candidate === undefined || !candidate.row.file.startsWith(publicRoot) ||
+        !declarationFiles.has(candidate.row.file)) continue;
+      const { node, row } = candidate;
+      const { checker, typeShape } = source.getSourceFileQueries(ast.getSourceFile(node));
+      const type = checker.getTypeAtLocation(node);
+      const elements = typeShape.isTuple(type) ? typeShape.getTupleElementInfos(type) : [];
+      const properties = elements.length === 0 && row.kind !== "KindInterfaceDeclaration"
+        ? [] : typeShape.getPropertyInfos(type);
+      const fields = properties.map(property => checker.getSymbolValueDeclaration(property.symbol) ??
+        checker.getPrimarySymbolDeclaration(property.symbol));
+      const finiteAlias = row.kind === "KindTypeAliasDeclaration" && finite(typeShape, type);
+      const literalTable = row.kind === "KindVariableDeclaration" && ast.variableDeclarationKind(node) === "const" &&
+        elements.length > 0 && elements.every((element, index) => element.elementKind === "required" &&
+          finite(typeShape, element.type) && properties.some(property => property.name === String(index) && property.readonly));
+      const scalarRecord = row.kind === "KindInterfaceDeclaration" && properties.length > 0 &&
+        typeShape.getSignatureInfos(type, "call").length === 0 && typeShape.getSignatureInfos(type, "construct").length === 0 &&
+        typeShape.getIndexInfos(type).length === 0 && properties.every((property, index) =>
+          property.readonly && finite(typeShape, property.type, true) &&
+          ast.kindName(fields[index]) === "KindPropertySignature" && ast.parent(fields[index]) === node);
+      if (!finiteAlias && !literalTable && !scalarRecord) continue;
+      eligible.add(identity);
+      if (scalarRecord) for (const field of fields) eligible.add(keelSymbolIdentity(declarationFor(field)));
+      pending.push(...annotationOrigins(checker, node, new Set(), false));
+    }
+    return eligible;
+
+    function finite(shapes, type, allowPrimitive = false) {
+      const members = shapes.isUnion(type) ? shapes.getUnionOrIntersectionTypes(type) : [type];
+      return members.length > 0 && members.every(member => shapes.getStringLiteralTypeValue(member) !== undefined ||
+        shapes.getNumericLiteralTypeValue(member) !== undefined || shapes.getBooleanLiteralTypeValue(member) !== undefined ||
+        (allowPrimitive && (shapes.isStringLike(member) || shapes.isNumberLike(member) || shapes.isBooleanLike(member) ||
+          shapes.isBigIntLike(member) || shapes.isNullish(member))));
+    }
+  }
 
   function walk(node, visit) {
     if (visit(node) === false) return;
@@ -313,6 +411,33 @@ export function analyzeKeelTypeScript(sourceFiles, {
     return "<module>";
   }
 
+  function isValueRead(node) {
+    const parent = ast.parent(node);
+    if (parent === undefined || (ast.name(parent) === node &&
+      ast.kindName(parent) !== "KindShorthandPropertyAssignment")) return false;
+    const parentKind = ast.kindName(parent);
+    if ((parentKind === "KindLabeledStatement" && ast.as.AsLabeledStatement(parent)?.Label === node) ||
+      (parentKind === "KindBreakStatement" && ast.as.AsBreakStatement(parent)?.Label === node) ||
+      (parentKind === "KindContinueStatement" && ast.as.AsContinueStatement(parent)?.Label === node)) return false;
+    if (ast.kindName(parent) === "KindBindingElement" &&
+      ast.as.AsBindingElement(parent)?.PropertyName === node) return false;
+    for (let child = node, ancestor = parent; ancestor !== undefined;
+      child = ancestor, ancestor = ast.parent(ancestor)) {
+      const kind = ast.kindName(ancestor);
+      if (ast.typeNode(ancestor) === child ||
+        (typeArgumentKinds.has(kind) && ast.typeArguments(ancestor).includes(child))) return false;
+      if (["KindImportDeclaration", "KindImportEqualsDeclaration", "KindExportDeclaration", "KindTypeParameter"].includes(kind)) return false;
+      if (kind === "KindExpressionWithTypeArguments") {
+        const declaration = ast.parent(ast.parent(ancestor));
+        const declarationKind = ast.kindName(declaration);
+        if (declarationKind === "KindInterfaceDeclaration" ||
+          (["KindClassDeclaration", "KindClassExpression"].includes(declarationKind) &&
+            ast.implementsHeritageElements(declaration).includes(ancestor))) return false;
+      }
+    }
+    return true;
+  }
+
   function declarationFor(node) {
     if (node === undefined) return undefined;
     const known = byNode.get(node);
@@ -341,7 +466,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
     const kind = ast.kindName(node);
     let type;
     let shapes;
-    if (["KindIdentifier", "KindPropertyAccessExpression", "KindElementAccessExpression"].includes(kind)) {
+    if (["KindIdentifier", "KindPropertyAccessExpression", "KindElementAccessExpression", "KindThisKeyword", "KindSuperKeyword"].includes(kind)) {
       type = checker.getTypeAtLocation(node);
       shapes = source.getSourceFileQueries(ast.getSourceFile(node)).typeShape;
       if (type !== undefined) result.push(...checkedTypeOrigins(checker, shapes, type));
@@ -408,14 +533,15 @@ export function analyzeKeelTypeScript(sourceFiles, {
     return result;
   }
 
-  function checkedTypeOrigins(checker, shapes, type) {
-    const cached = typeOrigins.get(type);
+  function checkedTypeOrigins(checker, shapes, type, includeMembers = false) {
+    const cache = includeMembers ? boundaryTypeOrigins : typeOrigins;
+    const cached = cache.get(type);
     if (cached !== undefined) return cached;
     const references = [];
     const visited = new Set();
     visit(type);
     const result = Object.freeze([...new Map(references.map(reference => [keelSymbolIdentity(reference), reference])).values()]);
-    typeOrigins.set(type, result);
+    cache.set(type, result);
     return result;
 
     function visit(current) {
@@ -428,6 +554,29 @@ export function analyzeKeelTypeScript(sourceFiles, {
       }
       if (shapes.isTypeReference(current)) for (const argument of shapes.getTypeArguments(current)) visit(argument);
       if (shapes.isUnion(current) || shapes.isIntersection(current)) for (const member of shapes.getUnionOrIntersectionTypes(current)) visit(member);
+      for (const base of shapes.getInstantiatedBaseTypes(current) ?? []) visit(base);
+      if (!includeMembers) return;
+      visit(shapes.getApparentType(current));
+      for (const property of shapes.getPropertyInfos(current)) {
+        const declarations = [property.symbol, ...property.rootSymbols].map(symbol => declarationFor(
+          checker.getSymbolValueDeclaration(symbol) ?? checker.getPrimarySymbolDeclaration(symbol)))
+          .filter(reference => reference !== undefined);
+        if (declarations.length > 0 && declarations.every(reference => reference.file.startsWith("libraries/"))) continue;
+        references.push(...declarations);
+        visit(property.type);
+      }
+      for (const kind of ["call", "construct"]) for (const signature of shapes.getSignatureInfos(current, kind)) {
+        const declaration = declarationFor(checker.getSignatureDeclaration(signature.signature));
+        if (declaration?.file.startsWith("libraries/")) continue;
+        if (declaration !== undefined) references.push(declaration);
+        visit(signature.returnType);
+        visit(signature.thisParameter?.type);
+        for (const parameter of signature.parameters) visit(parameter.type);
+      }
+      for (const index of shapes.getIndexInfos(current)) {
+        visit(index.keyType);
+        visit(index.valueType);
+      }
     }
   }
 
