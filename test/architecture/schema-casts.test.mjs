@@ -75,7 +75,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/source-storage/graph/lexical-regions.ts": 2,
   "packages/target-api/src/target-analysis/source-storage/scoped/member-accessors.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/scoped-scopes.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/transport/transport.ts": 2,
+  "packages/target-api/src/target-analysis/source-storage/transport/transport.ts": 1,
 });
 
 test("every generated shared source-processing AST cast has an exact local kind predicate", async () => {
