@@ -139,7 +139,7 @@ mutate(spread);
   }
 });
 
-test("Error writes through unproved scalar bindings remain unresolved without changing independent storage", async () => {
+test("Error writes through proven scalar bindings retain writable demand and exact closed origins without changing independent storage", async () => {
   const { source, file, demands, variable, storage } = await checked("error-unproved-scalar-binding", `
 const original: Stored = { message: "original" };
 const container = { value: original };
@@ -148,8 +148,14 @@ const untouched = { message: "untouched" };
 selected.message = "changed";
 `);
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
-  assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not writable evidence");
-  assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not exact origin evidence");
+  const selected = requiredStorageSubject(storage, binding);
+  assert.equal(demands.storageFor(selected).kind, "writable", "the proven binding retains its actual mutation demand");
+  const origins = demands.closedStorageOriginsFor(selected);
+  const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+  assert.equal(origins.kind, "complete", "the proven binding has closed physical-origin evidence");
+  assert.equal(origins.origins.length, 1, "exactly the original object allocation");
+  assert.equal(origins.origins[0].subject.node === original, true, "the exact original object identity");
+  assert.equal(origins.origins[0].subject.projection.length, 0, "the complete original allocation has no projection");
   const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
   assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
 });
