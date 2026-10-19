@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, sourceLexicalCaptures } from "../../../source-navigation/index.js";
+import { Node_Expression, sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -88,8 +88,12 @@ export function createSourceStorageContextInputs(
             add(queries.subjectFor(capture.declaration));
           }
           for (const receiver of captures.receivers) {
-            if (!budget.step()) return undefined;
-            add(queries.subject(receiver.owner, "receiver"));
+            for (const reference of receiver.references) {
+              if (!budget.step()) return undefined;
+              const owner = sourceReceiverOwner(reference, ast, "storage", budget.step);
+              if (owner === undefined) return undefined;
+              add(queries.subject(owner, "receiver"));
+            }
           }
         }
       }
