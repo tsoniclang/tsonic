@@ -830,9 +830,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             : sourceStorageReference(value, creator));
           continue;
         }
-        if (store.destination === "member" && term.scope === scopes.empty) {
-          terms.push(sourceStorageReference(value, scopes.empty)); continue;
-        }
         const region = transport.regions.enclosing(node);
         const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
         const local = (store.destination === "binding" || store.destination === "element") && store.region === region

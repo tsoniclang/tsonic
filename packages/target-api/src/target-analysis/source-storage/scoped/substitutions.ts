@@ -148,7 +148,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const intern = (term: SourceStorageTerm): SourceStorageRelation | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
     const retained: SourceStorageRelationWitness[] = [];
-    const normalized = normalize(term, retained, temporary);
+    const normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary);
     if (normalized === undefined) return undefined;
     const key = keys.encode(normalized);
     if (key === undefined) return undefined;
@@ -160,6 +160,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
+    if (term.kind === "leaf" && !addWitness(selected, { subject: term.subject,
+      bindings: witnessScope(term.subject, term.scope) })) return undefined;
     return selected;
   }));
   const derive = (relation: SourceStorageRelation,

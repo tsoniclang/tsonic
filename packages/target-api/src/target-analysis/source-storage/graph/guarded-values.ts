@@ -36,36 +36,24 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
   const plans = new Map<Node, GuardPlan | null>();
   const admissions = new Map<Node, Map<SourceStorageSubject, boolean | null>>();
   const conjunctions = new Map<string, SourceStorageValueGuards | null>();
-  const classAncestors = new Map<Node, Map<Node, boolean | null>>();
-  const classMatches = (candidate: Node, target: Node): boolean | undefined => {
-    if (!budget.step()) return undefined;
-    const previous = classAncestors.get(candidate);
-    const known = previous?.get(target);
-    if (known !== undefined) return known ?? undefined;
-    const result = budget.withRows(rows => {
-      let current = candidate;
-      const visited = new Set<Node>();
-      while (true) {
-        if (current === target) return true;
-        if (visited.has(current) || !rows.add(1)) return undefined;
-        visited.add(current);
-        const heritage = navigation.declaredHeritage(current);
-        if (heritage.kind !== "resolved") return undefined;
-        const bases = heritage.edges.filter(edge => edge.kind === "extends");
-        if (bases.length === 0) return false;
-        if (bases.length !== 1) return undefined;
-        const base = bases[0]!.target.declaration;
-        if (!ast.is.IsClassDeclaration(base) && !ast.is.IsClassExpression(base)) return undefined;
-        current = base;
-        if (!budget.step()) return undefined;
-      }
-    });
-    if (budget.failure() !== undefined || !retained.add(previous === undefined ? 2 : 1)) return undefined;
-    const selected = previous ?? new Map<Node, boolean | null>();
-    selected.set(target, result ?? null);
-    classAncestors.set(candidate, selected);
-    return result;
-  };
+  const classMatches = (candidate: Node, target: Node): boolean | undefined => budget.withRows(rows => {
+    let current = candidate;
+    const visited = new Set<Node>();
+    while (true) {
+      if (!budget.step()) return undefined;
+      if (current === target) return true;
+      if (visited.has(current) || !rows.add(1)) return undefined;
+      visited.add(current);
+      const heritage = navigation.declaredHeritage(current);
+      if (heritage.kind !== "resolved") return undefined;
+      const bases = heritage.edges.filter(edge => edge.kind === "extends");
+      if (bases.length === 0) return false;
+      if (bases.length !== 1) return undefined;
+      const base = bases[0]!.target.declaration;
+      if (!ast.is.IsClassDeclaration(base) && !ast.is.IsClassExpression(base)) return undefined;
+      current = base;
+    }
+  });
   const instanceOf = (owner: SourceStorageSubject, target: Node): boolean | undefined => {
     if (owner.projection.length !== 0) return undefined;
     const file = ast.getSourceFile(owner.node);

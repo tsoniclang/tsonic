@@ -347,6 +347,8 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
       }
     };
     const selectMember = (member: Node): void => {
+      if (ast.is.IsGetAccessorDeclaration(declaration) && ast.is.IsSetAccessorDeclaration(member) ||
+        ast.is.IsSetAccessorDeclaration(declaration) && ast.is.IsGetAccessorDeclaration(member)) return;
       if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) {
         exact.add(member);
         return;
