@@ -1,5 +1,9 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
+    { file: "src/providers/native/acquisition/toolchain.ts", symbol: "selectDotnetPlatformDirectory",
+      bodySha256: "d1557da3d0f272a368436faf09c48206344e9ce08e8ca3b959e086f71a765e60", role: "orchestration",
+      evidence: [{ kind: "parameter", name: "output" }],
+      reason: "Select an installed native .NET runtime directory from dotnet --list-runtimes and the explicitly selected target framework; no checked source node or native program-form selection." },
     { file: "src/analysis/conversions/property-projections.ts", symbol: "selectCsharpPropertyProjections",
       bodySha256: "87e7b0659b86858f5561eeb3a84a357c4a727266dc497ff4d87604315147dda8", role: "analysis",
       evidence: [{ kind: "parameter", name: "expression" }],

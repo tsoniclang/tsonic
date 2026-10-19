@@ -24,7 +24,7 @@ export const keelBasePins = Object.freeze({
 
 export const keelOwnedTargets = Object.freeze({
   "tsonic-csharp": Object.freeze({
-    providerModelPaths: ["src/providers/native/relations/index.ts", "src/providers/native/relations/relation-model.ts"],
+    providerModelPaths: ["src/providers/model/provider-relations.ts"],
     providerSdkPaths: ["src/public/provider-dotnet.ts"],
     programType: { file: "src/analysis/program/model.ts", symbol: "CsharpTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
