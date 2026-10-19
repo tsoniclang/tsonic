@@ -31,7 +31,7 @@ import { createSourceStorageStoredValues, type SourceStorageWrite } from "../gra
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
-import { createSourceStorageAncestorQuery, createSourceStorageOriginQuery } from "../graph/ancestors.js";
+import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
 import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
@@ -476,7 +476,12 @@ export function createSourceStorageTransport(
     for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
   }
   const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
-  const originSubjects = createSourceStorageOriginQuery(source, budget, incomingFor, graphQueries);
+  const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+    const originals = new Set(walkAncestors(selected, (origin, incoming) => step() &&
+      (ast.is.IsParameterDeclaration(origin.node) || ast.is.IsObjectLiteralExpression(origin.node) ||
+        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalValue(origin, ast, incoming.size !== 0))));
+    return budget.failure() === undefined ? originals : undefined;
+  });
   const classLineagesFor = (expression: Node | undefined,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
     mode?: "heritage") => {
@@ -496,10 +501,8 @@ export function createSourceStorageTransport(
     return budget.failure() === undefined ? subjects : undefined;
   });
   const classValueSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
-    const origins = originSubjects(selected);
-    if (origins === undefined) return undefined;
     const values = new Set<SourceStorageSubject>();
-    for (const origin of origins) {
+    for (const origin of walkAncestors(selected)) {
       if (!step()) return undefined;
       if (ast.is.IsParameterDeclaration(origin.node) || sourceStorageHasOriginalValue(origin, ast, incomingFor(origin).size !== 0))
         values.add(origin);
