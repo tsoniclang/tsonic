@@ -7,6 +7,9 @@ import { keelSymbolIdentity } from "./keel-source-analysis.mjs";
 export function evaluateKeelLayers(repo, model, census = {}, roleObligations = []) {
   const findings = [];
   const declarations = groupBy(model.declarations, keelSymbolIdentity);
+  const metadataDeclarations = groupBy(model.typedDeclarations ?? [], entry => entry.file);
+  const metadataSites = groupBy([...model.calls, ...model.accesses, ...model.valueReads], entry => entry.file);
+  const metadataFunctions = new Map(model.functions.map(entry => [keelSymbolIdentity(entry), entry]));
   const classifications = new Map();
   const obligations = new Map(roleObligations.map(entry => {
     requireReference(entry);
@@ -88,6 +91,42 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     }
     if (role === "analysis" && layer !== "analysis") {
       emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry, "Cross-construct computation is owned by analysis.");
+    }
+    if (role === "provider-metadata") {
+      const check = layer?.startsWith("backend/") ? "AC2" : "AC1";
+      if (!entry.file.startsWith("src/providers/native/")) {
+        emit(check, entry, "Native provider metadata processing is owned by providers/native.");
+      }
+      const boundaries = [entry.symbol, ...entry.parameters.map(name => `${entry.symbol}.${name}`)]
+        .map(symbol => metadataDeclarations.get(entry.file)?.find(candidate => candidate.symbol === symbol));
+      const references = boundaries.flatMap(boundary => boundary?.through ?? []);
+      const output = boundaries[0]?.through ?? [];
+      if (boundaries.some(boundary => boundary === undefined) ||
+        !output.some(reference => !reference.file.startsWith("libraries/")) ||
+        !references.every(providerMetadataReference)) {
+        emit(check, entry, "Native provider metadata requires metadata-only inputs and provider model data output.");
+      }
+      const pending = [entry];
+      const visited = new Set();
+      while (pending.length > 0) {
+        const current = pending.pop();
+        const identity = keelSymbolIdentity(current);
+        if (visited.has(identity)) continue;
+        visited.add(identity);
+        for (const site of (metadataSites.get(current.file) ?? []).filter(candidate =>
+          candidate.owner === current.symbol || candidate.owner.startsWith(`${current.symbol}.`))) {
+          const references = [site.target, site.expressionTarget, ...(site.through ?? []), ...(site.receiverThrough ?? [])]
+            .filter(reference => reference !== undefined);
+          if (!references.every(providerMetadataReference) || references.some(reference =>
+            ["selection", "analysis", "syntax", "planner-invariant"].includes(classifications.get(keelSymbolIdentity(reference))))) {
+            emit(check, entry, "Native provider metadata cannot read checked source or invoke policy, analysis or target syntax decisions.");
+          }
+          for (const reference of references) {
+            const callee = metadataFunctions.get(keelSymbolIdentity(reference));
+            if (callee !== undefined) pending.push(callee);
+          }
+        }
+      }
     }
     if (role === "sealed-reader" && !entry.file.startsWith("src/analysis/program/records/") &&
       !entry.file.startsWith("src/policy/model/")) {
@@ -311,6 +350,13 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
         call.target !== undefined && keelSymbolIdentity(call.target) === keelSymbolIdentity(evidence));
     }
     return false;
+  }
+
+  function providerMetadataReference(reference) {
+    return reference.file.startsWith("libraries/") || reference.file.startsWith("src/providers/native/") ||
+      ["identities", "metadata", "types", "operations", "conversions", "lifetimes"]
+        .some(family => reference.file.startsWith(`src/target-model/${family}/`)) ||
+      declarations.get(keelSymbolIdentity(reference))?.some(declaration => declaration.providerMetadata === true) === true;
   }
 }
 

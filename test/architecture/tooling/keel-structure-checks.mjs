@@ -8,6 +8,7 @@ import { stronglyConnectedComponents } from "./strongly-connected-components.mjs
 
 export function evaluateKeelSkeleton(targetSources, differences = keelNativeDifferences) {
   validateKeelDifferences(differences);
+  const sourceDifferences = differences.filter(entry => entry.tree !== "test");
   const findings = [];
   const responsibilities = new Map();
   for (const [repo, sources] of targetSources) {
@@ -36,7 +37,7 @@ export function evaluateKeelSkeleton(targetSources, differences = keelNativeDiff
         const child = suffix.split("/")[0].replace(/\.(?:ts|tsx)$/u, "");
         const responsibility = `${parent}/${child}`;
         if (!suffix.includes("/") && flatEntrypoint(parent, child)) continue;
-        const native = differences.find(entry => entry.target === repo && entry.path === responsibility);
+        const native = sourceDifferences.find(entry => entry.target === repo && entry.path === responsibility);
         if (!children.includes(child) && native === undefined) {
           findings.push(keelFinding("AC7", repo, file, responsibility, "Responsibility needs its prescribed slot or an exact native-difference registration."));
         } else {
@@ -46,11 +47,13 @@ export function evaluateKeelSkeleton(targetSources, differences = keelNativeDiff
     }
     responsibilities.set(repo, tree);
   }
-  findings.push(...responsibilityParity(responsibilities, "src/", differences));
+  findings.push(...responsibilityParity(responsibilities, "src/", sourceDifferences));
   return sortKeelFindings(findings);
 }
 
-export function evaluateKeelTestSkeleton(targetTests) {
+export function evaluateKeelTestSkeleton(targetTests, differences = keelNativeDifferences) {
+  validateKeelDifferences(differences);
+  const testDifferences = differences.filter(entry => entry.tree !== "src");
   const findings = [];
   const responsibilities = new Map();
   const domains = new Set(["analysis", "architecture", "backend", "fixtures", "helpers", "integration", "policy", "providers", "source", "target-model", "toolchain"]);
@@ -61,7 +64,7 @@ export function evaluateKeelTestSkeleton(targetTests) {
       const parent = path.slice(0, path.lastIndexOf("/"));
       const children = keelSkeletonFamilies[parent];
       if (children !== undefined && !children.includes(path.slice(parent.length + 1)) &&
-        !keelNativeDifferences.some(entry => entry.target === repo && entry.path === path)) {
+        !testDifferences.some(entry => entry.target === repo && entry.path === path)) {
         findings.push(keelFinding("AC7", repo, `test/${path}`, path,
           "Test responsibility needs the same prescribed owner or exact target-native registration as its source."));
       }
@@ -79,7 +82,7 @@ export function evaluateKeelTestSkeleton(targetTests) {
         "Removed source responsibilities require matching test ownership, not a mirrored obsolete test tree."));
     }
   }
-  findings.push(...responsibilityParity(responsibilities, "test/", keelNativeDifferences));
+  findings.push(...responsibilityParity(responsibilities, "test/", testDifferences));
   return sortKeelFindings(findings);
 }
 
