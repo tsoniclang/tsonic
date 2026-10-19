@@ -403,7 +403,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               values.add(value);
               return true;
             };
-            for (let member = component.head; member !== undefined; member = member.next) {
+            for (let member: Member | undefined = component.head; member !== undefined; member = member.next) {
               if (!budget.step()) return false;
               if (!member.entry.live) {
                 budget.reject("Source storage graph inputs changed during query selection.");
@@ -429,7 +429,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               for (const value of dependency.values) if (!emit(value)) return false;
             }
             dependencies.clear();
-            for (let member = component.head; member !== undefined; member = member.next) releasePending(member);
+            for (let member: Member | undefined = component.head; member !== undefined; member = member.next) releasePending(member);
             if (!sealed && root.entry.children.size === 1) {
               const child = root.entry.children.values().next().value!;
               root.entry.inheritedReads = child.children.size === 0 ? child.reads : child.inheritedReads;
