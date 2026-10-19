@@ -1,4 +1,6 @@
 export * from "./navigation.js";
+export { sourceAbsenceUse } from "./absence-use.js";
+export type { SourceAbsenceUse } from "./absence-use.js";
 export { sourceDeclarationHasOnlyTypeUses } from "./declaration-use-summary.js";
 export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
