@@ -47,9 +47,10 @@ export function createSourceStorageProjectionFlow(
     const pattern = ast.parent(reference);
     if (pattern === undefined) return undefined;
     const queries = semantics.forNode(reference);
+    const binding = ast.is.IsBindingElement(reference) ? ast.as.AsBindingElement(reference) : undefined;
     const rawType = sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
     const ownerType = rawType === undefined ? undefined : sourcePresentStorageType(rawType, queries) ?? rawType;
-    if (ast.is.IsObjectBindingPattern(pattern) && ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined) {
+    if (ast.is.IsObjectBindingPattern(pattern) && binding?.DotDotDotToken !== undefined) {
       const value = subject(reference);
       const resultType = value === undefined ? undefined : sourceStorageSubjectType(source, value, sourceFileFor(value));
       const members = ownerType === undefined || resultType === undefined ? undefined : queries.types.structuralMembers(ownerType, resultType);
@@ -74,7 +75,6 @@ export function createSourceStorageProjectionFlow(
       return Object.freeze({ subjects: Object.freeze([value]), birth: Object.freeze(birth) });
     }
     if (ast.is.IsObjectBindingPattern(pattern) || ast.is.IsObjectLiteralExpression(pattern)) {
-      const binding = ast.as.AsBindingElement(reference);
       const name = binding?.PropertyName ?? ast.name(reference);
       const selected = name === undefined ? undefined : queries.operations.propertyName(name);
       const properties = ownerType === undefined || selected === undefined ? undefined : queries.types.propertyInfos(ownerType)
@@ -99,7 +99,7 @@ export function createSourceStorageProjectionFlow(
     const component: SourceStorageProjection | undefined = ownerType === undefined || index < 0 ? undefined
       : queries.types.isTuple(ownerType) ? { kind: "tuple-element", index }
         : queries.types.isArrayLike(ownerType) ? { kind: "array-element" } : undefined;
-    const rest = ast.as.AsBindingElement(reference)?.DotDotDotToken !== undefined || ast.is.IsSpreadElement(reference);
+    const rest = binding?.DotDotDotToken !== undefined || ast.is.IsSpreadElement(reference);
     if (component === undefined) return undefined;
     if (!rest) {
       const value = project(originalOwner, component);
