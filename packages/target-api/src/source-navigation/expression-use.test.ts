@@ -214,13 +214,22 @@ test("stored callable erasure follows original bindings rather than shadowed sou
     "the inner binding's real aliased invocation still retains its body");
 });
 
-test("conditionally discarded callable reads remain observed checked uses", () => {
+test("a callable value used as a condition remains observed", () => {
+  const { source, definition } = callableDemandFixture(`export function run() {
+    const selected = () => 1;
+    if (selected as unknown) {}
+  }`);
+  assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false,
+    "the callable itself controls an observable branch outcome");
+});
+
+test("an immutable callable read discarded inside a branch remains unobserved", () => {
   const { source, definition } = callableDemandFixture(`export function run(selectedBranch: boolean) {
     const selected = () => 1;
     if (selectedBranch) void selected;
   }`);
-  assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false,
-    "a conditional checked read never proves unconditional unused creation");
+  assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), true,
+    "every checked use discards the value even when the read is conditional");
 });
 
 test("discarded callable creation rejects foreign, incomplete and unresolved checked navigation", () => {
