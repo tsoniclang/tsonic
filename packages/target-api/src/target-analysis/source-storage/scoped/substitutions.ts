@@ -46,12 +46,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
-  interface ReferenceMemo {
-    reference?: SourceStorageRelation;
-    leaf?: SourceStorageRelation;
-  }
-  const references = new Map<SourceStorageSubject, Map<SourceStorageScope, ReferenceMemo>>();
-  const referenceRows = budget.createRows();
   const withQuery = scopes.withQuery;
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
@@ -153,11 +147,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   };
   const intern = (term: SourceStorageTerm): SourceStorageRelation | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
-    const reference = term.kind === "reference" || term.kind === "leaf" && term.guards === undefined ? term : undefined;
-    const contexts = reference === undefined ? undefined : references.get(reference.subject);
-    const retainedMemo = reference === undefined ? undefined : contexts?.get(reference.scope);
-    const cached = reference === undefined ? undefined : retainedMemo?.[reference.kind];
-    if (cached !== undefined) return cached;
     const retained: SourceStorageRelationWitness[] = [];
     const normalized = normalize(term, retained, temporary);
     if (normalized === undefined) return undefined;
@@ -171,13 +160,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
-    if (reference !== undefined) {
-      if (retainedMemo === undefined && !referenceRows.add(contexts === undefined ? 3 : 2)) return undefined;
-      const retained = retainedMemo ?? {};
-      retained[reference.kind] = selected;
-      const entries = contexts ?? new Map<SourceStorageScope, ReferenceMemo>();
-      entries.set(reference.scope, retained); references.set(reference.subject, entries);
-    }
     return selected;
   }));
   const derive = (relation: SourceStorageRelation,
