@@ -1,6 +1,8 @@
 export { createSourceControlFlow, createSourceControlFlowDomain } from "./graph.js";
 export { solveSourceFlow } from "./solver.js";
 export { analyzeSourceStatementExits } from "./statement-exits.js";
+export { analyzeSourceResourceScopes } from "./resource-scopes.js";
+export type { SourceResourceScope, SourceResourceScopes } from "./resource-scopes.js";
 export type { SourceStatementExitFacts } from "./statement-exits.js";
 export { analyzeSourceLiveness, analyzeSourceDefiniteAssignment, analyzeSourceWrites } from "./instances.js";
 export { defaultSourceFlowLimits } from "./resources.js";
