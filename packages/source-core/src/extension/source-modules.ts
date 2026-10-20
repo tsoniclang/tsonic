@@ -1,13 +1,6 @@
-import {
-  sourcePrimitive,
-} from "@tsonic/tsts";
-import type {
-  SourceSemanticsModule,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreLangModule,
-  tsonicCoreTypesModule,
-} from "../identity.js";
+import { sourcePrimitive } from "@tsonic/tsts";
+import type { SourceSemanticsModule } from "@tsonic/tsts";
+import { tsonicCoreLangModule, tsonicCoreTypesModule } from "../identity.js";
 
 const primitiveDeclarations = [
   sourcePrimitive("bool", "bool", "boolean"),
