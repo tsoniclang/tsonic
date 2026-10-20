@@ -1,7 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
-import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection,
-  type SourceNodeDomain } from "./lexical-captures.js";
+import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection, type SourceNodeDomain } from "./lexical-captures.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection {
