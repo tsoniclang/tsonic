@@ -74,7 +74,7 @@ export function createMemoryTypeContracts(
     if (cached !== undefined) return cached;
     const bucket = domains.bucket(domain);
     const entries = identities.get(bucket) ?? [];
-    const existing = entries.find(entry => typeShape.isTypeIdenticalTo(entry.type, type) && domains.equivalent(entry.domain, domain));
+    const existing = entries.find(entry => domains.equivalent(entry.domain, domain));
     const result = Object.freeze({ type, domain, identity: existing?.identity ?? createMemoryTypeIdentity() });
     if (domain.kind === "reference") {
       const canonicalType = existing?.type ?? type;
