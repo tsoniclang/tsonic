@@ -1,7 +1,4 @@
-import type {
-  AstReader,
-  Node,
-} from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 
 type LexicalThisAstReader = Pick<
   AstReader,
