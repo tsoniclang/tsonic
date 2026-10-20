@@ -1,10 +1,4 @@
-import type {
-  Node,
-  Signature,
-  SourceFile,
-  Symbol,
-  Type,
-} from "@tsonic/tsts";
+import type { Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
 
 export interface SourceProjectReference {
   readonly symbol: Symbol;
