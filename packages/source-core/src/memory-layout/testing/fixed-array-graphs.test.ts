@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  countTsonicMemoryLayoutValues, readTsonicMemoryLayout, tsonicMemoryLayoutFactKey,
-} from "../../public/facts.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryLayout, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
 import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
 import { maximumMemoryLayoutDepth } from "../facts.js";
 import { memoryCall, valueMemoryLayout } from "./fixtures.js";
