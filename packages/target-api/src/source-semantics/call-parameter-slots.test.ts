@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  Type,
-} from "@tsonic/tsts";
-import {
-  selectSourceCallParameterSlots,
-} from "./call-parameter-slots.js";
-import type {
-  ResolvedSourceCallInfo,
-} from "./call-result-selection.js";
+import type { Type } from "@tsonic/tsts";
+import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
+import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
 
 test("selected call parameter slots preserve required, optional, and rest forms", () => {
   const required = type();
