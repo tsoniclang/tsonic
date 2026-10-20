@@ -1,9 +1,4 @@
-import type {
-  AstReader,
-  Node,
-  SourceFileQueries,
-  Type,
-} from "@tsonic/tsts";
+import type { AstReader, Node, SourceFileQueries, Type } from "@tsonic/tsts";
 
 export interface SourceTypeArgumentBinding {
   readonly declaration: Node;
