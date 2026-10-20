@@ -1,17 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  Node,
-  Type,
-  TypeTupleElementInfo,
-} from "@tsonic/tsts";
-import {
-  selectSourceContextualTupleLiteral,
-} from "./contextual-tuple-literal.js";
-import type {
-  SourceContextualValueTypeSelection,
-  SourceFinalTypeQueries,
-} from "./types.js";
+import type { Node, Type, TypeTupleElementInfo } from "@tsonic/tsts";
+import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
+import type { SourceContextualValueTypeSelection, SourceFinalTypeQueries } from "./types.js";
 
 test("contextual tuple literals retain exact trailing optional omissions", () => {
   const contextualType = type();
