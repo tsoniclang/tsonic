@@ -135,6 +135,13 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
+      const types = semantics.forNode(node).types;
+      const valueType = types.expressionType(node);
+      if (valueType !== undefined && types.isNullish(valueType)) {
+        includesUndefined = true;
+        terminals.add(node);
+        continue;
+      }
       if (ast.is.IsConditionalExpression(node)) {
         const conditional = ast.as.AsConditionalExpression(node);
         edge(node, conditional?.WhenTrue);
@@ -154,13 +161,7 @@ export function createTsonicPointerBackingQueries(
         continue;
       }
       if (ast.is.IsIdentifier(node)) {
-        const type = semantics.forNode(node).types.expressionType(node);
-        if (type !== undefined && semantics.forNode(node).types.isNullish(type)) {
-          includesUndefined = true;
-          terminals.add(node);
-        } else {
-          edge(node, navigation.sourceReferenceFor(node)?.declaration);
-        }
+        edge(node, navigation.sourceReferenceFor(node)?.declaration);
         continue;
       }
       if (ast.is.IsVariableDeclaration(node)) {
