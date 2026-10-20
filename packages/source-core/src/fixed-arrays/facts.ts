@@ -1,13 +1,6 @@
-import {
-  defineExtensionFactKey,
-} from "@tsonic/tsts";
-import type {
-  Node,
-  Type,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreSourceExtensionId,
-} from "../identity.js";
+import { defineExtensionFactKey } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
 
 export interface TsonicFixedArrayFact {
   readonly sourceType: Type;
@@ -44,8 +37,7 @@ export function snapshotFixedArrayFact(value: TsonicFixedArrayFact): TsonicFixed
     }
   }
   if (typeof captured.length !== "bigint" || captured.length < 0n ||
-      (captured.lengthRuntimeBase !== "number" && captured.lengthRuntimeBase !== "bigint") ||
-      (captured.lengthRuntimeBase === "number" && captured.length > BigInt(Number.MAX_SAFE_INTEGER))) {
+      (captured.lengthRuntimeBase !== "number" && captured.lengthRuntimeBase !== "bigint")) {
     throw new Error("Fixed-array evidence requires an exact non-negative length with its source runtime base.");
   }
   return Object.freeze({
