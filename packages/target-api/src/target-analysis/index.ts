@@ -91,3 +91,6 @@ export { analyzeSourceArtifactFiles } from "./artifacts/source-files.js";
 export { sourceSafetyPositionIssue } from "./safety-position.js";
 export { createSourceExplicitUnsafeContextIndex } from "./safety-contexts.js";
 export type { SourceArtifactFile, SourceArtifactIssue } from "./artifacts/source-files.js";
+
+export { validateSourceBinaryEntry } from "./entry-validation.js";
+export type { SourceBinaryEntryIssue } from "./entry-validation.js";
