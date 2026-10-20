@@ -1,9 +1,5 @@
-import type {
-  ProviderExportDeclaration,
-} from "@tsonic/tsts";
-import {
-  tsonicFixedArrayProviderIds,
-} from "./provider.js";
+import type { ProviderExportDeclaration } from "@tsonic/tsts";
+import { tsonicFixedArrayProviderIds } from "./provider.js";
 
 export function fixedArrayTypeMarkerDeclaration(
   exportName: string,
