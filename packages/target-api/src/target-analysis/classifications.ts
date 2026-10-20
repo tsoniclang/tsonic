@@ -1,9 +1,5 @@
-import {
-  targetUseSiteIdentity,
-} from "./use-sites.js";
-import type {
-  TargetUseSiteRef,
-} from "./use-sites.js";
+import { targetUseSiteIdentity } from "./use-sites.js";
+import type { TargetUseSiteRef } from "./use-sites.js";
 
 export interface TargetClassificationKey<Value> {
   readonly id: string;
