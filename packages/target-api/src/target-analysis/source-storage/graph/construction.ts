@@ -1,11 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";
-import { sourceStorageAllocations, sourceStorageConstructionExpression,
-  sourceStorageInstanceInitializers, sourceStorageClassLineages } from "../model/construction.js";
+import { sourceStorageAllocations, sourceStorageConstructionExpression, sourceStorageInstanceInitializers, sourceStorageClassLineages } from "../model/construction.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection,
-  SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
+import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
 
 type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForInvocation" |
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;
