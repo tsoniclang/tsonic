@@ -1,20 +1,7 @@
-import type {
-  TargetCompilationSession,
-  TargetCompilationSessionContext,
-} from "./compilation.js";
-import type {
-  TargetProviderDescriptor,
-  TargetSurfaceImplementation,
-  TsonicTargetCapabilityPlugin,
-} from "./composition.js";
-import type {
-  TargetToolchain,
-  TargetToolchainContext,
-} from "./toolchain.js";
-import type {
-  TargetStarterProject,
-  TargetStarterProjectContext,
-} from "./starter.js";
+import type { TargetCompilationSession, TargetCompilationSessionContext } from "./compilation.js";
+import type { TargetProviderDescriptor, TargetSurfaceImplementation, TsonicTargetCapabilityPlugin } from "./composition.js";
+import type { TargetToolchain, TargetToolchainContext } from "./toolchain.js";
+import type { TargetStarterProject, TargetStarterProjectContext } from "./starter.js";
 
 export type TsonicPlugin =
   | TsonicTargetPlugin
