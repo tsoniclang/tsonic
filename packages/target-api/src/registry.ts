@@ -32,12 +32,12 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
     }
     byId.set(pack.id, pack);
   }
-  return {
-    packs,
+  return Object.freeze({
+    packs: Object.freeze([...byId.values()]),
     get(id: TargetId): TargetPack | undefined {
       return byId.get(id);
     },
-  };
+  });
 }
 
 function validateTargetPackContract(pack: TargetPack): void {
