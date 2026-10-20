@@ -123,7 +123,6 @@ export function sourceStorageConstructionExpression(invocation: Node, source: Ta
     : sourceStorageSuperConstructor(invocation, source, step)?.callee;
 }
 
-
 export function sourceStorageSuperConstructor(
   invocation: Node,
   source: TargetSourceProgram,
@@ -143,7 +142,6 @@ export function sourceStorageSuperConstructor(
   }
   return undefined;
 }
-
 
 export function sourceStorageInstanceInitializers(declaration: Node, source: TargetSourceProgram,
   step: () => boolean): readonly Node[] {
