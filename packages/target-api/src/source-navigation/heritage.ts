@@ -1,25 +1,8 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-  Symbol,
-} from "@tsonic/tsts";
-import {
-  sourceNodeIdentity,
-} from "./identity.js";
-import {
-  getEffectiveSourceTypeArguments,
-} from "../source-semantics/type-arguments.js";
-import {
-  aliasedSymbol,
-  primaryDeclaration,
-  symbolAtReferenceNode,
-} from "./syntax.js";
-import type {
-  SourceDeclarationReference,
-  SourceDeclaredHeritageEdge,
-  SourceDeclaredHeritageResult,
-  SourceHeritagePathResult,
-} from "./types.js";
+import type { CheckedSourceProgram, Node, Symbol } from "@tsonic/tsts";
+import { sourceNodeIdentity } from "./identity.js";
+import { getEffectiveSourceTypeArguments } from "../source-semantics/type-arguments.js";
+import { aliasedSymbol, primaryDeclaration, symbolAtReferenceNode } from "./syntax.js";
+import type { SourceDeclarationReference, SourceDeclaredHeritageEdge, SourceDeclaredHeritageResult, SourceHeritagePathResult } from "./types.js";
 
 export interface SourceHeritageNavigation {
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;
