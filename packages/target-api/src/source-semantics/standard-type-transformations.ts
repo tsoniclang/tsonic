@@ -1,23 +1,8 @@
-import type {
-  AstReader,
-  Node,
-  Type,
-  TypeSignatureInfo,
-  TypeSignatureParameterInfo,
-} from "@tsonic/tsts";
-import type {
-  SourceProgramNavigation,
-} from "../source-navigation/index.js";
+import type { AstReader, Node, Type, TypeSignatureInfo, TypeSignatureParameterInfo } from "@tsonic/tsts";
+import type { SourceProgramNavigation } from "../source-navigation/index.js";
 import { typescriptNoLibUtilityDeclarations } from "../source-profiles/typescript-no-lib-utilities.js";
 import { sourceCallableParameterEvidence } from "./callable-parameters.js";
-import type {
-  SourceCallableTypeEvidence,
-  SourceFinalTypeQueries,
-  SourceFileSemantics,
-  SourceSelectedDeclarationQueries,
-  SourceStandardTypeTransformation,
-  SourceTypeComponentEvidence,
-} from "./types.js";
+import type { SourceCallableTypeEvidence, SourceFinalTypeQueries, SourceFileSemantics, SourceSelectedDeclarationQueries, SourceStandardTypeTransformation, SourceTypeComponentEvidence } from "./types.js";
 
 interface StandardTypeTransformationContext {
   readonly ast: AstReader;
