@@ -1,12 +1,5 @@
-import type {
-  ReadonlySourceFactResolver,
-  Type,
-  TypeCheckerQueries,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
-import {
-  sourceTypeRelationship,
-} from "./type-relationship.js";
+import type { ReadonlySourceFactResolver, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { sourceTypeRelationship } from "./type-relationship.js";
 
 export type SourceTypeRefinement =
   | { readonly kind: "exact"; readonly type: Type }
