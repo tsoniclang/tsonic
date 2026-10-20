@@ -2,34 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
-import {
-  argumentPassingFactKey,
-  flowStateFactKey,
-  functionPointerFactKey,
-  pointerFactKey,
-  sourcePrimitiveFactKey,
-  tsonicCoreLangModule,
-  tsonicCoreTypesModule,
-  tsonicAttributeBuilderFactKey,
-  createSourceCoreSession,
-  createCleanSourceCoreSession,
-  argumentMode,
-  flowState,
-  assertAttributeApplication,
-  callExpression,
-  propertyCallExpression,
-  firstCallArgument,
-  typeReference,
-  variableDeclaration,
-  variableInitializer,
-  typeReferenceName,
-  sourceCoreFacts,
-  checkSource,
-  sourceAst,
-  getSourceFact,
-  definedDiagnostics,
-  numberSort,
-} from "./source-extension.fixtures.js";
+import { argumentPassingFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, tsonicCoreLangModule, tsonicCoreTypesModule, tsonicAttributeBuilderFactKey, createSourceCoreSession, createCleanSourceCoreSession, argumentMode, flowState, assertAttributeApplication, callExpression, propertyCallExpression, firstCallArgument, typeReference, variableDeclaration, variableInitializer, typeReferenceName, sourceCoreFacts, checkSource, sourceAst, getSourceFact, definedDiagnostics, numberSort } from "./source-extension.fixtures.js";
 
 test("source-core records storage and flow marker facts from aliases and namespaces without guessing names", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
