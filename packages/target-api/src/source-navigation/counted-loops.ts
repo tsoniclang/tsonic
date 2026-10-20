@@ -1,9 +1,5 @@
 import type { AstReader, Node, Symbol } from "@tsonic/tsts";
-import type {
-  SourceBindingWrite,
-  SourceCountedLoop,
-  SourceDeclarationReference,
-} from "./types.js";
+import type { SourceBindingWrite, SourceCountedLoop, SourceDeclarationReference } from "./types.js";
 
 export function sourceCountedLoop(
   ast: AstReader,
