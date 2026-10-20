@@ -9,8 +9,7 @@ import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceS
 import type { SourceContinuationDependencyQueries } from "./dependencies.js";
 import { createSourceContinuationTransfer, type SourceContinuationState, type SourceContinuationTransfer } from "./continuation.js";
 import type { SourceSuspensionQueries } from "./suspension.js";
-import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipUnresolved,
-  SourcePendingOperation, SourceRetentionPremise } from "./model.js";
+import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipUnresolved, SourcePendingOperation, SourceRetentionPremise } from "./model.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceOwnershipUnresolved } from "./contracts.js";
 import { sourceOwnershipImmediateType } from "./suspension.js";
