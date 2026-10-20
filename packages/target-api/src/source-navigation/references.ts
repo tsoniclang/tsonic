@@ -1,23 +1,8 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  Symbol,
-} from "@tsonic/tsts";
-import {
-  createSourceDeclarationReferenceIndex,
-} from "./reference-index.js";
-import {
-  projectDeclarationForType,
-} from "./reference-selection.js";
-import {
-  semanticTypeForNode,
-} from "./syntax.js";
-import type {
-  SourceDeclarationReference,
-  SourceProjectReference,
-  SourceReferenceIndexStatistics,
-} from "./types.js";
+import type { CheckedSourceProgram, Node, SourceFile, Symbol } from "@tsonic/tsts";
+import { createSourceDeclarationReferenceIndex } from "./reference-index.js";
+import { projectDeclarationForType } from "./reference-selection.js";
+import { semanticTypeForNode } from "./syntax.js";
+import type { SourceDeclarationReference, SourceProjectReference, SourceReferenceIndexStatistics } from "./types.js";
 
 export interface SourceReferenceNavigation {
   readonly referenceIndexStatistics: SourceReferenceIndexStatistics;
