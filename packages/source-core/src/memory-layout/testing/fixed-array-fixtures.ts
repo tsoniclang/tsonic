@@ -1,19 +1,14 @@
 import assert from "node:assert/strict";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
-import {
-  readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation,
-} from "../../public/facts.js";
+import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../public/facts.js";
 import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
 import { assertMemoryDiagnostics, memoryCall, memorySession, memoryTestRegistration } from "./fixtures.js";
 
 export const arrayTestPrelude = `
 import { abi } from "test:abi";
-import type { FixedArray, MemoryLayout, Pointer, RawPointer, uint8, uint32, int32,
-  uint64, nativeUint } from "@tsonic/core/types.js";
-import { memorylayout, memoryarraylayout, memoryfield, sizeof, alignof, strideof,
-  fieldoffsetof, torawptr, reinterpretrawptr, allocateptr, addressof,
-  offsetrawptr, keepalive } from "@tsonic/core/lang.js";
+import type { RawPointer, uint32 } from "@tsonic/core/types.js";
+import { memorylayout, memoryarraylayout } from "@tsonic/core/lang.js";
 declare const raw: RawPointer | undefined;
 const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 interface Empty {}
