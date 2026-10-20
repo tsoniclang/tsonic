@@ -13,7 +13,7 @@ import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformatio
 import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
 export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
-import { resolveSourceFlowConditions } from "./flow-conditions.js";
+import { resolveSourceFlowConditions } from "../target-analysis/flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";

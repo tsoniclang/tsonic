@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
-import { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
+import { selectSourceGuardedValueMembers } from "../target-analysis/value-flow-conditions.js";
 
 test("native value guards retain exact operands, categories and nominal declaration identity", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {

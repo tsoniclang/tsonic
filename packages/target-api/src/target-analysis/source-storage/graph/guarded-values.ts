@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
-import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../../source-semantics/value-flow-conditions.js";
+import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../value-flow-conditions.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";

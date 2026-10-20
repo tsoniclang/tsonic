@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceValueFlowQueryContext } from "./value-flow-conditions.js";
+import type { SourceValueFlowQueryContext } from "../target-analysis/value-flow-conditions.js";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-navigation/ast.js";
 
 export type SourceNativeValueGuard =

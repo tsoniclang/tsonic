@@ -2,7 +2,7 @@ import type { AstReader, Node, ReadonlySourceFactResolver, Type } from "@tsonic/
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-semantics/types.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 
 export interface SourceValueFlowQueryContext {

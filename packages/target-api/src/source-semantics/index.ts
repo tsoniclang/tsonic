@@ -23,12 +23,12 @@ export { sourceInterfaceRepresentationBase } from "./interface-representations.j
 export { sourceArrayElementType } from "./array-types.js";
 export { sourceCallableParameterEvidence } from "./callable-parameters.js";
 export { sourcePresentCallableType } from "./present-callables.js";
-export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, selectSourceNativeGuardResult } from "./value-flow-conditions.js";
+export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, selectSourceNativeGuardResult } from "../target-analysis/value-flow-conditions.js";
 export { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 export { selectedSourceIndexedDeclarations } from "./selected-indexed-declarations.js";
 export { sourceObjectLiteralDestinationMember } from "./object-literal-correspondence.js";
 export { sourceTypeIsAuthoredEmptyObject } from "./empty-object-evidence.js";
-export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
+export type { SourceNativeGuard, SourceValueFlowQueryContext } from "../target-analysis/value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
 export { sourceNodeIsNativeUnreachable } from "../target-analysis/native-control-flow.js";
 export type { SourceNativeValueGuard } from "./native-value-guards.js";

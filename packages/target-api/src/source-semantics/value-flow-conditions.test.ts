@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, pointerOperationFactKey, createCompilerSessionFromFiles, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
-import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "./value-flow-conditions.js";
+import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../target-analysis/value-flow-conditions.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `

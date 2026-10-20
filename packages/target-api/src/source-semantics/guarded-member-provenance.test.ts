@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node, type Type } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
-import { selectSourceGuardedTypeMembers } from "./value-flow-conditions.js";
+import { selectSourceGuardedTypeMembers } from "../target-analysis/value-flow-conditions.js";
 import { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 
 function fixture(body: string) {

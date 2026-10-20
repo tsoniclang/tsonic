@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
-import { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
+import { selectSourceGuardedValueMembers } from "../target-analysis/value-flow-conditions.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
 
 function fixture(body: string) {

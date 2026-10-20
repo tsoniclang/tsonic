@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
-import { selectSourceNativeGuardResult } from "./value-flow-conditions.js";
+import { selectSourceNativeGuardResult } from "../target-analysis/value-flow-conditions.js";
 import { sourceNodeIsNativeUnreachable } from "../target-analysis/native-control-flow.js";
 
 function fixture(body: string) {
