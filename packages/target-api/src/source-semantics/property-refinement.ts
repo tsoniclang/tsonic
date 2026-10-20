@@ -1,10 +1,4 @@
-import type {
-  Node,
-  ReadonlySourceFactResolver,
-  ResolvedSourcePropertyAccessInfo,
-  TypeCheckerQueries,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
+import type { Node, ReadonlySourceFactResolver, ResolvedSourcePropertyAccessInfo, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
 import type { SourceValueTypeRefinementSelection } from "./types.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 
