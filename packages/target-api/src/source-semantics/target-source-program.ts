@@ -1,11 +1,4 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-  Signature,
-  SourceFile,
-  Symbol,
-  Type,
-} from "@tsonic/tsts";
+import type { CheckedSourceProgram, Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
 import { createSourceProgramNavigation } from "../source-navigation/index.js";
 import { authoredSourceTypeFactDependencies, authoredSourceTypeFactNodes } from "./authored-type-facts.js";
 import { selectAuthoredSourceType } from "./authored-type-selection.js";
@@ -24,17 +17,10 @@ import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
-import { analyzeSourcePropertyNames } from "./property-names.js";
-import { analyzeSourceEnumConstants } from "./enum-constants.js";
+import { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
+import { analyzeSourceEnumConstants } from "../target-analysis/enum-constants.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
-import type {
-  ResolvedSourceCallInfo,
-  SourceFileSemantics,
-  SourceFinalTypeQueries,
-  SourceProgramSemantics,
-  SourceValueTypeRefinementSelection,
-  TargetSourceProgram,
-} from "./types.js";
+import type { ResolvedSourceCallInfo, SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
