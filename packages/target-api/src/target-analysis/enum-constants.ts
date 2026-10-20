@@ -1,7 +1,7 @@
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
-import { analyzeSourceEnumNumericUses } from "./enum-numeric-uses.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-semantics/literal-token.js";
+import { analyzeSourceEnumNumericUses } from "../source-semantics/enum-numeric-uses.js";
 
 export type SourceEnumConstantSelection =
   | { readonly kind: "resolved"; readonly declaration: Node; readonly value: bigint | string }
