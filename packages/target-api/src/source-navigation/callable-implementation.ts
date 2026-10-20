@@ -1,14 +1,5 @@
-import type {
-  AstReader,
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  Symbol,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
-import type {
-  SourceCallableImplementationResult,
-} from "./types.js";
+import type { AstReader, CheckedSourceProgram, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
+import type { SourceCallableImplementationResult } from "./types.js";
 
 type CallableCategory = "function" | "method" | "get" | "set" | "constructor";
 
