@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  Node,
-} from "@tsonic/tsts";
-import {
-  sourceCallableUsesLexicalThis,
-  sourceExpressionUsesLexicalThis,
-} from "./lexical-this.js";
+import type { Node } from "@tsonic/tsts";
+import { sourceCallableUsesLexicalThis, sourceExpressionUsesLexicalThis } from "./lexical-this.js";
 
 test("lexical-this selection enters arrows and stops at independent callables", () => {
   const directThis = node("KindThisKeyword");
