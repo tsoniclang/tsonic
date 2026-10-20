@@ -1,21 +1,7 @@
-import type {
-  AstReader,
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  Symbol,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
-import {
-  createSourceDeclarationReferenceSelector,
-} from "./reference-selection.js";
-import {
-  referenceQueryNode,
-} from "./syntax.js";
-import type {
-  SourceDeclarationReference,
-  SourceReferenceIndexStatistics,
-} from "./types.js";
+import type { AstReader, CheckedSourceProgram, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
+import { createSourceDeclarationReferenceSelector } from "./reference-selection.js";
+import { referenceQueryNode } from "./syntax.js";
+import type { SourceDeclarationReference, SourceReferenceIndexStatistics } from "./types.js";
 
 const noSourceReferences: readonly Node[] = Object.freeze([]);
 
