@@ -9,9 +9,6 @@ import type {
 import {
   attributeBuilderDeclaration,
   attributeCallMarkerDeclaration,
-  attributeMemberBuilderDeclaration,
-  tsonicAttributeBuilderMemberIds,
-  tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
 import { memoryOperationDeclarations, memoryTypeDeclarations } from "../memory-layout/declarations.js";
 import { pointerViewDeclaration } from "../pointers/views/declarations.js";
