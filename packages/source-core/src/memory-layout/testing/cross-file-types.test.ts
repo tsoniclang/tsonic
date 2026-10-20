@@ -2,17 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import {
-  readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationOperation,
-  tsonicMemoryTypeFactKey,
-} from "../../public/facts.js";
+import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationOperation, tsonicMemoryTypeFactKey } from "../../public/facts.js";
 import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { assertMemoryDiagnostics, memoryCall, memoryCalls, memorySession } from "./fixtures.js";
 import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
 
 const prelude = `
 import { abi } from "test:abi";
-import type { Pointer, RawPointer, uint32, int32, uint64 } from "@tsonic/core/types.js";
+import type { Pointer, RawPointer, uint32, int32 } from "@tsonic/core/types.js";
 import { memorylayout, memoryfield, sizeof, allocateptr, torawptr, reinterpretrawptr } from "@tsonic/core/lang.js";
 `;
 
