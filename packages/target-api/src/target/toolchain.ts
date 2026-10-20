@@ -1,10 +1,5 @@
-import type {
-  TargetCompileOutput,
-} from "../artifacts.js";
-import type {
-  TargetSelection,
-  TsonicProjectConfig,
-} from "../config.js";
+import type { TargetCompileOutput } from "../artifacts.js";
+import type { TargetSelection, TsonicProjectConfig } from "../config.js";
 
 export interface TargetToolchainInput {
   readonly artifactsRoot: string;
