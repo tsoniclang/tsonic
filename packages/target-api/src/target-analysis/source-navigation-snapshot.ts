@@ -1,30 +1,8 @@
-import type {
-  AstReader,
-  Node,
-  SourceFile,
-  Symbol,
-} from "@tsonic/tsts";
-import type {
-  TargetSourceProgram,
-} from "../source-semantics/types.js";
-import {
-  sourceBindingWriteAtReference,
-} from "../source-navigation/index.js";
+import type { AstReader, Node, SourceFile, Symbol } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../source-semantics/types.js";
+import { sourceBindingWriteAtReference } from "../source-navigation/index.js";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
-import type {
-  SourceBindingWrite,
-  SourceCallableImplementationResult,
-  SourceCountedLoop,
-  SourceDeclarationReference,
-  SourceDeclarationUseSummary,
-  SourceDeclaredHeritageResult,
-  SourceExpressionEffects,
-  SourceProjectMemberContractsResult,
-  SourceProjectMemberDispatch,
-  SourceProjectModuleDependency,
-  SourceProjectModuleExport,
-  SourceProjectReference,
-} from "../source-navigation/index.js";
+import type { SourceBindingWrite, SourceCallableImplementationResult, SourceCountedLoop, SourceDeclarationReference, SourceDeclarationUseSummary, SourceDeclaredHeritageResult, SourceExpressionEffects, SourceProjectMemberContractsResult, SourceProjectMemberDispatch, SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectReference } from "../source-navigation/index.js";
 
 export interface TargetPlanningSourceNavigation {
   readonly sourceFiles: readonly SourceFile[];
