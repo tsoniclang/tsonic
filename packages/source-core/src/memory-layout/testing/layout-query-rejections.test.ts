@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { readTsonicRawMemoryOperation } from "../readers.js";
-import {
-  memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration,
-} from "./fixtures.js";
+import { memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
 
 test("layout-query constants cannot conceal overflowing asserted integer widths", () => {
   const checked = memorySession(memoryTestPrelude + `
