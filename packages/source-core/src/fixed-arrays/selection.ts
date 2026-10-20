@@ -1,6 +1,6 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, SourceFileQueries, Symbol, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api/source";
+import { sourceIntegerLiteralValue, type SourceFileSemantics } from "@tsonic/target-api/source";
 import { snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "./facts.js";
 import type { TsonicFixedArrayFact } from "./facts.js";
 import { isTsonicFixedArrayProviderType } from "./provider.js";
@@ -109,6 +109,14 @@ export function selectTsonicFixedArray(
   if (authored !== undefined && !typeShape.isTypeIdenticalTo(checker.getTypeFromTypeNode(authored), sourceType)) {
     return invalid("The authored FixedArray annotation does not match its selected source type.");
   }
+  if (authoredCanonical && authored !== undefined) {
+    const extent = ast.typeArguments(authored)[1];
+    const literal = extent === undefined ? undefined : ast.as.AsLiteralTypeNode(extent)?.Literal;
+    const exact = literal === undefined ? undefined : sourceIntegerLiteralValue(ast, literal);
+    if (exact !== undefined && exact !== selected.fact.length) {
+      return invalid("The exact authored FixedArray extent disagrees with its checked literal identity.");
+    }
+  }
   const elementType = syntax.elementType ?? (authoredCanonical && authored !== undefined
     ? ast.typeArguments(authored)[0] : undefined);
   if (elementType === undefined) return selected;
@@ -158,8 +166,8 @@ function selectResolvedFixedArray(
   }
   const count = queries.numericLiteralValue(lengthType);
   if ((typeof count !== "number" && typeof count !== "bigint") || count < 0 ||
-      (typeof count === "number" && !Number.isSafeInteger(count))) {
-    return invalid("FixedArray<T, N> requires N to be one exact non-negative safe numeric or bigint literal type.");
+      (typeof count === "number" && !Number.isInteger(count))) {
+    return invalid("FixedArray<T, N> requires N to be one exact non-negative integer numeric or bigint literal type.");
   }
   const fact = snapshotFixedArrayFact({
     sourceType, elementSourceType,
