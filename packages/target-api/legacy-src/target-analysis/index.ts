@@ -87,3 +87,5 @@ export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./er
 export type {
   TargetUseSiteRef,
 } from "./use-sites.js";
+export { analyzeSourceArtifactFiles } from "./artifacts/source-files.js";
+export type { SourceArtifactFile, SourceArtifactIssue } from "./artifacts/source-files.js";
