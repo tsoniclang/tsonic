@@ -3,8 +3,7 @@ import { Node_Expression, Node_Initializer } from "../../../source-navigation/in
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue,
-  sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
