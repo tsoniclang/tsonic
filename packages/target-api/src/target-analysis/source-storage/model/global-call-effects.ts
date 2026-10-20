@@ -25,8 +25,15 @@ export function createSourceGlobalCallStorageEffects(
       source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
       source.navigation.declarationUseSummary(binding).bindingWritten) return false;
     const declaration = source.sourceFacts.getFact(operation.declaration, providerVirtualDeclarationFactKey);
-    if (declaration === undefined) return file === source.ast.getSourceFile(operation.declaration) &&
-      source.ast.text(source.ast.name(binding)) === operation.binding.name;
+    if (declaration === undefined) {
+      const semantics = source.semantics.forNode(binding);
+      const type = semantics.declarations.declaredValueType(binding);
+      if (type === undefined) return false;
+      if ([...semantics.types.callSignatures(type), ...semantics.types.constructSignatures(type)]
+        .some(signature => semantics.declarations.signatureDeclaration(signature) === operation.declaration)) return true;
+      return semantics.types.propertyInfos(type).some(property => [property.symbol, ...property.rootSymbols]
+        .some(symbol => semantics.declarations.symbolDeclarations(symbol).includes(operation.declaration)));
+    }
     const global = source.sourceFacts.getFact(binding, providerVirtualDeclarationFactKey);
     return global?.providerId === operation.binding.providerId && global.providerId === declaration.providerId &&
       global.providerVersion === declaration.providerVersion && global.providerModuleId === declaration.providerModuleId &&
