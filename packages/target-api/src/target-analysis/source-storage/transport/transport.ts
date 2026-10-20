@@ -1,8 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
-  sourceStorageFormalOwner, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value,
-  sourceReceiverOwner } from "../../../source-navigation/index.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageFormalOwner, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
@@ -19,11 +17,9 @@ import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
-import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
-  sourceStorageNativeCallablePayloads, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
+import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots, sourceStorageNativeCallablePayloads, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
-  SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
