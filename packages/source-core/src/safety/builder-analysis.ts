@@ -15,6 +15,7 @@ import type {
   TsonicSafetyContract,
   TsonicSafetyMemberKind,
 } from "./facts.js";
+import { pointerFlowOperand } from "../pointers/backing/source-forms.js";
 import {
   selectInlineSourceMember,
 } from "../analysis/selected-source-member.js";
@@ -131,7 +132,7 @@ function analyzeRoot(
   form: "type" | "value",
 ): void {
   const target = form === "value"
-    ? selectedValueTarget(selected)
+    ? selectedValueTarget(selected, context)
     : selected.selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode;
   if (target === undefined) {
     appendDiagnostic(
@@ -140,7 +141,7 @@ function analyzeRoot(
       contract,
       "ROOT_TARGET_NOT_PROVEN",
       0,
-      "The selected safety root requires one exact value declaration or authored type argument target.",
+      "The selected safety root requires a declaration reference, an uncalled function expression or an authored type argument; effectful root expressions are not admitted.",
     );
     return;
   }
@@ -153,13 +154,29 @@ function analyzeRoot(
 
 function selectedValueTarget(
   selected: SelectedProviderSourceCall,
+  context: TsonicSourceFileAnalysisContext,
 ): ExtensionFactSubject | undefined {
   const argument = selected.selection.sourceArguments[0];
-  return argument?.selectedDeclaration ??
-    argument?.declaration ??
-    argument?.selectedSymbol ??
-    argument?.symbol ??
-    argument?.expression;
+  if (argument === undefined) return undefined;
+  const { ast, checker } = context;
+  function declaration(expression: Node): Node | undefined {
+    const operand = pointerFlowOperand(ast, expression);
+    if (operand !== undefined) return declaration(operand);
+    if (ast.is.IsFunctionExpression(expression) || ast.is.IsArrowFunction(expression)) return expression;
+    if (ast.is.IsPropertyAccessExpression(expression)) {
+      const receiver = ast.as.AsPropertyAccessExpression(expression)?.Expression;
+      if (receiver === undefined || declaration(receiver) === undefined) return undefined;
+    } else if (!ast.is.IsIdentifier(expression)) return undefined;
+    let symbol = checker.getSymbolAtLocation(expression);
+    if (checker.getSymbolDeclarations(symbol).some(node => node !== undefined && (
+      ast.is.IsImportSpecifier(node) || ast.is.IsImportClause(node) || ast.is.IsNamespaceImport(node)
+    ))) symbol = checker.getAliasedSymbol(symbol);
+    const declarations = checker.getSymbolDeclarations(symbol).filter((node): node is Node => node !== undefined);
+    if (declarations.some(node => ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node))) return undefined;
+    const implementations = declarations.filter(node => ast.body(node) !== undefined);
+    return implementations.length === 1 ? implementations[0] : declarations.length === 1 ? declarations[0] : undefined;
+  }
+  return declaration(argument.expression);
 }
 
 function analyzeMemberSelector(
