@@ -1,10 +1,5 @@
-import type {
-  TypeShapeQueries,
-  TypeSignatureParameterInfo,
-} from "@tsonic/tsts";
-import type {
-  ResolvedSourceCallInfo,
-} from "./call-result-selection.js";
+import type { TypeShapeQueries, TypeSignatureParameterInfo } from "@tsonic/tsts";
+import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
 
 export interface SourceCallParameterSlot {
   readonly sourceParameterIndex: number;
