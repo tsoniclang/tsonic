@@ -89,4 +89,5 @@ export type {
 } from "./use-sites.js";
 export { analyzeSourceArtifactFiles } from "./artifacts/source-files.js";
 export { sourceSafetyPositionIssue } from "./safety-position.js";
+export { createSourceExplicitUnsafeContextIndex } from "./safety-contexts.js";
 export type { SourceArtifactFile, SourceArtifactIssue } from "./artifacts/source-files.js";
