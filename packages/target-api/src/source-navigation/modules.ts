@@ -1,25 +1,8 @@
-import type {
-  AstReader,
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
-import {
-  getStaticModuleReference,
-} from "../module-reference.js";
-import {
-  sourceFileIdentity,
-} from "./identity.js";
-import type {
-  SourceProjectModuleDependency,
-  SourceProjectModuleExport,
-  SourceProjectModuleSpecifierResolution,
-} from "./types.js";
-import {
-  aliasedSymbol,
-  primaryDeclaration,
-} from "./syntax.js";
+import type { AstReader, CheckedSourceProgram, Node, SourceFile, TypeCheckerQueries } from "@tsonic/tsts";
+import { getStaticModuleReference } from "../module-reference.js";
+import { sourceFileIdentity } from "./identity.js";
+import type { SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectModuleSpecifierResolution } from "./types.js";
+import { aliasedSymbol, primaryDeclaration } from "./syntax.js";
 import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 
 export function sourceProjectModuleExports(
