@@ -1,17 +1,7 @@
 import { sourceMemberOwner, sourceObjectMemberDeclarations, sourceParameterIsProperty } from "./class-members.js";
-import type {
-  AstReader,
-  Node,
-} from "@tsonic/tsts";
-import {
-  sourceNodeIdentity,
-  sourceNodesEqual,
-} from "./identity.js";
-import type {
-  SourceDeclaredHeritageResult,
-  SourceProjectMemberContractsResult,
-  SourceProjectMemberImplementationResult,
-} from "./types.js";
+import type { AstReader, Node } from "@tsonic/tsts";
+import { sourceNodeIdentity, sourceNodesEqual } from "./identity.js";
+import type { SourceDeclaredHeritageResult, SourceProjectMemberContractsResult, SourceProjectMemberImplementationResult } from "./types.js";
 
 export interface SourceMemberContractNavigation {
   memberContracts(
