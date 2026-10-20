@@ -54,7 +54,7 @@ test("layout rejects duplicate fields, incompatible field alignment and selected
   assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 3n }] }));
   assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 12n }] }));
   assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteAlignment: 8n }] }));
-  assert.throws(() => snapshotMemoryLayout({ ...source, byteSize: 2n ** 32, stride: 2n ** 32,
+  assert.throws(() => snapshotMemoryLayout({ ...source, byteSize: 2n ** 32n, stride: 2n ** 32n,
     dataLayout: { ...source.dataLayout, addressWidth: 32 } }));
 });
 
