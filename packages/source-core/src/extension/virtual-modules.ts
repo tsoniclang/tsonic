@@ -1,21 +1,8 @@
-import type {
-  SourceDeclarationProvider,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreProviderVersion,
-  tsonicCoreLangModule,
-  tsonicCoreTypesModule,
-  tsonicCoreVirtualModulesProviderId,
-} from "../identity.js";
-import {
-  providerExportDeclarationsForSourceModule,
-} from "../providers/declarations.js";
-import {
-  tsonicCoreSourceSemanticsModules,
-} from "./source-modules.js";
-import {
-  createSourceSemanticsVirtualModuleProvider,
-} from "./semantics-virtual-modules.js";
+import type { SourceDeclarationProvider } from "@tsonic/tsts";
+import { tsonicCoreProviderVersion, tsonicCoreLangModule, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
+import { providerExportDeclarationsForSourceModule } from "../providers/declarations.js";
+import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
+import { createSourceSemanticsVirtualModuleProvider } from "./semantics-virtual-modules.js";
 
 export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvider {
   return createSourceSemanticsVirtualModuleProvider({
