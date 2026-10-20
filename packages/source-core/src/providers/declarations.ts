@@ -38,13 +38,6 @@ import {
   unsafeContextProviderDeclaration,
 } from "../safety/declarations.js";
 
-export {
-  attributeBuilderDeclaration,
-  attributeMemberBuilderDeclaration,
-  tsonicAttributeBuilderMemberIds,
-  tsonicAttributeBuilderSignatureIds,
-};
-
 export const tsonicSourceMarkerSignatureIds = Object.freeze({
   field: "field<T>()",
   defaultValue: "defaultvalue<T>()",
