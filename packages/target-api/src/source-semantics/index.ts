@@ -1,7 +1,7 @@
 export * from "./target-source-program.js";
 export { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
-export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "./enum-constants.js";
-export type { SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue } from "./enum-constants.js";
+export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "../target-analysis/enum-constants.js";
+export type { SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue } from "../target-analysis/enum-constants.js";
 export { analyzeSourcePropertyNames } from "./property-names.js";
 export type { SourcePropertyNameIndex, SourcePropertyNameSelection, SourcePropertyNameConstant } from "./property-names.js";
 export { sourceExpressionSequence } from "./expression-sequence.js";
