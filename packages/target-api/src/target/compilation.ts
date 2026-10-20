@@ -1,24 +1,9 @@
-import type {
-  TargetCompileResult,
-  TargetRuntimeContributions,
-  TargetRuntimeReference,
-} from "../artifacts.js";
-import type {
-  TargetSelection,
-  TargetSurfaceId,
-  TsonicProjectConfig,
-} from "../config.js";
-import type {
-  TargetSourceProfileContributions,
-} from "../source-profile.js";
-import type {
-  TargetSourceProgram,
-} from "../source-semantics/index.js";
+import type { TargetCompileResult, TargetRuntimeContributions, TargetRuntimeReference } from "../artifacts.js";
+import type { TargetSelection, TargetSurfaceId, TsonicProjectConfig } from "../config.js";
+import type { TargetSourceProfileContributions } from "../source-profile.js";
+import type { TargetSourceProgram } from "../source-semantics/index.js";
 import type { TargetSourcePackageGraph } from "../source-packages/model.js";
-import type {
-  SelectedTargetCapabilityContributions,
-  TargetSourceCompilerContributions,
-} from "./composition.js";
+import type { SelectedTargetCapabilityContributions, TargetSourceCompilerContributions } from "./composition.js";
 
 export interface TargetCompilationPaths {
   readonly projectFilePath: string;
