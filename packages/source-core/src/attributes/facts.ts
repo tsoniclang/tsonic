@@ -1,12 +1,6 @@
-import {
-  defineExtensionFactKey,
-} from "@tsonic/tsts";
-import type {
-  ExtensionFactSubject,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreSourceExtensionId,
-} from "../identity.js";
+import { defineExtensionFactKey } from "@tsonic/tsts";
+import type { ExtensionFactSubject } from "@tsonic/tsts";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
 
 export type TsonicAttributeApplicationMemberKind = "property" | "method";
 export type TsonicAttributeApplicationPlacement = "declaration" | "constructor";
