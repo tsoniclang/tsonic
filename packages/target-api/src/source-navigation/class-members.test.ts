@@ -2,13 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { sourceClassFieldHasStorage } from "./class-members.js";
-import {
-  createTargetSourceProgram,
-  sourceClassFieldIsTypeOnly,
-  sourceMemberOwner,
-  sourceObjectMemberDeclarations,
-  sourceParameterIsProperty,
-} from "../public/source.js";
+import { createTargetSourceProgram, sourceClassFieldIsTypeOnly, sourceMemberOwner, sourceObjectMemberDeclarations, sourceParameterIsProperty } from "../public/source.js";
 
 test("type-only field classification preserves original declarations without guessing from names or types", () => {
   const checked = createCompilerSessionFromFiles({
