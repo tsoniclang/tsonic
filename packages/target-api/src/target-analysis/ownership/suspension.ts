@@ -2,8 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { SourceFinalTypeQueries, TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceOwnershipBudget, SourceOwnershipPremises, SourcePendingOperation, SourcePendingSelection,
-  SourceOwnershipUnresolved, SourceSuspensionSelection } from "./model.js";
+import type { SourceOwnershipBudget, SourceOwnershipPremises, SourcePendingOperation, SourcePendingSelection, SourceOwnershipUnresolved, SourceSuspensionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 
 export function createSourceSuspensionQuery(input: {
