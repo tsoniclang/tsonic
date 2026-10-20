@@ -1,20 +1,6 @@
-import {
-  TstsSourceProviderContractVersion,
-} from "@tsonic/tsts";
-import type {
-  ExtensionDiagnostic,
-  ProviderDeclarationModel,
-  ProviderIdentity,
-  ProviderImportDeclaration,
-  ProviderModuleContext,
-  ProviderModuleResolution,
-  ProviderOwnership,
-  SourceDeclarationProvider,
-  SourceSemanticsModule,
-} from "@tsonic/tsts";
-import {
-  providerExportDeclarationsForSemanticsModule,
-} from "../providers/declarations.js";
+import { TstsSourceProviderContractVersion } from "@tsonic/tsts";
+import type { ExtensionDiagnostic, ProviderDeclarationModel, ProviderIdentity, ProviderImportDeclaration, ProviderModuleContext, ProviderModuleResolution, ProviderOwnership, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
+import { providerExportDeclarationsForSemanticsModule } from "../providers/declarations.js";
 
 export interface SourceSemanticsVirtualModuleProviderOptions {
   readonly id: string;
