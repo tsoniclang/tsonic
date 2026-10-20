@@ -1,7 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
-  readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./readers.js";
+import { readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./readers.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
 import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./bindings/facts.js";
 
