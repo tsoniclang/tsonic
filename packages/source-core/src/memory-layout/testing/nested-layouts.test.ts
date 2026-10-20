@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import {
-  maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout,
-  tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey,
-} from "../facts.js";
+import { maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
