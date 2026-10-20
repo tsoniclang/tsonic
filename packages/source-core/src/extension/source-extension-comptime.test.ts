@@ -1,18 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  callExpression,
-  checkSource,
-  createCleanSourceCoreSession,
-  createSourceCoreSession,
-  definedDiagnostics,
-  getSourceFact,
-  sourceAst,
-} from "./source-extension.fixtures.js";
-import {
-  tsonicCompileTimeFactKey,
-  type TsonicCompileTimeFact,
-} from "../public/facts.js";
+import { callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, sourceAst } from "./source-extension.fixtures.js";
+import { tsonicCompileTimeFactKey, type TsonicCompileTimeFact } from "../public/facts.js";
 
 test("source-core records exact compile-time facts for direct, aliased, namespace, and parenthesized calls", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
