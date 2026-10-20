@@ -4,10 +4,7 @@ import { fieldFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
-import {
-  readTsonicDataLayout, readTsonicKeepAlive, readTsonicMemoryLayout,
-  readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation,
-} from "../readers.js";
+import { readTsonicDataLayout, readTsonicKeepAlive, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "../readers.js";
 import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
 
 test("raw reinterpretation returns the canonical inferred Pointer and retains nested operation facts", () => {
