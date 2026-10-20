@@ -1,8 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection,
-  SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
