@@ -1,11 +1,5 @@
-import type {
-  ExtensionFactSubject,
-  Node,
-  Symbol,
-} from "@tsonic/tsts";
-import type {
-  TsonicSourceFileAnalysisContext,
-} from "./context.js";
+import type { ExtensionFactSubject, Node, Symbol } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "./context.js";
 import { unwrapParenthesizedExpression } from "./source-call.js";
 
 export type SelectedInlineSourceMemberResult =
