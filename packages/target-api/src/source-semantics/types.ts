@@ -1,50 +1,11 @@
-import type {
-  AstReader,
-  ExtensionFactSubject,
-  Node,
-  ReadonlySourceFactResolver,
-  ResolvedSourceCallableCompletionInfo,
-  ResolvedSourceElementAccessInfo,
-  ResolvedSourceFlowConditionInfo,
-  ResolvedSourceGeneratorInfo,
-  ResolvedSourceIterationInfo,
-  ResolvedSourceObjectLiteralElementInfo,
-  ResolvedSourcePropertyAccessInfo,
-  ResolvedSourcePropertyNameInfo,
-  ResolvedSourceResourceManagementInfo,
-  ResolvedSourceStorageInfo,
-  ResolvedSourceWellKnownSymbolInfo,
-  ResolvedSourceYieldInfo,
-  Signature,
-  SourceFile,
-  Symbol,
-  TypeSignatureParameterInfo,
-  TypeTupleElementInfo,
-  Type,
-} from "@tsonic/tsts";
-import type {
-  SourceProgramNavigation,
-  SourceProjectReference,
-} from "../source-navigation/index.js";
-import type {
-  SourceAuthoredTypeSelection,
-} from "./authored-type-selection.js";
-import type {
-  SourceContextualValueTypeSelection,
-} from "./contextual-type-selection.js";
-import type {
-  SourceTypeRelationship,
-} from "./type-relationship.js";
-import type {
-  SourceTypeRefinement,
-} from "./type-refinement.js";
-import type {
-  ResolvedSourceCallInfo,
-  SourceCallResultSelection,
-} from "./call-result-selection.js";
-import type {
-  SourceCallParameterSlot,
-} from "./call-parameter-slots.js";
+import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, ResolvedSourceCallableCompletionInfo, ResolvedSourceElementAccessInfo, ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourcePropertyAccessInfo, ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol, TypeSignatureParameterInfo, TypeTupleElementInfo, Type } from "@tsonic/tsts";
+import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/index.js";
+import type { SourceAuthoredTypeSelection } from "./authored-type-selection.js";
+import type { SourceContextualValueTypeSelection } from "./contextual-type-selection.js";
+import type { SourceTypeRelationship } from "./type-relationship.js";
+import type { SourceTypeRefinement } from "./type-refinement.js";
+import type { ResolvedSourceCallInfo, SourceCallResultSelection } from "./call-result-selection.js";
+import type { SourceCallParameterSlot } from "./call-parameter-slots.js";
 
 export interface SourceOperationEvidenceQueries {
   call(node: Node): ResolvedSourceCallInfo | undefined;
@@ -168,7 +129,7 @@ export interface SourceFactSubjectQueries {
 
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
-  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
+  readonly propertyNames: import("../target-analysis/property-names.js").SourcePropertyNameIndex;
   readonly operations: SourceOperationEvidenceQueries;
   readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
@@ -235,7 +196,7 @@ export type SourceValueTypeRefinementSelection =
     };
 
 export interface SourceProgramSemantics {
-  readonly enumConstants: import("./enum-constants.js").SourceEnumConstantIndex;
+  readonly enumConstants: import("../target-analysis/enum-constants.js").SourceEnumConstantIndex;
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;
