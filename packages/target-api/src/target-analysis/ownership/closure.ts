@@ -5,14 +5,12 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageConstructionExpression } from "../source-storage/model/construction.js";
 import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipPremises, SourceOwnershipUnresolved,
-  SourcePendingOperation, SourceRetentionPremise, SourceSuspensionSelection } from "./model.js";
+import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipPremises, SourceOwnershipUnresolved, SourcePendingOperation, SourceRetentionPremise, SourceSuspensionSelection } from "./model.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
 import { createSourceContinuationDependencyQuery } from "./dependencies.js";
 import { createSourceSuspensionQuery } from "./suspension.js";
 import { sourceOwnershipUnresolved } from "./contracts.js";
-import { prepareSourceContinuationExecution, resolveSourceContinuationFlow, type SourceContinuationClosureSelection,
-  type SourceContinuationExecution, type SourceContinuationRead } from "./flow.js";
+import { prepareSourceContinuationExecution, resolveSourceContinuationFlow, type SourceContinuationClosureSelection, type SourceContinuationExecution, type SourceContinuationRead } from "./flow.js";
 
 type Closure = Extract<SourceContinuationClosureSelection, { readonly kind: "resolved" }>;
 
