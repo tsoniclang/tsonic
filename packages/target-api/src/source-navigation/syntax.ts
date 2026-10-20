@@ -1,10 +1,4 @@
-import type {
-  AstReader,
-  Node,
-  Symbol,
-  Type,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
+import type { AstReader, Node, Symbol, Type, TypeCheckerQueries } from "@tsonic/tsts";
 
 export type SourceReferenceMeaning = "value" | "type" | "namespace";
 
