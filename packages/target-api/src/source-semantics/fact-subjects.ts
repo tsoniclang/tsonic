@@ -1,10 +1,4 @@
-import type {
-  ExtensionFactSubject,
-  Node,
-  Symbol,
-  Type,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
+import type { ExtensionFactSubject, Node, Symbol, Type, TypeCheckerQueries } from "@tsonic/tsts";
 
 export function sourceSelectedFactSubjects(
   checker: TypeCheckerQueries,
