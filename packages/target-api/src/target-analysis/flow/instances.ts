@@ -1,6 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution,
-  SourceFlowUnresolved, SourceFlowWork } from "./model.js";
+import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
 import { solveSourceFlow } from "./solver.js";
 
 export type SourceFlowWriteCount = 0 | 1 | 2;
