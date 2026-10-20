@@ -16,10 +16,7 @@ export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | 
   }
   if (kind !== "KindNumericLiteral" && kind !== "KindBigIntLiteral") return undefined;
   const token = sourceLiteralToken(ast, node);
-  if (token.kind === "authored") return parseNativeIntegerLiteral(token.text);
-  const text = ast.text(node);
-  if (kind === "KindNumericLiteral" && !Number.isSafeInteger(Number(text))) return undefined;
-  return parseNativeIntegerLiteral(text);
+  return token.kind === "authored" ? parseNativeIntegerLiteral(token.text) : undefined;
 }
 
 export function parseNativeIntegerLiteral(text: string): bigint | undefined {
