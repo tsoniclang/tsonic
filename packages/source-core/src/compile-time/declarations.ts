@@ -1,7 +1,4 @@
-import type {
-  ProviderExportDeclaration,
-  ProviderTypeExpression,
-} from "@tsonic/tsts";
+import type { ProviderExportDeclaration, ProviderTypeExpression } from "@tsonic/tsts";
 
 export const tsonicCompileTimeProviderNames = Object.freeze({
   valueExport: "comptime",
