@@ -1,12 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceIntegerConstantReader } from "./integer-constant.js";
 import { sourceIntegerLiteralValue } from "./integer-literal.js";
-import type {
-  SourceLiteralIndex,
-  SourceLiteralValue,
-  SourceNumericLiteralEvidence,
-  SourceScalarLiteralValue,
-} from "./literal-values-model.js";
+import type { SourceLiteralIndex, SourceLiteralValue, SourceNumericLiteralEvidence, SourceScalarLiteralValue } from "./literal-values-model.js";
 import { parseFiniteNumberLiteral } from "./literal-text.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 
