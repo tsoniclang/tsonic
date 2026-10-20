@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourcePropertyNameSelection } from "../source-semantics/property-names.js";
+import type { SourcePropertyNameSelection } from "./property-names.js";
 import type { SourceProgramDocuments, TargetSourceProgram } from "../source-semantics/types.js";
 
 export interface TargetSourceSyntaxProgram {
