@@ -1,18 +1,6 @@
-import type {
-  AstReader,
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  Type,
-} from "@tsonic/tsts";
-import type {
-  SourceProjectMemberDispatch,
-  SourceProjectReference,
-} from "./types.js";
-import {
-  sourceNodeIdentity,
-  sourceNodesEqual,
-} from "./identity.js";
+import type { AstReader, CheckedSourceProgram, Node, SourceFile, Type } from "@tsonic/tsts";
+import type { SourceProjectMemberDispatch, SourceProjectReference } from "./types.js";
+import { sourceNodeIdentity, sourceNodesEqual } from "./identity.js";
 
 export interface SourceMemberDispatchNavigation {
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
