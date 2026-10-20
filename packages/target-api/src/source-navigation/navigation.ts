@@ -1,60 +1,24 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-  SourceFile,
-  Symbol,
-} from "@tsonic/tsts";
-import {
-  createSourceMemberDispatchNavigation,
-} from "./member-dispatch.js";
-import {
-  createSourceMemberImplementationNavigation,
-} from "./member-implementation.js";
-import {
-  createSourceMemberContractNavigation,
-} from "./member-contracts.js";
-import {
-  createSourceCallableImplementationNavigation,
-} from "./callable-implementation.js";
-import {
-  sourceFileIdentity,
-} from "./identity.js";
-import {
-  createSourceHeritageNavigation,
-} from "./heritage.js";
-import {
-  createSourceClassConstructorNavigation,
-} from "./constructors.js";
-import {
-  sourceFileHasTopLevelAwait,
-  sourceProjectModuleExports,
-  sourceProjectModuleDependencies,
-  sourceProjectModuleReferences,
-  sourceProjectModuleSpecifierResolution,
-} from "./modules.js";
-import {
-  createSourceReferenceNavigation,
-} from "./references.js";
+import type { CheckedSourceProgram, Node, SourceFile, Symbol } from "@tsonic/tsts";
+import { createSourceMemberDispatchNavigation } from "./member-dispatch.js";
+import { createSourceMemberImplementationNavigation } from "./member-implementation.js";
+import { createSourceMemberContractNavigation } from "./member-contracts.js";
+import { createSourceCallableImplementationNavigation } from "./callable-implementation.js";
+import { sourceFileIdentity } from "./identity.js";
+import { createSourceHeritageNavigation } from "./heritage.js";
+import { createSourceClassConstructorNavigation } from "./constructors.js";
+import { sourceFileHasTopLevelAwait, sourceProjectModuleExports, sourceProjectModuleDependencies, sourceProjectModuleReferences, sourceProjectModuleSpecifierResolution } from "./modules.js";
+import { createSourceReferenceNavigation } from "./references.js";
 import { projectDeclarationForType } from "./reference-selection.js";
 import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
 import { semanticTypeForNode } from "./syntax.js";
-import {
-  sourceBindingWritesWithin,
-  sourceSymbolHasReferenceOutside,
-  sourceSymbolReferencesWithin,
-} from "./references-usage.js";
+import { sourceBindingWritesWithin, sourceSymbolHasReferenceOutside, sourceSymbolReferencesWithin } from "./references-usage.js";
 import { sourceExpressionResultUse } from "./expression-use.js";
 import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
-import {
-  sourceDeclarationUseSummary,
-  sourceParameterUseSummary,
-} from "./declaration-use-summary.js";
+import { sourceDeclarationUseSummary, sourceParameterUseSummary } from "./declaration-use-summary.js";
 import { sourceCountedLoop } from "./counted-loops.js";
 import { sourceExpressionValueFlow } from "./value-flow.js";
-import type {
-  SourceProgramNavigation,
-} from "./types.js";
+import type { SourceProgramNavigation } from "./types.js";
 
 export * from "./ast.js";
 export * from "./class-members.js";
