@@ -1,11 +1,5 @@
-import type {
-  ProviderExportDeclaration,
-  ProviderParameterDeclaration,
-  ProviderTypeExpression,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreLangModule,
-} from "../identity.js";
+import type { ProviderExportDeclaration, ProviderParameterDeclaration, ProviderTypeExpression } from "@tsonic/tsts";
+import { tsonicCoreLangModule } from "../identity.js";
 
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
   add: "__TsonicAttributeBuilder.add",
