@@ -1,15 +1,5 @@
-import type {
-  AstReader,
-  Node,
-  SourceFile,
-} from "@tsonic/tsts";
-import type {
-  SourceAuthoredOccurrence,
-  SourceDocument,
-  SourceOccurrence,
-  SourceOccurrenceLookup,
-  SourceProgramDocuments,
-} from "./types.js";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceAuthoredOccurrence, SourceDocument, SourceOccurrence, SourceOccurrenceLookup, SourceProgramDocuments } from "./types.js";
 
 export function createSourceProgramDocuments(
   ast: AstReader,
