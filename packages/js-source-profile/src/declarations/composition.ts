@@ -15,11 +15,3 @@ export const jsStandardSourceProfileDeclarations = [
   jsCapabilitySourceProfileDeclarations,
   jsRegExpSourceProfileDeclarations,
 ].join("\n\n");
-
-export {
-  jsRegExpObjectDeclarations,
-  jsRegExpResultDeclarations,
-  jsRegExpSymbolDeclarations,
-  jsStringRegExpDeclarations,
-  jsCapabilitySourceProfileDeclarations,
-};
