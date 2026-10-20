@@ -22,15 +22,11 @@ export {
   unsafeContextProviderDeclaration,
 } from "../safety/declarations.js";
 export {
-  attributeBuilderDeclaration,
-  attributeMemberBuilderDeclaration,
   providerCallMarkerDeclaration,
   providerExportDeclarationsForSemanticsModule,
   providerExportDeclarationsForSourceModule,
   providerPrimitiveDeclaration,
   providerTypeMarkerDeclaration,
-  tsonicAttributeBuilderMemberIds,
-  tsonicAttributeBuilderSignatureIds,
   tsonicSourceMarkerSignatureIds,
 } from "../providers/declarations.js";
 export { createSourceSemanticsVirtualModuleProvider } from "../extension/semantics-virtual-modules.js";
@@ -42,3 +38,4 @@ export type { TsonicCoreSourceExtensionOptions } from "../extension/source-exten
 export { memoryOperationDeclarations, memoryTypeDeclarations, tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "../memory-layout/declarations.js";
 export { pointerViewDeclaration, tsonicPointerViewSignatureIds } from "../pointers/views/declarations.js";
 export type { TsonicDataLayoutRegistration } from "../memory-layout/facts.js";
+export { attributeBuilderDeclaration, attributeMemberBuilderDeclaration, tsonicAttributeBuilderMemberIds, tsonicAttributeBuilderSignatureIds } from "../attributes/provider-declarations.js";
