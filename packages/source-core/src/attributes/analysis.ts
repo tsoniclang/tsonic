@@ -1,40 +1,12 @@
-import {
-  attributeFactKey,
-} from "@tsonic/tsts";
-import type {
-  SourceAnalysisContext,
-} from "@tsonic/tsts";
-import type {
-  TsonicSourceFileAnalysisContext,
-} from "../analysis/context.js";
-import {
-  tsonicAttributeBuilderFactKey,
-} from "./facts.js";
-import type {
-  TsonicAttributeApplicationMemberKind,
-  TsonicAttributeBuilderFact,
-  TsonicAttributeBuilderStateFact,
-} from "./facts.js";
-import {
-  tsonicCoreLangModule,
-  tsonicCoreProviderVersion,
-  tsonicCoreSourceExtensionId,
-  tsonicCoreVirtualModulesProviderId,
-} from "../identity.js";
-import {
-  tsonicAttributeBuilderMemberIds,
-  tsonicAttributeBuilderSignatureIds,
-} from "./provider-declarations.js";
-import {
-  type ProviderSourceCallSelector,
-  type SelectedProviderSourceCall,
-  forEachSelectedProviderSourceCall,
-  readSourceFact,
-  selectedProviderCallMatches,
-} from "../analysis/source-call.js";
-import {
-  selectInlineSourceMember,
-} from "../analysis/selected-source-member.js";
+import { attributeFactKey } from "@tsonic/tsts";
+import type { SourceAnalysisContext } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
+import { tsonicAttributeBuilderFactKey } from "./facts.js";
+import type { TsonicAttributeApplicationMemberKind, TsonicAttributeBuilderFact, TsonicAttributeBuilderStateFact } from "./facts.js";
+import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
+import { tsonicAttributeBuilderMemberIds, tsonicAttributeBuilderSignatureIds } from "./provider-declarations.js";
+import { type ProviderSourceCallSelector, type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, readSourceFact, selectedProviderCallMatches } from "../analysis/source-call.js";
+import { selectInlineSourceMember } from "../analysis/selected-source-member.js";
 import { selectedAttributeInvocation } from "./invocation.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
