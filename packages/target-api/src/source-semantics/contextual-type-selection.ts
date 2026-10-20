@@ -1,10 +1,4 @@
-import {
-  ContextFlagsSkipBindingPatterns,
-  type Node,
-  type Type,
-  type TypeCheckerQueries,
-  type TypeShapeQueries,
-} from "@tsonic/tsts";
+import { ContextFlagsSkipBindingPatterns, type Node, type Type, type TypeCheckerQueries, type TypeShapeQueries } from "@tsonic/tsts";
 
 export type SourceContextualValueTypeSelection =
   | { readonly kind: "selected"; readonly type: Type }
