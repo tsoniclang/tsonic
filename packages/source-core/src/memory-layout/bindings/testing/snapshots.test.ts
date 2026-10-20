@@ -56,7 +56,7 @@ test("public binding readers reject missing, substituted and stale relationship 
           return { ...value, selectedDeclaration: call };
         }
         if (mutation === "child-layout" && Object.is(key, tsonicMemoryLayoutFactKey) && subject !== record.layout.call) {
-          return { ...value, byteSize: 1 };
+          return { ...value, byteSize: 1n };
         }
         if (mutation === "duplicate-field" && Object.is(key, tsonicMemoryRecordBindingFactKey)) {
           return { ...value, fields: [record.fields[0], record.fields[0]] };
@@ -81,7 +81,7 @@ test("binding a deepest valid layout adds no fictitious physical nesting level",
   for (let depth = 1; depth < maximumMemoryLayoutDepth; depth++) {
     const sourceType = {} as Type;
     const field = { ...original.field, call: {} as Node, selectedDeclaration: {} as Node,
-      sourceType, fieldType: layout.sourceType, fieldLayoutExpression: layout.call, fieldLayout: layout, byteOffset: 0 };
+      sourceType, fieldType: layout.sourceType, fieldLayoutExpression: layout.call, fieldLayout: layout, byteOffset: 0n };
     layout = snapshotMemoryLayout({ ...layout, call: {} as Node, sourceType, fields: [field] }) as TsonicValueMemoryLayoutFact;
   }
   const field = layout.fields[0]!;

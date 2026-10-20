@@ -8,17 +8,17 @@ import { arrayLayoutAt, arrayMemoryLayout, cleanArraySession } from "./fixed-arr
 
 function graphFixture() {
   const checked = cleanArraySession(`
-    const small = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 2 });
-    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993n });
+    const small = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: empty, length: 2 });
+    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: empty, length: 9007199254740993n });
     interface Pair { left: FixedArray<Empty, 2>; right: FixedArray<Empty, 2> }
     const pair = memorylayout<Pair>({
       datalayout: abi,
       bytesize: 0,
       bytealignment: 4,
-      stride: 0,
+      stride: 0n,
       fields: [memoryfield({ select: (value: Pair) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: small }), memoryfield({ select: (value: Pair) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: small })],
     });
-    const pairs = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: pair, length: 2 });
+    const pairs = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: pair, length: 2 });
     sizeof(pairs);
   `);
   return { checked, small: arrayLayoutAt(checked), huge: arrayLayoutAt(checked, 1), root: arrayLayoutAt(checked, 2) };
@@ -42,7 +42,7 @@ test("array fact snapshots freeze exact data and preserve compiler subjects and 
   assert.equal(captured.elementLayoutExpression, input.elementLayoutExpression);
   assert.deepEqual(subjects.map(subject => Object.isFrozen(subject)), priorFrozen);
   fixedArray.length = 9007199254740992n;
-  child.stride = 4;
+  child.stride = 4n;
   assert.equal(captured.fixedArray.length, 9007199254740993n);
   assert.equal(captured.elementLayout.stride, 0);
   const shared = arrayMemoryLayout(tsonicMemoryLayoutFactKey.snapshot(root));
@@ -61,10 +61,10 @@ test("array equality distinguishes adjacent exact counts, every array edge and d
     { ...huge, fixedArray: { ...huge.fixedArray, elementSourceType: root.sourceType } },
     { ...huge, elementLayoutExpression: root.elementLayoutExpression },
     { ...huge, elementLayout: { ...huge.elementLayout, call: root.elementLayout.call } },
-    { ...huge, elementLayout: { ...huge.elementLayout, byteAlignment: 2 } },
-    { ...huge, byteAlignment: 8 },
-    { ...huge, byteSize: 4, stride: 4 },
-    { ...huge, stride: 4 },
+    { ...huge, elementLayout: { ...huge.elementLayout, byteAlignment: 2n } },
+    { ...huge, byteAlignment: 8n },
+    { ...huge, byteSize: 4n, stride: 4n },
+    { ...huge, stride: 4n },
   ];
   for (const changed of changes) {
     const snapshot = tsonicMemoryLayoutFactKey.snapshot(changed);
@@ -78,7 +78,7 @@ test("array equality distinguishes adjacent exact counts, every array edge and d
   const pair = valueMemoryLayout(root.elementLayout);
   const nested = arrayMemoryLayout(pair.fields[0]?.fieldLayout);
   const changed = { ...root, elementLayout: { ...pair, fields: [
-    { ...pair.fields[0]!, fieldLayout: { ...nested, elementLayout: { ...nested.elementLayout, byteAlignment: 2 } } },
+    { ...pair.fields[0]!, fieldLayout: { ...nested, elementLayout: { ...nested.elementLayout, byteAlignment: 2n } } },
     pair.fields[1]!,
   ] } };
   assert.equal(tsonicMemoryLayoutFactKey.equals(root, tsonicMemoryLayoutFactKey.snapshot(changed)), false);
@@ -170,13 +170,13 @@ test("public source-produced array-record DAGs share children without multiplyin
   const declarations = ["type Layer0 = Empty; const layer0 = empty;"];
   for (let depth = 1; depth <= 16; depth += 1) {
     declarations.push(`
-      const array${depth} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: layer${depth - 1}, length: 9007199254740993n });
+      const array${depth} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: layer${depth - 1}, length: 9007199254740993n });
       interface Layer${depth} { left: FixedArray<Layer${depth - 1}, 9007199254740993n>; right: FixedArray<Layer${depth - 1}, 9007199254740993n> }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0,
+        stride: 0n,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} })],
       });
     `);

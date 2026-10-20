@@ -13,11 +13,11 @@ function scalar(): TsonicValueMemoryLayoutFact {
     kind: "value",
     call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: memoryTestRegistration.providerDeclaration, ...memoryTestRegistration.descriptor },
-    byteSize: 4, byteAlignment: 4, stride: 4, fields: [],
+    byteSize: 4n, byteAlignment: 4n, stride: 4n, fields: [],
   };
 }
 
-function field(child: TsonicMemoryLayoutFact, byteOffset = 0): TsonicMemoryFieldLayoutFact {
+function field(child: TsonicMemoryLayoutFact, byteOffset = 0n): TsonicMemoryFieldLayoutFact {
   return {
     call: {} as Node, sourceType: {} as Type, selector: {} as Node, selectedDeclaration: {} as Node,
     fieldType: child.sourceType, fieldLayoutExpression: {} as Node, fieldLayout: child,
@@ -27,12 +27,12 @@ function field(child: TsonicMemoryLayoutFact, byteOffset = 0): TsonicMemoryField
 
 test("layout occurrence counts bound repeated DAG expansion without expanding it", () => {
   const value = scalar();
-  const pair = { ...scalar(), byteSize: 8, stride: 8, fields: [field(value), field(value, 4)] };
+  const pair = { ...scalar(), byteSize: 8n, stride: 8n, fields: [field(value), field(value, 4n)] };
   assert.equal(countTsonicMemoryLayoutValues(pair, 3), 3);
   assert.equal(countTsonicMemoryLayoutValues(pair, 2), undefined);
-  let layout = { ...scalar(), byteSize: 0, stride: 0 };
+  let layout = { ...scalar(), byteSize: 0n, stride: 0n };
   for (let depth = 0; depth < 100; depth += 1) {
-    layout = { ...scalar(), byteSize: 0, stride: 0, fields: [field(layout), field(layout)] };
+    layout = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(layout), field(layout)] };
   }
   assert.equal(countTsonicMemoryLayoutValues(layout, 131_072), undefined);
 });
@@ -47,14 +47,14 @@ test("nested layouts retain the explicitly chosen child and its authored operand
       datalayout: abi,
       bytesize: 8,
       bytealignment: 4,
-      stride: 8,
+      stride: 8n,
       fields: [slot({ select: (value: Inner) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     const selected = memorylayout<Inner>({
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4,
+      stride: 4n,
       fields: [slot({ select: (value: Inner) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     const alias = selected;
@@ -62,7 +62,7 @@ test("nested layouts retain the explicitly chosen child and its authored operand
       datalayout: abi,
       bytesize: 16,
       bytealignment: 4,
-      stride: 16,
+      stride: 16n,
       fields: [core.memoryfield({ select: (value: Outer) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: alias }), core.memoryfield({ select: (value: Outer) => value.right, byteoffset: 8, bytealignment: 4, fieldlayout: other })],
     });
   `);
@@ -90,7 +90,7 @@ test("memoryfield has only the required child-layout contract", () => {
 
 for (const [label, child, checkerRejects] of [
   ["unproduced descriptor", "unproduced", false],
-  ["different selected field type", "memorylayout<boolean>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1, fields: [] })", true],
+  ["different selected field type", "memorylayout<boolean>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1n, fields: [] })", true],
 ] as const) {
   test(`field layout rejects ${label} without publishing a field`, () => {
     const checked = memorySession(memoryTestPrelude + `
@@ -116,14 +116,14 @@ test("the full child extent must fit and distinct fields cannot overlap", () => 
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4,
+      stride: 4n,
       fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     memorylayout<Header>({
       datalayout: abi,
       bytesize: 8,
       bytealignment: 4,
-      stride: 8,
+      stride: 8n,
       fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (value: Header) => value.second, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
   `);
@@ -139,7 +139,7 @@ test("packed field placement does not replace the selected child type alignment"
       datalayout: abi,
       bytesize: 5,
       bytealignment: 1,
-      stride: 5,
+      stride: 5n,
       fields: [memoryfield({ select: (value: Packed) => value.count, byteoffset: 1, bytealignment: 1, fieldlayout: uint32Layout })],
     });
   `);
@@ -155,7 +155,7 @@ test("consumers reject missing or stale selected children rather than trusting a
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4,
+      stride: 4n,
       fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     sizeof(header);
@@ -172,7 +172,7 @@ test("consumers reject missing or stale selected children rather than trusting a
       getFact(subject, key) {
         if (subject === child.fieldLayoutExpression && Object.is(key, tsonicMemoryLayoutFactKey)) {
           if (mutation === "missing-child") return undefined;
-          if (mutation === "stale-child") return { ...child.fieldLayout, stride: 8 } as never;
+          if (mutation === "stale-child") return { ...child.fieldLayout, stride: 8n } as never;
         }
         if (mutation === "missing-field" && subject === child.call && Object.is(key, tsonicMemoryFieldLayoutFactKey)) return undefined;
         return checked.sourceFacts.getFact(subject, key);
@@ -187,13 +187,13 @@ test("consumers reject missing or stale selected children rather than trusting a
 
 test("snapshot shares child DAGs, freezes nested metadata and compares every child identity", () => {
   const child = scalar();
-  const parent = { ...scalar(), byteSize: 8, stride: 8, fields: [field(child), field(child, 4)] };
+  const parent = { ...scalar(), byteSize: 8n, stride: 8n, fields: [field(child), field(child, 4n)] };
   const captured = valueMemoryLayout(snapshotMemoryLayout(parent));
   assert.equal(captured.fields[0]?.fieldLayout, captured.fields[1]?.fieldLayout);
   assert.ok(!Object.isFrozen(child.call));
   assert.ok(Object.isFrozen(valueMemoryLayout(captured.fields[0]?.fieldLayout).fields));
   const changed = { ...parent, fields: [parent.fields[0]!,
-    { ...parent.fields[1]!, fieldLayout: { ...child, stride: 8 } }] };
+    { ...parent.fields[1]!, fieldLayout: { ...child, stride: 8n } }] };
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(parent)));
   assert.ok(!tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(changed)));
   const originalField = captured.fields[0]!;
@@ -217,8 +217,8 @@ for (const mutate of [
 }
 
 test("zero-sized fields occupy no bytes, including at the aggregate end", () => {
-  const empty = { ...scalar(), byteSize: 0, stride: 0 };
-  const parent = { ...scalar(), fields: [field(scalar()), field(empty), field(empty, 4)] };
+  const empty = { ...scalar(), byteSize: 0n, stride: 0n };
+  const parent = { ...scalar(), fields: [field(scalar()), field(empty), field(empty, 4n)] };
   assert.equal(valueMemoryLayout(snapshotMemoryLayout(parent)).fields.length, 3);
 });
 
@@ -235,9 +235,9 @@ test("cyclic and over-depth physical descriptors reject without stack overflow",
 });
 
 test("shared empty-child graphs do not expand exponentially", () => {
-  let nested: TsonicValueMemoryLayoutFact = { ...scalar(), byteSize: 0, stride: 0 };
+  let nested: TsonicValueMemoryLayoutFact = { ...scalar(), byteSize: 0n, stride: 0n };
   for (let depth = 0; depth < 32; depth += 1) {
-    nested = { ...scalar(), byteSize: 0, stride: 0, fields: [field(nested), field(nested)] };
+    nested = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(nested), field(nested)] };
   }
   const captured = valueMemoryLayout(snapshotMemoryLayout(nested));
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(nested)));
@@ -245,11 +245,11 @@ test("shared empty-child graphs do not expand exponentially", () => {
 });
 
 test("independently published field facts keep the same captured child instead of expanding its graph", () => {
-  let child = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0 }));
+  let child = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n }));
   for (let depth = 0; depth < 32; depth += 1) {
     const left = snapshotMemoryField(field(child));
     const right = snapshotMemoryField(field(child));
-    const parent = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0, fields: [left, right] }));
+    const parent = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n, fields: [left, right] }));
     assert.equal(parent.fields[0]?.fieldLayout, child);
     assert.equal(parent.fields[1]?.fieldLayout, child);
     child = parent;
@@ -261,14 +261,14 @@ test("independently published field facts keep the same captured child instead o
 });
 
 test("source-produced nested descriptors preserve sharing across all fact publications", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, fields: [] });"];
   for (let depth = 1; depth <= 24; depth += 1) {
     declarations.push(`interface Layer${depth} { left: Layer${depth - 1}; right: Layer${depth - 1} }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0,
+        stride: 0n,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
       });`);
   }
@@ -290,12 +290,12 @@ test("already captured children cannot bypass the nesting budget", () => {
 });
 
 test("a child reused along a deeper route cannot bypass the snapshot depth budget", () => {
-  const child = { ...scalar(), byteSize: 0, stride: 0 };
+  const child = { ...scalar(), byteSize: 0n, stride: 0n };
   let deeper: TsonicMemoryLayoutFact = child;
   for (let depth = 1; depth < maximumMemoryLayoutDepth; depth += 1) {
-    deeper = { ...scalar(), byteSize: 0, stride: 0, fields: [field(deeper)] };
+    deeper = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(deeper)] };
   }
-  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0,
+  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n,
     fields: [field(child), field(deeper)] }), /supported nesting depth/u);
 });
 
@@ -308,20 +308,20 @@ test("nested accessors are rejected without executing code", () => {
 });
 
 test("wide descriptor snapshots fail at the metadata budget", () => {
-  const empty = snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0 });
+  const empty = snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n });
   const fields = Array.from({ length: 65536 }, () => field(empty));
-  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0, fields }), /metadata value budget/u);
+  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n, fields }), /metadata value budget/u);
 });
 
 test("source layout depth failures are diagnosed before a fact transaction is poisoned", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, fields: [] });"];
   for (let depth = 1; depth <= maximumMemoryLayoutDepth; depth += 1) {
     declarations.push(`interface Layer${depth} { value: Layer${depth - 1} }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0,
+        stride: 0n,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.value, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
       });`);
   }

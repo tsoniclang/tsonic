@@ -1,7 +1,7 @@
 import type { Node, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
 import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
 import type { SourceValueFlowQueryContext } from "./value-flow-conditions.js";
-import { sourceGuardPreservesBinding } from "../source-semantics/guard-preservation.js";
+import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import { sourceStatementAlwaysExits } from "./native-control-flow.js";
 
 export function resolveSourceFlowConditions(

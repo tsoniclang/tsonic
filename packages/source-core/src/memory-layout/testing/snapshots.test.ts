@@ -13,15 +13,15 @@ function layoutFixture(): TsonicValueMemoryLayoutFact {
     kind: "value",
     call: {} as Node, sourceType: fieldType, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
-    byteSize: 4, byteAlignment: 4, stride: 4, fields: [],
+    byteSize: 4n, byteAlignment: 4n, stride: 4n, fields: [],
   };
   return {
     kind: "value",
     call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
-    byteSize: 8, byteAlignment: 4, stride: 8,
+    byteSize: 8n, byteAlignment: 4n, stride: 8n,
     fields: [{ call: {} as Node, sourceType: {} as Type, selector: {} as Node, selectedDeclaration: {} as Node,
-      fieldType, byteOffset: 4, byteAlignment: 4, fieldLayoutExpression: {} as Node, fieldLayout: child }],
+      fieldType, byteOffset: 4n, byteAlignment: 4n, fieldLayoutExpression: {} as Node, fieldLayout: child }],
   };
 }
 
@@ -35,15 +35,15 @@ test("layout snapshots deeply freeze metadata without freezing compiler subjects
     assert.ok(Object.isFrozen(record));
   }
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(input)));
-  assert.ok(!tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout({ ...input, stride: 12 })));
+  assert.ok(!tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout({ ...input, stride: 12n })));
 });
 
 for (const patch of [
   { byteSize: -1 }, { byteSize: 0.5 }, { byteSize: Number.MAX_SAFE_INTEGER + 1 },
-  { byteAlignment: 0 }, { byteAlignment: 3 }, { stride: 4 }, { stride: 10 },
+  { byteAlignment: 0n }, { byteAlignment: 3n }, { stride: 4n }, { stride: 10n },
 ] as const) {
   test(`layout rejects invalid metadata ${JSON.stringify(patch)}`, () => {
-    assert.throws(() => snapshotMemoryLayout({ ...layoutFixture(), ...patch }));
+    assert.throws(() => snapshotMemoryLayout({ ...layoutFixture(), ...patch } as never));
   });
 }
 
@@ -51,15 +51,15 @@ test("layout rejects duplicate fields, incompatible field alignment and selected
   const source = layoutFixture();
   const field = source.fields[0]!;
   assert.throws(() => snapshotMemoryLayout({ ...source, fields: [field, field] }));
-  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 3 }] }));
-  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 12 }] }));
-  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteAlignment: 8 }] }));
-  assert.throws(() => snapshotMemoryLayout({ ...source, byteSize: 2 ** 32, stride: 2 ** 32,
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 3n }] }));
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteOffset: 12n }] }));
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: [{ ...field, byteAlignment: 8n }] }));
+  assert.throws(() => snapshotMemoryLayout({ ...source, byteSize: 2n ** 32, stride: 2n ** 32,
     dataLayout: { ...source.dataLayout, addressWidth: 32 } }));
 });
 
 test("zero-sized layouts and aligned strides remain expressible", () => {
-  assert.equal(snapshotMemoryLayout({ ...layoutFixture(), byteSize: 0, stride: 0, fields: [] }).byteSize, 0);
+  assert.equal(snapshotMemoryLayout({ ...layoutFixture(), byteSize: 0n, stride: 0n, fields: [] }).byteSize, 0);
 });
 
 test("layout field arrays reject accessors and custom traversal without executing them", () => {
