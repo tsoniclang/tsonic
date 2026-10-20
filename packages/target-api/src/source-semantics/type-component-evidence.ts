@@ -1,15 +1,5 @@
-import type {
-  AstReader,
-  ExtensionFactSubject,
-  Node,
-  Type,
-  TypeIndexedAccessMember,
-  TypePropertyInfo,
-  TypeTupleElementInfo,
-} from "@tsonic/tsts";
-import type {
-  SourceFileSemantics,
-} from "./types.js";
+import type { AstReader, ExtensionFactSubject, Node, Type, TypeIndexedAccessMember, TypePropertyInfo, TypeTupleElementInfo } from "@tsonic/tsts";
+import type { SourceFileSemantics } from "./types.js";
 
 interface SourceIndexedTypeEvidence {
   readonly owner: Node;
