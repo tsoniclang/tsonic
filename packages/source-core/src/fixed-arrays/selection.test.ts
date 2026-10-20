@@ -3,10 +3,7 @@ import { test } from "node:test";
 import { providerVirtualDeclarationFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { selectTsonicFixedArray } from "../public/facts.js";
-import {
-  callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession,
-  definedDiagnostics, getSourceFact, sourceFacts, typeAliasType, typeReferenceName, variableInitializer,
-} from "../extension/source-extension.fixtures.js";
+import { callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, sourceFacts, typeAliasType, typeReferenceName, variableInitializer } from "../extension/source-extension.fixtures.js";
 import { fixedArrayFactsEqual, tsonicFixedArrayFactKey } from "./facts.js";
 
 test("fixed-array analysis and resolved selection share exact counts and source length runtime bases", () => {
