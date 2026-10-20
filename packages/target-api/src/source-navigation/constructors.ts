@@ -1,12 +1,5 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-} from "@tsonic/tsts";
-import type {
-  SourceClassConstructorParameter,
-  SourceClassConstructorResult,
-  SourceClassConstructorSignature,
-} from "./types.js";
+import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
+import type { SourceClassConstructorParameter, SourceClassConstructorResult, SourceClassConstructorSignature } from "./types.js";
 import type { ResolvedSourceCallInfo } from "../source-semantics/call-result-selection.js";
 
 export function sourceConstructorParametersMatch(
