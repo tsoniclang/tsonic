@@ -1,7 +1,5 @@
 import type { ProviderDeclarationIdentity } from "@tsonic/tsts";
-import {
-  dataLayoutsEqual, snapshotDataLayout, snapshotDataLayoutDescriptor, snapshotDataLayoutIdentity,
-} from "./facts.js";
+import { dataLayoutsEqual, snapshotDataLayout, snapshotDataLayoutDescriptor, snapshotDataLayoutIdentity } from "./facts.js";
 import type { TsonicDataLayoutFact, TsonicDataLayoutRegistration } from "./facts.js";
 import { exactRecord, snapshotDataArray } from "./snapshots.js";
 
