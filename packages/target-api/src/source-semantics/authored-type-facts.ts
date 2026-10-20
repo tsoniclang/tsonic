@@ -1,14 +1,6 @@
-import type {
-  AstReader,
-  ExtensionFactSubject,
-  Node,
-  ReadonlySourceFactResolver,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
+import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, TypeCheckerQueries } from "@tsonic/tsts";
 import { sourcePrimitiveFactKey } from "@tsonic/tsts";
-import type {
-  SourceProgramNavigation,
-} from "../source-navigation/index.js";
+import type { SourceProgramNavigation } from "../source-navigation/index.js";
 import { sourceTypeFactSubjects } from "./fact-subjects.js";
 
 export function authoredSourceTypeFactDependencies(
