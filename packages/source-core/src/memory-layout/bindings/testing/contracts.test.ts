@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { pointerOperationFactKey } from "@tsonic/tsts";
-import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding,
-  selectTsonicRawLocationOperation, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, selectTsonicRawLocationOperation, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
 import { memoryCall, memoryCalls } from "../../testing/fixtures.js";
 import { bindingPrelude, bindingSession, boundRecordSource } from "./fixtures.js";
 
