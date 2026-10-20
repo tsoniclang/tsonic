@@ -1,10 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type {
-  SourceDeclarationReference,
-  SourceDeclarationUse,
-  SourceDeclarationUseSummary,
-  SourceExpressionValueFlowSummary,
-} from "./types.js";
+import type { SourceDeclarationReference, SourceDeclarationUse, SourceDeclarationUseSummary, SourceExpressionValueFlowSummary } from "./types.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceNodesEqual } from "./identity.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
