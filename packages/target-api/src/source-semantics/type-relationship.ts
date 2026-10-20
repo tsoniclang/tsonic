@@ -1,16 +1,6 @@
-import type {
-  ReadonlySourceFactResolver,
-  Type,
-  TypeCheckerQueries,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
-import {
-  providerTypeFamilyFactKey,
-  providerVirtualDeclarationFactKey,
-} from "@tsonic/tsts";
-import {
-  sourceTypeFactSubjects,
-} from "./fact-subjects.js";
+import type { ReadonlySourceFactResolver, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { providerTypeFamilyFactKey, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { sourceTypeFactSubjects } from "./fact-subjects.js";
 
 export type SourceTypeRelationship =
   | "identical"
