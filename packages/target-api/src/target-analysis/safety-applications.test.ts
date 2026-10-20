@@ -3,11 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { Node_Expression } from "../source-navigation/ast.js";
-import {
-  createTargetSafetyApplicationIndex,
-  type TargetSafetyApplicationFact,
-  type TargetSafetyApplicationPlacement,
-} from "./safety-applications.js";
+import { createTargetSafetyApplicationIndex, type TargetSafetyApplicationFact, type TargetSafetyApplicationPlacement } from "./safety-applications.js";
 
 type TestBuilderFact =
   | (TargetSafetyApplicationFact & { readonly contract: string })
