@@ -1,4 +1,5 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { sourceIntegerLiteralValue } from "@tsonic/target-api/source";
 import type { Node, ResolvedSourceCallInfo, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import { readSourceFact } from "../analysis/source-call.js";
@@ -176,13 +177,13 @@ function integerLeafConstant(
     const observation = analysis?.layoutQuery(origin, context);
     if (observation?.kind === "rejected") return { kind: "invalid" };
     if (observation?.kind === "resolved") {
-      return { kind: "available", value: BigInt(observation.value), runtimeBase: "number" };
+      return { kind: "available", value: observation.value, runtimeBase: "number" };
     }
   }
   if (context.ast.is.IsNumericLiteral(origin)) {
-    const value = Number(context.ast.text(origin).split("_").join(""));
-    return Number.isSafeInteger(value)
-      ? { kind: "available", value: BigInt(value), runtimeBase: "number" } : { kind: "invalid" };
+    const value = sourceIntegerLiteralValue(context.ast, origin);
+    return value === undefined ? { kind: "invalid" }
+      : { kind: "available", value, runtimeBase: "number" };
   }
   if (context.ast.is.IsBigIntLiteral(origin)) {
     const text = context.ast.text(origin).split("_").join("");
@@ -191,14 +192,13 @@ function integerLeafConstant(
   }
   const constant = context.checker.getConstantValue(origin);
   if (typeof constant !== "number") return { kind: "unavailable" };
-  return Number.isSafeInteger(constant)
+  return Number.isInteger(constant)
     ? { kind: "available", value: BigInt(constant), runtimeBase: "number" } : { kind: "invalid" };
 }
 
-export function exactLayoutSize(expression: Node, context: TsonicSourceFileAnalysisContext): number | undefined {
+export function exactLayoutSize(expression: Node, context: TsonicSourceFileAnalysisContext): bigint | undefined {
   const constant = exactIntegerConstant(expression, context);
-  return constant !== undefined && constant.value >= 0n && constant.value <= BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number(constant.value) : undefined;
+  return constant !== undefined && constant.value >= 0n ? constant.value : undefined;
 }
 
 export function selectedDataLayout(
