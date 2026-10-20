@@ -10,7 +10,6 @@ import type {
 import {
   collectCompilerSourceExports,
   findInstalledPackageRoot,
-  hasCompilerSourceExport,
   isCompilerSourceFile,
   normalizePackagePath,
   readDependencyNames,
@@ -109,20 +108,14 @@ function collectInstalledSourcePackage(
   const packageJsonPath = join(packageRoot, "package.json");
   const packageJson = readPackageJson(packageJsonPath);
   const sourceFiles = collectCompilerSourceFiles(packageRoot);
-  if (!hasCompilerSourceExport(packageRoot, packageJson, sourceFiles)) {
-    return undefined;
-  }
+  const sourceExports = collectCompilerSourceExports(packageRoot, packageJson, sourceFiles);
+  if (sourceExports.length === 0) return undefined;
   const declaredName = packageJson.name;
   if (typeof declaredName !== "string" || declaredName !== packageName) {
     throw new Error(
       `Installed source package '${packageName}' at '${packageRoot}' declares package name '${String(declaredName)}'.`,
     );
   }
-  const sourceExports = collectCompilerSourceExports(
-    packageRoot,
-    packageJson,
-    sourceFiles,
-  );
   const entry: PendingSourcePackage = {
     id,
     name: declaredName,

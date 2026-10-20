@@ -62,14 +62,6 @@ export function readDependencyNames(
   return [...names].sort();
 }
 
-export function hasCompilerSourceExport(
-  packageRoot: string,
-  packageJson: PackageJson,
-  sourceFiles: readonly string[],
-): boolean {
-  return collectCompilerSourceExports(packageRoot, packageJson, sourceFiles).length > 0;
-}
-
 export function collectCompilerSourceExports(
   packageRoot: string,
   packageJson: PackageJson,
