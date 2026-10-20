@@ -1,14 +1,4 @@
-import type {
-  AstReader,
-  Node,
-  Signature,
-  Symbol,
-  Type,
-  TypeCheckerQueries,
-  TypeIndexInfo,
-  TypePropertyInfo,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
+import type { AstReader, Node, Signature, Symbol, Type, TypeCheckerQueries, TypeIndexInfo, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
 
 export interface SourceStructuralMember {
   readonly property: TypePropertyInfo;
