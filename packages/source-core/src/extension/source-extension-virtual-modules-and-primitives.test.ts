@@ -1,35 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
-import {
-  functionPointerFactKey,
-  pointerFactKey,
-  sourcePrimitiveFactKey,
-  tsonicCoreLangModule,
-  tsonicCoreTypesModule,
-  createTsonicCoreVirtualModulesProvider,
-  expectedSourceCorePrimitiveFacts,
-  expectedSourceCoreLangIntrinsics,
-  expectedSourceCoreTypeMarkers,
-  assertVirtualModuleResolution,
-  assertProviderDeclarationModel,
-  assertExtensionDiagnostic,
-  sourceCorePrimitiveExportFacts,
-  sourceCoreTypeMarkerExportFacts,
-  sourceCoreLangExportFacts,
-  createCleanSourceCoreSession,
-  assertSourcePrimitive,
-  argumentMode,
-  flowState,
-  assertAttributeApplication,
-  callExpression,
-  propertyCallExpression,
-  typeAliasType,
-  typeReferenceName,
-  nodeFactSubject,
-  sourceCoreFacts,
-  getSourceFact,
-} from "./source-extension.fixtures.js";
+import { functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, tsonicCoreLangModule, tsonicCoreTypesModule, createTsonicCoreVirtualModulesProvider, expectedSourceCorePrimitiveFacts, expectedSourceCoreLangIntrinsics, expectedSourceCoreTypeMarkers, assertVirtualModuleResolution, assertProviderDeclarationModel, assertExtensionDiagnostic, sourceCorePrimitiveExportFacts, sourceCoreTypeMarkerExportFacts, sourceCoreLangExportFacts, createCleanSourceCoreSession, assertSourcePrimitive, argumentMode, flowState, assertAttributeApplication, callExpression, propertyCallExpression, typeAliasType, typeReferenceName, nodeFactSubject, sourceCoreFacts, getSourceFact } from "./source-extension.fixtures.js";
 
 test("source-core virtual module provider owns only neutral core modules", () => {
   const provider = createTsonicCoreVirtualModulesProvider();
