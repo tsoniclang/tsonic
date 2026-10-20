@@ -1,16 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
-import {
-  checkSource,
-  createCleanSourceCoreSession,
-  createSourceCoreSession,
-  definedDiagnostics,
-  getSourceFact,
-  propertyCallExpression,
-  sourceAst,
-  tsonicAttributeBuilderFactKey,
-} from "./source-extension.fixtures.js";
+import { checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, propertyCallExpression, sourceAst, tsonicAttributeBuilderFactKey } from "./source-extension.fixtures.js";
 
 const declarations = `
   import { attribute } from "@tsonic/core/lang.js";
