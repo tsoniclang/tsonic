@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
-  sourceNodesOutsideErasedSubtrees } from "./callable-invocations.js";
+import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees } from "./callable-invocations.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
