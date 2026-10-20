@@ -1,7 +1,4 @@
-import type {
-  SourceAnalysisContext,
-  SourceFileQueries,
-} from "@tsonic/tsts";
+import type { SourceAnalysisContext, SourceFileQueries } from "@tsonic/tsts";
 
 export interface TsonicSourceFileAnalysisContext extends SourceFileQueries {
   readonly facts: SourceAnalysisContext["facts"];
@@ -16,7 +13,7 @@ export function forEachTsonicSourceFile(
   for (const sourceFile of context.source.getSourceFiles()) {
     if (
       sourceFile === undefined ||
-      context.source.ast.getFileName(sourceFile).endsWith(".d.ts")
+      context.source.ast.isDeclarationFile(sourceFile)
     ) {
       continue;
     }
