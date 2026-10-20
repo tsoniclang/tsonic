@@ -1,25 +1,6 @@
-import type {
-  AstReader,
-  Node,
-  SourceFile,
-  Symbol,
-  Type,
-  TypeCheckerQueries,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
-import type {
-  SourceDeclarationReference,
-} from "./types.js";
-import {
-  aliasedSymbol,
-  primaryDeclaration,
-  referenceDeclarationForMeaning,
-  referenceQueryNode,
-  resolvedSymbolAtReferenceNode,
-  symbolAtReferenceNode,
-  sourceReferenceMeaning,
-  type SourceReferenceMeaning,
-} from "./syntax.js";
+import type { AstReader, Node, SourceFile, Symbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import type { SourceDeclarationReference } from "./types.js";
+import { aliasedSymbol, primaryDeclaration, referenceDeclarationForMeaning, referenceQueryNode, resolvedSymbolAtReferenceNode, symbolAtReferenceNode, sourceReferenceMeaning, type SourceReferenceMeaning } from "./syntax.js";
 
 type ImportedDeclarationSelection =
   | { readonly kind: "not-imported" }
