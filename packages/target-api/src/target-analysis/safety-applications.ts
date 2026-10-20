@@ -1,9 +1,4 @@
-import type {
-  AstReader,
-  ExtensionFactSubject,
-  Node,
-  SourceFile,
-} from "@tsonic/tsts";
+import type { AstReader, ExtensionFactSubject, Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression } from "../source-navigation/ast.js";
 import { isAstNode } from "../source-navigation/node-access.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
