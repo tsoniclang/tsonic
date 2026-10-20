@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, tsonicMemoryFieldBindingFactKey,
-  tsonicMemoryRecordBindingFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryTypeFactKey,
-  tsonicDataLayoutFactKey } from "../../../public/facts.js";
+import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryTypeFactKey, tsonicDataLayoutFactKey } from "../../../public/facts.js";
 import { memoryCall } from "../../testing/fixtures.js";
 import { bindingSession, boundRecordSource } from "./fixtures.js";
 import { maximumMemoryLayoutDepth, snapshotMemoryLayout } from "../../facts.js";
