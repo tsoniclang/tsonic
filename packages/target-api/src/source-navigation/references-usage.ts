@@ -1,12 +1,5 @@
-import type {
-  AstReader,
-  Node,
-  Symbol,
-} from "@tsonic/tsts";
-import type {
-  SourceBindingWrite,
-  SourceBindingWriteValue,
-} from "./types.js";
+import type { AstReader, Node, Symbol } from "@tsonic/tsts";
+import type { SourceBindingWrite, SourceBindingWriteValue } from "./types.js";
 
 const assignmentOperatorKinds = new Set([
   "KindEqualsToken",
