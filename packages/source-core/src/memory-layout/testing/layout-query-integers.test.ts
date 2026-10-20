@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation } from "../readers.js";
-import {
-  assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls,
-  memorySession, memoryTestPrelude, memoryTestRegistration,
-} from "./fixtures.js";
+import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
 
 for (const addressWidth of [32, 64] as const) {
   test(`all layout queries compose with ${addressWidth}-bit unsigned byte offsets`, () => {
