@@ -16,10 +16,8 @@ export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freez
 
 export const memoryTestPrelude = `
 import { abi } from "test:abi";
-import type { Pointer, RawPointer, MemoryLayout, int32, uint32, uint64, nativeUint } from "@tsonic/core/types.js";
-import { memorylayout, memoryfield, sizeof, alignof, strideof, fieldoffsetof,
-  torawptr, reinterpretrawptr, offsetrawptr, rawptrtoaddressinteger,
-  addressintegertorawptr, keepalive, loadptr, storeptr } from "@tsonic/core/lang.js";
+import type { Pointer, RawPointer, uint32 } from "@tsonic/core/types.js";
+import { memorylayout } from "@tsonic/core/lang.js";
 declare const raw: RawPointer | undefined;
 declare const ordinary: Pointer<uint32> | undefined;
 const uint32Layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
