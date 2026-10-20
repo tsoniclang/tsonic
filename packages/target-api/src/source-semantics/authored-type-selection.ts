@@ -1,14 +1,5 @@
-import type {
-  AstReader,
-  Node,
-  ReadonlySourceFactResolver,
-  Type,
-  TypeCheckerQueries,
-  TypeShapeQueries,
-} from "@tsonic/tsts";
-import {
-  sourceTypeRelationship,
-} from "./type-relationship.js";
+import type { AstReader, Node, ReadonlySourceFactResolver, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { sourceTypeRelationship } from "./type-relationship.js";
 import { sourceTypeMemberRefines } from "./type-refinement.js";
 import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
 import type { SourceFileSemantics } from "./types.js";
