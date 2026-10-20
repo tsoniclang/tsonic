@@ -7,17 +7,12 @@ import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject } from "./model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection,
-  sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import type {
-  SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
-  SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
-  SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageDomainBoundary,
-} from "./model/types.js";
+import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection, SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageDomainBoundary } from "./model/types.js";
 
 export function createSourceStorageQuery(
   source: TargetSourceProgram,
