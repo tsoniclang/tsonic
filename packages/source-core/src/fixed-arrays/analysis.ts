@@ -1,24 +1,9 @@
-import {
-  sourceMarkerFactKey,
-} from "@tsonic/tsts";
-import type {
-  ExtensionEvidence,
-  Node,
-  SourceAnalysisContext,
-} from "@tsonic/tsts";
-import {
-  tsonicFixedArrayFactKey,
-} from "./facts.js";
-import {
-  tsonicCoreSourceExtensionId,
-} from "../identity.js";
-import {
-  forEachTsonicSourceFile,
-} from "../analysis/context.js";
-import {
-  readSourceFact,
-  visitPostOrder,
-} from "../analysis/source-call.js";
+import { sourceMarkerFactKey } from "@tsonic/tsts";
+import type { ExtensionEvidence, Node, SourceAnalysisContext } from "@tsonic/tsts";
+import { tsonicFixedArrayFactKey } from "./facts.js";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
+import { forEachTsonicSourceFile } from "../analysis/context.js";
+import { readSourceFact, visitPostOrder } from "../analysis/source-call.js";
 import { selectTsonicFixedArray } from "./selection.js";
 
 const fixedArrayEvidence = Object.freeze<readonly ExtensionEvidence[]>([{
