@@ -5,9 +5,7 @@ import { memoryOperationDeclarations, tsonicMemorySignatureIds } from "../declar
 import { memoryDescriptorDeclarations } from "../descriptor-declarations.js";
 import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import { readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
-import {
-  cleanMemorySession, memoryCall, memoryCalls, memoryDescriptorProperty, memorySession, memoryTestPrelude, valueMemoryLayout,
-} from "./fixtures.js";
+import { cleanMemorySession, memoryCall, memoryCalls, memoryDescriptorProperty, memorySession, memoryTestPrelude, valueMemoryLayout } from "./fixtures.js";
 
 const recordDescriptor = "{ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] }";
 const fieldDescriptor = "{ select: (header: Header) => header.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }";
