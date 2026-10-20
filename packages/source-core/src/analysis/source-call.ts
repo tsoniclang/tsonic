@@ -1,20 +1,7 @@
-import {
-  providerVirtualDeclarationFactKey,
-} from "@tsonic/tsts";
-import type {
-  ExtensionFactKey,
-  ExtensionFactSubject,
-  Node,
-  ProviderVirtualDeclarationFact,
-  ResolvedSourceCallInfo,
-  SourceAnalysisContext,
-} from "@tsonic/tsts";
-import type {
-  TsonicSourceFileAnalysisContext,
-} from "./context.js";
-import {
-  forEachTsonicSourceFile,
-} from "./context.js";
+import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import type { ExtensionFactKey, ExtensionFactSubject, Node, ProviderVirtualDeclarationFact, ResolvedSourceCallInfo, SourceAnalysisContext } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "./context.js";
+import { forEachTsonicSourceFile } from "./context.js";
 
 export interface SelectedProviderSourceCall {
   readonly call: Node;
@@ -158,8 +145,7 @@ export function readSourceFact<TFact>(
   if (subject === undefined) {
     return undefined;
   }
-  return context.facts.get(subject, key) ??
-    context.factResolver.resolve(subject, key);
+  return context.factResolver.resolve(subject, key);
 }
 
 export function visitPostOrder(
