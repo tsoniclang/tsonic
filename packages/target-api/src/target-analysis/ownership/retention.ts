@@ -3,8 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise,
-  SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection } from "./model.js";
+import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 
 export function createSourceRetentionQuery(input: {
