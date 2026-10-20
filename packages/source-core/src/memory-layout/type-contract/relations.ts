@@ -84,8 +84,7 @@ export function createMemoryDomainRelation(
       }
       const source = record(current);
       const destination = record(other);
-      if (source === undefined || destination === undefined || source.members.size !== destination.members.size ||
-          !context.typeShape.isTypeIdenticalTo(source.type, destination.type)) return false;
+      if (source === undefined || destination === undefined || source.members.size !== destination.members.size) return false;
       for (const member of destination.members.values()) {
         const counterpart = correspondingMemoryMember(context, source, member);
         if (counterpart === undefined || counterpart.property.optional !== member.property.optional ||
