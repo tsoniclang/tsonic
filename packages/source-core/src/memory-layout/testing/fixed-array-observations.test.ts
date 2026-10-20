@@ -2,16 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  createTsonicMemoryMetadataIndex, readTsonicMemoryType, readTsonicRawMemoryOperation,
-  resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationOperation,
-  tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey,
-  tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey,
-} from "../../public/facts.js";
+import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
 import { memoryCall, memoryCalls, valueMemoryLayout } from "./fixtures.js";
-import {
-  arrayLayoutAt, arrayMemoryLayout, arraySession, assertArrayObservation, cleanArraySession,
-} from "./fixed-array-fixtures.js";
+import { arrayLayoutAt, arrayMemoryLayout, arraySession, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
 function observedArrays() {
   const checked = cleanArraySession(`
