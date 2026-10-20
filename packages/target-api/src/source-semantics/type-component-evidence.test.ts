@@ -1,13 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  createCompilerSessionFromFiles,
-  createSourceSemanticsExtension,
-  formatDiagnostics,
-  sourcePrimitive,
-  sourcePrimitiveFactKey,
-  type Node,
-} from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, sourcePrimitiveFactKey, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { sourceIndexedTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
 import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
