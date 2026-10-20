@@ -1,11 +1,5 @@
-import type {
-  Node,
-  TypeTupleElementInfo,
-} from "@tsonic/tsts";
-import type {
-  SourceContextualTupleLiteralSelection,
-  SourceFinalTypeQueries,
-} from "./types.js";
+import type { Node, TypeTupleElementInfo } from "@tsonic/tsts";
+import type { SourceContextualTupleLiteralSelection, SourceFinalTypeQueries } from "./types.js";
 
 export function selectSourceContextualTupleLiteral(
   types: SourceFinalTypeQueries,
