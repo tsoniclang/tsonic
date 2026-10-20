@@ -56,7 +56,7 @@ export function createSourceErrorInvalidationQuery(
         : Object.freeze({ kind: "unproven" as const, reason: "Error preservation requires complete owner and affected storage origins in the exact invocation context." });
     };
     const appendCallableRegions = (candidate: Node, invocation: Node | undefined, parent: SourceStorageBindings): boolean => {
-      const selected = storage.executionRegionsFor(candidate, invocation);
+      const selected = storage.executionRegionsFor(candidate, invocation, parent);
       const bindings = invocation === undefined ? { kind: "resolved" as const, bindings: parent }
         : storage.bindingsForInvocation(candidate, invocation, parent);
       if (selected.kind === "unresolved" || bindings.kind === "unresolved") {
