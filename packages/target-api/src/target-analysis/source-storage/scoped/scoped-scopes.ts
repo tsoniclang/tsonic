@@ -15,8 +15,7 @@ import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js
 import { createSourceStorageActivationKeys } from "./activation-keys.js";
 import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
-import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference,
-  SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
   let active: Memo | undefined;
