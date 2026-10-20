@@ -1,24 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  functionPointerFactKey,
-  pointerFactKey,
-  pointerOperationFactKey,
-  rawPointerFactKey,
-  rawPointerOperationFactKey,
-  tsonicFixedArrayFactKey,
-  createSourceCoreSession,
-  createCleanSourceCoreSession,
-  callExpression,
-  typeReference,
-  typeAliasType,
-  typeReferenceName,
-  nodeFactSubject,
-  checkSource,
-  sourceAst,
-  getSourceFact,
-  definedDiagnostics,
-} from "./source-extension.fixtures.js";
+import { functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, tsonicFixedArrayFactKey, createSourceCoreSession, createCleanSourceCoreSession, callExpression, typeReference, typeAliasType, typeReferenceName, nodeFactSubject, checkSource, sourceAst, getSourceFact, definedDiagnostics } from "./source-extension.fixtures.js";
 
 test("source-core records Pointer and FunctionPointer facts from aliases and namespaces without local marker guessing", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
