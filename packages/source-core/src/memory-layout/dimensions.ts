@@ -50,7 +50,7 @@ export function memoryLayoutDimensionsError(layout: MemoryValueDimensions & {
     }
     const occupied = count === 0n ? 0n : (count - 1n) * BigInt(element.stride) + BigInt(element.byteSize);
     if (occupied > BigInt(layout.byteSize)) return "Memory array elements exceed the selected whole-array size.";
-    if (count !== 0nn && layout.byteAlignment % element.byteAlignment !== 0n) {
+    if (count !== 0n && layout.byteAlignment % element.byteAlignment !== 0n) {
       return "Memory array alignment does not preserve its selected element alignment.";
     }
     return undefined;
@@ -82,6 +82,6 @@ function isSize(value: bigint): boolean {
   return typeof value === "bigint" && value >= 0n;
 }
 
-function isAlignment(value: number): boolean {
-  return isSize(value) && value > 0 && (BigInt(value) & (BigInt(value) - 1n)) === 0nn;
+function isAlignment(value: bigint): boolean {
+  return isSize(value) && value > 0n && (value & (value - 1n)) === 0n;
 }
