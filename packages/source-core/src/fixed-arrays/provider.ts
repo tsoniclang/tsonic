@@ -1,11 +1,5 @@
-import type {
-  ProviderDeclarationIdentity,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreProviderVersion,
-  tsonicCoreTypesModule,
-  tsonicCoreVirtualModulesProviderId,
-} from "../identity.js";
+import type { ProviderDeclarationIdentity } from "@tsonic/tsts";
+import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 
 export const tsonicFixedArrayProviderIds = Object.freeze({
   exportId: "FixedArray",
