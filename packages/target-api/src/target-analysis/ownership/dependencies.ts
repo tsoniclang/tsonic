@@ -1,8 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceContinuationDependency, SourceContinuationDependenciesSelection, SourceOwnershipBudget,
-  SourceOwnershipPremises } from "./model.js";
+import type { SourceContinuationDependency, SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipPremises } from "./model.js";
 import type { SourceContinuationState, SourceContinuationTransfer } from "./continuation.js";
 import type { SourceSuspensionQueries } from "./suspension.js";
 import { createSourceRetentionQuery } from "./retention.js";
