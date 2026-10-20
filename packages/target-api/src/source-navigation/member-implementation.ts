@@ -1,22 +1,9 @@
-import type {
-  CheckedSourceProgram,
-  Node,
-} from "@tsonic/tsts";
-import {
-  sourceNodeIdentity,
-} from "./identity.js";
-import {
-  primaryDeclaration,
-} from "./syntax.js";
+import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
+import { sourceNodeIdentity } from "./identity.js";
+import { primaryDeclaration } from "./syntax.js";
 import { sourceMemberOwner } from "./class-members.js";
-import {
-  selectCallableImplementationDeclaration,
-} from "./callable-implementation.js";
-import type {
-  SourceHeritagePathResult,
-  SourceProjectMemberImplementationResult,
-  SourceProjectReference,
-} from "./types.js";
+import { selectCallableImplementationDeclaration } from "./callable-implementation.js";
+import type { SourceHeritagePathResult, SourceProjectMemberImplementationResult, SourceProjectReference } from "./types.js";
 
 export interface SourceMemberImplementationNavigation {
   memberImplementation(
