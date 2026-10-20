@@ -1,11 +1,5 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
-import type {
-  Node,
-  ProviderSignatureDeclaration,
-  ProviderTypeParameterDeclaration,
-  ProviderTypeExpression,
-  ReadonlySourceFactResolver,
-} from "@tsonic/tsts";
+import type { Node, ProviderSignatureDeclaration, ProviderTypeParameterDeclaration, ProviderTypeExpression, ReadonlySourceFactResolver } from "@tsonic/tsts";
 
 export type SourceProviderSignatureSelection =
   | { readonly kind: "available"; readonly signature: ProviderSignatureDeclaration;
