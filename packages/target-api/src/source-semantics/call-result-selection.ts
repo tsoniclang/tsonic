@@ -1,9 +1,4 @@
-import type {
-  AstReader,
-  Node,
-  Type,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
+import type { AstReader, Node, Type, TypeCheckerQueries } from "@tsonic/tsts";
 import type { SourceProviderSignatureSelection } from "./provider-signature.js";
 
 export type ResolvedSourceCallInfo = NonNullable<
