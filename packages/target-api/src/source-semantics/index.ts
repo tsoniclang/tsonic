@@ -30,5 +30,5 @@ export { sourceObjectLiteralDestinationMember } from "./object-literal-correspon
 export { sourceTypeIsAuthoredEmptyObject } from "./empty-object-evidence.js";
 export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
-export { sourceNodeIsNativeUnreachable } from "./native-control-flow.js";
+export { sourceNodeIsNativeUnreachable } from "../target-analysis/native-control-flow.js";
 export type { SourceNativeValueGuard } from "./native-value-guards.js";
