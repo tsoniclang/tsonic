@@ -2,14 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  createTsonicPointerBackingDemands, readTsonicMemoryType, readTsonicRawMemoryOperation,
-  selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey,
-} from "../../public/facts.js";
+import { createTsonicPointerBackingDemands, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
-import {
-  arrayMemoryLayout, arraySession, arrayTestPrelude, assertArrayObservation, cleanArraySession,
-} from "./fixed-array-fixtures.js";
+import { arrayMemoryLayout, arraySession, arrayTestPrelude, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
 const sharedTypes = `
 import type { FixedArray, uint32 } from "@tsonic/core/types.js";
