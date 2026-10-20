@@ -181,7 +181,7 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
     if (!isClosed(type)) return undefined;
     const fact = readSourceFact(context, type, sourcePrimitiveFactKey);
     if (fact !== undefined) return primitive(fact);
-    if (typeShape.isNullish(type)) return intern("nullish", [type]);
+    if (typeShape.isNullish(type)) return intern("nullish", []);
     if (typeShape.isUnion(type) || typeShape.isIntersection(type)) {
       const children = typeShape.getUnionOrIntersectionTypes(type).map(child => child === undefined ? undefined : selected(child));
       return children.some(child => child === undefined) ? undefined
