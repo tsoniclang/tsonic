@@ -4,13 +4,7 @@ import type { Node } from "@tsonic/tsts";
 import { isAstNode } from "@tsonic/target-api/source";
 import { createTsonicAttributeApplicationFactIndex } from "../public/facts.js";
 import { tsonicAttributeBuilderFactKey } from "./facts.js";
-import {
-  checkSource,
-  createCleanSourceCoreSession,
-  propertyCallExpression,
-  sourceAst,
-  sourceFacts,
-} from "../extension/source-extension.fixtures.js";
+import { checkSource, createCleanSourceCoreSession, propertyCallExpression, sourceAst, sourceFacts } from "../extension/source-extension.fixtures.js";
 
 test("attribute indexing preserves original finalized identities and visits each source node once", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
