@@ -2,15 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createSourceSemanticsVirtualModuleProvider } from "../../public/extension.js";
-import {
-  countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
-  readTsonicMemoryType, resolveTsonicMemoryLayoutObservation, tsonicFixedArrayFactKey,
-} from "../../public/facts.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryType, resolveTsonicMemoryLayoutObservation, tsonicFixedArrayFactKey } from "../../public/facts.js";
 import { memoryCall, memoryCalls, memoryDescriptorProperty, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
-import {
-  arrayLayoutAt, arrayMemoryLayout, arrayProfileRegistration, arraySession,
-  arrayTestProfiles, assertArrayObservation, cleanArraySession,
-} from "./fixed-array-fixtures.js";
+import { arrayLayoutAt, arrayMemoryLayout, arrayProfileRegistration, arraySession, arrayTestProfiles, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
 for (const profile of arrayTestProfiles) {
   test(`fixed-array physical composition preserves ${profile.byteOrder}-${profile.addressWidth} ABI evidence`, () => {
