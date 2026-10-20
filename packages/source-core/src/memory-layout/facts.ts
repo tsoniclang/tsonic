@@ -25,8 +25,8 @@ export interface TsonicMemoryFieldLayoutFact {
   readonly fieldType: Type;
   readonly fieldLayoutExpression: Node;
   readonly fieldLayout: TsonicMemoryLayoutFact;
-  readonly byteOffset: number;
-  readonly byteAlignment: number;
+  readonly byteOffset: bigint;
+  readonly byteAlignment: bigint;
 }
 
 interface MemoryLayoutBase {
@@ -35,9 +35,9 @@ interface MemoryLayoutBase {
   readonly explicitTypeNode?: Node;
   readonly dataLayoutExpression: Node;
   readonly dataLayout: TsonicDataLayoutFact;
-  readonly byteSize: number;
-  readonly byteAlignment: number;
-  readonly stride: number;
+  readonly byteSize: bigint;
+  readonly byteAlignment: bigint;
+  readonly stride: bigint;
 }
 
 export interface TsonicValueMemoryLayoutFact extends MemoryLayoutBase {
