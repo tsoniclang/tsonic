@@ -1,13 +1,6 @@
-import {
-  defineExtensionFactKey,
-} from "@tsonic/tsts";
-import type {
-  Node,
-  Type,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreSourceExtensionId,
-} from "../identity.js";
+import { defineExtensionFactKey } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
 
 export type TsonicCompileTimeFact =
   | {
