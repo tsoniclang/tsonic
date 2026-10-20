@@ -1,12 +1,9 @@
-export {
-  jsRegExpObjectDeclarations,
-  jsRegExpResultDeclarations,
-  jsRegExpSourceProfileDeclarations,
-  jsStandardSourceProfileDeclarations,
-  jsCapabilitySourceProfileDeclarations,
-  jsRegExpSymbolDeclarations,
-  jsStringRegExpDeclarations,
-} from "./declarations/composition.js";
+export { jsRegExpSourceProfileDeclarations, jsStandardSourceProfileDeclarations } from "./declarations/composition.js";
+export { jsRegExpObjectDeclarations } from "./declarations/regexp.js";
+export { jsRegExpResultDeclarations } from "./declarations/regexp-results.js";
+export { jsCapabilitySourceProfileDeclarations } from "./declarations/capabilities.js";
+export { jsRegExpSymbolDeclarations } from "./declarations/symbol-regexp.js";
+export { jsStringRegExpDeclarations } from "./declarations/string-regexp.js";
 export { jsRegExpSourceProfileIdentity } from "./identities/regexp.js";
 export {
   jsLangModule,
