@@ -1,10 +1,4 @@
-import type {
-  AstReader,
-  Node,
-  SourceFile,
-  Symbol,
-  TypeCheckerQueries,
-} from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
 import { relative, resolve } from "node:path";
 
 export function sourceFileIdentity(
