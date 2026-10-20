@@ -1,17 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  sourcePrimitive,
-} from "@tsonic/tsts";
-import type {
-  ExtensionDiagnostic,
-  ProviderDeclarationModel,
-  ProviderModuleResolution,
-  SourceSemanticsModule,
-} from "@tsonic/tsts";
-import {
-  createSourceSemanticsVirtualModuleProvider,
-} from "./semantics-virtual-modules.js";
+import { sourcePrimitive } from "@tsonic/tsts";
+import type { ExtensionDiagnostic, ProviderDeclarationModel, ProviderModuleResolution, SourceSemanticsModule } from "@tsonic/tsts";
+import { createSourceSemanticsVirtualModuleProvider } from "./semantics-virtual-modules.js";
 
 const exampleModule = {
   moduleSpecifier: "@example/neutral/types.js",
