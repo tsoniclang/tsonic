@@ -1,8 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition,
-  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionReadSelection } from "./model.js";
+import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionReadSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 
 export function decideSourceAsyncResultUse(input: {
