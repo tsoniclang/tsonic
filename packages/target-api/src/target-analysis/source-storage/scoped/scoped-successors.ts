@@ -3,14 +3,12 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
-import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
-  sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import { createSourceStorageExecutionReachability, createSourceStorageInputExecutions, walkSourceStorageExecution } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
-  SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness, SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding } from "./scoped-transport.js";
@@ -19,8 +17,7 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations,
-  sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
 import { createSourceStoragePhysicalMembers } from "./member-selection.js";
 
