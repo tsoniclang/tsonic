@@ -1,14 +1,5 @@
-import type {
-  AstReader,
-  Node,
-  ReadonlySourceFactResolver,
-  SourceFile,
-} from "@tsonic/tsts";
-import {
-  tsonicAttributeBuilderFactKey,
-  type TsonicAttributeApplicationFact,
-  type TsonicAttributeBuilderFact,
-} from "./facts.js";
+import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile } from "@tsonic/tsts";
+import { tsonicAttributeBuilderFactKey, type TsonicAttributeApplicationFact, type TsonicAttributeBuilderFact } from "./facts.js";
 
 export interface TsonicAttributeApplicationFactIndex {
   readonly all: readonly TsonicAttributeApplicationFact[];
