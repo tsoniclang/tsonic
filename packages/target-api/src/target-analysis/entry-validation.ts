@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
-import { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
+import { createSourceCallableValueQuery, sourceCallableValueExpression } from "../source-navigation/callable-values.js";
 
 export interface SourceBinaryEntryIssue {
   readonly code: "TSONIC_UNCALLED_BINARY_ENTRY_MAIN";
