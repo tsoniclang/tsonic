@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageBudget, defaultSourceStorageLimits,
-  type SourceOwnershipBudget, type SourceStorageBudget } from "../../public/analysis.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits, type SourceOwnershipBudget, type SourceStorageBudget } from "../../public/analysis.js";
 import { createSourceStorageBudget as canonicalBudgetOwner } from "../source-storage/model/resource-budget.js";
 
 test("public ownership consumers reuse the canonical bounded storage owner and its exact signature", () => {
