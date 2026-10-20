@@ -4,10 +4,8 @@ import { assertMemoryDiagnostics, memorySession } from "../../testing/fixtures.j
 
 export const bindingPrelude = `
 import { abi } from "test:abi";
-import type { Pointer, RawPointer, uint32, int32, FixedArray } from "@tsonic/core/types.js";
-import { memorylayout, memoryfield, memoryarraylayout, bindmemoryfield, bindmemoryrecord,
-  allocateptr, addressof, viewptr, projectptr, loadptr, storeptr,
-  torawptr, reinterpretrawptr, equalptr } from "@tsonic/core/lang.js";
+import type { uint32 } from "@tsonic/core/types.js";
+import { memorylayout, memoryfield, bindmemoryfield, bindmemoryrecord, addressof } from "@tsonic/core/lang.js";
 const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 interface Header { count: uint32; tag: uint32 }
 const countField = memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: word });
