@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  Node,
-  Symbol,
-  Type,
-} from "@tsonic/tsts";
-import {
-  selectSourceObjectLiteralAccessors,
-} from "./object-literal-accessors.js";
+import type { Node, Symbol, Type } from "@tsonic/tsts";
+import { selectSourceObjectLiteralAccessors } from "./object-literal-accessors.js";
 
 test("object-literal accessors group exact selected getter and setter evidence", () => {
   const literal = node("literal");
