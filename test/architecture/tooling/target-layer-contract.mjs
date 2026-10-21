@@ -35,7 +35,7 @@ const allowedTargetLayerDependencies = Object.freeze({
   "public-root": ["descriptor", "options", "target-model"],
   "public-provider-sdk": ["provider-model", "provider-implementation", "target-model", "policy"],
   descriptor: ["compilation", "target-model", "toolchain"],
-  compilation: ["backend-entrypoint", "options", "source", "provider-model", "provider-implementation", "target-model"],
+  compilation: ["backend-entrypoint", "options", "source", "provider-model", "provider-implementation", "target-model", "printer"],
   options: ["provider-model", "target-model"],
   source: ["provider-model", "target-model"],
   "provider-model": ["target-model"],
@@ -47,8 +47,8 @@ const allowedTargetLayerDependencies = Object.freeze({
   "artifact-model": ["target-model", "target-ast"],
   planner: ["analysis", "target-model", "target-ast", "artifact-model"],
   emission: ["artifact-model", "printer"],
-  "backend-entrypoint": ["analysis", "planner", "emission"],
-  printer: ["target-ast", "artifact-model"],
+  "backend-entrypoint": ["analysis", "planner", "emission", "target-model"],
+  printer: ["target-ast", "artifact-model", "target-model"],
   toolchain: ["options", "target-model"],
 });
 
