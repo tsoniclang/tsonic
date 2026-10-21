@@ -9,6 +9,7 @@ import type {
 import {
   attributeBuilderDeclaration,
   attributeCallMarkerDeclaration,
+  attributeMemberBuilderDeclaration,
 } from "../attributes/provider-declarations.js";
 import { memoryOperationDeclarations, memoryTypeDeclarations } from "../memory-layout/declarations.js";
 import { pointerViewDeclaration } from "../pointers/views/declarations.js";
