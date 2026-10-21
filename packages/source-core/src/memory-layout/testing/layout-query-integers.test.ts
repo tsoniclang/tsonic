@@ -38,7 +38,7 @@ for (const addressWidth of [32, 64] as const) {
       assert.equal(operation.offsetWidth, addressWidth);
       assert.equal(operation.offsetSignedness, "unsigned");
       assert.equal(operation.offsetRuntimeBase, "number");
-      assert.equal(observation.value, value);
+      assert.equal(observation.value, BigInt(value));
       assert.equal(observation.layout.dataLayout.addressWidth, addressWidth);
       assert.ok(Object.isFrozen(operation));
       assert.ok(Object.isFrozen(observation.query));
@@ -132,7 +132,7 @@ test("zero-sized huge arrays supply a zero byte count without expanding their ex
   for (const name of ["sizeof", "strideof"]) {
     const observation = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(observation?.kind === "resolved");
-    assert.equal(observation.value, 0);
+    assert.equal(observation.value, 0n);
     assert.equal(observation.layout.kind === "array" && observation.layout.fixedArray.length, 9007199254740993n);
   }
   assert.equal(memoryCalls(checked, "offsetrawptr").length, 2);

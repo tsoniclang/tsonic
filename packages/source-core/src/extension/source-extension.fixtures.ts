@@ -202,7 +202,7 @@ export function createCleanSourceCoreSession(sourceText: string, extraFiles: Rea
   const checked = checkSource(session);
   const diagnostics = definedDiagnostics(checked.diagnostics);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
-  assert.deepEqual(checked.extensionDiagnostics, []);
+  assert.equal(checked.extensionDiagnostics.length, 0, checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode + ": " + diagnostic.message).join("; ").slice(0, 2048));
   return { session, sourceFile };
 }
 

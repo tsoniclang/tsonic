@@ -262,7 +262,6 @@ test("invalid descriptors do not publish their prepared type contracts", () => {
 for (const [label, first, second] of [
   ["signedness", "Pointer<int32> | undefined", "Pointer<uint32> | undefined"],
   ["nested signedness", "Pointer<Pointer<int32>> | undefined", "Pointer<Pointer<uint32>> | undefined"],
-  ["null and undefined", "Pointer<uint32> | null", "Pointer<uint32> | undefined"],
   ["nullability", "Pointer<uint32>", "Pointer<uint32> | undefined"],
   ["pointer depth", "Pointer<Pointer<uint32>> | undefined", "Pointer<uint32> | undefined"],
   ["raw and typed pointers", "RawPointer | undefined", "Pointer<uint32> | undefined"],
@@ -273,6 +272,12 @@ for (const [label, first, second] of [
     assert.notEqual(identity(checked, calls[0]!), identity(checked, calls[1]!));
   });
 }
+
+test("memory identities use one native absence for null and undefined", () => {
+  const checked = clean("memorylayout<Pointer<uint32> | null>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] }); memorylayout<Pointer<uint32> | undefined>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });");
+  const calls = memoryCalls(checked, "memorylayout");
+  assert.equal(identity(checked, calls[0]!), identity(checked, calls[1]!), "native absence never acquires a second JS-only tag");
+});
 
 for (const operation of ["reinterpret", "to-raw", "field"] as const) {
   test(`${operation} rejects a distinct primitive domain despite equal number carriers`, () => {

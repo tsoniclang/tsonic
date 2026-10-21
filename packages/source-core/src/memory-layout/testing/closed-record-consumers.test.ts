@@ -37,7 +37,7 @@ test("field observations keep the authored selector and prove its corresponding 
   for (const [index, offset] of [0, 8].entries()) {
     const selected = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, calls[index]!);
     assert.ok(selected?.kind === "resolved");
-    assert.equal(selected.value, offset);
+    assert.equal(selected.value, BigInt(offset));
     const layout = valueMemoryLayout(selected.layout);
     assert.ok(layout.fields.every(field => field.selectedDeclaration !== selected.query.selectedFieldDeclaration));
   }

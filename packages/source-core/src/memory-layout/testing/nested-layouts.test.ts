@@ -47,14 +47,14 @@ test("nested layouts retain the explicitly chosen child and its authored operand
       datalayout: abi,
       bytesize: 8,
       bytealignment: 4,
-      stride: 8n,
+      stride: 8,
       fields: [slot({ select: (value: Inner) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     const selected = memorylayout<Inner>({
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4n,
+      stride: 4,
       fields: [slot({ select: (value: Inner) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     const alias = selected;
@@ -62,14 +62,14 @@ test("nested layouts retain the explicitly chosen child and its authored operand
       datalayout: abi,
       bytesize: 16,
       bytealignment: 4,
-      stride: 16n,
+      stride: 16,
       fields: [core.memoryfield({ select: (value: Outer) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: alias }), core.memoryfield({ select: (value: Outer) => value.right, byteoffset: 8, bytealignment: 4, fieldlayout: other })],
     });
   `);
   const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 3)));
   assert.ok(layout);
-  assert.deepEqual(layout.fields.map(entry => entry.fieldLayout.byteSize), [4, 8]);
-  assert.deepEqual(layout.fields.map(entry => valueMemoryLayout(entry.fieldLayout).fields[0]?.byteOffset), [0, 4]);
+  assert.deepEqual(layout.fields.map(entry => entry.fieldLayout.byteSize), [4n, 8n]);
+  assert.deepEqual(layout.fields.map(entry => valueMemoryLayout(entry.fieldLayout).fields[0]?.byteOffset), [0n, 4n]);
   for (const [index, entry] of layout.fields.entries()) {
     const call = memoryCall(checked, "memoryfield", index);
     assert.equal(entry.fieldLayoutExpression, memoryDescriptorProperty(checked, call, "fieldlayout"));
@@ -90,7 +90,7 @@ test("memoryfield has only the required child-layout contract", () => {
 
 for (const [label, child, checkerRejects] of [
   ["unproduced descriptor", "unproduced", false],
-  ["different selected field type", "memorylayout<boolean>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1n, fields: [] })", true],
+  ["different selected field type", "memorylayout<boolean>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1, fields: [] })", true],
 ] as const) {
   test(`field layout rejects ${label} without publishing a field`, () => {
     const checked = memorySession(memoryTestPrelude + `
@@ -116,14 +116,14 @@ test("the full child extent must fit and distinct fields cannot overlap", () => 
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4n,
+      stride: 4,
       fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     memorylayout<Header>({
       datalayout: abi,
       bytesize: 8,
       bytealignment: 4,
-      stride: 8n,
+      stride: 8,
       fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (value: Header) => value.second, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
   `);
@@ -139,7 +139,7 @@ test("packed field placement does not replace the selected child type alignment"
       datalayout: abi,
       bytesize: 5,
       bytealignment: 1,
-      stride: 5n,
+      stride: 5,
       fields: [memoryfield({ select: (value: Packed) => value.count, byteoffset: 1, bytealignment: 1, fieldlayout: uint32Layout })],
     });
   `);
@@ -155,7 +155,7 @@ test("consumers reject missing or stale selected children rather than trusting a
       datalayout: abi,
       bytesize: 4,
       bytealignment: 4,
-      stride: 4n,
+      stride: 4,
       fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
     });
     sizeof(header);

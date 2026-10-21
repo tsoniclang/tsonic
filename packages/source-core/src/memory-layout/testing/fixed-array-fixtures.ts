@@ -49,7 +49,7 @@ export function arrayLayoutAt(checked: CheckedSourceProgram, index = 0, name = "
 export function assertArrayObservation(checked: CheckedSourceProgram, name: string, expected: number, index = 0): void {
   const result = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, memoryCall(checked, name, index));
   assert.ok(result?.kind === "resolved");
-  assert.equal(result.value, expected);
+  assert.equal(result.value, BigInt(expected));
   assert.ok(Object.isFrozen(result));
 }
 

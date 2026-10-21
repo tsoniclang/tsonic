@@ -42,7 +42,7 @@ for (const patch of [
   { byteSize: -1 }, { byteSize: 0.5 }, { byteSize: Number.MAX_SAFE_INTEGER + 1 },
   { byteAlignment: 0n }, { byteAlignment: 3n }, { stride: 4n }, { stride: 10n },
 ] as const) {
-  test(`layout rejects invalid metadata ${JSON.stringify(patch)}`, () => {
+  test(`layout rejects invalid metadata ${Object.entries(patch).map(([key, value]) => key + "=" + String(value)).join(",")}`, () => {
     assert.throws(() => snapshotMemoryLayout({ ...layoutFixture(), ...patch } as never));
   });
 }

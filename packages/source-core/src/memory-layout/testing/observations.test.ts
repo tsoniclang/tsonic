@@ -21,7 +21,7 @@ test("layout observations retain exact dimensions and field declaration identity
     const selected = resolveTsonicMemoryLayoutObservation(source.sourceFacts, memoryCall(source, name));
     assert.equal(selected?.kind, "resolved");
     if (selected?.kind !== "resolved") continue;
-    assert.equal(selected.value, value);
+    assert.equal(selected.value, BigInt(value));
     assert.ok(Object.isFrozen(selected));
   }
 });

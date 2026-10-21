@@ -81,7 +81,7 @@ test("named descriptors preserve authored operand nodes, exact selectors and ind
   for (const [name, expected] of [["sizeof", 20], ["strideof", 24], ["fieldoffsetof", 4]] as const) {
     const observation = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(observation?.kind === "resolved");
-    assert.equal(observation.value, expected);
+    assert.equal(observation.value, BigInt(expected));
   }
   assert.ok(Object.isFrozen(layout.fields) && Object.isFrozen(field) && Object.isFrozen(array));
 });

@@ -64,12 +64,13 @@ test("fixed-array snapshots omit absent optional syntax and reject open data sha
     { ...resolved, elementType: [] },
     { ...resolved, length: 2 },
     { ...resolved, length: -1n },
-    { ...resolved, lengthRuntimeBase: "number" },
     { ...resolved, lengthRuntimeBase: "string" },
   ];
   for (const value of invalid) {
     assert.throws(() => snapshotFixedArrayFact(value as TsonicFixedArrayFact), /Fixed-array evidence/);
   }
+  const authoredNumber = snapshotFixedArrayFact({ ...resolved, lengthRuntimeBase: "number" });
+  assert.equal(authoredNumber.length, resolved.length, "an authored native extent has no artificial JS precision cap");
   let reads = 0;
   const accessor = Object.defineProperty({ ...resolved }, "length", {
     get() { reads += 1; return 2n; },

@@ -30,11 +30,32 @@ interface ResolvedFixedArrayQueries {
   readonly numericLiteralValue: (type: Type) => number | bigint | undefined;
 }
 
+interface FixedArrayExtent {
+  readonly length: bigint;
+  readonly lengthRuntimeBase: "number" | "bigint";
+}
+
 export function selectTsonicFixedArrayFromSource(
   sourceType: Type,
   semantics: SourceFileSemantics,
   facts: Pick<ReadonlySourceFactResolver, "getFact">,
 ): TsonicFixedArraySelection | undefined {
+  const alias = semantics.declarations.typeAliasSymbol(sourceType);
+  const elements = new Set<Node>();
+  let extent: FixedArrayExtent | undefined;
+  for (const declaration of alias === undefined ? [] : semantics.declarations.symbolDeclarations(alias)) {
+    for (const node of semantics.facts.authoredTypeNodes(declaration)) {
+      const authored = facts.getFact(node, tsonicFixedArrayFactKey);
+      if (authored === undefined || semantics.declarations.typeAliasSymbol(authored.sourceType) !== alias ||
+          semantics.types.couldContainTypeVariables(authored.sourceType)) continue;
+      if (extent !== undefined && (authored.length !== extent.length ||
+          authored.lengthRuntimeBase !== extent.lengthRuntimeBase)) {
+        return invalid("The selected FixedArray alias contradicts its authored array evidence.");
+      }
+      extent = authored;
+      if (authored.elementType !== undefined) elements.add(authored.elementType);
+    }
+  }
   const selected = selectResolvedFixedArray(sourceType, {
     typeSymbol: semantics.declarations.typeSymbol,
     symbolDeclarations: semantics.declarations.symbolDeclarations,
@@ -42,23 +63,8 @@ export function selectTsonicFixedArrayFromSource(
     typeReferenceTarget: semantics.types.typeReferenceTarget,
     typeArguments: semantics.types.typeArguments,
     numericLiteralValue: semantics.types.numericLiteralValue,
-  }, facts);
+  }, facts, extent);
   if (selected?.kind !== "selected") return selected;
-  const alias = semantics.declarations.typeAliasSymbol(sourceType);
-  if (alias === undefined) return selected;
-  const elements = new Set<Node>();
-  for (const declaration of semantics.declarations.symbolDeclarations(alias)) {
-    for (const node of semantics.facts.authoredTypeNodes(declaration)) {
-      const authored = facts.getFact(node, tsonicFixedArrayFactKey);
-      if (authored === undefined || semantics.declarations.typeAliasSymbol(authored.sourceType) !== alias ||
-          semantics.types.couldContainTypeVariables(authored.sourceType)) continue;
-      if (authored.length !== selected.fact.length ||
-          authored.lengthRuntimeBase !== selected.fact.lengthRuntimeBase) {
-        return invalid("The selected FixedArray alias contradicts its authored array evidence.");
-      }
-      if (authored.elementType !== undefined) elements.add(authored.elementType);
-    }
-  }
   if (elements.size > 1) return invalid("The selected FixedArray alias has ambiguous authored element evidence.");
   const elementType = elements.values().next().value;
   return elementType === undefined ? selected
@@ -72,15 +78,6 @@ export function selectTsonicFixedArray(
   syntax: TsonicFixedArraySyntax = {},
 ): TsonicFixedArraySelection | undefined {
   const { ast, checker, typeShape } = source;
-  const selected = selectResolvedFixedArray(sourceType, {
-    typeSymbol: checker.getTypeSymbol,
-    symbolDeclarations: checker.getSymbolDeclarations,
-    isTypeReference: typeShape.isTypeReference,
-    typeReferenceTarget: typeShape.getTypeReferenceTarget,
-    typeArguments: typeShape.getTypeArguments,
-    numericLiteralValue: typeShape.getNumericLiteralTypeValue,
-  }, facts);
-  if (selected?.kind === "invalid") return selected;
   let authored = syntax.authoredTypeNode;
   while (authored !== undefined && ast.is.IsParenthesizedTypeNode(authored)) {
     authored = ast.as.AsParenthesizedTypeNode(authored)?.Type;
@@ -103,19 +100,36 @@ export function selectTsonicFixedArray(
   }
   const authoredCanonical = [...authoredSubjects].some(subject =>
     isTsonicFixedArrayProviderType(facts.getFact(subject, providerVirtualDeclarationFactKey)));
+  let extent: FixedArrayExtent | undefined;
+  if (authoredCanonical && authored !== undefined) {
+    let countNode = ast.typeArguments(authored)[1];
+    while (countNode !== undefined && ast.is.IsParenthesizedTypeNode(countNode)) {
+      countNode = ast.as.AsParenthesizedTypeNode(countNode)?.Type;
+    }
+    const literal = countNode === undefined ? undefined : ast.as.AsLiteralTypeNode(countNode)?.Literal;
+    const exact = literal === undefined ? undefined : sourceIntegerLiteralValue(ast, literal);
+    let operand = literal;
+    while (operand !== undefined && ast.is.IsPrefixUnaryExpression(operand)) {
+      operand = ast.as.AsPrefixUnaryExpression(operand)?.Operand;
+    }
+    if (exact !== undefined && operand !== undefined) {
+      extent = { length: exact, lengthRuntimeBase: ast.is.IsBigIntLiteral(operand) ? "bigint" : "number" };
+    }
+  }
+  const selected = selectResolvedFixedArray(sourceType, {
+    typeSymbol: checker.getTypeSymbol,
+    symbolDeclarations: checker.getSymbolDeclarations,
+    isTypeReference: typeShape.isTypeReference,
+    typeReferenceTarget: typeShape.getTypeReferenceTarget,
+    typeArguments: typeShape.getTypeArguments,
+    numericLiteralValue: typeShape.getNumericLiteralTypeValue,
+  }, facts, extent);
+  if (selected?.kind === "invalid") return selected;
   if (selected === undefined) {
     return authoredCanonical ? invalid("FixedArray requires its exact resolved provider type.") : undefined;
   }
   if (authored !== undefined && !typeShape.isTypeIdenticalTo(checker.getTypeFromTypeNode(authored), sourceType)) {
     return invalid("The authored FixedArray annotation does not match its selected source type.");
-  }
-  if (authoredCanonical && authored !== undefined) {
-    const extent = ast.typeArguments(authored)[1];
-    const literal = extent === undefined ? undefined : ast.as.AsLiteralTypeNode(extent)?.Literal;
-    const exact = literal === undefined ? undefined : sourceIntegerLiteralValue(ast, literal);
-    if (exact !== undefined && exact !== selected.fact.length) {
-      return invalid("The exact authored FixedArray extent disagrees with its checked literal identity.");
-    }
   }
   const elementType = syntax.elementType ?? (authoredCanonical && authored !== undefined
     ? ast.typeArguments(authored)[0] : undefined);
@@ -130,6 +144,7 @@ function selectResolvedFixedArray(
   sourceType: Type,
   queries: ResolvedFixedArrayQueries,
   facts: Pick<ReadonlySourceFactResolver, "getFact">,
+  extent?: FixedArrayExtent,
 ): TsonicFixedArraySelection | undefined {
   const subjects = new Set<ExtensionFactSubject>([sourceType]);
   const addSymbol = (symbol: Symbol | undefined): void => {
@@ -166,13 +181,19 @@ function selectResolvedFixedArray(
   }
   const count = queries.numericLiteralValue(lengthType);
   if ((typeof count !== "number" && typeof count !== "bigint") || count < 0 ||
-      (typeof count === "number" && !Number.isInteger(count))) {
+      (extent === undefined && typeof count === "number" && !Number.isInteger(count)) ||
+      (extent !== undefined && extent.length < 0n)) {
     return invalid("FixedArray<T, N> requires N to be one exact non-negative integer numeric or bigint literal type.");
+  }
+  if (extent !== undefined && (extent.lengthRuntimeBase !== typeof count ||
+      typeof count === "bigint" && count !== extent.length ||
+      typeof count === "number" && Number.isSafeInteger(count) && BigInt(count) !== extent.length)) {
+    return invalid("The exact authored FixedArray extent disagrees with its checked literal identity.");
   }
   const fact = snapshotFixedArrayFact({
     sourceType, elementSourceType,
-    length: typeof count === "bigint" ? count : BigInt(count),
-    lengthRuntimeBase: typeof count === "bigint" ? "bigint" : "number",
+    length: extent === undefined ? typeof count === "bigint" ? count : BigInt(count) : extent.length,
+    lengthRuntimeBase: extent === undefined ? typeof count === "bigint" ? "bigint" : "number" : extent.lengthRuntimeBase,
   });
   return Object.freeze({ kind: "selected", fact });
 }

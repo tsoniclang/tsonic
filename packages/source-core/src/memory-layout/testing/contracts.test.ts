@@ -183,7 +183,7 @@ for (const [type, value, base, signedness, width] of [
   });
 }
 
-for (const expression of ["4", "-4", "4n", "-4n"]) {
+for (const expression of ["4", "-4", "4n", "-4n", "9007199254740993"]) {
   test(`byte offsets accept exact in-range unmarked constant ${expression}`, () => {
     const checked = cleanMemorySession(`offsetrawptr(raw, ${expression}, abi);`);
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr"))?.operation, "byte-offset");
@@ -191,7 +191,7 @@ for (const expression of ["4", "-4", "4n", "-4n"]) {
 }
 
 for (const [declaration, expression] of [
-  ["", "1.5"], ["", "9223372036854775808n"], ["", "9007199254740993"],
+  ["", "1.5"], ["", "9223372036854775808n"],
   ["declare const amount: number;", "amount"], ["declare const amount: bigint;", "amount"],
   ['import type { float64 } from "@tsonic/core/types.js"; const amount: float64 = 4;', "amount"],
   ['import type { int8 } from "@tsonic/core/types.js"; const amount: int8 = 256;', "amount"],

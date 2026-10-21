@@ -141,17 +141,16 @@ test("fixed-array selector distinguishes invalid canonical extents from noncanon
     type Negative = FixedArray<uint8, -1>;
     type NegativeBig = FixedArray<uint8, -9007199254740993n>;
     type Fractional = FixedArray<uint8, 1.5>;
-    type UnsafeInteger = FixedArray<uint8, 9007199254740993>;
     type Ambiguous = FixedArray<uint8, 2 | 3>;
     type Anything = FixedArray<uint8, any>;
     type Never = FixedArray<uint8, never>;
   `);
   const checked = checkSource(session);
   const diagnostics = definedDiagnostics(checked.extensionDiagnostics);
-  assert.equal(diagnostics.length, 9);
+  assert.equal(diagnostics.length, 8);
   assert.ok(diagnostics.every(diagnostic => diagnostic.extensionCode === "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL"));
   const source = checked.getSourceFileQueries(sourceFile);
-  for (const name of ["Open", "OpenBig", "Negative", "NegativeBig", "Fractional", "UnsafeInteger", "Ambiguous", "Anything", "Never"]) {
+  for (const name of ["Open", "OpenBig", "Negative", "NegativeBig", "Fractional", "Ambiguous", "Anything", "Never"]) {
     const node = typeAliasType(session, sourceFile, name);
     const type = source.checker.getTypeFromTypeNode(node);
     assert.ok(type !== undefined);

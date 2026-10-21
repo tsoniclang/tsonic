@@ -21,6 +21,27 @@ function aliasNode(source: TargetSourceProgram, path: string, name: string): Nod
   return type;
 }
 
+test("target-source fixed arrays preserve adjacent authored native extents without a float round-trip", () => {
+  const { session } = createCleanSourceCoreSession(`
+    import type { FixedArray } from "@tsonic/core/types.js";
+    type Wide = FixedArray<number, 9007199254740992>;
+    type Adjacent = FixedArray<number, 9007199254740993>;
+    type NegativeZero = FixedArray<number, -0n>;
+  `);
+  const source = createTargetSourceProgram(checkSource(session));
+  for (const [name, length] of [["Wide", 9007199254740992n], ["Adjacent", 9007199254740993n], ["NegativeZero", 0n]] as const) {
+    const node = aliasNode(source, "/src/index.ts", name);
+    const semantics = source.semantics.forNode(node);
+    const type = semantics.types.authoredType(node);
+    assert.ok(type !== undefined, name + ": exact checked source type");
+    const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
+    assert.ok(selected?.kind === "selected", name + ": native extent is admitted");
+    assert.equal(selected.fact.length, length, name + ": exact authored native integer");
+    assert.equal(selected.fact.lengthRuntimeBase, name === "NegativeZero" ? "bigint" : "number");
+    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey), undefined, "precision never invents a mutable Type fact");
+  }
+});
+
 test("target-source fixed-array adapter selects inferred wrapped returns without publishing Type facts", () => {
   const { session } = createCleanSourceCoreSession(`
     import { wrap } from "./factory.js";
@@ -176,14 +197,13 @@ test("target-source adapter retains invalid versus noncanonical selection outcom
     import type { FixedArray } from "@tsonic/core/types.js";
     type Open = FixedArray<number, number>;
     type Negative = FixedArray<number, -1n>;
-    type Unsafe = FixedArray<number, 9007199254740993>;
     type Local = ReadonlyArray<number> & { readonly length: 2 };
   `);
   const checked = checkSource(session);
-  assert.equal(checked.extensionDiagnostics.length, 3);
+  assert.equal(checked.extensionDiagnostics.length, 2);
   assert.ok(checked.extensionDiagnostics.every(diagnostic => diagnostic.extensionCode === "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL"));
   const source = createTargetSourceProgram(checked);
-  for (const name of ["Open", "Negative", "Unsafe", "Local"]) {
+  for (const name of ["Open", "Negative", "Local"]) {
     const node = aliasNode(source, "/src/index.ts", name);
     const semantics = source.semantics.forNode(node);
     const type = semantics.types.authoredType(node);

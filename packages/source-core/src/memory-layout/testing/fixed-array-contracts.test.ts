@@ -107,7 +107,7 @@ test("array minimum extent distinguishes final element size, element stride and 
 });
 
 test("zero-sized array counts remain exact and bounded across the safe-integer boundary", () => {
-  const extents = ["0", "1", "2", "2n", "9007199254740991", "9007199254740992n", "9007199254740993n", "9223372036854775808n"];
+  const extents = ["0", "1", "2", "2n", "9007199254740991", "9007199254740992", "9007199254740993", "9007199254740992n", "9007199254740993n", "9223372036854775808n"];
   const checked = cleanArraySession(extents.map((extent, index) => `
     const array${index} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: ${extent} });
     sizeof(array${index}); strideof(array${index});
@@ -185,7 +185,6 @@ const invalidArrays = [
   ["negative count", "", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: -1 })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["negative bigint count", "", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: -1n })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["fractional count", "", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 1.5 })", "ARRAY_LAYOUT_NOT_PROVEN"],
-  ["unsafe numeric count", "", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993 })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["open count", "declare const count: number;", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: count })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["union count", "declare const count: 1 | 2;", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: count })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["asserted count", "", "memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 1 as 2 })", "ARRAY_TYPE_NOT_PROVEN"],
