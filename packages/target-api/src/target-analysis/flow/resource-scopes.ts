@@ -1,3 +1,4 @@
+import { AsVariableDeclaration } from "../../source-navigation/checked-casts.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 
 export interface SourceResourceScope {
@@ -51,7 +52,7 @@ export function analyzeSourceResourceScopes(
         const position = statement === undefined ? -1 : statements.indexOf(statement);
         const siblings = statement === undefined ? [] : variables.get(statement) ?? [];
         const followingInitializers = siblings.slice(siblings.indexOf(declaration) + 1).flatMap(sibling => {
-          const initializer = ast.as.AsVariableDeclaration(sibling)?.Initializer;
+          const initializer = AsVariableDeclaration(ast, sibling)?.Initializer;
           return initializer === undefined ? [] : [initializer];
         });
         return [...followingInitializers, ...statements.slice(position + 1)];

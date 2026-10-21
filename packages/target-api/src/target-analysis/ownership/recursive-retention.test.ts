@@ -1,3 +1,4 @@
+import { AsCallExpression } from "../../source-navigation/checked-casts.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
@@ -274,7 +275,7 @@ test("capture-free generic invocation producers retain ordinary and Promise-valu
   assert.equal(formal.kind, "resolved", "The exact generic formal has one source owner.");
   if (formal.kind !== "resolved") return;
   for (const call of calls) {
-    const expression = source.ast.as.AsCallExpression(call)!.Expression;
+    const expression = AsCallExpression(source.ast, call)!.Expression;
     const callee = storage.subjectFor(expression!);
     const caller = storage.bindingsForLexicalOwner(call);
     assert.equal(callee.kind === "resolved" && caller.kind === "resolved", true, "The actual stateless callee and caller are checked.");

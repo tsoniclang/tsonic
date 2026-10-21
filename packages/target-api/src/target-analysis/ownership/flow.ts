@@ -1,3 +1,4 @@
+import { AsAwaitExpression } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceControlFlow } from "../flow/graph.js";
@@ -96,7 +97,7 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
       if (invoked) {
         if (!appendInvocation(point.source, context.selection.bindings)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
       }
-      const completion = point.operation.kind === "await" ? source.ast.as.AsAwaitExpression(point.source)?.Expression
+      const completion = point.operation.kind === "await" ? AsAwaitExpression(source.ast, point.source)?.Expression
         : returned ? source.ast.is.IsReturnStatement(point.source)
           ? source.ast.as.AsReturnStatement(point.source)?.Expression : point.source : undefined;
       if (completion === undefined) continue;

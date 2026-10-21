@@ -1,3 +1,4 @@
+import { AsExpressionStatement } from "../source-navigation/checked-casts.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 
 type SourceSafetyOperation =
@@ -16,7 +17,7 @@ export function createSourceExplicitUnsafeContextIndex(ast: AstReader, roots: re
     let active = enabled || expressionRoots.has(node);
     if (ast.is.IsBlock(node)) {
       const first = ast.statements(node)[0];
-      const expression = first === undefined ? undefined : ast.as.AsExpressionStatement(first)?.Expression;
+      const expression = first === undefined ? undefined : AsExpressionStatement(ast, first)?.Expression;
       const marker = expression === undefined ? undefined : read(expression);
       active ||= marker?.kind === "unsafe-context" && marker.fact.kind === "remaining-block";
     }

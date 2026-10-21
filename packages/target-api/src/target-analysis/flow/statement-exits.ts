@@ -1,3 +1,4 @@
+import { AsCaseBlock, AsCatchClause, AsDoStatement, AsExpressionStatement, AsForInOrOfStatement, AsForStatement, AsIfStatement, AsLabeledStatement, AsSwitchStatement, AsTryStatement, AsVariableDeclaration, AsVariableDeclarationList, AsVariableStatement, AsWhileStatement } from "../../source-navigation/checked-casts.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceControlTransferTarget } from "../../source-navigation/control-targets.js";
 
@@ -33,8 +34,8 @@ export function analyzeSourceStatementExits(
     ast.is.IsCaseClause(node) || ast.is.IsDefaultClause(node)
       ? ast.as.AsCaseOrDefaultClause(node)?.Statements?.Nodes ?? [] : ast.statements(node);
   const clauses = (node: Node): readonly (Node | undefined)[] => {
-    const block = ast.as.AsSwitchStatement(node)?.CaseBlock;
-    return block === undefined ? [] : ast.as.AsCaseBlock(block)?.Clauses?.Nodes ?? [];
+    const block = AsSwitchStatement(ast, node)?.CaseBlock;
+    return block === undefined ? [] : AsCaseBlock(ast, block)?.Clauses?.Nodes ?? [];
   };
   const children = (node: Node): readonly (Node | undefined)[] => {
     if (facts.erased(node)) return [];
@@ -42,21 +43,21 @@ export function analyzeSourceStatementExits(
       case "KindBlock": case "KindSourceFile": case "KindCaseClause": case "KindDefaultClause":
         return sequence(node);
       case "KindIfStatement": {
-        const statement = ast.as.AsIfStatement(node);
+        const statement = AsIfStatement(ast, node);
         return [statement?.ThenStatement, statement?.ElseStatement];
       }
       case "KindTryStatement": {
-        const statement = ast.as.AsTryStatement(node);
+        const statement = AsTryStatement(ast, node);
         const caught = statement?.CatchClause;
-        return [statement?.TryBlock, caught === undefined ? undefined : ast.as.AsCatchClause(caught)?.Block,
+        return [statement?.TryBlock, caught === undefined ? undefined : AsCatchClause(ast, caught)?.Block,
           statement?.FinallyBlock];
       }
-      case "KindLabeledStatement": return [ast.as.AsLabeledStatement(node)?.Statement];
+      case "KindLabeledStatement": return [AsLabeledStatement(ast, node)?.Statement];
       case "KindSwitchStatement": return clauses(node);
-      case "KindDoStatement": return [ast.as.AsDoStatement(node)?.Statement];
-      case "KindWhileStatement": return [ast.as.AsWhileStatement(node)?.Statement];
-      case "KindForStatement": return [ast.as.AsForStatement(node)?.Statement];
-      case "KindForInStatement": case "KindForOfStatement": return [ast.as.AsForInOrOfStatement(node)?.Statement];
+      case "KindDoStatement": return [AsDoStatement(ast, node)?.Statement];
+      case "KindWhileStatement": return [AsWhileStatement(ast, node)?.Statement];
+      case "KindForStatement": return [AsForStatement(ast, node)?.Statement];
+      case "KindForInStatement": case "KindForOfStatement": return [AsForInOrOfStatement(ast, node)?.Statement];
       default: return [];
     }
   };
@@ -88,45 +89,45 @@ export function analyzeSourceStatementExits(
       }
       case "KindBlock": case "KindSourceFile": case "KindCaseClause": case "KindDefaultClause":
         return sequence(node).some(selectedExits);
-      case "KindExpressionStatement": return expressionExits(ast.as.AsExpressionStatement(node)?.Expression);
+      case "KindExpressionStatement": return expressionExits(AsExpressionStatement(ast, node)?.Expression);
       case "KindVariableStatement": {
-        const list = ast.as.AsVariableStatement(node)?.DeclarationList;
-        const declarations = list === undefined ? [] : ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes ?? [];
+        const list = AsVariableStatement(ast, node)?.DeclarationList;
+        const declarations = list === undefined ? [] : AsVariableDeclarationList(ast, list)?.Declarations?.Nodes ?? [];
         return declarations.some(declaration => declaration !== undefined &&
-          expressionExits(ast.as.AsVariableDeclaration(declaration)?.Initializer));
+          expressionExits(AsVariableDeclaration(ast, declaration)?.Initializer));
       }
       case "KindIfStatement": {
-        const statement = ast.as.AsIfStatement(node);
+        const statement = AsIfStatement(ast, node);
         if (expressionExits(statement?.Expression)) return true;
         const guard = knownGuard(statement?.Expression);
         return guard === undefined ? selectedExits(statement?.ThenStatement) && selectedExits(statement?.ElseStatement)
           : selectedExits(guard ? statement?.ThenStatement : statement?.ElseStatement);
       }
       case "KindTryStatement": {
-        const statement = ast.as.AsTryStatement(node);
+        const statement = AsTryStatement(ast, node);
         const caught = statement?.CatchClause;
         return selectedExits(statement?.FinallyBlock) || selectedExits(statement?.TryBlock) &&
-          (caught === undefined || selectedExits(ast.as.AsCatchClause(caught)?.Block));
+          (caught === undefined || selectedExits(AsCatchClause(ast, caught)?.Block));
       }
       case "KindLabeledStatement":
-        return !breaks.has(node) && selectedExits(ast.as.AsLabeledStatement(node)?.Statement);
+        return !breaks.has(node) && selectedExits(AsLabeledStatement(ast, node)?.Statement);
       case "KindSwitchStatement": {
-        if (expressionExits(ast.as.AsSwitchStatement(node)?.Expression)) return true;
+        if (expressionExits(AsSwitchStatement(ast, node)?.Expression)) return true;
         const selected = clauses(node);
         return !breaks.has(node) && selected.some(clause => clause !== undefined && ast.is.IsDefaultClause(clause)) &&
           selectedExits(selected[selected.length - 1]);
       }
       case "KindWhileStatement": {
-        const condition = ast.as.AsWhileStatement(node)?.Expression;
+        const condition = AsWhileStatement(ast, node)?.Expression;
         return expressionExits(condition) || knownGuard(condition) === true && !hasLoopBreak(node);
       }
       case "KindForStatement": {
-        const statement = ast.as.AsForStatement(node);
+        const statement = AsForStatement(ast, node);
         return expressionExits(statement?.Initializer) || expressionExits(statement?.Condition) ||
           (statement?.Condition === undefined || knownGuard(statement.Condition) === true) && !hasLoopBreak(node);
       }
       case "KindDoStatement": {
-        const statement = ast.as.AsDoStatement(node);
+        const statement = AsDoStatement(ast, node);
         return !hasLoopBreak(node) && (knownGuard(statement?.Expression) === true ||
           selectedExits(statement?.Statement) && !continues.has(node));
       }

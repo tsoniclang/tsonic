@@ -1,3 +1,4 @@
+import { AsVariableDeclarationList } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceFlowBooleanEdges } from "./conditions.js";
 import { sourceFlowResourceScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
@@ -9,7 +10,7 @@ export function sourceFlowLoop(build: SourceFlowConstruction, node: Node, next: 
   const initializer = ast.is.IsForStatement(node) ? ast.as.AsForStatement(node)?.Initializer : undefined;
   const kind = initializer === undefined ? undefined : ast.variableDeclarationKind(initializer);
   if (initializer !== undefined && build.includes(initializer) && (kind === "using" || kind === "await using")) {
-    const declarations = ast.as.AsVariableDeclarationList(initializer)?.Declarations?.Nodes;
+    const declarations = AsVariableDeclarationList(ast, initializer)?.Declarations?.Nodes;
     if (declarations === undefined || declarations.length === 0 || declarations.some(declaration => declaration === undefined)) {
       throw new SourceFlowFailure("Source flow requires exact checked loop resources.", initializer);
     }

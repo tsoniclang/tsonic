@@ -1,3 +1,4 @@
+import { AsCaseBlock, AsCatchClause, AsSwitchStatement, AsTryStatement, AsVariableDeclarationList } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceControlTransferTarget } from "../../source-navigation/control-targets.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
@@ -97,7 +98,7 @@ export function sourceFlowStatements(build: SourceFlowConstruction, statements: 
       continue;
     }
     build.step(statement);
-    const declarations = checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list);
+    const declarations = checkedDeclarations(AsVariableDeclarationList(ast, list)?.Declarations?.Nodes, list);
     for (const declaration of declarations) {
       if (!build.includes(declaration)) continue;
       sequence.push({ node: declaration, context: active, acquisition: true });
@@ -124,8 +125,8 @@ function checkedDeclarations(declarations: readonly (Node | undefined)[] | undef
 
 function switchStatement(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
   const { ast } = build.source;
-  const selected = ast.as.AsSwitchStatement(node);
-  const clauses = selected?.CaseBlock === undefined ? undefined : ast.as.AsCaseBlock(selected.CaseBlock)?.Clauses?.Nodes;
+  const selected = AsSwitchStatement(ast, node);
+  const clauses = selected?.CaseBlock === undefined ? undefined : AsCaseBlock(ast, selected.CaseBlock)?.Clauses?.Nodes;
   if (selected?.Expression === undefined || clauses === undefined) throw new SourceFlowFailure("Source flow requires a checked switch body.", node);
   const bodyContext = { ...context, breaks: new Map([...context.breaks, [node, next]]) };
   const bodies = new Map<Node, number>();
@@ -134,7 +135,7 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
       ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
     const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
     return list !== undefined && build.includes(list) && (kind === "using" || kind === "await using") &&
-      checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list).some(build.includes);
+      checkedDeclarations(AsVariableDeclarationList(ast, list)?.Declarations?.Nodes, list).some(build.includes);
   }));
   if (hasResources) throw new SourceFlowFailure("Checked switch resources require their explicit lexical blocks.", node);
   let entry = next;
@@ -164,7 +165,7 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
 
 function tryStatement(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
   const { ast } = build.source;
-  const selected = ast.as.AsTryStatement(node);
+  const selected = AsTryStatement(ast, node);
   if (selected?.TryBlock === undefined) throw new SourceFlowFailure("Source flow requires a checked try body.", node);
   const finallyBlock = selected.FinallyBlock;
   const routed = new Map<number, number>();
@@ -184,7 +185,7 @@ function tryStatement(build: SourceFlowConstruction, node: Node, next: number, c
   const normal = route(next);
   let throwTo = protectedContext.throwTo;
   if (selected.CatchClause !== undefined && build.includes(selected.CatchClause)) {
-    const handler = ast.as.AsCatchClause(selected.CatchClause);
+    const handler = AsCatchClause(ast, selected.CatchClause);
     if (handler?.Block === undefined) throw new SourceFlowFailure("Source flow requires a checked catch body.", selected.CatchClause);
     let entry = build.statement(handler.Block, normal, protectedContext);
     if (handler.VariableDeclaration !== undefined) {

@@ -1,3 +1,4 @@
+import { AsEnumMember } from "../source-navigation/checked-casts.js";
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-semantics/literal-token.js";
@@ -267,7 +268,7 @@ export function analyzeSourceEnumConstants(
 
   function describe(node: Node, budget: EvaluationBudget): Constant | Extract<Step, { kind: "finish" }> {
     if (membership.has(node)) {
-      const member = ast.as.AsEnumMember(node)!;
+      const member = AsEnumMember(ast, node)!;
       if (member.Initializer !== undefined) {
         const constant = checkedConstant(node);
         return depends(node, [member.Initializer], values => typeof constant === "number" || typeof constant === "string"

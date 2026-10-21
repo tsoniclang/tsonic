@@ -1,3 +1,4 @@
+import { AsVariableDeclaration } from "../source-navigation/checked-casts.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
@@ -74,7 +75,7 @@ test("unary signs and parentheses preserve exact provenance while casts and bina
   assert.ok(file);
   const initializers: Node[] = [];
   const visit = (node: Node): void => {
-    const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+    const initializer = AsVariableDeclaration(source.ast, node)?.Initializer;
     if (initializer !== undefined) initializers.push(initializer);
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };

@@ -1,3 +1,4 @@
+import { AsBinaryExpression } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
@@ -185,7 +186,7 @@ function isChainOperand(build: SourceFlowConstruction, node: Node): boolean {
 
 function binary(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
   const { ast } = build.source;
-  const selected = ast.as.AsBinaryExpression(node);
+  const selected = AsBinaryExpression(ast, node);
   if (selected?.Left === undefined || selected.Right === undefined) throw new SourceFlowFailure("Source flow requires both checked binary operands.", node);
   const left = sourceFlowUnwrap(build, selected.Left);
   const right = selected.Right;

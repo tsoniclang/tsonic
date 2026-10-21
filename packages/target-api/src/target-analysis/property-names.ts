@@ -1,3 +1,4 @@
+import { AsBindingElement } from "../source-navigation/checked-casts.js";
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
@@ -138,7 +139,7 @@ export function analyzeSourcePropertyNames(
   function select(name: Node): SourcePropertyNameSelection {
     const selection = classify(name);
     if (selection.kind !== "resolved") return selection;
-    const expression = ast.as.AsComputedPropertyName(name)?.Expression;
+    const expression = (ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression;
     if (expression !== undefined && unprovenAssertion(expression, new Set())) return rejected(
       "A literal type assertion cannot turn an unproven runtime value into an exact static property key.");
     const type = expression === undefined ? undefined : checkedType(expression);
@@ -161,7 +162,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function classify(name: Node): SourcePropertyNameSelection {
-    const expression = unwrap(ast.as.AsComputedPropertyName(name)?.Expression);
+    const expression = unwrap((ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression);
     if (expression === undefined) return unavailable;
     const parent = ast.parent(name);
     const typeOnly = parent !== undefined && (ast.is.IsPropertySignatureDeclaration(parent) ||
@@ -499,7 +500,7 @@ export function analyzeSourcePropertyNames(
     if (active.has(declaration)) return undefined;
     active.add(declaration);
     if (ast.is.IsVariableDeclaration(declaration)) return ast.as.AsVariableDeclaration(declaration)?.Initializer;
-    const binding = ast.as.AsBindingElement(declaration);
+    const binding = AsBindingElement(ast, declaration);
     const pattern = ast.parent(declaration);
     const owner = pattern === undefined ? undefined : ast.parent(pattern);
     if (binding === undefined || binding.DotDotDotToken !== undefined || pattern === undefined || owner === undefined) return undefined;

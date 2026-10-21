@@ -1,3 +1,4 @@
+import { AsCaseBlock } from "../source-navigation/checked-casts.js";
 import type { CheckedSourceProgram, Node, Symbol, Type } from "@tsonic/tsts";
 import { ContextFlagsSkipBindingPatterns } from "@tsonic/tsts";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
@@ -180,7 +181,7 @@ export function analyzeSourceEnumNumericUses(
       }
       if (ast.is.IsSwitchStatement(parent)) {
         const block = ast.as.AsSwitchStatement(parent)?.CaseBlock;
-        const clauses = block === undefined ? [] : ast.as.AsCaseBlock(block)?.Clauses?.Nodes ?? [];
+        const clauses = block === undefined ? [] : AsCaseBlock(ast, block)?.Clauses?.Nodes ?? [];
         if (value.certainEnum !== undefined && clauses.every(clause => clause !== undefined &&
           (!ast.is.IsCaseClause(clause) || identicalEnum(value, enumValue(ast.as.AsCaseOrDefaultClause(clause)!.Expression!))))) return undefined;
       }
