@@ -68,16 +68,16 @@ test("named descriptors preserve authored operand nodes, exact selectors and ind
   assert.ok(field && array?.kind === "array");
   assert.equal(field.selector, memoryDescriptorProperty(checked, fieldCall, "select"));
   assert.equal(field.fieldLayoutExpression, memoryDescriptorProperty(checked, fieldCall, "fieldlayout"));
-  assert.equal(field.byteOffset, 4);
+  assert.equal(field.byteOffset, 4n);
   assert.equal(checked.ast.text(checked.ast.name(field.selectedDeclaration)), "count");
   assert.ok(layout.fields[0] && tsonicMemoryFieldLayoutFactKey.equals(layout.fields[0], field));
   assert.equal(layout.dataLayoutExpression, memoryDescriptorProperty(checked, layoutCall, "datalayout"));
   assert.equal(array.elementLayoutExpression, memoryDescriptorProperty(checked, arrayCall, "elementlayout"));
   assert.equal(array.fixedArray.length, 2n);
   assert.equal(array.fixedArray.lengthRuntimeBase, "number");
-  assert.equal(array.elementLayout.stride, 12);
-  assert.equal(array.byteSize, 20);
-  assert.equal(array.stride, 24);
+  assert.equal(array.elementLayout.stride, 12n);
+  assert.equal(array.byteSize, 20n);
+  assert.equal(array.stride, 24n);
   for (const [name, expected] of [["sizeof", 20], ["strideof", 24], ["fieldoffsetof", 4]] as const) {
     const observation = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(observation?.kind === "resolved");
@@ -139,7 +139,7 @@ test("quoted keys and shorthand leaf values use the same exact named schema", ()
   assert.ok(array?.kind === "array");
   assert.equal(array.fixedArray.length, 1n);
   assert.equal(array.fixedArray.lengthRuntimeBase, "bigint");
-  assert.equal(array.elementLayout.byteSize, 4);
+  assert.equal(array.elementLayout.byteSize, 4n);
 });
 
 for (const [label, expression] of [

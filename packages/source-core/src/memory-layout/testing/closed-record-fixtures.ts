@@ -6,8 +6,9 @@ import { assertMemoryDiagnostics, memorySession } from "./fixtures.js";
 
 export const recordPrelude = `
 import { abi } from "test:abi";
-import type { int64, uint8 } from "@tsonic/core/types.js";
-import { memorylayout, memoryfield } from "@tsonic/core/lang.js";
+import type { Pointer, RawPointer, FixedArray, int32, uint32, int64, uint64, uint8 } from "@tsonic/core/types.js";
+import { struct, field, memorylayout, memoryarraylayout, memoryfield, fieldoffsetof,
+  allocateptr, torawptr, reinterpretrawptr, bindmemoryfield, bindmemoryrecord } from "@tsonic/core/lang.js";
 `;
 
 export function checkedRecords(source: string, extraFiles: Readonly<Record<string, string>> = {}, codes: readonly string[] = []): CheckedSourceProgram {

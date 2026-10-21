@@ -11,7 +11,6 @@ import {
 } from "../../../packages/host/dist/index.js";
 import {
   collectCompilerSourceExports,
-  hasCompilerSourceExport,
   isCompilerSourceFile,
 } from "../../../packages/host/dist/package-contract.js";
 import {
@@ -273,24 +272,24 @@ test("source-package exports select only exact available ESM TypeScript paths", 
     resolve(packageRoot, "../outside.ts"),
   ];
 
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { ".": { import: "./src/index.js" } },
-  }, sourceFiles), true);
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  }, sourceFiles).length > 0, true);
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { "./features/*.mjs": "./src/features/*.mjs" },
-  }, sourceFiles), true);
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  }, sourceFiles).length > 0, true);
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { "./features/*.js": "./missing/*.js" },
-  }, sourceFiles), false);
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  }, sourceFiles).length > 0, false);
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { ".": "../outside.js" },
-  }, sourceFiles), false);
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  }, sourceFiles).length > 0, false);
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { ".": "./src/ignored.jsx" },
-  }, sourceFiles), false);
-  assert.equal(hasCompilerSourceExport(packageRoot, {
+  }, sourceFiles).length > 0, false);
+  assert.equal(collectCompilerSourceExports(packageRoot, {
     exports: { ".": "./src/ignored.cjs" },
-  }, sourceFiles), false);
+  }, sourceFiles).length > 0, false);
   assert.throws(
     () => collectCompilerSourceExports(packageRoot, {
       exports: {

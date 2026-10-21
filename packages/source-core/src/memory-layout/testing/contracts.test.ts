@@ -24,7 +24,7 @@ test("raw reinterpretation returns the canonical inferred Pointer and retains ne
   assert.equal(inferred.explicitPointeeTypeNode, undefined);
   assert.ok(explicit.explicitPointeeTypeNode);
   assert.ok(inferred.pointeeType === explicit.pointeeType);
-  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, inferred.layoutExpression)?.byteSize, 4);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, inferred.layoutExpression)?.byteSize, 4n);
   assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "storeptr"), pointerOperationFactKey)?.operation, "store");
   assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "loadptr"), pointerOperationFactKey)?.operation, "load");
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "torawptr"))?.operation, "to-raw");
@@ -62,10 +62,10 @@ test("source memory descriptors retain explicit ABI, physical field identity and
   const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1));
   assert.ok(layout);
   assert.ok(layout.kind === "value");
-  assert.equal(layout.byteSize, 12);
-  assert.equal(layout.stride, 12);
+  assert.equal(layout.byteSize, 12n);
+  assert.equal(layout.stride, 12n);
   assert.equal(layout.fields.length, 2);
-  assert.deepEqual(layout.fields.map((field) => field.byteOffset), [0, 8]);
+  assert.deepEqual(layout.fields.map((field) => field.byteOffset), [0n, 8n]);
   assert.equal(checked.ast.text(checked.ast.name(layout.fields[1]?.selectedDeclaration)), "count");
   assert.deepEqual(layout.dataLayout.providerDeclaration, memoryTestRegistration.providerDeclaration);
   assert.equal(readTsonicDataLayout(checked.sourceFacts, layout.dataLayoutExpression)?.fingerprint, memoryTestRegistration.descriptor.fingerprint);
@@ -113,7 +113,7 @@ test("value-shape layouts consume finalized fields selected through marker alias
     assert.ok(checked.sourceFacts.getFact(field.selectedDeclaration, fieldFactKey));
     const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldoffsetof", index));
     assert.equal(query?.selectedFieldDeclaration, field.selectedDeclaration);
-    assert.equal(field.byteOffset, index * 4);
+    assert.equal(field.byteOffset, BigInt(index) * 4n);
     assert.ok(Object.isFrozen(field));
   }
 });
@@ -158,7 +158,7 @@ test("layout aliases demand the exact initializer independent of source-file ord
   ` } });
   assertMemoryDiagnostics(checked);
   const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "sizeof"));
-  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, query?.layoutExpression)?.byteSize, 4);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, query?.layoutExpression)?.byteSize, 4n);
 });
 
 for (const [type, value, base, signedness, width] of [

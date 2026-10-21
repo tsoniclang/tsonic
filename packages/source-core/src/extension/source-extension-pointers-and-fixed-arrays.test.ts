@@ -130,11 +130,10 @@ test("source-core rejects non-literal and invalid fixed-array lengths", () => {
     type Open = FixedArray<uint8, number>;
     type Negative = FixedArray<uint8, -1>;
     type Fractional = FixedArray<uint8, 1.5>;
-    type UnsafeInteger = FixedArray<uint8, 9007199254740992>;
   `);
 
   const diagnostics = definedDiagnostics(checkSource(session).extensionDiagnostics);
-  assert.equal(diagnostics.length, 4);
+  assert.equal(diagnostics.length, 3);
   assert.ok(diagnostics.every((diagnostic) =>
     diagnostic.extensionCode === "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL"));
   assert.equal(getSourceFact(
@@ -142,6 +141,19 @@ test("source-core rejects non-literal and invalid fixed-array lengths", () => {
     typeReference(session, sourceFile, "FixedArray", 0),
     tsonicFixedArrayFactKey,
   ), undefined);
+});
+
+test("source-core fixed-array lengths retain exact native integers beyond the JS precision boundary", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import type { FixedArray, uint8 } from "@tsonic/core/types.js";
+    type Wide = FixedArray<uint8, 9007199254740992>;
+    type Adjacent = FixedArray<uint8, 9007199254740993>;
+  `);
+  for (const [index, length] of [9007199254740992n, 9007199254740993n].entries()) {
+    const fact = getSourceFact(session, typeReference(session, sourceFile, "FixedArray", index), tsonicFixedArrayFactKey);
+    assert.equal(fact !== undefined, true, "the authored native dimension is admitted");
+    assert.equal(fact?.length, length, "adjacent authored dimensions never round through a JS number");
+  }
 });
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {

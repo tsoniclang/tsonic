@@ -21,8 +21,8 @@ for (const [name, declaration, type] of [
     const selected = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, call);
     assert.ok(selected?.kind === "resolved");
     assert.deepEqual(selected.operation.fields, []);
-    assert.equal(selected.operation.layout.byteSize, 0);
-    assert.equal(selected.operation.layout.stride, 0);
+    assert.equal(selected.operation.layout.byteSize, 0n);
+    assert.equal(selected.operation.layout.stride, 0n);
     assert.equal(readTsonicMemoryType(checked.sourceFacts, call)?.identity,
       readTsonicMemoryType(checked.sourceFacts, selected.operation.layout.call)?.identity);
     assert.ok(Object.isFrozen(selected.operation.fields));

@@ -46,7 +46,7 @@ test("public array observations and raw conversions preserve the whole selected 
   assertArrayObservation(checked, "alignof", 4);
   assertArrayObservation(checked, "strideof", 40);
   assertArrayObservation(checked, "fieldoffsetof", 4);
-  assert.equal(layout.elementLayout.stride, 20);
+  assert.equal(layout.elementLayout.stride, 20n);
   for (const name of ["torawptr", "reinterpretrawptr"]) {
     for (const call of memoryCalls(checked, name)) {
       const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call);

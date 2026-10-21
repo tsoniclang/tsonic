@@ -1,4 +1,5 @@
 export * from "./navigation.js";
+export { referenceQueryNode } from "./syntax.js";
 export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";
 export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary } from "./declaration-use-summary.js";

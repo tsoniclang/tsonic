@@ -144,8 +144,8 @@ test("packed field placement does not replace the selected child type alignment"
     });
   `);
   const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1)));
-  assert.equal(layout.fields[0]?.byteAlignment, 1);
-  assert.equal(layout.fields[0]?.fieldLayout.byteAlignment, 4);
+  assert.equal(layout.fields[0]?.byteAlignment, 1n);
+  assert.equal(layout.fields[0]?.fieldLayout.byteAlignment, 4n);
 });
 
 test("consumers reject missing or stale selected children rather than trusting an embedded descriptor", () => {
@@ -261,14 +261,14 @@ test("independently published field facts keep the same captured child instead o
 });
 
 test("source-produced nested descriptors preserve sharing across all fact publications", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, fields: [] });"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
   for (let depth = 1; depth <= 24; depth += 1) {
     declarations.push(`interface Layer${depth} { left: Layer${depth - 1}; right: Layer${depth - 1} }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0n,
+        stride: 0,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
       });`);
   }
@@ -314,14 +314,14 @@ test("wide descriptor snapshots fail at the metadata budget", () => {
 });
 
 test("source layout depth failures are diagnosed before a fact transaction is poisoned", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, fields: [] });"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
   for (let depth = 1; depth <= maximumMemoryLayoutDepth; depth += 1) {
     declarations.push(`interface Layer${depth} { value: Layer${depth - 1} }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0n,
+        stride: 0,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.value, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
       });`);
   }

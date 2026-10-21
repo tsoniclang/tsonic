@@ -59,7 +59,7 @@ test("layout rejects duplicate fields, incompatible field alignment and selected
 });
 
 test("zero-sized layouts and aligned strides remain expressible", () => {
-  assert.equal(snapshotMemoryLayout({ ...layoutFixture(), byteSize: 0n, stride: 0n, fields: [] }).byteSize, 0);
+  assert.equal(snapshotMemoryLayout({ ...layoutFixture(), byteSize: 0n, stride: 0n, fields: [] }).byteSize, 0n);
 });
 
 test("layout field arrays reject accessors and custom traversal without executing them", () => {

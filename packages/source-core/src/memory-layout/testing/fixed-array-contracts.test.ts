@@ -51,8 +51,8 @@ for (const profile of arrayTestProfiles) {
       assert.equal(layout.fixedArray.lengthRuntimeBase, "number");
       assert.equal(layout.fixedArray.sourceType, layout.sourceType);
       assert.ok(layout.fixedArray.elementSourceType);
-      assert.equal(layout.byteSize, size);
-      assert.equal(layout.stride, size);
+      assert.equal(layout.byteSize, BigInt(size));
+      assert.equal(layout.stride, BigInt(size));
       assert.equal("fields" in layout, false);
       assert.equal("length" in layout, false);
       assert.equal(layout.elementLayoutExpression, memoryDescriptorProperty(checked, layout.call, "elementlayout"));
@@ -97,13 +97,13 @@ test("array minimum extent distinguishes final element size, element stride and 
     strideof(padded); alignof(zero);
   `);
   for (const [index, size] of [4, 12, 16, 4, 0, 16].entries()) assertArrayObservation(checked, "sizeof", size, index);
-  assert.equal(arrayLayoutAt(checked, 2).elementLayout.stride, 8);
+  assert.equal(arrayLayoutAt(checked, 2n).elementLayout.stride, 8);
   assertArrayObservation(checked, "strideof", 20);
   assertArrayObservation(checked, "alignof", 1);
   const tail = valueMemoryLayout(arrayLayoutAt(checked, 5).elementLayout);
-  assert.equal(tail.fields[1]?.byteOffset, 4);
-  assert.equal(tail.fields[1]?.fieldLayout.byteSize, 0);
-  assert.equal(tail.byteSize, 8);
+  assert.equal(tail.fields[1]?.byteOffset, 4n);
+  assert.equal(tail.fields[1]?.fieldLayout.byteSize, 0n);
+  assert.equal(tail.byteSize, 8n);
 });
 
 test("zero-sized array counts remain exact and bounded across the safe-integer boundary", () => {

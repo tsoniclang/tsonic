@@ -169,7 +169,7 @@ test("erasing wrappers preserve valid layout constants and signed byte offsets",
     offsetrawptr(raw, (-4n as int64), abi);
     offsetrawptr(raw, ((4 as uint32) satisfies uint32)!, abi);
   `);
-  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1))?.byteSize, 4);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1n))?.byteSize, 4);
   const signed = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr"));
   const unsigned = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr", 1));
   assert.ok(signed?.operation === "byte-offset" && unsigned?.operation === "byte-offset");
@@ -212,5 +212,5 @@ for (const declarations of [
 
 test("nested unary layout constants retain their exact sign", () => {
   const checked = cleanMemorySession("const negative = -4; const positive = -(+negative); memorylayout<uint32>({ datalayout: abi, bytesize: positive, bytealignment: 4, stride: 4, fields: [] });");
-  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1))?.byteSize, 4);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1n))?.byteSize, 4);
 });

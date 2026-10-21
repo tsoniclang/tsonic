@@ -8,17 +8,17 @@ import { arrayLayoutAt, arrayMemoryLayout, cleanArraySession } from "./fixed-arr
 
 function graphFixture() {
   const checked = cleanArraySession(`
-    const small = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: empty, length: 2 });
-    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: empty, length: 9007199254740993n });
+    const small = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 2 });
+    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993n });
     interface Pair { left: FixedArray<Empty, 2>; right: FixedArray<Empty, 2> }
     const pair = memorylayout<Pair>({
       datalayout: abi,
       bytesize: 0,
       bytealignment: 4,
-      stride: 0n,
+      stride: 0,
       fields: [memoryfield({ select: (value: Pair) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: small }), memoryfield({ select: (value: Pair) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: small })],
     });
-    const pairs = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: pair, length: 2 });
+    const pairs = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: pair, length: 2 });
     sizeof(pairs);
   `);
   return { checked, small: arrayLayoutAt(checked), huge: arrayLayoutAt(checked, 1), root: arrayLayoutAt(checked, 2) };
@@ -44,7 +44,7 @@ test("array fact snapshots freeze exact data and preserve compiler subjects and 
   fixedArray.length = 9007199254740992n;
   child.stride = 4n;
   assert.equal(captured.fixedArray.length, 9007199254740993n);
-  assert.equal(captured.elementLayout.stride, 0);
+  assert.equal(captured.elementLayout.stride, 0n);
   const shared = arrayMemoryLayout(tsonicMemoryLayoutFactKey.snapshot(root));
   const pair = valueMemoryLayout(shared.elementLayout);
   assert.equal(pair.fields[0]?.fieldLayout, pair.fields[1]?.fieldLayout);
@@ -170,13 +170,13 @@ test("public source-produced array-record DAGs share children without multiplyin
   const declarations = ["type Layer0 = Empty; const layer0 = empty;"];
   for (let depth = 1; depth <= 16; depth += 1) {
     declarations.push(`
-      const array${depth} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0n, elementlayout: layer${depth - 1}, length: 9007199254740993n });
+      const array${depth} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: layer${depth - 1}, length: 9007199254740993n });
       interface Layer${depth} { left: FixedArray<Layer${depth - 1}, 9007199254740993n>; right: FixedArray<Layer${depth - 1}, 9007199254740993n> }
       const layer${depth} = memorylayout<Layer${depth}>({
         datalayout: abi,
         bytesize: 0,
         bytealignment: 4,
-        stride: 0n,
+        stride: 0,
         fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} })],
       });
     `);
