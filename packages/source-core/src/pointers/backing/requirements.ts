@@ -135,6 +135,18 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
+      if (ast.is.IsElementAccessExpression(node) || ast.is.IsPropertyAccessExpression(node)) {
+        const container = containers.resolve(node);
+        if (container.kind === "unproven") reject(node, container.reason);
+        else {
+          for (const value of container.values) edge(node, value);
+          if (container.includesUndefined) {
+            includesUndefined = true;
+            terminals.add(node);
+          }
+        }
+        continue;
+      }
       const types = semantics.forNode(node).types;
       const valueType = types.expressionType(node);
       if (valueType !== undefined && types.isNullish(valueType)) {
@@ -146,18 +158,6 @@ export function createTsonicPointerBackingQueries(
         const conditional = ast.as.AsConditionalExpression(node);
         edge(node, conditional?.WhenTrue);
         edge(node, conditional?.WhenFalse);
-        continue;
-      }
-      if (ast.is.IsElementAccessExpression(node) || ast.is.IsPropertyAccessExpression(node)) {
-        const container = containers.resolve(node);
-        if (container.kind === "unproven") reject(node, container.reason);
-        else {
-          for (const value of container.values) edge(node, value);
-          if (container.includesUndefined) {
-            includesUndefined = true;
-            terminals.add(node);
-          }
-        }
         continue;
       }
       if (ast.is.IsIdentifier(node)) {

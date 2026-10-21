@@ -72,7 +72,7 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
           if (selected === undefined || selected.receiver.expression !== value) {
             return reject("Pointer container escapes or has an unproved mutation through an exact alias.");
           }
-          if (ast.is.IsDeleteExpression(ast.parent(parent))) {
+          if (ast.is.IsDeleteExpression(pointerFlowParent(ast, parent!).parent)) {
             return reject("Pointer container deletion is not a proved stored-value assignment.");
           }
           if (selected.accessMode !== "read") {

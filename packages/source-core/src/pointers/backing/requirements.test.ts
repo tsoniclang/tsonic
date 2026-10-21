@@ -385,14 +385,30 @@ test("pointer container writes cannot hide behind a distinct asserted property d
   assert.equal(result.kind, "unproven");
 });
 
-test("pointer container deletes cannot be mistaken for read-only uses", () => {
+for (const operation of ["delete holder.value;", "delete (holder.value);", "const alias = holder; delete alias.value;"]) {
+  test(`pointer container deletes cannot be mistaken for read-only uses: ${operation}`, () => {
+    const result = inspect(`
+      interface Holder { value?: Pointer<uint32> }
+      const holder: Holder = { value: allocateptr<uint32>(1) };
+      ${operation}
+      torawptr(holder.value, uint32Layout);
+    `);
+    assert.equal(result.kind, "unproven");
+    if (result.kind !== "unproven") return;
+    assert.ok(result.issues.some(issue => /deletion/u.test(issue.reason)));
+  });
+}
+
+test("a proved pointer container assignment to native absence retains its exact backing closure", () => {
   const result = inspect(`
     interface Holder { value?: Pointer<uint32> }
     const holder: Holder = { value: allocateptr<uint32>(1) };
-    delete holder.value;
+    holder.value = undefined;
     torawptr(holder.value, uint32Layout);
   `);
-  assert.equal(result.kind, "unproven");
-  if (result.kind !== "unproven") return;
-  assert.ok(result.issues.some(issue => /deletion/u.test(issue.reason)));
+  assert.equal(result.kind, "origins", "simple absence assignment is not an unproved deletion");
+  if (result.kind !== "origins") return;
+  assert.equal(result.origins.length, 1);
+  assert.equal(result.origins[0]!.operation, "allocate");
+  assert.equal(result.includesUndefined, true);
 });

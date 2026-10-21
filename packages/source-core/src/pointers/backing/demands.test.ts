@@ -29,7 +29,7 @@ test("raw demands close local pointer parameters and return paths without select
   assert.deepEqual(demands.issues(), []);
   assert.equal(demands.entries().length, 1);
   assert.equal(demands.entries()[0]!.origin.operation, "address-of");
-  assert.equal(demands.entries()[0]!.layout.byteSize, 4);
+  assert.equal(demands.entries()[0]!.layout.byteSize, 4n);
 });
 
 test("raw demands reject exported caller boundaries including export-list aliases", () => {
