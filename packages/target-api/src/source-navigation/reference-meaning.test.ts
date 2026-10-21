@@ -247,7 +247,8 @@ export const constructor = First.Native;
     const selected = source.navigation.sourceReferenceFor(reference);
     const expression = source.ast.is.IsExpressionWithTypeArguments(reference)
       ? source.ast.as.AsExpressionWithTypeArguments(reference)?.Expression : reference;
-    const property = expression === undefined ? undefined : source.ast.as.AsPropertyAccessExpression(expression);
+    const property = expression === undefined || !source.ast.is.IsPropertyAccessExpression(expression)
+      ? undefined : source.ast.as.AsPropertyAccessExpression(expression);
     const native = property !== undefined && source.ast.text(source.ast.name(expression)) === "Native";
     assert.equal(selected !== undefined, true, "all supported checked references have one exact declaration");
     assert.equal(source.ast.getFileName(selected?.sourceFile), source.ast.text(property?.Expression) === "Second" ? "/src/second.ts" : "/src/first.ts",

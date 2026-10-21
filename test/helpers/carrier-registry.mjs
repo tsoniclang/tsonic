@@ -340,7 +340,9 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
       const kind = ast.kindName(child);
       if (ast.typeNode(callable ?? node) !== undefined &&
           ["KindObjectLiteralExpression", "KindObjectBindingPattern"].includes(kind)) direct.add(identity);
-      if (kind === "KindPropertyAssignment" && ast.text(ast.name(child)) === "kind") {
+      const name = ast.name(child);
+      if (kind === "KindPropertyAssignment" && name !== undefined &&
+          (ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name)) && ast.text(name) === "kind") {
         walk(child.Initializer, value => {
           if (ast.kindName(value) === "KindStringLiteral" && knownKinds.has(ast.text(value))) direct.add(identity);
         });
@@ -427,7 +429,7 @@ export function validateCarrierRegistrySymmetry(left, right, signedDifferences) 
 }
 
 export async function loadCarrierRegistry(root) {
-  const files = await readCarrierModelFiles(root);
+  const files = await readCarrierRegistrySourceFiles(root);
   const vocabulary = deriveCarrierVocabulary(files, { module: "src/target-model/types/model.ts", symbol: "TargetTypeRef" });
   const { carrierRegistry } = await import(pathToFileURL(path.join(root, "dist/target-model/types/carriers/registry.js")).href);
   return { files, vocabulary, rows: carrierRegistry };

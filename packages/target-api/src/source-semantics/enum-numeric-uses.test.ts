@@ -243,6 +243,8 @@ export function use(left: Value, right: Value, flag: boolean): Value {
   assert.equal(source.sourceFiles.every((file, index) => file === original.sourceFiles[index]), true, "source file identities are unchanged");
   assert.equal(calls.every(call => nodes.includes(call) && source.ast.parent(call) === original.ast.parent(call)), true,
     "source analysis does not replace, copy or reorder a call node");
+  assert.equal(source.ast.is.IsConditionalExpression(conditional), true, "the shared node retains its exact conditional kind");
+  assert.equal(original.ast.is.IsConditionalExpression(conditional), true, "the original node has the same exact conditional kind");
   assert.equal(source.ast.as.AsConditionalExpression(conditional)?.WhenTrue === original.ast.as.AsConditionalExpression(conditional)?.WhenTrue &&
     source.ast.as.AsConditionalExpression(conditional)?.WhenFalse === original.ast.as.AsConditionalExpression(conditional)?.WhenFalse, true,
     "both exact actual branch expressions survive the shared query unchanged");

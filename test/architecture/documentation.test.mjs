@@ -196,7 +196,7 @@ test("target option references match the target parsers", () => {
 
 test("C# target-owned project properties use their documented controls", () => {
   const source = readFileSync(
-    resolve(workspaceRoot, "tsonic-csharp/src/analysis/project/classification.ts"),
+    resolve(workspaceRoot, "tsonic-csharp/src/options/project.ts"),
     "utf8",
   );
   const reference = readFileSync(

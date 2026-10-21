@@ -16,6 +16,7 @@ test("inherited contract discovery never treats a constructor-valued property as
   const owner = source.ast.statements(checked.getSourceFile("/src/index.ts")!)[0]!;
   const create = source.ast.members(owner).find(member => member !== undefined && source.ast.text(source.ast.name(member)) === "create")!;
   const returned = source.ast.statements(source.ast.body(create)!)[0]!;
+  assert.equal(source.ast.is.IsReturnStatement(returned), true, "the selected body statement is an exact return");
   const expression = source.ast.as.AsReturnStatement(returned)?.Expression;
   assert.equal(expression !== undefined && source.ast.is.IsClassExpression(expression), true);
   const method = source.ast.members(expression!)[0]!;
