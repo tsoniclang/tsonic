@@ -41,7 +41,7 @@ test("only the exact registry task acquires the Rust provider build; the full ce
   assert.equal(inventory.files.filter(entry => entry.scope === "tsonic-csharp").every(entry =>
     entry.preRunIds.every(id => !id.startsWith("rust-") && !id.startsWith("tsonic-rust."))), true);
   for (const [scope, path] of [
-    ["tsonic", "test/fixtures/node-oracle/oracles.test.mjs"],
+    ["tsonic", "test/infrastructure/runner/node-oracles.test.mjs"],
     ["tsonic-csharp", "test/backend/compilation-observation.test.mjs"],
     ["tsonic-csharp", "test/toolchain/node-oracles.test.mjs"],
   ]) {

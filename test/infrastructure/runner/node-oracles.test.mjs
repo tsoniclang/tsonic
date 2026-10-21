@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nodeOraclePrograms, assertOracleOutput, runNodeOracle } from "./index.mjs";
+import { nodeOraclePrograms, assertOracleOutput, runNodeOracle } from "../../fixtures/node-oracle/index.mjs";
 
 test("shared Node oracles retain exactly six stream and five ordering programs", () => {
   assert.equal(nodeOraclePrograms.length, 11);

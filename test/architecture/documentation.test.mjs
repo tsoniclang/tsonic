@@ -172,12 +172,12 @@ test("the pinned TypeScript utility inventory is represented in the canonical re
 test("target option references match the target parsers", () => {
   const targets = [{
     name: "C#",
-    source: resolve(workspaceRoot, "tsonic-csharp/src/options/csharp-target-options.ts"),
+    source: resolve(workspaceRoot, "tsonic-csharp/src/options/target.ts"),
     listName: "supportedCsharpTargetOptionKeys",
     reference: resolve(documentationRoot, "reference/targets/csharp/configuration.md"),
   }, {
     name: "Rust",
-    source: resolve(workspaceRoot, "tsonic-rust/src/options/rust-target-options.ts"),
+    source: resolve(workspaceRoot, "tsonic-rust/src/options/target.ts"),
     listName: "supportedRustTargetOptionKeys",
     reference: resolve(documentationRoot, "reference/targets/rust/configuration.md"),
   }];
