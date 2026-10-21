@@ -97,7 +97,7 @@ test("array minimum extent distinguishes final element size, element stride and 
     strideof(padded); alignof(zero);
   `);
   for (const [index, size] of [4, 12, 16, 4, 0, 16].entries()) assertArrayObservation(checked, "sizeof", size, index);
-  assert.equal(arrayLayoutAt(checked, 2n).elementLayout.stride, 8);
+  assert.equal(arrayLayoutAt(checked, 2).elementLayout.stride, 8n);
   assertArrayObservation(checked, "strideof", 20);
   assertArrayObservation(checked, "alignof", 1);
   const tail = valueMemoryLayout(arrayLayoutAt(checked, 5).elementLayout);
