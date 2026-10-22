@@ -8,6 +8,11 @@ export interface SourceStatementExitFacts {
   readonly guardResult: (node: Node) => boolean | undefined;
   readonly controlTarget?: (node: Node) => Node | undefined;
   readonly continueFallsThrough?: (node: Node, target: Node | undefined) => boolean;
+  /**
+   * Whether a switch without a default clause has a case for every value of its checked discriminant
+   * (`createSourceSwitchCoverage`). Without this fact such a switch keeps its normal fallthrough exit.
+   */
+  readonly switchCoversDiscriminant?: (node: Node) => boolean;
 }
 
 export function analyzeSourceStatementExits(
@@ -114,8 +119,11 @@ export function analyzeSourceStatementExits(
       case "KindSwitchStatement": {
         if (expressionExits(AsSwitchStatement(ast, node)?.Expression)) return true;
         const selected = clauses(node);
-        return !breaks.has(node) && selected.some(clause => clause !== undefined && ast.is.IsDefaultClause(clause)) &&
-          selectedExits(selected[selected.length - 1]);
+        // Every entered clause falls through to the last one, so the switch exits when that clause exits and some
+        // clause is always entered: a default clause exists or the cases cover every discriminant value.
+        const entered = selected.some(clause => clause !== undefined && ast.is.IsDefaultClause(clause)) ||
+          facts.switchCoversDiscriminant?.(node) === true;
+        return !breaks.has(node) && entered && selectedExits(selected[selected.length - 1]);
       }
       case "KindWhileStatement": {
         const condition = AsWhileStatement(ast, node)?.Expression;

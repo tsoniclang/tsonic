@@ -1,6 +1,7 @@
 export { createSourceControlFlow, createSourceControlFlowDomain } from "./graph.js";
 export { solveSourceFlow } from "./solver.js";
 export { analyzeSourceStatementExits } from "./statement-exits.js";
+export { createSourceSwitchCoverage } from "./switch-coverage.js";
 export { analyzeSourceResourceScopes } from "./resource-scopes.js";
 export type { SourceResourceScope, SourceResourceScopes } from "./resource-scopes.js";
 export type { SourceStatementExitFacts } from "./statement-exits.js";
