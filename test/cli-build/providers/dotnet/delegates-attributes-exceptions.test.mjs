@@ -440,7 +440,8 @@ test("CLI emits arbitrary TypeScript throw values through the closed thrown-valu
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(
     generatedSource,
-    /throw Tsonic\.CSharp\.Runtime\.TsThrownValueException\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.from\(\(int\)1\)\);/u,
+    // RULINGS 2026-10-23: no redundant (int) cast on an int literal.
+    /throw Tsonic\.CSharp\.Runtime\.TsThrownValueException\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.from\(1\)\);/u,
   );
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection/u);
   const project = resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj");
