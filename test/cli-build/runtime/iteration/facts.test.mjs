@@ -35,7 +35,7 @@ test("CLI emits array for-of from finalized provider foreach iteration facts", a
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double sum\(Tsonic\.CSharp\.Js\.JSArray<double> values\)/);
-  assert.match(generatedSource, /double total = 0;/);
+  assert.match(generatedSource, /double total = 0D;/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /total = total \+ value;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);

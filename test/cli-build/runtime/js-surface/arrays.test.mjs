@@ -410,7 +410,7 @@ test("CLI selects ordinary TypeScript array public ABI lanes from finalized JS s
   assert.match(generatedSource, /public static int sequence\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.match(generatedSource, /public static int indexed\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\[0\] \+ values\.length;/);
+  assert.match(generatedSource, /return values\[0D\] \+ values\.length;/);
   assert.match(generatedSource, /public static int dense\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index, int value\)/);
   assert.match(generatedSource, /values\[index\] = value;/);
   assert.match(generatedSource, /return values\.length;/);
@@ -461,8 +461,8 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int mutate\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /values\.deleteAt\(index\);/);
-  assert.match(generatedSource, /values\.setLength\(4\);/);
-  assert.match(generatedSource, /values\[3\] = 7;/);
+  assert.match(generatedSource, /values\.setLength\(4D\);/);
+  assert.match(generatedSource, /values\[3D\] = 7;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.doesNotMatch(generatedSource, /values\.Count =/);
   assert.doesNotMatch(generatedSource, /values\.Length =/);

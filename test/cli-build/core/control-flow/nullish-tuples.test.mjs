@@ -115,7 +115,7 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? 1\.5 : default\(double\?\);/);
+  assert.match(generatedSource, /return flag \? 1\.5D : default\(double\?\);/);
   assert.match(generatedSource, /public static double\? maybeNumberUndefined\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 2\.5 : default\(double\?\);/);
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
