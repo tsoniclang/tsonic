@@ -143,7 +143,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
     { file: "src/analysis/project-types/callable-adapters.ts", symbol: "selectRustProjectCallableAdapters",
       bodySha256: "3c3479c50d0e9f0c7670c55d477aa00aef09dda42d94c1b12aaf27bf0d7e673a", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
-    { file: "src/analysis/expressions/object-reference-views.ts", symbol: "selectRustObjectReferenceView",
+    { file: "src/analysis/operations/object-reference-views.ts", symbol: "selectRustObjectReferenceView",
       bodySha256: "c573cb9f0587c4dd04b3ba3c592d1de814e35279debc2ce2642e73ef73a23b1c", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/operations/generic-numeric.ts", symbol: "selectRustGenericNumericOperation",
