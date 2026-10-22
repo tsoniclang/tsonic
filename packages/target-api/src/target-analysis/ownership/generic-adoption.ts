@@ -206,8 +206,11 @@ export function analyzeSourceGenericAdoption(input: {
     const constructorType = symbol === undefined ? undefined : semantics.types.typeOfSymbol(symbol);
     if (constructorType !== undefined && semantics.types.isIdentical(type, constructorType) &&
       declarations.some(declaration => ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))) return;
+    // A project type without type parameters, such as the polymorphic `this` of a non-generic class, has no type
+    // arguments to adopt; only a generic project type needs its complete bindings.
     if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
-      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) &&
+      ast.typeParameters(declaration).length !== 0)) {
       refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");
       return;
     }
