@@ -256,9 +256,20 @@ export function createSourceStorageDomains(
         const implementation = navigation.callableImplementation(origin.node);
         if (implementation.kind !== "resolved" || ast.body(implementation.implementation.declaration) === undefined) return false;
       }
+      // The callee's receiver selects the member: an unbound external receiver leaves the implementation open even though
+      // the receiver value itself does not contribute.
+      const receivers = new Set<SourceStorageSubject>();
+      const callee = Node_Expression(ast, invocation);
+      let receiver = callee !== undefined && ast.is.IsPropertyAccessExpression(callee) ? transport.subjectFor(Node_Expression(ast, callee)) : undefined;
+      for (let depth = 0; receiver !== undefined && !receivers.has(receiver) && depth < 64; depth += 1) {
+        if (!budget.step()) return false;
+        receivers.add(receiver);
+        const parents = transport.incomingFor(receiver);
+        receiver = parents.size === 1 ? parents.values().next().value : undefined;
+      }
       for (const current of selected.subjects) {
         if (!budget.step()) return false;
-        if (!current.contributes) continue;
+        if (!current.contributes && !receivers.has(current.subject)) continue;
         for (const boundary of boundariesFor(current.subject)) {
           if (!budget.step()) return false;
           if (boundary.kind === "external-input") {
@@ -411,6 +422,28 @@ export function createSourceStorageDomains(
       if (reason !== undefined || budget.failure() !== undefined) break;
       if (!explained) { reason = sourceStorageMissingProducerReason; break; }
     }
+    // An external receiver of a contributing member read supplies that member through its declared contract: the
+    // declared member (an interface signature with its own external input, or a class member with its own producers)
+    // joins the domain in place of the receiver, so observed callers never close an outside caller's member.
+    const declaredMembers = new Map<SourceStorageSubject, SourceStorageSubject[]>();
+    for (const candidate of selected.subjects) {
+      if (!budget.step()) break;
+      const node = candidate.subject.node;
+      if (!candidate.contributes || candidate.subject.kind !== "value" || candidate.subject.projection.length !== 0 ||
+        !ast.is.IsPropertyAccessExpression(node)) continue;
+      const declaration = semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration;
+      const member = declaration === undefined ? undefined : sourceStorageMemberSubject(declaration, ast, transport.subject);
+      if (member === undefined) continue;
+      let receiver = transport.subjectFor(Node_Expression(ast, node));
+      for (let depth = 0; receiver !== undefined && depth < 64; depth += 1) {
+        if (!budget.step() || !rows.add(1)) break;
+        const members = declaredMembers.get(receiver) ?? [];
+        if (!members.includes(member)) members.push(member);
+        declaredMembers.set(receiver, members);
+        const parents = transport.incomingFor(receiver);
+        receiver = parents.size === 1 ? parents.values().next().value : undefined;
+      }
+    }
     const pending = [...selected.subjects];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
@@ -429,7 +462,12 @@ export function createSourceStorageDomains(
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
-          if (purpose === "storage-producers" && !current.contributes) continue;
+          if (purpose === "storage-producers" && !current.contributes) {
+            if (!closedSourceInvocation(boundary.exposure, current.bindings) && !transport.substitutions.isBound(current.subject, current.bindings))
+              for (const member of declaredMembers.get(current.subject) ?? [])
+                pending.push({ subject: member, bindings: current.bindings, contributes: true });
+            continue;
+          }
           if (closedSourceInvocation(boundary.exposure, current.bindings)) continue;
           if (transport.substitutions.isBound(current.subject, current.bindings) ||
             stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
