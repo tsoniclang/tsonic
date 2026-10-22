@@ -255,7 +255,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return budget.failure() === undefined;
     } finally { currentRead = previousRead; }
   });
-  const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>("storage-relations", (current, read, emit, forward) => {
+  const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>((current, read, emit, forward) => {
     const complete = derive(current, read, (relation, direct) => direct ? emit(relation.term) : forward(relation), (input, select) => {
       let projection = current.projection;
       if (projection === undefined) {
@@ -268,7 +268,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     });
     if (complete) current.complete = true;
     return complete;
-  });
+  }, "storage-relations");
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => withQuery(() => {
     const root = selectRoot(origin, scope);

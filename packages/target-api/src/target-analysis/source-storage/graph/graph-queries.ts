@@ -264,8 +264,8 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         return values;
       };
     },
-    fixedPoint<Key, Value>(family: string, collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
-      add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
+    fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
+      add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean, family: string): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
       let running = false;
       return key => {

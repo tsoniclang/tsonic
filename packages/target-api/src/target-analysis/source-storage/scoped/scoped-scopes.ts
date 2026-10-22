@@ -60,7 +60,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     variables.set(key, selected);
     return selected;
   };
-  const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>("scope-variables", (scope, read, emit, forward) => {
+  const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit, forward) => {
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
@@ -85,7 +85,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       }
     }
     return true;
-  });
+  }, "scope-variables");
   const views = new Map<SourceStorageScope, Map<string, SourceStorageScope>>();
   interface TraversalMemo {
     readonly add: (cost: number) => boolean;
@@ -465,7 +465,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       : { scope: selected, nativeEntry: { invocation: frame.invocation, callback: frame.callback, caller } };
   });
   const activation = createSourceStorageActivationKeys(budget, rows,
-    { empty, subject, identity, callbackKey, applyScope, owningScope }, creation);
+    { empty, subject, identity, callbackKey, applyScope, owningScope, declarationFor }, creation);
   const formals = (scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => budget.withRows(temporary => {
     const selected = new Set<SourceStorageSubject>(); const visited = new Set<SourceStorageScope>(); const pending = [scope];
     while (pending.length !== 0) {

@@ -29,6 +29,7 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
     callbackKey(callback: SourceStorageCallbackEntry | undefined): string;
     owningScope(scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined;
     applyScope(scope: SourceStorageScope, substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined;
+    declarationFor(owner: Node, parent: SourceStorageScope): SourceStorageFrame | undefined;
   }, context: SourceStorageCreationContext) {
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
   const activations = new Map<string, SourceStorageActivation>();
@@ -58,8 +59,15 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
           selected.add(actual);
         }
         if (!found) {
-          budget.reject("Source storage activations require a captured parent scope for every creation-footprint owner.");
-          return undefined;
+          // No captured scope binds this enclosing owner: the walk is unbound for it, so its activation is the owner's
+          // symbolic declaration activation (any activation), exactly as unbound formals are declaration leaves.
+          const symbolic = queries.declarationFor(owner, queries.empty);
+          if (symbolic === undefined) {
+            budget.reject("Source storage activations require a symbolic declaration scope for an unbound creation-footprint owner.");
+            return undefined;
+          }
+          if (!selected.has(symbolic) && !temporary.add(1)) return undefined;
+          selected.add(symbolic);
         }
       }
       return Object.freeze([...selected]);

@@ -82,7 +82,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     projections.set(current, selected);
     return projection;
   };
-  const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>("context-applications", (current, _read, emit, forward) => {
+  const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>((current, _read, emit, forward) => {
     if (current.kind === "binding") {
       const projection = projectionFor(current, current.candidate, current.invocation);
       if (projection === undefined) { budget.reject("Source storage context bindings require a projection for their selected candidate."); return false; }
@@ -122,7 +122,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
       if (!forward(result, projection)) return false;
     }
     return budget.failure() === undefined;
-  });
+  }, "context-applications");
   return (subject: SourceStorageSubject): SourceStorageContextFootprint | undefined => {
     if (!queries.isInvocation(subject.node) || !budget.step()) return undefined;
     const cached = selections.get(subject);
