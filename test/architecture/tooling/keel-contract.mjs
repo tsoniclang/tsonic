@@ -67,6 +67,12 @@ export const keelNativeDifferences = Object.freeze([
   { path: "providers/packages/materialization", target: "tsonic-rust",
     reason: "Rust provider packages declare carrier, conversion and operation rows with generic parameters that are materialized into Rust carriers before analysis (C-0477). C# packages contribute CLR assemblies whose members are projected by providers/native/projection.",
     evidence: "Claude takeover 2026-10-22; tsonic-rust/src/providers/packages/materialization/carriers.ts:13,233; tsonic-csharp/src/providers/native/projection/" },
+  { path: "fixtures/dotnet-provider", target: "tsonic-csharp", tree: "test",
+    reason: "Native provider fixtures are .NET class-library projects compiled to CLR assemblies for reflection acquisition (19 .csproj projects). Rust native provider fixtures are Cargo crates acquired through rustc/rustdoc, under fixtures/crates.",
+    evidence: "Claude takeover 2026-10-22; tsonic-csharp/scripts/test/build-dotnet-provider-fixtures.mjs:29,33; tsonic-csharp/test/fixtures/dotnet-provider/attributes/AttributeProviderFixture.csproj; tsonic-rust/test/helpers/rust-session-paths.mjs:7" },
+  { path: "fixtures/crates", target: "tsonic-rust", tree: "test",
+    reason: "Native provider fixtures are Cargo library crates acquired through rustc/rustdoc (13 Cargo.toml crates). C# native provider fixtures are .NET projects compiled to CLR assemblies, under fixtures/dotnet-provider.",
+    evidence: "Claude takeover 2026-10-22; tsonic-rust/test/helpers/rust-session-paths.mjs:7; tsonic-rust/test/fixtures/crates/acme_dispatch/Cargo.toml; tsonic-csharp/scripts/test/build-dotnet-provider-fixtures.mjs:29" },
 ]);
 
 export const keelNativeContentDifferences = Object.freeze([

@@ -257,4 +257,4 @@ uncertified rather than absorbing it into a successful aggregate number.
 - [Resource configuration and execution commands](test-execution.md)
 - [Compilation lifecycle and sealing boundary](compilation-lifecycle.md)
 - [C#/Rust architectural responsibilities](csharp-rust-structure.md)
-- [C# native fixture artifact isolation](../../../tsonic-csharp/test/integration/generated-csharp/native-construction-isolation.test.mjs)
+- [C# native fixture artifact isolation](../../../tsonic-csharp/test/integration/generated/native-construction-isolation.test.mjs)

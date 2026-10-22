@@ -25,6 +25,7 @@ export const canonicalTargetTestDomains = Object.freeze([
   "backend",
   "integration",
   "policy",
+  "print",
   "providers",
   "source",
   "target-model",

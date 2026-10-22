@@ -272,14 +272,14 @@ const slice4SourceCoreContractPositiveTests = Object.freeze([
   "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
   "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
   "test/cli-build/providers/source-semantics/core.test.mjs",
-  "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+  "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
 ]);
 const slice4SourceCoreContractNegativeTests = Object.freeze([
   "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
   "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
   "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
   "test/cli-build/providers/source-semantics/core.test.mjs",
-  "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+  "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
 ]);
 const slice4SourceCoreCommonOldEvidence = Object.freeze([
   "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
@@ -823,8 +823,8 @@ const slice6WholeProgramClosurePositiveTests = Object.freeze([
   "test/cli-build/providers/source-profile/target-config.test.mjs",
   "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
   "test/host/dependencies/surface-composition.test.mjs",
-  "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
-  "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+  "../tsonic-csharp/test/print/csharp-printer.test.mjs",
+  "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
   "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
 ]);
 
@@ -833,8 +833,8 @@ const slice6WholeProgramClosureNegativeTests = Object.freeze([
   "test/cli-build/core/declarations/classes.test.mjs",
   "test/cli-build/providers/source-profile/target-config.test.mjs",
   "test/host/dependencies/surface-composition.test.mjs",
-  "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
-  "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+  "../tsonic-csharp/test/print/csharp-printer.test.mjs",
+  "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
   "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
 ]);
 
@@ -2908,7 +2908,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+      "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
       "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
@@ -2917,7 +2917,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+      "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
       "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
@@ -6770,13 +6770,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   "declaration.attributes": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+      "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
       "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
+      "../tsonic-csharp/test/source/direct-source-core-translation.test.mjs",
       "../tsonic-csharp/test/providers/native/projection/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
@@ -7944,7 +7944,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
@@ -8130,7 +8130,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
@@ -8684,11 +8684,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "backend.ast.only": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/basic/ArrayLiteral.ts",
@@ -8850,11 +8850,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/src/rendering/architecture-boundary.test.ts",
@@ -8902,7 +8902,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
@@ -8920,10 +8920,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "backend.csharp.ast-expression": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8937,12 +8937,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "backend.csharp.ast-statement": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
       "test/cli-build/core/control-flow/statements.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
       "test/cli-build/core/control-flow/statements.test.mjs",
     ]),
@@ -8957,11 +8957,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "backend.csharp.printer": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/backend/printer/csharp-printer.test.mjs",
+      "../tsonic-csharp/test/print/csharp-printer.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8975,11 +8975,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "backend.csharp.project-sdk-emit": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8994,11 +8994,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "toolchain.csharp.project": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
@@ -9036,11 +9036,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "toolchain.csharp.library": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
@@ -9053,10 +9053,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "toolchain.csharp.nativeaot": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
+      "../tsonic-csharp/test/backend/planner/project/project-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",

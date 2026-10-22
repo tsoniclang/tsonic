@@ -56,7 +56,7 @@ export function evaluateKeelTestSkeleton(targetTests, differences = keelNativeDi
   const testDifferences = differences.filter(entry => entry.tree !== "src");
   const findings = [];
   const responsibilities = new Map();
-  const domains = new Set(["analysis", "architecture", "backend", "fixtures", "helpers", "integration", "policy", "providers", "source", "target-model", "toolchain"]);
+  const domains = new Set(["analysis", "architecture", "backend", "fixtures", "helpers", "integration", "policy", "print", "providers", "source", "target-model", "toolchain"]);
   for (const [repo, files] of targetTests) {
     const tree = responsibilityTree(files, "test/");
     responsibilities.set(repo, tree);

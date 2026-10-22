@@ -143,10 +143,16 @@ export function createParallelSuiteDefinition(repos) {
       targetSuite("csharp-source-semantics", "test/analysis"),
       targetSuite("csharp-source-semantics", "test/target-model"),
       targetSuite("csharp-backend-toolchain", "test/backend"),
+      targetSuite("csharp-backend-toolchain", "test/print"),
       targetSuite("csharp-backend-toolchain", "test/toolchain"),
       targetSuite("csharp-provider", "test/integration/provider-selection", { preRunIds: providerPreRuns }),
-      targetSuite("csharp-provider", "test/integration/source-profile", { preRunIds: providerPreRuns }),
-      targetSuite("csharp-backend-toolchain", "test/integration/generated-csharp"),
+      {
+        ...targetSuite("csharp-backend-toolchain", "test/integration/generated"),
+        fileMetadata: Object.fromEntries([
+          "direct-translation-source-profile-elements", "js-api-capability-closure", "regexp-complete",
+          "source-profile-contract",
+        ].map(name => [`test/integration/generated/${name}.test.mjs`, { group: "csharp-provider", preRunIds: providerPreRuns }])),
+      },
       {
         scope: "csharp-nodejs",
         group: "node-provider",

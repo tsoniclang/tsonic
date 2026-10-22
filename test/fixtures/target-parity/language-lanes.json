@@ -5,7 +5,7 @@
     "source": "export function value(): number { return 1; }",
     "classification": "implemented",
     "action": "retain exact source-reference linkage",
-    "rustReference": "tsonic-rust/test/backend/printer/semantic-humanization.test.mjs"
+    "rustReference": "tsonic-rust/test/print/semantic-humanization.test.mjs"
   },
   {
     "id": "modules.side-effect-imports",
@@ -47,7 +47,7 @@
     "source": "export function identity<T>(value: T): T { return value; }",
     "classification": "implemented",
     "action": "retain exact generic callable contracts",
-    "rustReference": "tsonic-rust/test/backend/printer/semantic-humanization.test.mjs"
+    "rustReference": "tsonic-rust/test/print/semantic-humanization.test.mjs"
   },
   {
     "id": "declarations.classes",
@@ -164,7 +164,7 @@
     "source": "const point: Point = { x: 1, y: 2 };",
     "classification": "implemented",
     "action": "retain finalized ordered record fields",
-    "rustReference": "tsonic-rust/test/integration/generated-rust/generated-projects.test.mjs"
+    "rustReference": "tsonic-rust/test/integration/generated/generated-projects.test.mjs"
   },
   {
     "id": "objects.spread",
@@ -349,7 +349,7 @@
     "classification": "implemented",
     "action": "retain exact source-core FixedArray<T, N> facts and native target array lowering without syntax or name inference",
     "csharpReference": "tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
-    "rustReference": "tsonic-rust/test/integration/generated-rust/r8-completion.test.mjs"
+    "rustReference": "tsonic-rust/test/integration/generated/r8-completion.test.mjs"
   },
   {
     "id": "types.open-dynamic-values",
@@ -496,7 +496,7 @@
     "source": "export function main(): void {}",
     "classification": "implemented",
     "action": "retain deterministic Cargo artifacts",
-    "rustReference": "tsonic-rust/test/toolchain/cargo-project/cargo-project.test.mjs"
+    "rustReference": "tsonic-rust/test/toolchain/cargo-project.test.mjs"
   },
   {
     "id": "output.user-owned-cargo",

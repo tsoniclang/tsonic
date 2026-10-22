@@ -735,14 +735,14 @@
     "area": "RegExp",
     "lane": "dynamic patterns and complete ECMAScript constructs",
     "classification": "implemented",
-    "proof": "test/integration/generated-rust/regexp-complete.test.mjs"
+    "proof": "test/integration/generated/regexp-complete.test.mjs"
   },
   {
     "area": "JSON",
     "lane": "replacer functions and selected toJSON",
     "classification": "implemented",
     "rowMember": "stringify",
-    "proof": "test/integration/generated-rust/js-api-capability-closure.test.mjs"
+    "proof": "test/integration/generated/js-api-capability-closure.test.mjs"
   },
   {
     "area": "JSON",
@@ -758,13 +758,13 @@
     "area": "Object",
     "lane": "Object.keys/values/entries",
     "classification": "implemented",
-    "proof": "test/integration/generated-rust/generated-projects.test.mjs"
+    "proof": "test/integration/generated/generated-projects.test.mjs"
   },
   {
     "area": "Object",
     "lane": "Object.assign over closed shapes",
     "classification": "implemented",
-    "proof": "test/integration/generated-rust/js-api-capability-closure.test.mjs"
+    "proof": "test/integration/generated/js-api-capability-closure.test.mjs"
   },
   {
     "area": "Object",
@@ -776,7 +776,7 @@
     "area": "Object",
     "lane": "Object.hasOwn",
     "classification": "implemented",
-    "proof": "test/integration/generated-rust/generated-projects.test.mjs"
+    "proof": "test/integration/generated/generated-projects.test.mjs"
   },
   {
     "area": "Object",
@@ -836,14 +836,14 @@
     "classification": "implemented",
     "rowMember": "toUTCString",
     "rowFactory": "dateReceiverNumberRows",
-    "proof": "test/integration/generated-rust/generated-projects.test.mjs"
+    "proof": "test/integration/generated/generated-projects.test.mjs"
   },
   {
     "area": "String",
     "lane": "String.normalize and well-formed methods",
     "classification": "implemented",
     "rowMember": "normalize",
-    "proof": "test/integration/generated-rust/generated-projects.test.mjs"
+    "proof": "test/integration/generated/generated-projects.test.mjs"
   },
   {
     "area": "String",
@@ -873,7 +873,7 @@
     "lane": "fixed-size arrays beyond homogeneous tuples",
     "classification": "implemented",
     "contract": "exact source-core FixedArray<T, N> facts lower to native [T; N] carriers",
-    "proof": "test/integration/generated-rust/r8-completion.test.mjs"
+    "proof": "test/integration/generated/r8-completion.test.mjs"
   },
   {
     "area": "Node",
