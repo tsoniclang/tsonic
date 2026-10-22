@@ -83,7 +83,6 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/target-model/records/source-modules.ts", symbol: "RustSourceModuleConstructionIndex.targets" },
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.owner" },
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.requiresMutableOwner" },
-      { file: "src/analysis/storage/provider-mutable-inputs.ts", symbol: "RustProviderMutableInputPlan.forOperation" },
       { file: "src/analysis/declarations/generic-requirements.ts", symbol: "RustDeclarationGenericRequirementIndex.contractForCarrier" },
       { file: "src/analysis/callables/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
       ...["contractFor", "parameterFor", "resolve", "allContracts"].map(name => ({
