@@ -17,7 +17,7 @@ function fixture(relation, limits = {}, context = () => true) {
   const calls = [];
   const retained = [];
   const source = {
-    ast: { name: () => undefined, getSourceFile: () => undefined,
+    ast: { name: () => undefined, getSourceFile: () => undefined, kindName: () => "test-node",
       is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
         IsIdentifier: node => node.kind === "identifier" } },
     semantics: { includes: () => true, forFile: file => ({
