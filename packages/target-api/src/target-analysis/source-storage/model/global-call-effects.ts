@@ -27,6 +27,10 @@ export function createSourceGlobalCallStorageEffects(
       source.navigation.declarationUseSummary(binding).bindingWritten) return false;
     const declaration = source.sourceFacts.getFact(operation.declaration, providerVirtualDeclarationFactKey);
     if (declaration === undefined) {
+      // Without provider facts, only the global the operation names in its own declaring file is that operation's receiver;
+      // another binding of the same type is an unknown receiver.
+      if (file !== source.ast.getSourceFile(operation.declaration) ||
+        source.ast.text(source.ast.name(binding)) !== operation.binding.name) return false;
       const semantics = source.semantics.forNode(binding);
       const type = semantics.declarations.declaredValueType(binding);
       if (type === undefined) return false;
