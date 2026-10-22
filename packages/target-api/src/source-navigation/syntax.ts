@@ -53,6 +53,9 @@ export function semanticTypeForNode(
   checker: TypeCheckerQueries,
   node: Node,
 ): Type | undefined {
+  // `import type { A } from "..."` has an unnamed type-only import clause. TS-Go classifies it as a type declaration
+  // but binds no symbol for it, so it declares no type and the checker cannot be asked for one.
+  if (ast.is.IsImportClause(node) && ast.name(node) === undefined) return undefined;
   return isTypeSyntaxNode(ast, node)
     ? checker.getTypeFromTypeNode(node)
     : checker.getTypeAtLocation(node);
