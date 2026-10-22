@@ -38,8 +38,16 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
       const declarations = transport.memberFlow.declarationsFor(selectedView, target, receiverType);
+      // The correspondence of a union receiver is the one of the union member that declares the target.
+      const declaring = (): Type => {
+        const { types, declarations: selected } = semantics.forNode(selectedView.node);
+        const members = types.isUnion(receiverType) ? types.unionOrIntersectionTypes(receiverType).filter(member =>
+          types.propertyInfos(member).some(property => [property.symbol, ...property.rootSymbols]
+            .some(symbol => selected.symbolDeclarations(symbol).includes(target)))) : [];
+        return members.length === 1 ? members[0]! : receiverType;
+      };
       const correspondence = symbolic || declarations === undefined
-        ? transport.memberFlow.membersFor(selectedView, receiverType) : undefined;
+        ? transport.memberFlow.membersFor(selectedView, declaring()) : undefined;
       if (declarations === undefined) {
         if (correspondence?.some(member => member.kind === "absent" && member.destination.declarations.includes(target)) !== true)
           return unresolved("Source storage members require exact checked correspondence.");
@@ -92,10 +100,12 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         let found = false;
         let knownAbsent = false;
         let unknown = false;
+        let excluded = 0;
         for (const captured of lineage.classes) {
           if (!budget.step()) return undefined;
           const instance = transport.subject(captured.subject.node, "receiver");
           const declarations = instance === undefined ? undefined : transport.memberFlow.declarationsFor(instance, target, contract);
+          if (declarations === undefined && instance !== undefined && transport.memberFlow.excludes(instance, contract)) { excluded++; continue; }
           if (declarations === undefined) { unknown = true; continue; }
           knownAbsent ||= declarations.length === 0;
           const physical = declarations.filter(member => !ast.hasModifierKind(member, "static") &&
@@ -118,6 +128,9 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
           found = true;
           break;
         }
+        // A complete class lineage that is no structural instance of the target's contract never reaches the target: the
+        // receiver's other union members select its own declarations.
+        if (!found && !unknown && excluded === lineage.classes.length) { completed = true; continue; }
         if (!found && (unknown || !knownAbsent)) {
           reason ??= "Source storage members require exact checked correspondence.";
           continue;

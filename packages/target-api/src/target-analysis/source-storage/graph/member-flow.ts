@@ -304,7 +304,17 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze(components);
   };
-  return Object.freeze({ declarationsFor, copyContributionFor, spreadMembersFor, componentsFor,
+  // A source type that lacks a required member of the destination is not a structural instance of that destination,
+  // whatever the type arguments: no value of it is read through the destination's declarations.
+  const excludes = (owner: SourceStorageSubject, destinationType: Type): boolean => {
+    const file = sourceFileFor(owner);
+    const type = file === undefined ? undefined : sourceStorageSubjectType(source, owner, file);
+    const destination = file === undefined ? undefined : memberDestination(source.semantics.forFile(file), destinationType);
+    if (!budget.step() || file === undefined || type === undefined || destination === undefined) return false;
+    const selected = source.semantics.forFile(file).types.structuralMembers(type, destination);
+    return selected.kind === "unavailable" && selected.reason === "missing-required-member";
+  };
+  return Object.freeze({ declarationsFor, excludes, copyContributionFor, spreadMembersFor, componentsFor,
     membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
       selectedIndex(owner, destinationType)?.members });
 }
