@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceErrorStorageDemandQueries } from "./error-storage-demands.js";
 
@@ -120,8 +121,11 @@ export function createSourceErrorInvalidationQuery(
             if (affected.kind === "unproven") unproven = affected.reason;
             if (affected.kind === "overlap")
               unproven = "An opaque native invocation can access the borrowed Error owner without an exact mutation footprint.";
+            // Only a callable or class value handed to opaque code can run there; other values have no execution region.
             for (const candidate of origins.subjects) {
-              if (candidate.kind === "value") appendCallableRegions(candidate.node, undefined, bindings);
+              if (sourceStorageHasOriginalCallableValue(candidate, ast) || candidate.kind === "value" &&
+                (ast.is.IsClassDeclaration(candidate.node) || ast.is.IsClassExpression(candidate.node)))
+                appendCallableRegions(candidate.node, undefined, bindings);
             }
           }
         }
