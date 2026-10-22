@@ -21,7 +21,7 @@ import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReferen
 
 
 
-test("CLI rejects computed and accessor object literal members before shape fallback emission", async () => {
+test("CLI accepts a const-string computed key and rejects an accessor object literal member before shape fallback emission", async () => {
   const projectDirectory = resolve(tempRoot, "computed-accessor-object-members-rejected");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -47,8 +47,10 @@ test("CLI rejects computed and accessor object literal members before shape fall
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Computed object-shape members require exact selected well-known-symbol evidence/);
-  assert.match(build.stderr, /Object literal property must match one finalized object-shape source contract member/);
+  // RULINGS 2026-10-23: a computed key whose expression is a const string literal is that literal property name, so
+  // { [valueKey]: 7 } is accepted; only the getter-only member is refused.
+  assert.doesNotMatch(build.stderr, /Computed object-shape members/u);
+  assert.doesNotMatch(build.stderr, /index\.ts:5:/u);
   assert.match(build.stderr, /cannot satisfy the selected writable property contract without an exact setter/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
