@@ -194,6 +194,11 @@ export function analyzeSourceGenericAdoption(input: {
     const bindings = semantics.types.typeArgumentBindings(type);
     const symbol = semantics.declarations.typeSymbol(type);
     const declarations = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol);
+    // The static side of a class, such as the receiver of `Generic.ready` or `Generic.GetHashCode()`, is the class
+    // constructor type. Static members cannot use the class type parameters, so it has no receiver instances to adopt.
+    const constructorType = symbol === undefined ? undefined : semantics.types.typeOfSymbol(symbol);
+    if (constructorType !== undefined && semantics.types.isIdentical(type, constructorType) &&
+      declarations.some(declaration => ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))) return;
     if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
       (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
       refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");
