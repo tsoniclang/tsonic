@@ -26,11 +26,10 @@ export const keelOwnedTargets = Object.freeze({
   "tsonic-csharp": Object.freeze({
     providerModelPaths: ["src/providers/model/provider-relations.ts"],
     providerSdkPaths: ["src/public/provider-dotnet.ts"],
-    programType: { file: "src/analysis/program/model.ts", symbol: "CsharpTargetProgram" },
+    programType: { file: "src/target-model/records/target-program.ts", symbol: "CsharpTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
-    diagnosticCalls: ["selectedPolicyDiagnostic", "targetPolicyDiagnostic", "unsupportedNodeDiagnostic"].map(symbol => ({
-      file: "src/backend/planner/diagnostics.ts", symbol,
-    })),
+    // The rewritten planner constructs no diagnostics; failures go through the single invariant helper below.
+    diagnosticCalls: [],
     invariantHelpers: [{ file: "src/backend/planner/diagnostics.ts", symbol: "failCsharpPlannerInvariant" }],
     recordReaders: [{
       file: "src/target-model/records/operations.ts",
@@ -39,21 +38,20 @@ export const keelOwnedTargets = Object.freeze({
     ...keelOwnedCsharpResponsibilities,
   }),
   "tsonic-rust": Object.freeze({
-    programType: { file: "src/analysis/program/model.ts", symbol: "RustTargetProgram" },
+    programType: { file: "src/target-model/records/target-program.ts", symbol: "RustTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
     keyDefinitions: [],
     keyTypes: [],
-    diagnosticCalls: ["unsupportedStatementDiagnostic", "missingFactDiagnostic", "unsupportedConstructDiagnostic"].map(symbol => ({
-      file: "src/backend/planner/diagnostics.ts", symbol,
-    })),
+    // The rewritten planner constructs no diagnostics; failures go through the single invariant helper below.
+    diagnosticCalls: [],
     invariantHelpers: [{ file: "src/backend/planner/diagnostics.ts", symbol: "failRustPlannerInvariant" }],
     cloneFields: [{ file: "src/backend/target-ast/syntax/nodes.ts", symbol: "RustExpr.method" }],
     recordReaders: [
       { file: "src/target-model/records/native-declaration-forms.ts", symbol: "RustNativeDeclarationForms.get" },
       { file: "src/target-model/records/class-values.ts", symbol: "RustClassValuePlan.forDeclaration" },
       { file: "src/target-model/records/class-values.ts", symbol: "RustClassValuePlan.viewFor" },
-      { file: "src/analysis/objects/frozen-data-writes.ts", symbol: "RustFrozenDataWritePlan.capturesFieldIdentity" },
-      { file: "src/analysis/objects/frozen-data-writes.ts", symbol: "RustFrozenDataWritePlan.receiverForDeclaration" },
+      { file: "src/target-model/records/frozen-data.ts", symbol: "RustFrozenDataWritePlan.capturesFieldIdentity" },
+      { file: "src/target-model/records/frozen-data.ts", symbol: "RustFrozenDataWritePlan.receiverForDeclaration" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forExpression" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forIteration" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forStatement" },
@@ -91,14 +89,14 @@ export const keelOwnedTargets = Object.freeze({
     ],
     lazyQueries: [
       ...["callsFor", "bindingFor"].map(name => ({
-        file: "src/policy/ownership/source-lexical-callable.ts", symbol: `createRustSourceLexicalCallableQueries.${name}`,
+        file: "src/analysis/callables/lexical-bindings.ts", symbol: `createRustSourceLexicalCallableQueries.${name}`,
       })),
-      { file: "src/policy/ownership/source-borrowed-return.ts", symbol: "createRustSourceCallableQueries.borrowedReturnParameter" },
+      { file: "src/analysis/callables/borrowed-returns.ts", symbol: "createRustSourceCallableQueries.borrowedReturnParameter" },
       ...["suspendedParametersFor", "lexicalFor", "environmentFor"].map(name => ({
-        file: "src/policy/ownership/retained-environment-queries.ts", symbol: `createRustRetainedEnvironmentQueries.${name}`,
+        file: "src/analysis/callables/retained-environment-shapes.ts", symbol: `createRustRetainedEnvironmentQueries.${name}`,
       })),
       ...["canUseSharedBorrow", "resolveParameterAbi"].map(name => ({
-        file: "src/policy/ownership/source-callable-abi.ts", symbol: `createRustSourceCallableAbiResolver.${name}`,
+        file: "src/analysis/callables/source-callable-abi.ts", symbol: `createRustSourceCallableAbiResolver.${name}`,
       })),
     ],
     ...keelOwnedRustResponsibilities,
