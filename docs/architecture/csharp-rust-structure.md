@@ -161,7 +161,7 @@ not lazy analysis merely because their method is called `resolve` or `canMove`.
 | Contextual-type analysis | Existing bodies retained until responsibilities are split | Both targets' cross-context inference belongs under `analysis/expected-types/` |
 
 Only Rust's omitted-argument and runtime-callable-generic contract selectors can
-move mechanically from `analysis/operations/provider/calls/` to
+move mechanically from `analysis/operations/members/calls/` to
 `policy/types/callables/`. Other mixed selection/proof implementations require
 decomposition first. C# demand and Rust planner-dependent liveness likewise
 cannot be made layer-legal by a directory rename.
