@@ -151,14 +151,17 @@ export function createSourceStorageTransport(
     if (projected && !iteration && binding === undefined) return undefined;
     const value = qualified ? subject(node) : subject(target);
     if (value === undefined) return undefined;
+    let declaration: SourceStorageSubject | undefined;
     if (binding !== undefined && selected !== undefined) {
-      const declaration = subject(selected);
+      declaration = subject(selected);
       if (declaration === undefined) return undefined;
       subjects.set(selected, declaration);
       connect(binding, declaration);
     }
     subjects.set(node, value);
-    if (qualified) connect(binding ?? subjectFor(selected), value);
+    // A reference to a destructured binding reads the binding element's own storage, which the pattern projection
+    // feeds; writes through the reference therefore reach the binding element and, through it, the original value.
+    if (qualified) connect(declaration ?? subjectFor(selected), value);
     return value;
   };
   const subjectFor = (node: Node | undefined): SourceStorageSubject | undefined => budget.withRows(rows => {
