@@ -205,8 +205,20 @@ export function createSourceStorageMemberFlow(
     const rest = sourceStorageObjectRestOwner(owner.node, source.ast);
     if (file === undefined || object === undefined && rest === undefined || owner.projection.length !== 0) return undefined;
     const queries = source.semantics.forFile(file);
-    const selected = queries.types.propertyInfos(destinationType).filter(property => [property.symbol, ...property.rootSymbols]
+    let selected = queries.types.propertyInfos(destinationType).filter(property => [property.symbol, ...property.rootSymbols]
       .some(symbol => queries.declarations.symbolDeclarations(symbol).includes(declaration)));
+    if (selected.length === 0) {
+      // The declaration belongs to another shape the value is read through (a declared return type, or the spread source
+      // literal); it selects the destination property by checked structural correspondence from that shape.
+      const declarationOwner = sourceMemberOwner(source.ast, declaration);
+      const ownerType = declarationOwner === undefined ? undefined
+        : source.ast.is.IsTypeLiteralNode(declarationOwner) ? queries.types.authoredType(declarationOwner)
+          : source.ast.is.IsObjectLiteralExpression(declarationOwner) ? queries.types.expressionType(declarationOwner)
+            : queries.declarations.declaredType(declarationOwner);
+      const correspondence = ownerType === undefined ? undefined : queries.types.structuralMembers(destinationType, ownerType);
+      if (correspondence?.kind === "available") selected = correspondence.members.flatMap(member =>
+        member.kind === "present" && member.destination.declarations.includes(declaration) ? [member.source.property] : []);
+    }
     if (selected.length !== 1) return undefined;
     const property = selected[0]!;
     if (rest !== undefined) {
