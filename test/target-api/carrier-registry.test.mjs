@@ -73,6 +73,56 @@ test("records whose own kind equals a carrier kind are not carrier constructions
     "a named non-carrier record and a literal typed by one are not carriers; carrier-typed and untyped literals still are");
 });
 
+test("native syntax and record unions that reuse carrier kind names are not carrier results", () => {
+  const changed = new Map(source);
+  const module = "src/backend/planner/syntax.ts";
+  changed.set(module, `import type { TargetTypeRef } from "../../target-model/types/model.js";
+    export type NativeSyntax = { readonly kind: "target-named"; readonly path: string } | { readonly kind: "call"; readonly callee: string };
+    export type OperationFact = { readonly kind: "source-primitive"; readonly operationId: string } | { readonly kind: "typeof" };
+    export function render(carrier: TargetTypeRef): NativeSyntax { return { kind: "call", callee: String(carrier.kind) }; }
+    export function nested(carrier: TargetTypeRef): Extract<NativeSyntax, { readonly kind: "call" }> {
+      return { kind: "call", callee: render(carrier).kind };
+    }
+    export function fact(): OperationFact | undefined { return { kind: "typeof" }; }
+    export function inline(): { readonly kind: "target-named"; readonly id: string } { return { kind: "target-named", id: "checked:inline" }; }`);
+  const symbols = deriveCarrierVocabulary(changed, root).contracts.filter(declaration => declaration.module === module)
+    .map(declaration => declaration.symbol);
+  assert.deepEqual(symbols, ["inline"],
+    "arms of a named syntax or fact union are its own discriminants; an inline carrier literal in the declared type still counts");
+});
+
+test("untyped values are carrier contracts only when their checked result is a carrier", () => {
+  const changed = new Map(source);
+  const module = "src/analysis/untyped.ts";
+  changed.set(module, `import type { TargetTypeRef } from "../target-model/types/model.js";
+    import { named } from "../target-model/types/carriers/native.js";
+    export function handlers(carrier: TargetTypeRef) {
+      return { read: () => named(carrier).id, handled: true as const };
+    }
+    export function rejected(reason: string) { return { kind: "rejected" as const, reason }; }
+    export function selected(carrier: TargetTypeRef) { return named(carrier); }
+    export const plain = { kind: "source-primitive" as const, name: "int64" };`);
+  const symbols = deriveCarrierVocabulary(changed, root).contracts.filter(declaration => declaration.module === module)
+    .map(declaration => declaration.symbol).sort();
+  assert.deepEqual(symbols, ["plain", "selected"],
+    "handler objects and non-carrier records are not contracts; an inferred carrier result and a structural carrier value are");
+});
+
+test("passing a received carrier through constructs nothing", () => {
+  const changed = new Map(source);
+  const module = "src/analysis/normalize.ts";
+  changed.set("src/backend/planner/syntax.ts",
+    `export type NativeSyntax = { readonly kind: "target-named"; readonly path: string } | { readonly kind: "call"; readonly callee: string };`);
+  changed.set(module, `import type { TargetTypeRef } from "../target-model/types/model.js";
+    import type { NativeSyntax } from "../backend/planner/syntax.js";
+    export function syntaxFor(carrier: TargetTypeRef): NativeSyntax { return { kind: "call", callee: carrier.kind }; }
+    export function normalize(carrier: TargetTypeRef, expected: TargetTypeRef | undefined): TargetTypeRef {
+      return syntaxFor(carrier).kind === "call" ? expected ?? carrier : carrier;
+    }`);
+  const symbols = deriveCarrierVocabulary(changed, root).contracts.filter(declaration => declaration.module === module);
+  assert.deepEqual(symbols, [], "a carrier-typed function that only returns carriers it receives is not a constructor");
+});
+
 test("carrier vocabulary rejects a missing root and syntactically invalid source", () => {
   assert.throws(() => deriveCarrierVocabulary(source, { module: model, symbol: "Missing" }), /root does not exist/u);
   assert.throws(() => deriveCarrierVocabulary(new Map([[model, "export type Broken = @;"]]), root), /invalid syntax/u);

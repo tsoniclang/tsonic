@@ -333,16 +333,19 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
   const kinds = [...new Set(kindsFor(root, rootDeclaration.module, new Set(), true))].sort();
   if (kinds.length === 0) throw new Error("Carrier vocabulary root has no discriminants.");
   const knownKinds = new Set(kinds);
-  // A declared result type produces carriers only through an arm that is a carrier type (or an inline structural
-  // literal with a carrier kind). A named record whose own `kind` happens to equal a carrier kind, such as a memory
-  // layout or a binding fact, is not a carrier.
-  function hasCarrierArm(node, module, seen = new Set()) {
+  // A declared result type produces carriers only through an arm that is a carrier type, or an inline structural
+  // literal with a carrier kind written in that declared type itself. A named record whose own `kind` happens to equal a
+  // carrier kind (a memory layout, a binding fact, a native syntax node union such as `tuple` or `reference` arms, an
+  // operation fact with a `closure` arm) is not a carrier: the arms of a named non-carrier alias are its own discriminants.
+  function hasCarrierArm(node, module, seen = new Set(), throughNamedRecord = false) {
     const kind = ast.kindName(node);
     if (["KindParenthesizedType", "KindUnionType", "KindIntersectionType"].includes(kind)) {
       return (kind === "KindParenthesizedType" ? [ast.typeNode(node)] : ast.children(node))
-        .some(child => child !== undefined && hasCarrierArm(child, module, seen));
+        .some(child => child !== undefined && hasCarrierArm(child, module, seen, throughNamedRecord));
     }
-    if (kind === "KindTypeLiteral") return kindsFor(node, module).some(selected => knownKinds.has(selected));
+    if (kind === "KindTypeLiteral") {
+      return !throughNamedRecord && kindsFor(node, module).some(selected => knownKinds.has(selected));
+    }
     if (!["KindTypeReference", "KindExpressionWithTypeArguments"].includes(kind)) return false;
     const selected = reference(node, module);
     if (selected === undefined) return false;
@@ -352,15 +355,13 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
     seen.add(identity);
     const declaration = types.get(identity);
     if (declaration !== undefined && ast.kindName(declaration) === "KindTypeAliasDeclaration") {
-      return hasCarrierArm(ast.typeNode(declaration), selected.module, seen);
+      return hasCarrierArm(ast.typeNode(declaration), selected.module, seen, true);
     }
     if (declaration === undefined && selected.module === module && ["Extract", "Exclude", "NonNullable"].includes(selected.symbol)) {
-      return hasCarrierArm(ast.typeArguments(node)[0], module, seen);
+      return hasCarrierArm(ast.typeArguments(node)[0], module, seen, throughNamedRecord);
     }
     return false;
   }
-  const candidates = new Map([...values].filter(([, { declaration, node, callable }]) =>
-    ast.typeNode(callable ?? node) === undefined || hasCarrierArm(ast.typeNode(callable ?? node), declaration.module)));
   // An object literal whose checked contextual type is entirely named non-carrier records (for example a pattern or
   // element record passed to a typed producer) constructs that record, whatever its `kind` literal says.
   function declarationIdentity(declarationNode) {
@@ -389,6 +390,38 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
     if (file === undefined) return false;
     return namedNonCarrier(source.getSourceFileQueries(file).checker.getContextualType(objectLiteral), source.getSourceFileQueries(file));
   }
+  // A checked type is a carrier when it is (an arm of) a carrier type, or an unnamed structural object whose `kind` is a
+  // carrier discriminant. Arms of named non-carrier records are not carriers.
+  function checkedCarrier(type, queries, seen = new Set()) {
+    if (type === undefined || seen.has(type)) return false;
+    seen.add(type);
+    const named = queries.checker.getTypeAliasSymbol(type) ?? queries.checker.getTypeSymbol(type);
+    const identities = named === undefined ? [] : queries.checker.getSymbolDeclarations(named).map(declarationIdentity);
+    if (identities.some(identity => identity !== undefined && carrierTypes.has(identity))) return true;
+    if (identities.length !== 0 && identities.every(identity => identity !== undefined && types.has(identity))) return false;
+    if (queries.typeShape.isUnion(type)) {
+      return queries.typeShape.getUnionOrIntersectionTypes(type).some(member => checkedCarrier(member, queries, seen));
+    }
+    const discriminant = queries.checker.getTypeOfPropertyOfType(type, "kind");
+    if (discriminant === undefined) return false;
+    return [...queries.checker.typeToString(discriminant).matchAll(/"([^"]*)"/gu)].some(match => knownKinds.has(match[1]));
+  }
+  // An untyped value produces carriers only when its checked (inferred) value or result type is a carrier.
+  function inferredCarrier(node, callable) {
+    const name = ast.name(node);
+    const file = ast.getSourceFile(node);
+    if (name === undefined || file === undefined) return false;
+    const queries = source.getSourceFileQueries(file);
+    const type = queries.checker.getTypeAtLocation(name);
+    if (type === undefined) return false;
+    if (callable === undefined) return checkedCarrier(type, queries);
+    return (queries.checker.getCallSignaturesOfType(type) ?? [])
+      .some(signature => checkedCarrier(queries.checker.getReturnTypeOfSignature(signature), queries));
+  }
+  const candidates = new Map([...values].filter(([, { declaration, node, callable }]) =>
+    ast.typeNode(callable ?? node) === undefined
+      ? inferredCarrier(node, callable)
+      : hasCarrierArm(ast.typeNode(callable ?? node), declaration.module)));
   const direct = new Set();
   const calls = new Map();
   for (const [identity, { declaration, node, callable }] of candidates) {
