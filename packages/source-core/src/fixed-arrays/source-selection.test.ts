@@ -38,7 +38,7 @@ test("target-source fixed arrays preserve adjacent authored native extents witho
     assert.ok(selected?.kind === "selected", name + ": native extent is admitted");
     assert.equal(selected.fact.length, length, name + ": exact authored native integer");
     assert.equal(selected.fact.lengthRuntimeBase, name === "NegativeZero" ? "bigint" : "number");
-    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey), undefined, "precision never invents a mutable Type fact");
+    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true, "precision never invents a mutable Type fact");
   }
 });
 
@@ -72,7 +72,7 @@ test("target-source fixed-array adapter selects inferred wrapped returns without
     const arrayType = semantics.types.typeArguments(selected.sourceResultType)[0];
     assert.ok(arrayType !== undefined);
     const before = source.sourceFacts.getFacts(arrayType);
-    assert.equal(source.sourceFacts.getFact(arrayType, tsonicFixedArrayFactKey), undefined);
+    assert.equal(source.sourceFacts.getFact(arrayType, tsonicFixedArrayFactKey) === undefined, true);
     for (let repeat = 0; repeat < 2; repeat += 1) {
       const fixed = selectTsonicFixedArrayFromSource(arrayType, semantics, source.sourceFacts);
       assert.ok(fixed?.kind === "selected");
@@ -84,7 +84,7 @@ test("target-source fixed-array adapter selects inferred wrapped returns without
       assert.ok(Object.isFrozen(fixed.fact));
     }
     assert.deepEqual(source.sourceFacts.getFacts(arrayType), before);
-    assert.equal(source.sourceFacts.getFact(arrayType, tsonicFixedArrayFactKey), undefined);
+    assert.equal(source.sourceFacts.getFact(arrayType, tsonicFixedArrayFactKey) === undefined, true);
   }
 });
 
@@ -149,7 +149,7 @@ test("target-source resolved selection leaves occurrence-owned primitive annotat
     assert.equal(source.sourceFacts.getFact(node, tsonicFixedArrayFactKey), authored);
     assert.equal(source.sourceFacts.getFact(authored.elementType, sourcePrimitiveFactKey)?.kind, primitive);
     assert.deepEqual(source.sourceFacts.getFacts(type), before);
-    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey), undefined);
+    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true);
   }
 });
 
@@ -189,7 +189,7 @@ test("target-source concrete aliases reject contradictory and ambiguous element 
     facts: { ...semantics.facts, authoredTypeNodes: () => [unsigned, signed] },
   }, alternate);
   assert.equal(ambiguous?.kind, "invalid");
-  assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey), undefined);
+  assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true);
 });
 
 test("target-source adapter retains invalid versus noncanonical selection outcomes", () => {
@@ -210,6 +210,6 @@ test("target-source adapter retains invalid versus noncanonical selection outcom
     assert.ok(type !== undefined);
     const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
     assert.equal(selected?.kind, name === "Local" ? undefined : "invalid", name);
-    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey), undefined);
+    assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true);
   }
 });
