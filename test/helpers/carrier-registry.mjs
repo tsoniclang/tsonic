@@ -259,8 +259,11 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
     const invoked = new Set();
     walk(callable === undefined ? node.Initializer : ast.body(callable), child => {
       const kind = ast.kindName(child);
-      if (ast.typeNode(callable ?? node) !== undefined &&
-          ["KindObjectLiteralExpression", "KindObjectBindingPattern"].includes(kind)) direct.add(identity);
+      // An object literal or a rest binding (`{ field, ...rest }`) builds a new object; a binding pattern without a rest
+      // element only reads fields of an existing value and constructs nothing.
+      if (ast.typeNode(callable ?? node) !== undefined && (kind === "KindObjectLiteralExpression" ||
+          kind === "KindObjectBindingPattern" && ast.children(child).some(element =>
+            ast.children(element).some(token => ast.kindName(token) === "KindDotDotDotToken")))) direct.add(identity);
       const name = ast.name(child);
       if (kind === "KindPropertyAssignment" && name !== undefined &&
           (ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name)) && ast.text(name) === "kind" &&

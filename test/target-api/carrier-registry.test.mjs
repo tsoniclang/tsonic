@@ -128,6 +128,24 @@ test("passing a received carrier through constructs nothing", () => {
   assert.deepEqual(symbols, [], "a carrier-typed function that only returns carriers it receives is not a constructor");
 });
 
+test("destructuring reads fields and constructs nothing; a rest binding builds a new carrier", () => {
+  const changed = new Map(source);
+  const module = "src/analysis/receivers.ts";
+  changed.set(module, `import type { TargetTypeRef } from "../target-model/types/model.js";
+    type Scope = { readonly receiver: TargetTypeRef; readonly fallback: TargetTypeRef };
+    export function selectReceiver(scope: Scope, useFallback: boolean): TargetTypeRef {
+      const { receiver, fallback } = scope;
+      return useFallback ? fallback : receiver;
+    }
+    export function withoutId(carrier: TargetTypeRef & { readonly id?: string }): TargetTypeRef {
+      const { id: _id, ...rest } = carrier;
+      return rest;
+    }`);
+  const symbols = deriveCarrierVocabulary(changed, root).contracts.filter(declaration => declaration.module === module)
+    .map(declaration => declaration.symbol);
+  assert.deepEqual(symbols, ["withoutId"]);
+});
+
 test("carrier vocabulary rejects a missing root and syntactically invalid source", () => {
   assert.throws(() => deriveCarrierVocabulary(source, { module: model, symbol: "Missing" }), /root does not exist/u);
   assert.throws(() => deriveCarrierVocabulary(new Map([[model, "export type Broken = @;"]]), root), /invalid syntax/u);
