@@ -1,5 +1,4 @@
 import { providerVirtualDeclarationFactKey, type Node, type Type } from "@tsonic/tsts";
-import { isAbsolute, relative } from "node:path";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import { isTsonicSourceProfileDeclarationPath } from "../../source-profile.js";
 import {
@@ -8,7 +7,6 @@ import {
 } from "../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/types.js";
-import { createSourceDiagnosticSpanReader } from "../../source-semantics/diagnostic-spans.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type {
   SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer, SourceStorageQueries,
@@ -17,6 +15,7 @@ import type {
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "../source-storage/graph/invocation-inputs.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
+import { createSourceGenericAdoptionDiagnostics } from "./generic-adoption-diagnostics.js";
 
 export const sourceGenericAdoptionDiagnosticCode = "TSONIC_GENERIC_ASYNC_ADOPTION_UNSUPPORTED";
 export const sourceGenericAdoptionDiagnosticMessage = "A generic async declaration would adopt this Promise-valued type argument (through an await, an async return or a Promise resolution). Generic Promise adoption is outside the approved native payload representation (capability C15, frozen). Await the Promise before passing it, or use a non-generic async function.";
@@ -658,26 +657,7 @@ export function analyzeSourceGenericAdoption(input: {
     return selections.find(selection => selection !== null && selection.unresolved === undefined) ??
       selections.find(selection => selection !== null) ?? null;
   }, budget);
-  const readSpan = createSourceDiagnosticSpanReader(ast);
-  const sourceSpanFor = (node: Node): TargetDiagnosticSourceSpan | undefined => {
-    const file = ast.getSourceFile(node);
-    if (file === undefined || !source.semantics.includes(file)) return undefined;
-    const span = readSpan(file, ast.pos(node), ast.end(node));
-    if (span === undefined) return undefined;
-    const fileName = (isAbsolute(span.fileName) ? relative(input.projectRoot, span.fileName) : span.fileName)
-      .split("\\").join("/");
-    return Object.freeze({ ...span, fileName });
-  };
-  const formatDiagnostic = (site: Node, declaration: Node, operation: Node) => {
-    const sourceSpan = sourceSpanFor(site);
-    const declarationSpan = sourceSpanFor(declaration);
-    const operationSpan = sourceSpanFor(operation);
-    if (sourceSpan === undefined || declarationSpan === undefined || operationSpan === undefined) return undefined;
-    return Object.freeze({ sourceSpan, evidence: Object.freeze([
-      `declaration ${declarationSpan.fileName}:${declarationSpan.line}:${declarationSpan.column}`,
-      `first-sensitive-operation ${operationSpan.fileName}:${operationSpan.line}:${operationSpan.column}`,
-    ]) });
-  };
+  const formatDiagnostic = createSourceGenericAdoptionDiagnostics(source, input.projectRoot);
   const issues: SourceGenericAdoptionIssue[] = [];
   for (const instance of instances) {
     if (!step(instance.site)) break;
