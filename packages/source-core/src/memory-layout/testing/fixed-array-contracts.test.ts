@@ -62,7 +62,7 @@ for (const profile of arrayTestProfiles) {
       assert.deepEqual(layout.dataLayout, { providerDeclaration: registration.providerDeclaration, ...registration.descriptor });
       assertArrayObservation(checked, "sizeof", size, index);
     }
-    assert.deepEqual(valueMemoryLayout(arrayLayoutAt(checked, 3).elementLayout).fields.map(field => field.byteOffset), [0, 4]);
+    assert.deepEqual(valueMemoryLayout(arrayLayoutAt(checked, 3).elementLayout).fields.map(field => field.byteOffset), [0n, 4n]);
     assert.equal(arrayMemoryLayout(arrayLayoutAt(checked, 4).elementLayout).fixedArray.length, 2n);
     assert.equal(countTsonicMemoryLayoutValues(arrayLayoutAt(checked, 4), 3), 3);
     assert.notEqual(readTsonicMemoryType(checked.sourceFacts, arrayLayoutAt(checked, 6).call)?.identity,
@@ -146,6 +146,18 @@ test("array builder aliases and namespaces retain public declaration identity bu
   assertArrayObservation(checked, "sizeof", 8, 1);
 });
 
+test("explicit and aliased native array extents retain adjacent authored integer identities", () => {
+  const checked = cleanArraySession(`
+    type Extent = 9007199254740993;
+    const direct = memoryarraylayout<Empty, 9007199254740993>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993 });
+    const aliased = memoryarraylayout<Empty, Extent>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993 });
+  `);
+  for (const index of [0, 1]) {
+    assert.equal(arrayLayoutAt(checked, index).fixedArray.length, 9007199254740993n);
+    assert.equal(arrayLayoutAt(checked, index).fixedArray.lengthRuntimeBase, "number");
+  }
+});
+
 test("closed generic array aliases preserve explicit element markers and nested inference", () => {
   const checked = cleanArraySession(`
     type Row<Value> = FixedArray<Value, 2>;
@@ -188,6 +200,8 @@ const invalidArrays = [
   ["open count", "declare const count: number;", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: count })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["union count", "declare const count: 1 | 2;", "memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: count })", "ARRAY_LAYOUT_NOT_PROVEN"],
   ["asserted count", "", "memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 1 as 2 })", "ARRAY_TYPE_NOT_PROVEN"],
+  ["adjacent authored numeric extent", "", "memoryarraylayout<Empty, 9007199254740992>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993 })", "ARRAY_TYPE_NOT_PROVEN"],
+  ["adjacent aliased numeric extent", "type Extent = 9007199254740992;", "memoryarraylayout<Empty, Extent>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993 })", "ARRAY_TYPE_NOT_PROVEN"],
   ["huge nonzero storage", "", "memoryarraylayout({ datalayout: abi, bytesize: 9007199254740991, bytealignment: 1, stride: 9007199254740991, elementlayout: word, length: 9007199254740993n })", "ARRAY_DIMENSIONS_INVALID"],
 ] as const;
 

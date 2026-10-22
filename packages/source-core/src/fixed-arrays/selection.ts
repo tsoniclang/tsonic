@@ -8,6 +8,8 @@ import { isTsonicFixedArrayProviderType } from "./provider.js";
 export interface TsonicFixedArraySyntax {
   readonly authoredTypeNode?: Node;
   readonly elementType?: Node;
+  readonly extentType?: Node;
+  readonly extent?: Pick<TsonicFixedArrayFact, "length" | "lengthRuntimeBase">;
 }
 
 export type TsonicFixedArraySelection =
@@ -100,21 +102,13 @@ export function selectTsonicFixedArray(
   }
   const authoredCanonical = [...authoredSubjects].some(subject =>
     isTsonicFixedArrayProviderType(facts.getFact(subject, providerVirtualDeclarationFactKey)));
-  let extent: FixedArrayExtent | undefined;
-  if (authoredCanonical && authored !== undefined) {
-    let countNode = ast.typeArguments(authored)[1];
-    while (countNode !== undefined && ast.is.IsParenthesizedTypeNode(countNode)) {
-      countNode = ast.as.AsParenthesizedTypeNode(countNode)?.Type;
-    }
-    const literal = countNode === undefined ? undefined : ast.as.AsLiteralTypeNode(countNode)?.Literal;
-    const exact = literal === undefined ? undefined : sourceIntegerLiteralValue(ast, literal);
-    let operand = literal;
-    while (operand !== undefined && ast.is.IsPrefixUnaryExpression(operand)) {
-      operand = ast.as.AsPrefixUnaryExpression(operand)?.Operand;
-    }
-    if (exact !== undefined && operand !== undefined) {
-      extent = { length: exact, lengthRuntimeBase: ast.is.IsBigIntLiteral(operand) ? "bigint" : "number" };
-    }
+  let extent = syntax.extent;
+  const lengthType = syntax.extentType ?? (authoredCanonical && authored !== undefined ? ast.typeArguments(authored)[1] : undefined);
+  const authoredExtent = lengthType === undefined ? undefined : fixedArrayAuthoredExtent(lengthType, source);
+  if (authoredExtent !== undefined) {
+    if (extent !== undefined && (extent.length !== authoredExtent.length ||
+        extent.lengthRuntimeBase !== authoredExtent.lengthRuntimeBase)) return invalid("FixedArray extent evidence contradicts its authored type.");
+    extent = authoredExtent;
   }
   const selected = selectResolvedFixedArray(sourceType, {
     typeSymbol: checker.getTypeSymbol,
@@ -138,6 +132,39 @@ export function selectTsonicFixedArray(
     return invalid("The authored FixedArray element annotation does not match its selected element type.");
   }
   return Object.freeze({ kind: "selected", fact: snapshotFixedArrayFact({ ...selected.fact, elementType }) });
+}
+
+function fixedArrayAuthoredExtent(typeNode: Node, source: FixedArraySourceQueries): FixedArrayExtent | undefined {
+  const { ast, checker } = source;
+  const visited = new Set<Node>();
+  let current: Node | undefined = typeNode;
+  while (current !== undefined && !visited.has(current)) {
+    visited.add(current);
+    if (ast.is.IsParenthesizedTypeNode(current)) {
+      current = ast.as.AsParenthesizedTypeNode(current)?.Type;
+      continue;
+    }
+    const literal = ast.as.AsLiteralTypeNode(current)?.Literal;
+    if (literal !== undefined) {
+      const length = sourceIntegerLiteralValue(ast, literal);
+      let operand: Node | undefined = literal;
+      while (operand !== undefined && ast.is.IsPrefixUnaryExpression(operand)) operand = ast.as.AsPrefixUnaryExpression(operand)?.Operand;
+      return length === undefined || operand === undefined ? undefined
+        : { length, lengthRuntimeBase: ast.is.IsBigIntLiteral(operand) ? "bigint" : "number" };
+    }
+    const name = ast.as.AsTypeReferenceNode(current)?.TypeName;
+    if (name === undefined) return undefined;
+    let symbol = checker.getSymbolAtLocation(name);
+    const declarations = checker.getSymbolDeclarations(symbol);
+    if (declarations.some(declaration => declaration !== undefined && (ast.is.IsImportSpecifier(declaration) ||
+        ast.is.IsImportClause(declaration) || ast.is.IsNamespaceImport(declaration) || ast.is.IsExportSpecifier(declaration)))) {
+      symbol = checker.getAliasedSymbol(symbol);
+    }
+    const aliases = checker.getSymbolDeclarations(symbol).filter(declaration => declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration));
+    if (aliases.length !== 1) return undefined;
+    current = ast.typeNode(aliases[0]);
+  }
+  return undefined;
 }
 
 function selectResolvedFixedArray(

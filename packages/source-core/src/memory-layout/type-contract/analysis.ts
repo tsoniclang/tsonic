@@ -127,12 +127,16 @@ export function createMemoryTypeContracts(
     return domain === undefined ? undefined : domains.pointee(domain);
   }
 
-  function arrayResult(selection: ResolvedSourceCallInfo, queries: TsonicSourceFileAnalysisContext): TsonicFixedArrayFact | undefined {
+  function arrayResult(selection: ResolvedSourceCallInfo, queries: TsonicSourceFileAnalysisContext,
+    count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined {
     const arguments_ = queries.typeShape.getTypeArguments(selection.sourceResultType);
     if (arguments_.length !== 1 || arguments_[0] === undefined) return undefined;
     const array = selectTsonicFixedArray(arguments_[0], queries,
       { getFact: (subject, key) => readSourceFact(queries, subject, key) },
-      { elementType: selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode });
+      { elementType: selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode,
+        extentType: selection.sourceSelectedMethodTypeArguments?.[1]?.explicitTypeNode,
+        extent: selection.sourceSelectedMethodTypeArguments?.[1]?.explicitTypeNode === undefined
+          ? { length: count.value, lengthRuntimeBase: count.runtimeBase } : undefined });
     return array?.kind === "selected" ? array.fact : undefined;
   }
 
@@ -149,8 +153,8 @@ export function createMemoryTypeContracts(
       count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }) {
       const canonicalCall = canonical(call);
       if (canonicalCall === undefined) return undefined;
-      const fixedArray = arrayResult(canonicalCall, context);
-      const original = arrayResult(call.selected.selection, call.context);
+      const fixedArray = arrayResult(canonicalCall, context, count);
+      const original = arrayResult(call.selected.selection, call.context, count);
       const child = layouts.get(layout.call);
       const element = child === undefined ? undefined : selected(call, 0, undefined, child.domain);
       if (fixedArray === undefined || original === undefined || child === undefined ||
