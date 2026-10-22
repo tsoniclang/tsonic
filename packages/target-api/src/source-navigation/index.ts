@@ -14,7 +14,7 @@ export { generatedTypeParameterNames, authoredTypeParameterNames } from "./gener
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
-export { sourceBindingCapturedBeforeInitialization } from "./deferred-captures.js";
+export { sourceBindingCapturedBeforeInitialization, sourceBindingCapturedBeforeFirstWrite } from "./deferred-captures.js";
 export { sourceLexicalFunctionValueCreation, sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 export type { SourceLexicalValueCreation } from "./lexical-value-creation.js";
 export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
