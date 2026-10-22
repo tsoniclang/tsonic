@@ -89,7 +89,9 @@ test("concrete field producers remain exact independently of unknown public read
   assert.equal(producers(selected).length === 1 && selected.producers[0].subject.node === expected, true, "original authored creation");
   open(current.storage.closedOriginsFor(current.subject(field)), "external-input");
   const transported = producers(current.storage.storageProducersFor(current.subject(current.variable("selected"))));
-  assert.equal(transported.length === 1 && transported[0].subject.node === expected, true, "the selected class field ABI survives value transport");
+  // RULINGS 2026-10-23: the exported reader's body is an entry, so its `new Value()` is one more activation of the same arrow.
+  assert.equal(transported.length !== 0 && transported.every(producer => producer.subject.node === expected &&
+    producer.subject.projection.length === 0), true, "the selected class field ABI survives value transport");
   open(current.storage.closedOriginsFor(current.subject(current.variable("selected"))), "external-input");
 });
 

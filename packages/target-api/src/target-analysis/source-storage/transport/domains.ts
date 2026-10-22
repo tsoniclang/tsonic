@@ -5,7 +5,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageBoundSubject, SourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
@@ -364,6 +364,17 @@ export function createSourceStorageDomains(
     if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) &&
       !selected.origins.has(subject)) yield subject;
   };
+  // The root scope and a top-level declaration activation are where an outside caller's values enter.
+  const entryActivation = (bindings: SourceStorageSubstitutions): boolean => bindings === transport.substitutions.empty ||
+    bindings.kind === "frame" && bindings.boundary === "declaration" && bindings.parents.length === 1 &&
+    bindings.parents[0] === transport.substitutions.empty;
+  // A member location reached from outside the program that the program also writes holds those writes as well.
+  const writtenMember = (subject: SourceStorageSubject): boolean => {
+    const last = subject.projection[subject.projection.length - 1];
+    const member = last !== undefined && sourceStorageIsMemberProjection(last)
+      ? sourceStorageMemberSubject(last.declaration, ast, transport.subject) : subject.kind === "member" ? subject : undefined;
+    return member !== undefined && (transport.storedValuesFor(member)?.length ?? 0) !== 0;
+  };
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
@@ -372,7 +383,9 @@ export function createSourceStorageDomains(
       if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
       if (transport.substitutions.isBound(current.subject, current.bindings) ||
         receiverBinding(current.subject, current.bindings)) return false;
-      const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
+      // A location with stored writes holds them as well as its outside value, so the walk continues into its stores.
+      if (writtenMember(current.subject)) return false;
+      const stores = transport.storedInputsFor(current.subject);
       return boundaries.some(boundary => boundary.kind === "external-input" &&
         (boundary.owner === undefined || stores === undefined) &&
         !closedSourceInvocation(boundary.exposure, current.bindings));
@@ -483,15 +496,23 @@ export function createSourceStorageDomains(
         !navigation.isProjectDeclaration(origin.node) && (transport.nativeConstructorsFor(origin)?.length ?? 0) === 0)
         retainBoundary({ kind: "external-input", subject: origin, exposure: origin.node }, current.bindings);
     }
+    // An unbound external input is the domain's boundary, never one of its executed producers.
     const boundSubjects: import("../scoped/substitutions.js").SourceStorageBoundSubject[] = [];
+    const producing = new Set<SourceStorageSubject>();
     for (const candidate of selected.subjects) {
       if (!budget.step()) break;
       if (!candidate.contributes || !selected.origins.has(candidate.subject)) continue;
+      if (purpose === "storage-producers" && bindings === transport.substitutions.empty && candidate.subject.kind === "input" &&
+        entryActivation(candidate.bindings) &&
+        isExternalInput(candidate)) continue;
       if (!rows.add(1)) break;
       boundSubjects.push(candidate);
+      producing.add(candidate.subject);
     }
     if (budget.failure() !== undefined) reason = budget.failure();
-    return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundSubjects: Object.freeze(boundSubjects),
+    const subjects = purpose === "storage-producers" ? [...selected.origins].filter(origin => producing.has(origin) ||
+      !selected.subjects.some(candidate => candidate.subject === origin && candidate.contributes)) : [...selected.origins];
+    return Object.freeze({ subjects: Object.freeze(subjects), boundSubjects: Object.freeze(boundSubjects),
       boundaries: Object.freeze(boundaries), reason, absence: selected.absence });
   });
   return Object.freeze({ select });

@@ -212,7 +212,8 @@ selected.message = "changed";
   });
 }
 
-test("Error open-formal mutation is raw writable while its closed message origin remains unresolved", async () => {
+// RULINGS 2026-10-23: exported function bodies are entry points for source-storage reachability, so their writes count.
+test("Error open-formal mutation is raw writable and its message origin includes the exported body's write", async () => {
   const { source, file, provider, demands, variable, storage } = await checked("error-open-formal-storage-questions", `
 export function write(container: { value: Stored }): void {
   const { value: selected } = container;
@@ -232,8 +233,14 @@ const untouched = { message: "untouched" };
   const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))[0];
   assert.equal(field !== undefined, true, "checked Stored.message declaration");
   const component = demands.closedStorageOriginsFor(requiredStorageSubject(storage, binding, [{ kind: "member", declaration: field }]));
-  assert.equal(component.kind, "unresolved", "an unknown formal does not invent an exact message origin");
-  assert.equal(component.reason, "A demanded source storage relation has no completed correlated producer or absence proof.");
+  assert.equal(component.kind, "open", component.kind === "unresolved" ? component.reason : "an unknown formal keeps its message open");
+  const written = requiredNode(source.ast, file, node => source.ast.is.IsStringLiteral(node) && source.ast.text(node) === "changed");
+  assert.equal(component.origins.some(origin => origin.subject.node === written && origin.subject.projection.length === 0), true,
+    "the exported body's assigned message is an origin");
+  assert.equal(component.boundaries.some(boundary => boundary.kind === "external-input" && boundary.subject.node === source.ast.parameters(namedDeclaration(source.ast, file, "write"))[0]), true,
+    "the outside caller's container stays an external input");
+  assert.equal(component.boundaries.every(boundary => boundary.kind === "external-input" || boundary.kind === "external-write"), true,
+    "only the outside caller's values and writes stay open");
   assert.equal(demands.receivesWritableNative(selectedSubject), false, "an unbound formal is not a native constructor");
   assert.equal(demands.nativeConstructors.length, 0, "no manufactured native constructor");
   const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));

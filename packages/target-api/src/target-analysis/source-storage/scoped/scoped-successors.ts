@@ -19,7 +19,8 @@ import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStor
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
-import { createSourceStoragePhysicalMembers } from "./member-selection.js";
+import { createSourceStoragePhysicalMembers, sourceStorageSymbolicMemberAlias } from "./member-selection.js";
+import { createSourceStorageProgramEntries } from "./program-entries.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -43,6 +44,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     transport.memberAccessorsFor(declaration)?.size === 0;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
   const { conditionalExecutions, nativeInputExecutions } = createSourceStorageInputExecutions(source, budget, transport, scopes, reachability, readRelation);
+  const programEntries = createSourceStorageProgramEntries(source, transport, scopes, reachability, budget.step);
   const readEffects = function* (store: SourceStorageStore, selection:
     | { readonly kind: "general"; readonly execution?: SourceStorageTerm }
     | { readonly kind: "own-construction"; readonly execution: SourceStorageTerm }, deferred = false, context?: SourceStorageScope) {
@@ -83,6 +85,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
+  const symbolicInput = (subject: SourceStorageSubject, scope: SourceStorageScope): boolean => { const bound = scopes.lookup(subject, scope);
+    return bound === undefined || bound.kind === "replace" && bound.terms.some(value => value.kind === "leaf" && scopes.isSymbolic(value)); };
   const classQueries = {
     subjectFor: transport.subjectFor,
     nativeConstructorsFor: transport.nativeConstructorsFor,
@@ -400,10 +404,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       if (!copied) witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
       const stores = transport.storedValuesFor(subject);
-      if ((term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
-        scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined) {
-        terms.push(sourceStorageReference(subject, term.receiver.scope)); continue;
-      }
+      // An unbound external receiver keeps its symbolic member value; stored writes of the member still apply.
+      const unboundReceiver = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
+        scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
+      if (unboundReceiver) terms.push(sourceStorageReference(subject, term.receiver.scope));
+      if (unboundReceiver && stores === undefined) continue;
       if (stores === undefined) {
         if (!copied && !prototype) terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
           ? leaf(subject, creatorScope(original, captured.bindings)) : sourceStorageReference(subject, term.receiver.scope));
@@ -515,14 +520,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return terms === undefined ? undefined : { kind: "replace", terms };
     }
     if (term.kind === "execution-root") {
-      const terms: SourceStorageTerm[] = [];
-      for (const region of transport.sourceFiles) {
-        if (region.IsDeclarationFile) continue;
-        const reaches = reachability.region(region, term.demand);
-        if (reaches === undefined) return undefined;
-        if (reaches) terms.push(Object.freeze({ kind: "region", region, scope: scopes.empty, demand: term.demand, deferred: term.deferred }));
-      }
-      return { kind: "replace", terms };
+      const terms = programEntries(term);
+      return terms === undefined ? undefined : { kind: "replace", terms };
     }
     if (term.kind === "region") {
       const terms: SourceStorageTerm[] = [];
@@ -574,7 +573,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.kind === "store") {
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination => Object.freeze({ ...term, destination }), { contributes: false });
       if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
-      if (term.receiver.subject !== term.destination.subject) return absent;
+      if (term.receiver.subject !== term.destination.subject) return sourceStorageSymbolicMemberAlias(transport, symbolicInput,
+        term.receiver, term.destination) ? { kind: "replace", terms: [term.value] } : absent;
       const receiver = birth(term.receiver.subject, term.receiver.scope);
       const destination = birth(term.destination.subject, term.destination.scope);
       if (receiver === undefined || destination === undefined) return undefined;

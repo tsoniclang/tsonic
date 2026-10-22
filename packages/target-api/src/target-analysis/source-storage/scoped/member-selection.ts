@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageScopedSubject } from "../graph/scoped-model.js";
-import { sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
@@ -141,4 +141,20 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     }
     return completed || reason !== undefined ? { kind: "known", members: Object.freeze(members), absent, reason } : { kind: "pending" };
   };
+}
+
+// A member read through an unbound or symbolic input or receiver yields the member's own subject (scoped successors). The
+// same member reached as a projection of that input is the same symbolic location, so a store recorded on one is a store
+// of the other.
+export function sourceStorageSymbolicMemberAlias(transport: SourceStorageScopedTransport,
+  symbolic: (subject: SourceStorageSubject, scope: SourceStorageScope) => boolean,
+  left: SourceStorageReference, right: SourceStorageReference): boolean {
+  for (const [projected, member] of [[left, right], [right, left]] as const) {
+    const last = projected.subject.projection[projected.subject.projection.length - 1];
+    if ((projected.subject.kind !== "input" && projected.subject.kind !== "receiver") || last === undefined ||
+      !sourceStorageIsMemberProjection(last) || member.subject.projection.length !== 0 || member.subject.node !== last.declaration) continue;
+    const base = transport.subject(projected.subject.node, projected.subject.kind, projected.subject.projection.slice(0, -1));
+    if (base !== undefined && symbolic(base, projected.scope)) return true;
+  }
+  return false;
 }
