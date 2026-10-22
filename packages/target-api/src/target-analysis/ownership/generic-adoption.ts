@@ -480,7 +480,15 @@ export function analyzeSourceGenericAdoption(input: {
     if (selection.kind === "open") for (const boundary of selection.boundaries) {
       if (!step(operation)) return undefined;
       const owning = input.storage.boundActivationsFor(owner, boundary.bindings);
-      if (owning.kind === "unresolved") { unknown(owning.reason); continue; }
+      if (owning.kind === "unresolved") {
+        // A possible execution whose creation bindings hold no activation of the demanded owner runs inside one of the
+        // owner's selected activations; it never invents another activation.
+        const selected = contexts.filter(context => !context.uncertain);
+        if (selected.length === 0 || input.storage.failureReason() !== undefined) { unknown(owning.reason); continue; }
+        for (const context of selected) if (!contexts.some(previous => previous.bindings === context.bindings && previous.uncertain))
+          contexts.push(Object.freeze({ bindings: context.bindings, uncertain: true }));
+        continue;
+      }
       if (owning.activations.length === 0) { unknown("An open source execution requires its nonempty demanded-owner activation domain."); continue; }
       for (const activation of owning.activations) {
         if (!step(operation)) return undefined;
