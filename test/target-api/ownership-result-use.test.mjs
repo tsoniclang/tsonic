@@ -73,15 +73,21 @@ test("missing continuation proof remains unresolved, never an empty borrowed-inp
     const call = fixture.readCall(fixture.declaration(name));
     const selected = decideSourceAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
       disposition: resolveSourceAsyncResultDisposition(fixture.source, fixture.storage, call, fixture.budget),
-      continuation: { kind: "unresolved", at: call, reason: "The shared CFG owner has not closed the continuation." } });
+      continuation: { kind: "unresolved", at: call, reason: "The shared CFG owner has not closed the continuation." },
+      retention: { kind: "unresolved", at: call, reason: "No native retention premise describes this call." } });
     assert.equal(selected.kind, "unresolved", name);
     assert.match(selected.reason, /shared CFG/u);
   }
 });
 
 test("passing to an asynchronous consumer is not proof of an await in the caller's region", () => {
-  const call = fixture.readCall(fixture.declaration("passedToAsync"));
-  const selected = resolveSourceAsyncResultDisposition(fixture.source, fixture.storage, call, fixture.budget);
+  // The disposition records the pass; the result-use decision refuses it for a borrowed lease.
+  const owner = fixture.declaration("passedToAsync");
+  const call = fixture.readCall(owner);
+  const disposition = resolveSourceAsyncResultDisposition(fixture.source, fixture.storage, call, fixture.budget);
+  assert.equal(disposition.kind, "passed");
+  const selected = decideSourceAsyncResultUse({ ...fixture, call, completion: fixture.completion(call), disposition,
+    continuation: dependencyFor(owner) });
   assert.equal(selected.kind, "unresolved");
   assert.match(selected.reason, /source-scoped consumer/u);
 });
