@@ -11,7 +11,11 @@ function fixture(body) {
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
-  const storage = createSourceStorageQuery(source, [file], { ...defaultSourceStorageLimits, maximumSteps: 131_072 });
+  // Step bound measured 2026-10-23 (round-1 shared lane): relations stay shared (4 variants derive 1956 relations, 8 derive
+  // 4232), but since e7e76d954 each external-input stop proves its call closed with its own walk; for 8 variants that is
+  // 144 distinct invocation/activation proofs and about 600k of the 762k-778k steps (both read forms, both orders).
+  // 1_048_576 keeps that measured work plus 35% headroom.
+  const storage = createSourceStorageQuery(source, [file], { ...defaultSourceStorageLimits, maximumSteps: 1_048_576 });
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   return (name, expected) => {
     const subject = storage.subjectFor(initializer(name));

@@ -125,7 +125,10 @@ for (const reverse of [false, true]) {
       const left = {}; const right = {};
       const first = resolve(left); const second = resolve(right);
     `);
-    const storage = createSourceStorageQuery(current.source, [current.file], { ...defaultSourceStorageLimits, maximumSteps: 524_288 });
+    // Step bound measured 2026-10-23 (round-1 shared lane): 32 variants need 2_719_744 steps in either order (4: 125_952,
+    // 8: 299_008, 16: 835_584); the growth over the earlier bound comes from the per-activation closed-call proofs added in
+    // e7e76d954, not from unshared relations. 4_194_304 keeps that measured work plus 54% headroom.
+    const storage = createSourceStorageQuery(current.source, [current.file], { ...defaultSourceStorageLimits, maximumSteps: 4_194_304 });
     const selections = [["first", "left"], ["second", "right"]];
     for (const [name, original] of reverse ? selections.reverse() : selections) {
       const subject = storage.subjectFor(current.initializer(name));
