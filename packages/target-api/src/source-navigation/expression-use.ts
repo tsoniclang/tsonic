@@ -129,8 +129,7 @@ export function sourceExpressionResultUse(ast: AstReader, expression: Node): "co
 export function sourceCallableDefinitionIsDiscarded(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceFiles" | "expressionValueFlow" | "declarationUseSummary" |
-    "declarationSymbol" | "sourceReferenceFor">,
+  navigation: Pick<SourceProgramNavigation, "sourceFiles">,
 ): boolean {
   if (navigation === undefined) throw new Error("Callable creation demand requires its checked source navigation.");
   const visited = new Set<Node>();
@@ -145,51 +144,9 @@ export function sourceCallableDefinitionIsDiscarded(
     if (ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) definitions.push(current);
   }
   if (!ast.is.IsSourceFile(root) || !navigation.sourceFiles.some(file => file === root)) return false;
-  return definitions.some(definition => {
-    const disposition = sourceExpressionResultDisposition(ast, definition);
-    return disposition.kind === "discarded" || disposition.kind === "stored" &&
-      sourceStoredCallableValueIsUnobserved(definition, disposition.use, ast, navigation);
-  });
-}
-
-function sourceStoredCallableValueIsUnobserved(
-  expression: Node,
-  owner: Node,
-  ast: AstReader,
-  navigation: Parameters<typeof sourceCallableDefinitionIsDiscarded>[2],
-): boolean {
-  if (!ast.is.IsVariableDeclaration(owner) || ast.variableDeclarationKind(owner) !== "const") return false;
-  const sourceFile = ast.getSourceFile(expression);
-  if (sourceFile === undefined || !navigation.sourceFiles.includes(sourceFile)) return false;
-  const flow = navigation.expressionValueFlow(expression);
-  if (flow.expression !== expression || !flow.aliasDeclarations.includes(owner) || flow.escapes ||
-    flow.memberWritten || flow.receiverUsed || flow.identityCompared || flow.captured || flow.returned ||
-    flow.yielded || flow.passedAsArgument || flow.storedOutsideBinding || flow.exported) return false;
-  const aliases = new Set<Node>();
-  let useIndex = 0;
-  for (const alias of flow.aliasDeclarations) {
-    const name = ast.name(alias);
-    if (aliases.has(alias) || !ast.is.IsVariableDeclaration(alias) || ast.variableDeclarationKind(alias) !== "const" ||
-      !ast.is.IsIdentifier(name) || ast.getSourceFile(alias) !== sourceFile) return false;
-    aliases.add(alias);
-    const symbol = navigation.declarationSymbol(alias, sourceFile);
-    const binding = navigation.sourceReferenceFor(name);
-    const summary = navigation.declarationUseSummary(alias);
-    if (symbol === undefined || binding?.declaration !== alias || binding.symbol !== symbol ||
-      summary.declaration !== alias || summary.exported || summary.bindingWritten || summary.memberWritten ||
-      summary.receiverUsed || summary.identityCompared || summary.captured || summary.conditionallyRead) return false;
-    for (const use of summary.uses) {
-      const selected = navigation.sourceReferenceFor(use.reference);
-      if (flow.uses[useIndex++] !== use || use.captured || use.throughMember ||
-        selected?.declaration !== alias || selected.symbol !== symbol) return false;
-      if (use.kind === "type-only" && use.role === "type-only") continue;
-      if (use.kind === "first-class" && use.role === "storage") continue;
-      if (use.kind === "first-class" && use.role === "value" &&
-        sourceExpressionResultUse(ast, use.reference) === "discarded") continue;
-      return false;
-    }
-  }
-  return useIndex === flow.uses.length;
+  // RULINGS 2026-10-22: a callable stored in a binding is created (its captures are evaluated) even when the binding is
+  // never read; only a definition whose own value is discarded is erased.
+  return definitions.some(definition => sourceExpressionResultDisposition(ast, definition).kind === "discarded");
 }
 
 export type SourceValueInputSlot =
