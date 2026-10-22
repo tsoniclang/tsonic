@@ -90,7 +90,7 @@ test("integer constants come from one shared reader that reads each extracted le
   assert.equal(index.literalValue.get(refused) === undefined && index.literalValue.get(containing) === undefined &&
     index.literalValue.get(containing.left) === undefined, true,
   "a refused root and every root that contains it have no integer constant");
-  assert.equal(leaves.every((leaf) => textReads.get(leaf) === 2), true,
+  assert.equal(leaves.every((leaf) => textReads.get(leaf) === 1), true,
     "each numeric leaf is read only by its own extraction, never again by an enclosing integer root");
   const roots = [sum, product.left, product, difference.left, difference, outer];
   assert.equal(roots.every((node) => operatorReads.get(node) === 1), true,
