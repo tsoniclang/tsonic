@@ -59,7 +59,7 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     const dependencies = [["@types/node", "node"], ["undici-types", "undici"]].flatMap(([packageName, library]) =>
       [...readSourceInventory(resolve(metadataWorkspace, "tsonic/node_modules", packageName), { extensions: [".d.ts", "package.json"] })]
         .map(([path, text]) => [`libraries/${library}/${path}`, text]));
-    const authored = native.get("src/providers/native/projection/functions.ts");
+    const authored = native.get("src/providers/native/projection/declarations/signatures.ts");
     const start = authored.indexOf("export function selectUnambiguousMembers(");
     const end = authored.indexOf("\nfunction uniqueVariadicParameterName(", start);
     assert.equal(start >= 0 && end > start, true, "actual pinned native owner span exists");

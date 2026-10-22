@@ -12,7 +12,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
       bodySha256: "968372fbab235aed4280a309e09724f601397b8da163d2874e16cb6df376cd8d", role: "provider-metadata",
       evidence: [{ kind: "parameter", name: "document" }, { kind: "parameter", name: "implementation" }, { kind: "parameter", name: "dispatch" }, { kind: "parameter", name: "implementationBindings" }],
       reason: "Normalize rustdoc's explicit provided_trait_methods and original trait/impl identities, respecting exact overrides, unique methods with bodies and generic substitutions; this decodes native provider input and does not select source lowering or target syntax." },
-    { file: "src/providers/native/projection/functions.ts", symbol: "selectUnambiguousMembers",
+    { file: "src/providers/native/projection/declarations/signatures.ts", symbol: "selectUnambiguousMembers",
       bodySha256: "98c1971f96588e79fdd944987c61e67f012602ba5d39ae674e9d1ede0cfc6c34", role: "provider-metadata",
       evidence: [{ kind: "parameter", name: "members" }, { kind: "parameter", name: "operations" }],
       reason: "Project one supplied native declaration's source-visible schema by removing ambiguous static/instance member slots and their exact corresponding operation IDs together; no checked source demand, carrier or emission policy is decided." },
