@@ -293,13 +293,11 @@ test("CLI hard-rejects unsupported explicit any operators ", async () => {
       "  return (consume(value), 1);",
       "}",
       "",
-      "export function deleteName(value: any): boolean {",
-      "  return delete value.name;",
-      "}",
-      "",
     ].join("\n"),
   });
 
+  // RULINGS 2026-10-23: one build reports all diagnostics of the failing stage, so the operator refusals are checked
+  // together here and the deletion refusal (an earlier stage that would stop the build first) in its own build below.
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
   assert.match(build.stdout + build.stderr, /operator '<<'/u);
@@ -308,8 +306,27 @@ test("CLI hard-rejects unsupported explicit any operators ", async () => {
   assert.match(build.stdout + build.stderr, /operator '\*\*'/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
   assert.doesNotMatch(build.stdout + build.stderr, /operator ','/u);
-  assert.match(build.stdout + build.stderr, /Deletion requires one exact checked element access/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+
+  const deletionDirectory = resolve(tempRoot, "dynamic-values-any-delete-reject");
+  await writeProject(deletionDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp", options: { namespace: "Smoke.Generated", assemblyName } }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function deleteName(value: any): boolean {",
+      "  return delete value.name;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const deletion = runNode([cliPath, "build", "--project", resolve(deletionDirectory, "tsonic.json")]);
+  assert.notEqual(deletion.status, 0);
+  assert.match(deletion.stdout + deletion.stderr, /Deletion requires one exact checked element access/u);
+  assert.equal(existsSync(csharpProjectPath(deletionDirectory, assemblyName)), false);
 });
 
 test("CLI emits and executes explicit any comma sequences through native statements", async () => {
