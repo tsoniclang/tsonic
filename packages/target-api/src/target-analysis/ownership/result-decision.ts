@@ -29,7 +29,8 @@ export function decideSourceAsyncResultUse(input: {
   const contractProblem = sourceOwnershipContractProblem(source, call, selected.sourceResultType, completion);
   if (contractProblem !== undefined) return sourceOwnershipUnresolved(call, contractProblem);
   if (disposition.kind === "unresolved") return disposition;
-  if (completion.resultPolicy === "must-observe" && disposition.kind === "discarded") {
+  // An explicit `void` is the author's discard decision; the must-observe rule refuses only implicit drops.
+  if (completion.resultPolicy === "must-observe" && disposition.kind === "discarded" && !source.ast.is.IsVoidExpression(disposition.use)) {
     return Object.freeze({ kind: "resolved", call, disposition, dependencies: Object.freeze([]), decision: "rejected",
       diagnostic: Object.freeze({ code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", at: call,
         message: "A native asynchronous call result must be observed, not discarded." }) });
