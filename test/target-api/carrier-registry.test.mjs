@@ -57,6 +57,22 @@ test("carrier vocabulary follows imported return aliases, constructor calls and 
   assert.equal(validate(rows, discovered).some(failure => failure.endsWith("#unrelatedSpelling")), true);
 });
 
+test("records whose own kind equals a carrier kind are not carrier constructions", () => {
+  const changed = new Map(source);
+  const module = "src/analysis/records.ts";
+  changed.set(module, `import type { TargetTypeRef } from "../target-model/types/model.js";
+    export interface Layout { readonly kind: "target-named"; readonly size: number; }
+    export type Pattern = { readonly kind: "target-named"; readonly elements: number } | { readonly kind: "object" };
+    export function layout(): Layout { return { kind: "target-named", size: 4 }; }
+    export function patterns(record: (pattern: Pattern) => void) { record({ kind: "target-named", elements: 2 }); }
+    export function carrier(): TargetTypeRef | Layout { return { kind: "target-named", id: "checked:carrier" }; }
+    export function untyped() { return { kind: "target-named" as const, id: "checked:untyped" }; }`);
+  const symbols = deriveCarrierVocabulary(changed, root).contracts.filter(declaration => declaration.module === module)
+    .map(declaration => declaration.symbol).sort();
+  assert.deepEqual(symbols, ["carrier", "untyped"],
+    "a named non-carrier record and a literal typed by one are not carriers; carrier-typed and untyped literals still are");
+});
+
 test("carrier vocabulary rejects a missing root and syntactically invalid source", () => {
   assert.throws(() => deriveCarrierVocabulary(source, { module: model, symbol: "Missing" }), /root does not exist/u);
   assert.throws(() => deriveCarrierVocabulary(new Map([[model, "export type Broken = @;"]]), root), /invalid syntax/u);
