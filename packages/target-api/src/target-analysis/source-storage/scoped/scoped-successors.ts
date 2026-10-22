@@ -740,6 +740,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const values: SourceStorageTerm[] = [];
       for (const input of transport.incomingFor(term.subject)) {
         if (!budget.step()) return undefined;
+        // The binding's own initialization write joins the component and its default; both are selected below instead.
+        if (input.kind === "value" && input.projection.length === 0 && input.node === ast.name(node)) continue;
         const component = input.projection[input.projection.length - 1];
         const receiver = component === undefined || !sourceStorageIsMemberProjection(component) ? undefined
           : transport.subject(input.node, input.kind, input.projection.slice(0, -1));
