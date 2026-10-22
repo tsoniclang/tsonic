@@ -182,7 +182,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
     { file: "src/analysis/operations/element-access.ts", symbol: "resolveRustCheckedElementAccess",
       bodySha256: "605c7ea80904afa87599da90795931f3528e2acc30f203c2304f33146dcb6438", role: "analysis",
       evidence: [{ kind: "parameter", name: "context" }] },
-    { file: "src/analysis/operations/iteration.ts", symbol: "selectRustCheckedIteration",
+    { file: "src/analysis/operations/iteration/selection.ts", symbol: "selectRustCheckedIteration",
       bodySha256: "8654767309e5ab9b2d4bc6ce9d07854340c6e704c6e66e28a64c32a175147816", role: "analysis",
       evidence: [{ kind: "parameter", name: "context" }] },
     { file: "src/analysis/operations/member-access.ts", symbol: "selectRustCheckedDelete",
