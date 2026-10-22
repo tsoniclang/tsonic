@@ -33,10 +33,19 @@ export function sourceBindingCapturedBeforeFirstWrite(
   navigation: Pick<SourceProgramNavigation, "declarationUses">,
 ): boolean {
   if (!ast.is.IsVariableDeclaration(declaration) || ast.as.AsVariableDeclaration(declaration)?.Initializer !== undefined) return false;
+  if (initializedByItsStatement(declaration, ast)) return false;
   const scope = sourceBindingScope(declaration, ast);
   if (scope === undefined || ast.is.IsSourceFile(scope)) return false;
   const boundaryEnd = firstDirectWriteEnd(declaration, scope, ast, navigation);
   return boundaryEnd !== undefined && capturedBefore(declaration, scope, undefined, boundaryEnd, ast, navigation);
+}
+
+/** A for-of or for-in loop variable is initialized by each iteration, and a catch variable by the caught value. */
+function initializedByItsStatement(declaration: Node, ast: AstReader): boolean {
+  const parent = ast.parent(declaration);
+  if (parent !== undefined && ast.kindName(parent) === "KindCatchClause") return true;
+  const statement = parent === undefined ? undefined : ast.parent(parent);
+  return statement !== undefined && (ast.kindName(statement) === "KindForOfStatement" || ast.kindName(statement) === "KindForInStatement");
 }
 
 function capturedBefore(
