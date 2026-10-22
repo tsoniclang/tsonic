@@ -206,11 +206,15 @@ export function analyzeSourceGenericAdoption(input: {
     const constructorType = symbol === undefined ? undefined : semantics.types.typeOfSymbol(symbol);
     if (constructorType !== undefined && semantics.types.isIdentical(type, constructorType) &&
       declarations.some(declaration => ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))) return;
-    // A project type without type parameters, such as the polymorphic `this` of a non-generic class, has no type
-    // arguments to adopt; only a generic project type needs its complete bindings.
+    // The polymorphic `this` of a class or interface is constrained by its declared instance type; its receiver
+    // instances are those of that declared type.
+    const apparent = bindings === undefined ? semantics.types.apparentType(type) : undefined;
+    if (apparent !== undefined && !semantics.types.isIdentical(apparent, type) && declarations.some(declaration => {
+      const declared = semantics.declarations.declaredType(declaration);
+      return declared !== undefined && semantics.types.isIdentical(declared, apparent);
+    })) { receiverInstances(site, apparent, active); return; }
     if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
-      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) &&
-      ast.typeParameters(declaration).length !== 0)) {
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
       refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");
       return;
     }
