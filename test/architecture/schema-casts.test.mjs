@@ -93,7 +93,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/source-storage/queries.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/member-accessors.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/scoped-scopes.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/transport/transport.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/transport/syntax-collection.ts": 2,
   "packages/target-api/src/target-analysis/value-flow-conditions.ts": 3,
 });
 
