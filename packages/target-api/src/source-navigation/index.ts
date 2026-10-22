@@ -1,4 +1,46 @@
 export * from "./navigation.js";
+export * from "./ast.js";
+export * from "./class-members.js";
+export * from "./checked-casts.js";
+export * from "./kinds.js";
+export * from "./node-access.js";
+export type {
+  SourceBindingWrite,
+  SourceBindingWriteValue,
+  SourceClassConstructorParameter,
+  SourceClassConstructorResult,
+  SourceClassConstructorSignature,
+  SourceCountedLoop,
+  SourceCallableImplementationResult,
+  SourceDeclarationReference,
+  SourceDeclarationUse,
+  SourceDeclarationUseSummary,
+  SourceExpressionEffects,
+  SourceExpressionValueFlowSummary,
+  SourceDeclaredHeritageEdge,
+  SourceDeclaredHeritageResult,
+  SourceHeritagePathResult,
+  SourceProgramNavigation,
+  SourceParameterUseSummary,
+  SourceProjectMemberDispatch,
+  SourceProjectMemberContractsResult,
+  SourceProjectMemberImplementationResult,
+  SourceProjectModuleDependency,
+  SourceProjectModuleExport,
+  SourceProjectModuleSpecifierResolution,
+  SourceProjectReference,
+  SourceReferenceIndexStatistics,
+  SourceValueEscapeKind,
+} from "./types.js";
+export {
+  projectSourceNodeIdentity,
+  sourceFileIdentity,
+  sourceNodeIdentity,
+  sourceNodesEqual,
+  sourceSymbolIdentity,
+  sourceSymbolsEqual,
+} from "./identity.js";
+export { sourceBindingWriteAtReference } from "./references-usage.js";
 export { referenceQueryNode } from "./syntax.js";
 export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";

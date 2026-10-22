@@ -76,7 +76,7 @@ test("the native trait constructor pairs with the named-contract owner and prese
 test("the structural native difference is pinned to fixed arrays and never replaces the concrete row's proof", async () => {
   const { rustFixedArrayTargetType, rustFixedArrayCarrierValue } =
     await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
-  const { rustTypeFromCarrier } = await import("../../../tsonic-rust/dist/backend/planner/types/render.js");
+  const { rustTypeFromCarrier } = await import("../../../tsonic-rust/dist/backend/planner/types/carrier-syntax.js");
   const element = { kind: "source-primitive", name: "int64" };
   const extent = { kind: "integer", value: "9007199254740993" };
   const carrier = rustFixedArrayTargetType(element, extent);

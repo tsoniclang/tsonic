@@ -1,7 +1,8 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 import { createSourceCallableValueQuery } from "../../../source-navigation/callable-values.js";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/types.js";
+import type { ResolvedSourceCallInfo } from "../../../source-semantics/call-result-selection.js";
+import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/types.js";
 import type { SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
 
 export interface SourceGlobalCallStorageEffect {

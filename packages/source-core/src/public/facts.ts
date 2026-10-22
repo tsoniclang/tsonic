@@ -53,14 +53,11 @@ export {
   tsonicFixedArrayProviderMember,
 } from "../fixed-arrays/provider.js";
 export type { TsonicFixedArrayProviderMember } from "../fixed-arrays/provider.js";
-export {
-  tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey,
-  tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey,
-} from "../memory-layout/facts.js";
+export { tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../memory-layout/facts.js";
+export type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity, TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
 export type {
-  TsonicDataLayoutDescriptor, TsonicDataLayoutFact, TsonicDataLayoutIdentity,
-  TsonicDataLayoutRegistration, TsonicMemoryFieldLayoutFact,
-  TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact, TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
+  TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact,
+  TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
 } from "../memory-layout/facts.js";
 export { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";

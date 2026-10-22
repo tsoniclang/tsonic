@@ -1,11 +1,6 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "@tsonic/target-api/provider";
-export type {
-  TsonicDataLayoutDescriptor,
-  TsonicDataLayoutIdentity,
-  TsonicDataLayoutRegistration,
-} from "@tsonic/target-api/provider";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";

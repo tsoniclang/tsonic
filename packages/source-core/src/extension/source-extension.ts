@@ -19,7 +19,7 @@ import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
 
 import { analyzeTsonicMemoryOperations } from "../memory-layout/analysis.js";
 
-import type { TsonicDataLayoutRegistration } from "../memory-layout/facts.js";
+import type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
 import { captureDataLayoutRegistrations } from "../memory-layout/registrations.js";
 
 import { recordUnsupportedTsonicCoreReExportDiagnostics } from "../analysis/source-module-admission.js";

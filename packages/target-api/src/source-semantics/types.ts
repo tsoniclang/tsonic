@@ -1,4 +1,11 @@
-import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, ResolvedSourceCallableCompletionInfo, ResolvedSourceElementAccessInfo, ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourcePropertyAccessInfo, ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol, TypeSignatureParameterInfo, TypeTupleElementInfo, Type } from "@tsonic/tsts";
+import type {
+  AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, ResolvedSourceCallableCompletionInfo,
+  ResolvedSourceElementAccessInfo, ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo,
+  ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourcePropertyAccessInfo,
+  ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo,
+  ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol,
+  TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
+} from "@tsonic/tsts";
 import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/index.js";
 import type { SourceAuthoredTypeSelection } from "./authored-type-selection.js";
 import type { SourceContextualValueTypeSelection } from "./contextual-type-selection.js";
@@ -242,22 +249,6 @@ export interface SourceProgramDocuments {
   lookupAuthored(occurrence: SourceAuthoredOccurrence): SourceOccurrenceLookup;
 }
 
-export type {
-  ResolvedSourceCallInfo,
-  SourceCallResultSelection,
-} from "./call-result-selection.js";
-export type {
-  SourceAuthoredTypeSelection,
-} from "./authored-type-selection.js";
-export type {
-  SourceContextualValueTypeSelection,
-} from "./contextual-type-selection.js";
-export type {
-  SourceTypeRelationship,
-} from "./type-relationship.js";
-export type {
-  SourceTypeRefinement,
-} from "./type-refinement.js";
 
 export interface TargetSourceProgram {
   readonly ast: AstReader;

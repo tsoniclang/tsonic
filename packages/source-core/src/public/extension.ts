@@ -37,5 +37,8 @@ export type {
 export type { TsonicCoreSourceExtensionOptions } from "../extension/source-extension.js";
 export { memoryOperationDeclarations, memoryTypeDeclarations, tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "../memory-layout/declarations.js";
 export { pointerViewDeclaration, tsonicPointerViewSignatureIds } from "../pointers/views/declarations.js";
-export type { TsonicDataLayoutRegistration } from "../memory-layout/facts.js";
-export { attributeBuilderDeclaration, attributeMemberBuilderDeclaration, tsonicAttributeBuilderMemberIds, tsonicAttributeBuilderSignatureIds } from "../attributes/provider-declarations.js";
+export type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
+export {
+  attributeBuilderDeclaration, attributeMemberBuilderDeclaration, tsonicAttributeBuilderMemberIds,
+  tsonicAttributeBuilderSignatureIds,
+} from "../attributes/provider-declarations.js";

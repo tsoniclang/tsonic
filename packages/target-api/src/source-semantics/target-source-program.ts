@@ -11,7 +11,6 @@ import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subje
 import { createSourceProgramDocuments } from "./source-documents.js";
 import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
 import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
-export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { resolveSourceFlowConditions } from "../target-analysis/flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
@@ -19,37 +18,9 @@ import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
 import { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
 import { analyzeSourceEnumConstants } from "../target-analysis/enum-constants.js";
-export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
+import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
+import type { SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
 
-export {
-  sourceTypeSyntaxIsCompositional,
-  sourceTypeSyntaxRoot,
-} from "./type-syntax.js";
-export {
-  orderEnumerableOwnStringProperties,
-} from "./enumerable-own-properties.js";
-export {
-  selectSourceObjectLiteralAccessors,
-} from "./object-literal-accessors.js";
-export {
-  sourceCallableUsesLexicalThis,
-  sourceExpressionUsesLexicalThis,
-} from "./lexical-this.js";
-export type {
-  SourceObjectLiteralAccessorMember,
-  SourceObjectLiteralAccessorOccurrence,
-  SourceObjectLiteralAccessorSelection,
-} from "./object-literal-accessors.js";
-export type {
-  SourceCallParameterSlot,
-} from "./call-parameter-slots.js";
-export {
-  sourcePropertyTypeEvidenceNodes,
-  sourceIndexedTypeEvidence,
-  sourceTransformedTypeFactEvidenceNodes,
-  sourceTupleElementTypeEvidenceNodes,
-} from "./type-component-evidence.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -388,32 +359,3 @@ function definedValues<T>(values: readonly (T | undefined)[]): readonly T[] {
   return Object.freeze(values.filter((value): value is T => value !== undefined));
 }
 
-export type {
-  ResolvedSourceCallInfo,
-  SourceCallResultSelection,
-} from "./call-result-selection.js";
-export type {
-  SourceAuthoredTypeSelection,
-  SourceContextualValueTypeSelection,
-  SourceContextualTupleLiteralSelection,
-  SourceAuthoredOccurrence,
-  SourceDocument,
-  SourceFactSubjectQueries,
-  SourceFileSemantics,
-  SourceFinalTypeQueries,
-  SourceOccurrence,
-  SourceOccurrenceLookup,
-  SourceOperationEvidenceQueries,
-  SourceProgramSemantics,
-  SourceProgramDocuments,
-  SourceSelectedDeclarationQueries,
-  SourceSyntheticOccurrence,
-  SourceTypeRelationship,
-  SourceTypeRefinement,
-  SourceCallableTypeEvidence,
-  SourceCallableParameterEvidence,
-  SourceStandardTypeTransformation,
-  SourceTypeComponentEvidence,
-  SourceValueTypeRefinementSelection,
-  TargetSourceProgram,
-} from "./types.js";

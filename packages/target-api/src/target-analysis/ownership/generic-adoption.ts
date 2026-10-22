@@ -2,11 +2,18 @@ import { providerVirtualDeclarationFactKey, type Node, type Type } from "@tsonic
 import { isAbsolute, relative } from "node:path";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import { isTsonicSourceProfileDeclarationPath } from "../../source-profile.js";
-import { sourceCallableDefinitionIsDiscarded, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees, sourceTransparentExpressionOperand } from "../../source-navigation/index.js";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/types.js";
+import {
+  sourceCallableDefinitionIsDiscarded, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
+  sourceNodesOutsideErasedSubtrees, sourceTransparentExpressionOperand,
+} from "../../source-navigation/index.js";
+import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
+import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceDiagnosticSpanReader } from "../../source-semantics/diagnostic-spans.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
-import type { SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer, SourceStorageQueries, SourceStorageProducersSelection } from "../source-storage/model/types.js";
+import type {
+  SourceStorageBindings, SourceStorageBoundActivation, SourceStorageProducer, SourceStorageQueries,
+  SourceStorageProducersSelection,
+} from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "../source-storage/graph/invocation-inputs.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";

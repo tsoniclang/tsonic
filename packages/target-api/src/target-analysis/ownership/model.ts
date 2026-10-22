@@ -1,6 +1,6 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
-import type { ResolvedSourceCallInfo } from "../../source-semantics/types.js";
+import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
 import type { SourceStorageBudget } from "../source-storage/model/resource-budget.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";

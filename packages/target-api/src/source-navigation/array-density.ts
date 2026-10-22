@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "./ast.js";
-import type { TargetSourceProgram } from "../source-semantics/target-source-program.js";
+import type { TargetSourceProgram } from "../source-semantics/types.js";
 
 export interface SourceArrayDensityQueries {
   array(expression: Node): boolean;
