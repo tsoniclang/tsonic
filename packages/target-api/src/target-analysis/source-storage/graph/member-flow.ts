@@ -21,6 +21,12 @@ export interface SourceStorageSpreadMember {
   readonly declarations: readonly Node[];
 }
 
+// A member read through a receiver typed T | undefined | null reads the member of T: the nullish constituents have no
+// members, so member correspondence is computed against the non-nullish receiver type.
+function memberDestination(semantics: ReturnType<TargetSourceProgram["semantics"]["forFile"]>, receiverType: Type): Type | undefined {
+  return semantics.types.isUnion(receiverType) ? semantics.types.nonNullableType(receiverType) : receiverType;
+}
+
 export function createSourceStorageMemberFlow(
   source: TargetSourceProgram,
   budget: SourceStorageBudget,
@@ -94,12 +100,14 @@ export function createSourceStorageMemberFlow(
       if (!published) rows.release();
     }
   };
-  const selectedIndex = (owner: SourceStorageSubject, destinationType: Type): MemberIndex | undefined => {
+  const selectedIndex = (owner: SourceStorageSubject, receiverType: Type): MemberIndex | undefined => {
     if (!budget.step()) return undefined;
     const file = sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
     const semantics = source.semantics.forFile(file);
+    const destinationType = memberDestination(semantics, receiverType);
+    if (destinationType === undefined) return undefined;
     const contextual = owner.projection.length === 0 && source.ast.is.IsObjectLiteralExpression(owner.node)
       ? semantics.types.contextualType(owner.node) : undefined;
     if (!semantics.types.isUnion(type)) return indexFor(file, type, destinationType, contextual);
@@ -113,7 +121,7 @@ export function createSourceStorageMemberFlow(
     const queries = source.semantics.forFile(file);
     const type = sourceStorageSubjectType(source, owner, file);
     let declarations: readonly Node[] | undefined;
-    if (type !== undefined && type === destinationType) {
+    if (type !== undefined && (type === destinationType || type === memberDestination(queries, destinationType))) {
       const members = queries.types.propertyInfos(type).map(property => Object.freeze([...new Set(
         [property.symbol, ...property.rootSymbols].flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]));
       const selected = members.filter(declarations => declarations.includes(declaration));
