@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram, validateSourceBinaryEntry } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { validateSourceBinaryEntry } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 for (const [name, text, expected] of [
