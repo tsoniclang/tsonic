@@ -322,9 +322,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     for (const captured of originals) {
       if (!budget.step()) return undefined;
       const original = captured.subject.node;
+      // A signature names a member of the literal's checked type; it is copied only when a spread supplies that member.
+      const signature = ast.is.IsPropertySignatureDeclaration(original) || ast.kindName(original) === "KindMethodSignature";
       const copied = sourceStorageObjectRestOwner(term.receiver.subject.node, ast) !== undefined || ast.is.IsObjectLiteralExpression(term.receiver.subject.node) &&
-        ast.parent(original) !== term.receiver.subject.node && !ast.is.IsPropertySignatureDeclaration(original) &&
-        ast.kindName(original) !== "KindMethodSignature";
+        ast.parent(original) !== term.receiver.subject.node && (!signature ||
+          transport.memberFlow.copyContributionFor(term.receiver.subject, original, receiverType, term.receiver.subject.node)?.kind === "spread");
       const subject = copied ? transport.subject(term.receiver.subject.node, term.receiver.subject.kind, [...term.receiver.subject.projection, {
         kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member", declaration: original,
       }, ...term.projection]) : sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
