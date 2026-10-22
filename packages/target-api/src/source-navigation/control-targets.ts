@@ -36,16 +36,18 @@ export function sourceNodeIsIteration(ast: AstReader, node: Node): boolean {
 }
 
 export interface SourceLabeledStatementTarget {
+  readonly name: string;
   readonly body: Node;
   readonly loop: Node | undefined;
   readonly loopBody: Node | undefined;
 }
 
 export function sourceLabeledStatementTarget(ast: AstReader, node: Node): SourceLabeledStatementTarget | undefined {
+  const label = LabeledStatement_Label(ast, node);
   const body = LabeledStatement_Statement(ast, node);
-  if (body === undefined) return undefined;
+  if (label === undefined || body === undefined) return undefined;
   let current: Node | undefined = body;
   while (current !== undefined && ast.is.IsLabeledStatement(current)) current = LabeledStatement_Statement(ast, current);
   const loop = current !== undefined && sourceNodeIsIteration(ast, current) ? current : undefined;
-  return Object.freeze({ body, loop, loopBody: loop === undefined ? undefined : IterationStatement_Statement(ast, loop) });
+  return Object.freeze({ name: ast.text(label), body, loop, loopBody: loop === undefined ? undefined : IterationStatement_Statement(ast, loop) });
 }
