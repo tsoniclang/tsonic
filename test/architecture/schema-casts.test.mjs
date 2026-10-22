@@ -20,7 +20,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/constructors.ts": 1,
   "packages/target-api/src/source-navigation/counted-loops.ts": 6,
   "packages/target-api/src/source-navigation/declaration-uses.ts": 22,
-  "packages/target-api/src/source-navigation/deferred-captures.ts": 1,
+  "packages/target-api/src/source-navigation/deferred-captures.ts": 2,
   "packages/target-api/src/source-navigation/expression-effects.ts": 2,
   "packages/target-api/src/source-navigation/expression-use.test.ts": 4,
   "packages/target-api/src/source-navigation/expression-use.ts": 45,
