@@ -4,8 +4,11 @@ import { createSourceIntegerConstantReader, sourceIntegerConstantValue, sourceIn
 import { checkedSource, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 function integerAst(operatorRead = () => {}) {
+  // Integer literal reads require authored tokens, so each stub literal is its own one-token authored source.
   return { kindName: node => node.kind, text: node => node.text,
-    authoredRange: () => ({ kind: "synthetic" }), operatorKindName(node) { operatorRead(node); return node.operator; },
+    authoredRange: node => ({ kind: "authored", start: 0, end: node.text.length }),
+    getSourceFile: node => node, getSourceText: file => file.text,
+    operatorKindName(node) { operatorRead(node); return node.operator; },
     is: { IsParenthesizedExpression: node => node.kind === "KindParenthesizedExpression",
       IsPrefixUnaryExpression: node => node.kind === "KindPrefixUnaryExpression",
       IsBinaryExpression: node => node.kind === "KindBinaryExpression" },
