@@ -82,17 +82,18 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     projections.set(current, selected);
     return projection;
   };
-  const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>((current, _read, emit, forward) => {
+  const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>("context-applications", (current, _read, emit, forward) => {
     if (current.kind === "binding") {
       const projection = projectionFor(current, current.candidate, current.invocation);
-      return projection !== undefined && forward(current.subject, projection);
+      if (projection === undefined) { budget.reject("Source storage context bindings require a projection for their selected candidate."); return false; }
+      return forward(current.subject, projection);
     }
     if (isPort(current)) return emit(current);
     const location = queries.locationFor(current);
     if (location !== undefined && !emit(current)) return false;
     if (location === "binding") return budget.failure() === undefined;
     const direct = queries.inputsFor(current);
-    if (direct === undefined) return false;
+    if (direct === undefined) { budget.reject("Source storage context traversal requires the subject's exact direct inputs."); return false; }
     for (const input of direct) if (!budget.step() || !forward(input)) return false;
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
@@ -102,7 +103,8 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
       for (const expression of queries.argumentsFor(current.node)) {
         if (!budget.step()) return false;
         const subject = queries.subjectFor(expression);
-        if (subject === undefined || !forward(subject)) return false;
+        if (subject === undefined) { budget.reject("Source storage invocation arguments require exact storage subjects."); return false; }
+        if (!forward(subject)) return false;
       }
     }
     if (candidates.size === 0) {
@@ -113,7 +115,11 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
       if (source.ast.hasModifierKind(candidate, "async")) continue;
       const result = queries.subject(candidate, "return", current.projection);
       const projection = projectionFor(current, candidate, current.node);
-      if (result === undefined || projection === undefined || !forward(result, projection)) return false;
+      if (result === undefined || projection === undefined) {
+        budget.reject("Source storage invocation candidates require an exact return subject and projection.");
+        return false;
+      }
+      if (!forward(result, projection)) return false;
     }
     return budget.failure() === undefined;
   });

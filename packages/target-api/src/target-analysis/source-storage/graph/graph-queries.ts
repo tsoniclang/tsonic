@@ -264,7 +264,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         return values;
       };
     },
-    fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
+    fixedPoint<Key, Value>(family: string, collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
       add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
       let running = false;
@@ -423,7 +423,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               borrowRows.release();
             }
             if (!collected || budget.failure() !== undefined) {
-              budget.reject("Source storage fixed-point collectors require an exact positive result.");
+              budget.reject(`Source storage fixed-point collectors require an exact positive result (${family}).`);
               return false;
             }
             for (const previous of cell.values) {

@@ -179,7 +179,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const children = relation.children;
     const retain = (term: SourceStorageTerm, values = true): SourceStorageRelation | undefined => {
       const selected = intern(term);
-      if (selected === undefined) return undefined;
+      if (selected === undefined) { budget.reject("Source storage relations require an interned successor term."); return undefined; }
       if (!children.has(selected) && !rows.add(1)) return undefined;
       children.set(selected, (children.get(selected) ?? 0) | (values ? 2 : 1));
       return selected;
@@ -228,7 +228,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current,
         term => select(term, false)) : selected.terms;
-      if (alternatives === undefined) return false;
+      if (alternatives === undefined) { budget.reject("Source storage variable expansion requires exact equation alternatives."); return false; }
       let operation: SourceStorageTerm = current;
       while (operation.kind === "transition") {
         if (!budget.step()) return false;
@@ -255,7 +255,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return budget.failure() === undefined;
     } finally { currentRead = previousRead; }
   });
-  const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>((current, read, emit, forward) => {
+  const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>("storage-relations", (current, read, emit, forward) => {
     const complete = derive(current, read, (relation, direct) => direct ? emit(relation.term) : forward(relation), (input, select) => {
       let projection = current.projection;
       if (projection === undefined) {
