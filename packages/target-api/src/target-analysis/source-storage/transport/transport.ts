@@ -147,11 +147,14 @@ export function createSourceStorageTransport(
     const projected = pattern !== undefined && (ast.is.IsArrayBindingPattern(pattern) || ast.is.IsObjectBindingPattern(pattern));
     const iteration = selected !== undefined && ast.is.IsBindingElement(selected) &&
       sourceBindingWriteAtReference(ast, ast.name(selected)!)?.kind === "iteration";
-    const binding = selected === undefined || !projected || iteration ? undefined : projections.binding(selected);
-    if (projected && !iteration && binding === undefined) return undefined;
+    // A binding element already connected to its pattern component (during graph construction) is reused; a later reference
+    // (for example one first read after sealing) adds no edge.
+    const connected = selected !== undefined && projected && !iteration ? subjects.get(selected) : undefined;
+    const binding = selected === undefined || !projected || iteration || connected !== undefined ? undefined : projections.binding(selected);
+    if (projected && !iteration && connected === undefined && binding === undefined) return undefined;
     const value = qualified ? subject(node) : subject(target);
     if (value === undefined) return undefined;
-    let declaration: SourceStorageSubject | undefined;
+    let declaration: SourceStorageSubject | undefined = connected;
     if (binding !== undefined && selected !== undefined) {
       declaration = subject(selected);
       if (declaration === undefined) return undefined;
