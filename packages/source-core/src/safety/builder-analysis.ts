@@ -1,8 +1,10 @@
+import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type {
   ExtensionFactKey,
   ExtensionFactSubject,
   Node,
   SourceAnalysisContext,
+  SourceCallMarkerKind,
 } from "@tsonic/tsts";
 import {
   sourceSafetySignatureIds,
@@ -16,6 +18,8 @@ import type {
   TsonicSafetyMemberKind,
 } from "./facts.js";
 import { pointerFlowOperand } from "../pointers/backing/source-forms.js";
+import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
+import { tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import {
   selectInlineSourceMember,
 } from "../analysis/selected-source-member.js";
@@ -29,6 +33,14 @@ import {
   readSourceFact,
   selectedProviderCallMatches,
 } from "../analysis/source-call.js";
+
+// Erased value markers wrap one source value and add only flow evidence; a safety value root sees through them.
+const erasedValueMarkers: ReadonlySet<SourceCallMarkerKind> = new Set<SourceCallMarkerKind>([
+  "write-only-reference", "read-write-reference", "read-only-reference", "shared-borrow", "mutable-borrow", "move", "struct",
+]);
+const coreErasedValueMarkers = tsonicCoreSourceSemanticsModules().flatMap(module =>
+  module.exports.flatMap(declaration => declaration.kind === "call-marker" && erasedValueMarkers.has(declaration.marker)
+    ? [{ module: module.moduleSpecifier, exportName: declaration.exportName }] : []));
 
 export interface SafetyBuilderAnalysisContract {
   readonly providerId: string;
@@ -159,9 +171,23 @@ function selectedValueTarget(
   const argument = selected.selection.sourceArguments[0];
   if (argument === undefined) return undefined;
   const { ast, checker } = context;
+  function erasedValueMarkerOperand(call: Node): Node | undefined {
+    const selection = checker.getResolvedCallInfo(call);
+    if (selection?.outcome !== "applicable" || selection.sourceArguments.length !== 1) return undefined;
+    const identity = readSourceFact(context, checker.getSignatureDeclaration(selection.selectedSignature),
+      providerVirtualDeclarationFactKey);
+    if (identity?.providerId !== tsonicCoreVirtualModulesProviderId || identity.providerVersion !== tsonicCoreProviderVersion ||
+      identity.memberId !== undefined || !coreErasedValueMarkers.some(marker =>
+        marker.module === identity.providerModuleId && marker.exportName === identity.exportId)) return undefined;
+    return selection.sourceArguments[0]?.expression;
+  }
   function declaration(expression: Node): Node | undefined {
     const operand = pointerFlowOperand(ast, expression);
     if (operand !== undefined) return declaration(operand);
+    if (ast.is.IsCallExpression(expression)) {
+      const marked = erasedValueMarkerOperand(expression);
+      return marked === undefined ? undefined : declaration(marked);
+    }
     if (ast.is.IsFunctionExpression(expression) || ast.is.IsArrowFunction(expression)) return expression;
     if (ast.is.IsPropertyAccessExpression(expression)) {
       const receiver = ast.as.AsPropertyAccessExpression(expression)?.Expression;
