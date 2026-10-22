@@ -83,7 +83,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return ["declaration", scopes.identity(scope)];
       if (!budget.step()) return undefined;
       const footprint = footprints.select(subject);
-      if (footprint === undefined) return undefined;
+      if (footprint === undefined) { budget.reject("Source storage context keys require the subject's exact context footprint."); return undefined; }
       const inputs: Encoded[] = [];
       for (const port of footprint.ports) {
         if (!budget.step()) return undefined;
@@ -111,7 +111,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       for (const owner of owners) {
         if (!budget.step()) return undefined;
         const selected = activationKey(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
-        if (selected === undefined) return undefined;
+        if (selected === undefined) { budget.reject("Source storage context keys require an exact activation for each physical location owner."); return undefined; }
         physical.push([owner === undefined ? null : scopes.identity(owner), selected]);
       }
       const boundInputs = encoder.intern(inputs);
@@ -269,7 +269,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
-      if (context === undefined || birth === undefined) return undefined;
+      if (birth === undefined) { budget.reject(`Source storage ${selected.kind} keys require the subject's exact birth activation.`); return undefined; }
+      if (context === undefined) return undefined;
       return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
         ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
         : [selected.kind, scopes.identity(selected.subject), birth, context];

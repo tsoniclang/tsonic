@@ -155,9 +155,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (!budget.step()) return undefined;
     const retained: SourceStorageRelationWitness[] = [];
     const normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary);
-    if (normalized === undefined) return undefined;
+    if (normalized === undefined) { budget.reject(`Source storage ${term.kind} terms require an exact normalized form.`); return undefined; }
     const key = keys.encode(normalized);
-    if (key === undefined) return undefined;
+    if (key === undefined) { budget.reject(`Source storage ${normalized.kind} terms require an exact relation key.`); return undefined; }
     let selected = relations.get(key);
     if (selected === undefined) {
       if (!rows.add(2)) return undefined;
