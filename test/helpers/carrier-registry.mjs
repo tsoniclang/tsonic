@@ -2,7 +2,6 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
-import { analyzeCheckedTypeScriptModules } from "../architecture/tooling/module-graph.mjs";
 
 export const carrierDeclarationId = declaration => `${declaration.module}#${declaration.symbol}`;
 
@@ -32,174 +31,6 @@ async function readCarrierTypeScriptFiles(root, directory) {
 export async function readCarrierDivergenceRegister() {
   const text = await readFile(new URL("../../docs/architecture/csharp-rust-structure.md", import.meta.url), "utf8");
   return new Set([...text.matchAll(/^\| (S11-\d+|V-\d+) \|/gmu)].map(match => match[1]));
-}
-
-export function inspectCarrierRegistrySource(files, signedDifferences) {
-  const sources = new Map(files);
-  const failures = [];
-  const prefix = "/carrier-registry-source/";
-  const session = createCompilerSessionFromFiles({
-    currentDirectory: prefix.slice(0, -1),
-    files: new Map([...files].map(([file, text]) => [`${prefix}${file}`, text])),
-    rootFiles: [...files.keys()],
-    compilerOptions: { module: "esnext", moduleResolution: "bundler", target: "esnext", noLib: true, noResolve: true },
-  });
-  if (session.getDiagnostics("syntactic").length !== 0) {
-    return { sources, failures: ["Carrier registry source has invalid syntax."], modules: [] };
-  }
-  const source = session.checkSource();
-  const { ast } = source;
-  const modules = new Map();
-
-  function fields(node, required, optional = []) {
-    if (node === undefined || !ast.is.IsObjectLiteralExpression(node)) return undefined;
-    const result = new Map();
-    for (const property of ast.properties(node)) {
-      if (!ast.is.IsPropertyAssignment(property)) return undefined;
-      const name = ast.name(property);
-      if (name === undefined || !ast.is.IsIdentifier(name) && !ast.is.IsStringLiteral(name)) return undefined;
-      const key = ast.text(name);
-      if (result.has(key) || !required.includes(key) && !optional.includes(key)) return undefined;
-      result.set(key, ast.as.AsPropertyAssignment(property).Initializer);
-    }
-    return required.every(key => result.has(key)) ? result : undefined;
-  }
-
-  function literal(node) {
-    return node !== undefined && ast.is.IsStringLiteral(node) && ast.text(node).trim().length > 0;
-  }
-
-  function declaration(node) {
-    const selected = fields(node, ["module", "symbol"]);
-    return selected !== undefined && [...selected.values()].every(literal) ? selected : undefined;
-  }
-
-  function rowRanges(node) {
-    const row = fields(node, ["id", "kinds", "declaration", "counterpart", "frozen"], ["divergence"]);
-    if (row === undefined || !literal(row.get("id")) || !ast.is.IsArrayLiteralExpression(row.get("kinds")) ||
-        !ast.elements(row.get("kinds")).every(literal) || declaration(row.get("declaration")) === undefined ||
-        !["KindTrueKeyword", "KindFalseKeyword"].includes(ast.kindName(row.get("frozen")))) return undefined;
-    const ranges = [];
-    if (ast.kindName(row.get("counterpart")) !== "KindNullKeyword") {
-      const counterpart = declaration(row.get("counterpart"));
-      if (counterpart === undefined) return undefined;
-      ranges.push(...[...counterpart.values()].map(value => ast.authoredRange(value)));
-    }
-    if (row.has("divergence")) {
-      const divergence = fields(row.get("divergence"), ["register", "reason"]);
-      if (divergence === undefined || ![...divergence.values()].every(literal) ||
-          !signedDifferences.has(ast.text(divergence.get("register")))) return undefined;
-      ranges.push(ast.authoredRange(divergence.get("reason")));
-    }
-    return ranges.every(range => range.kind === "authored") ? ranges : undefined;
-  }
-
-  for (const sourceFile of source.sourceFiles) {
-    const file = ast.getFileName(sourceFile).slice(prefix.length);
-    if (!files.has(file)) continue;
-    const statements = ast.statements(sourceFile);
-    const imports = statements.filter(statement => ast.is.IsImportDeclaration(statement));
-    const registryImports = imports.flatMap(statement => {
-      const imported = ast.as.AsImportDeclaration(statement);
-      if (ast.text(imported.ModuleSpecifier) !== "@tsonic/target-api" ||
-          imported.ImportClause?.NamedBindings === undefined) return [];
-      return ast.children(imported.ImportClause?.NamedBindings).filter(specifier =>
-        ast.is.IsImportSpecifier(specifier) &&
-        ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) === "TargetCarrierRegistryEntry")
-        .map(specifier => ({ statement, name: ast.text(ast.name(specifier)) }));
-    });
-    if (registryImports.length === 0) continue;
-    const reject = () => failures.push(`Carrier registry source is not inert declared metadata: ${file}`);
-    const body = statements.filter(statement => !ast.is.IsImportDeclaration(statement));
-    if (registryImports.length !== 1 || !ast.isTypeOnlyImportDeclaration(registryImports[0].statement) ||
-        body.length !== 1 || !ast.is.IsVariableStatement(body[0]) || !ast.hasModifierKind(body[0], "export") ||
-        ast.variableDeclarationKind(body[0]) !== "const") { reject(); continue; }
-    const declarations = ast.as.AsVariableStatement(body[0]).DeclarationList.Declarations.Nodes;
-    if (declarations.length !== 1) { reject(); continue; }
-    const selected = declarations[0];
-    const qualifiedType = ast.typeNode(selected);
-    const arrayType = ast.kindName(qualifiedType) === "KindTypeOperator" &&
-      ast.operatorKindName(qualifiedType) === "KindReadonlyKeyword" ? ast.typeNode(qualifiedType) : undefined;
-    const entryType = arrayType !== undefined && ast.is.IsArrayTypeNode(arrayType)
-      ? ast.as.AsArrayTypeNode(arrayType).ElementType : undefined;
-    const entryName = entryType === undefined ? undefined : ast.children(entryType).find(child => ast.is.IsIdentifier(child));
-    const initializer = selected.Initializer;
-    const call = initializer !== undefined && ast.is.IsCallExpression(initializer) ? ast.as.AsCallExpression(initializer) : undefined;
-    const callee = call !== undefined && ast.is.IsPropertyAccessExpression(call.Expression)
-      ? ast.as.AsPropertyAccessExpression(call.Expression) : undefined;
-    const [array] = call === undefined ? [] : ast.arguments(initializer);
-    if (ast.name(selected) === undefined || !ast.is.IsIdentifier(ast.name(selected)) || ast.text(ast.name(selected)) === "Object" ||
-        entryType === undefined || !ast.is.IsTypeReferenceNode(entryType) || ast.text(entryName) !== registryImports[0].name ||
-        ast.typeArguments(entryType).length !== 1 || call === undefined || call.QuestionDotToken !== undefined ||
-        callee === undefined || callee.QuestionDotToken !== undefined || !ast.is.IsIdentifier(callee.Expression) ||
-        ast.text(callee.Expression) !== "Object" || ast.text(ast.name(callee)) !== "freeze" ||
-        ast.arguments(initializer).length !== 1 || ast.typeArguments(initializer).length !== 0 ||
-        !ast.is.IsArrayLiteralExpression(array)) { reject(); continue; }
-    const elements = ast.elements(array);
-    const aggregate = elements.length > 0 && elements.every(element => ast.is.IsSpreadElement(element) &&
-      ast.is.IsIdentifier(ast.as.AsSpreadElement(element).Expression));
-    const runtimeImports = imports.filter(statement => !ast.isTypeOnlyImportDeclaration(statement));
-    const runtimeBindings = new Map();
-    const runtimeImportsValid = runtimeImports.every(statement => {
-      const imported = ast.as.AsImportDeclaration(statement);
-      const bindings = imported.ImportClause?.NamedBindings;
-      if (imported.ImportClause?.name !== undefined || bindings === undefined || !ast.is.IsNamedImports(bindings)) return false;
-      return ast.children(bindings).every(specifier => {
-        if (!ast.is.IsImportSpecifier(specifier) || ast.as.AsImportSpecifier(specifier).IsTypeOnly) return false;
-        const name = ast.text(ast.name(specifier));
-        if (name === "Object" || runtimeBindings.has(name)) return false;
-        runtimeBindings.set(name, { specifier: ast.text(imported.ModuleSpecifier),
-          imported: ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) });
-        return true;
-      });
-    });
-    const typeImportsValid = imports.filter(statement => ast.isTypeOnlyImportDeclaration(statement)).every(statement => {
-      const imported = ast.as.AsImportDeclaration(statement);
-      const module = ast.text(imported.ModuleSpecifier);
-      const expected = module === "@tsonic/target-api" ? "TargetCarrierRegistryEntry"
-        : module === "../model.js" ? "TargetTypeRef" : undefined;
-      const bindings = imported.ImportClause?.NamedBindings;
-      return expected !== undefined && imported.ImportClause.name === undefined && bindings !== undefined &&
-        ast.children(bindings).length > 0 && ast.children(bindings).every(specifier =>
-          ast.is.IsImportSpecifier(specifier) &&
-          ast.text(ast.as.AsImportSpecifier(specifier).PropertyName ?? ast.name(specifier)) === expected);
-    });
-    if (!typeImportsValid || !runtimeImportsValid || !aggregate && runtimeImports.length !== 0 ||
-        aggregate && !elements.every(element => runtimeBindings.has(ast.text(ast.as.AsSpreadElement(element).Expression)))) {
-      reject(); continue;
-    }
-    const ranges = aggregate ? [] : elements.map(rowRanges);
-    if (ranges.some(value => value === undefined)) { reject(); continue; }
-    modules.set(file, { aggregate, name: ast.text(ast.name(selected)), ranges: ranges.flat(), runtimeBindings,
-      runtimeSpecifiers: new Set(runtimeImports.map(statement =>
-      ast.text(ast.as.AsImportDeclaration(statement).ModuleSpecifier))) });
-  }
-
-  const analysis = analyzeCheckedTypeScriptModules(source, files, prefix);
-  for (const edge of analysis.edges) {
-    if (modules.has(edge.target) && !modules.get(edge.source)?.aggregate) {
-      failures.push(`Production consumer of carrier registry metadata: ${edge.source}`);
-    }
-    const aggregate = modules.get(edge.source);
-    if (aggregate?.aggregate && aggregate.runtimeSpecifiers.has(edge.specifier)) {
-      const imported = modules.get(edge.target);
-      if (imported === undefined) failures.push(`Carrier registry aggregate imports non-metadata: ${edge.source}`);
-      else if ([...aggregate.runtimeBindings.values()].some(binding =>
-        binding.specifier === edge.specifier && binding.imported !== imported.name)) {
-        failures.push(`Carrier registry aggregate imports an unproven metadata value: ${edge.source}`);
-      }
-    }
-  }
-  if (failures.length === 0) {
-    for (const [file, metadata] of modules) {
-      let text = files.get(file);
-      for (const range of metadata.ranges.sort((left, right) => right.start - left.start)) {
-        text = text.slice(0, range.start) + " ".repeat(range.end - range.start) + text.slice(range.end);
-      }
-      sources.set(file, text);
-    }
-  }
-  return { sources, failures, modules: [...modules.keys()] };
 }
 
 export function deriveCarrierVocabulary(files, rootDeclaration) {
@@ -458,6 +289,10 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
   return { kinds, contracts, exports, declarationKinds };
 }
 
+// Neutral responsibility keys: "<family>/<name>" in lower-case words, never naming a target.
+export const carrierResponsibilityPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)+$/u;
+const targetNamePattern = /rust|csharp|c#|clr|dotnet|\.net|cargo|roslyn/iu;
+
 export function validateCarrierRegistry(rows, vocabulary) {
   const failures = [];
   const ids = new Set();
@@ -466,8 +301,9 @@ export function validateCarrierRegistry(rows, vocabulary) {
   const expected = new Set(vocabulary.contracts.map(carrierDeclarationId));
   for (const row of rows) {
     const fields = Object.keys(row).sort();
-    const expectedFields = ["counterpart", "declaration", ...(row.divergence === undefined ? [] : ["divergence"]), "frozen", "id", "kinds"].sort();
-    if (JSON.stringify(fields) !== JSON.stringify(expectedFields)) failures.push(`Invalid carrier row fields: ${row.id}`);
+    if (JSON.stringify(fields) !== JSON.stringify(["declaration", "frozen", "id", "kinds", "responsibility"])) {
+      failures.push(`Invalid carrier row fields: ${row.id}`);
+    }
     if (ids.has(row.id)) failures.push(`Duplicate carrier identity: ${row.id}`);
     ids.add(row.id);
     const declaration = carrierDeclarationId(row.declaration);
@@ -475,9 +311,12 @@ export function validateCarrierRegistry(rows, vocabulary) {
     if (!Array.isArray(row.kinds) || row.kinds.length === 0 || new Set(row.kinds).size !== row.kinds.length ||
         row.kinds.some(kind => !vocabulary.kinds.includes(kind))) failures.push(`Unknown carrier discriminant: ${row.id}`);
     if (typeof row.frozen !== "boolean") failures.push(`Missing freeze classification: ${row.id}`);
+    if (typeof row.responsibility !== "string" || !carrierResponsibilityPattern.test(row.responsibility) ||
+        targetNamePattern.test(row.responsibility)) failures.push(`Carrier responsibility is not a neutral key: ${row.id}`);
     if (row.id.startsWith("kind:")) {
       const kind = row.id.slice("kind:".length);
       if (row.kinds.length !== 1 || row.kinds[0] !== kind) failures.push(`Invalid structural carrier identity: ${row.id}`);
+      if (row.responsibility !== `kinds/${kind}`) failures.push(`Structural carrier responsibility must be kinds/${kind}: ${row.id}`);
       kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
     } else {
       if (row.id !== declaration || !expected.has(declaration)) failures.push(`Unknown concrete carrier contract: ${row.id}`);
@@ -493,35 +332,49 @@ export function validateCarrierRegistry(rows, vocabulary) {
   return failures;
 }
 
-export function validateCarrierRegistrySymmetry(left, right, signedDifferences) {
+// Joins the targets' registries by responsibility. A responsibility in one target only needs a shared difference entry
+// for that target; an entry for a paired responsibility records a native difference inside the pair. Every entry names
+// the row it explains (target, responsibility and declaration symbol), a signed register difference and a reason.
+export function validateCarrierParity(registries, differences, signedDifferences) {
   const failures = [];
-  for (const [current, counterpart] of [[left, right], [right, left]]) {
-    const opposite = new Set(counterpart.rows.map(row => carrierDeclarationId(row.declaration)));
-    for (const row of current.rows) {
-      if ((row.counterpart === null || row.id.startsWith("kind:") && !counterpart.vocabulary.kinds.includes(row.kinds[0])) &&
-          row.divergence === undefined) failures.push(`Unexplained one-sided carrier: ${row.id}`);
-      if (row.counterpart !== null) {
-        const selected = carrierDeclarationId(row.counterpart);
-        if (!counterpart.vocabulary.exports.has(selected) || !opposite.has(selected)) failures.push(`Missing carrier counterpart: ${row.id}`);
-        if (row.id.startsWith("kind:") && counterpart.vocabulary.kinds.includes(row.kinds[0]) &&
-            !counterpart.vocabulary.declarationKinds.get(selected)?.includes(row.kinds[0]) &&
-            !counterpart.rows.some(candidate => carrierDeclarationId(candidate.declaration) === selected &&
-              candidate.kinds.includes(row.kinds[0]))) {
-          failures.push(`Structural carrier counterpart kind mismatch: ${row.id}`);
-        }
-      }
-      if (row.divergence !== undefined && (!signedDifferences.has(row.divergence.register) ||
-          typeof row.divergence.reason !== "string" || row.divergence.reason.trim().length === 0)) {
-        failures.push(`Unproved native carrier difference: ${row.id}`);
+  const keys = new Map(Object.entries(registries).map(([target, registry]) =>
+    [target, new Set(registry.rows.map(row => row.responsibility))]));
+  const explained = new Set();
+  const seen = new Set();
+  for (const entry of differences) {
+    const label = `${entry.target}:${entry.responsibility}`;
+    const row = `${label}:${entry.symbol}`;
+    if (seen.has(row)) failures.push(`Duplicate carrier difference: ${row}`);
+    seen.add(row);
+    explained.add(label);
+    if (!keys.has(entry.target)) failures.push(`Carrier difference names an unknown target: ${label}`);
+    else if (!registries[entry.target].rows.some(candidate => candidate.responsibility === entry.responsibility &&
+      candidate.declaration.symbol === entry.symbol)) failures.push(`Stale carrier difference: ${label}`);
+    if (!signedDifferences.has(entry.register) || typeof entry.reason !== "string" || entry.reason.trim().length === 0) {
+      failures.push(`Unproved native carrier difference: ${label}`);
+    }
+  }
+  for (const [target, own] of keys) {
+    for (const responsibility of own) {
+      const paired = [...keys].some(([other, set]) => other !== target && set.has(responsibility));
+      if (!paired && !explained.has(`${target}:${responsibility}`)) {
+        failures.push(`Unexplained one-sided carrier responsibility: ${target}:${responsibility}`);
       }
     }
   }
   return failures;
 }
 
+// Carrier registries are test and audit data under test/target-model/types/carriers/registry/. Product source must
+// neither contain nor consume them.
+export function productCarrierRegistryReferences(files) {
+  return [...files].filter(([, text]) => /\bTargetCarrierRegistryEntry\b|\bcarrierRegistry\b|CarrierRegistry\b|carriers\/registry/u.test(text))
+    .map(([file]) => file);
+}
+
 export async function loadCarrierRegistry(root) {
   const files = await readCarrierRegistrySourceFiles(root);
   const vocabulary = deriveCarrierVocabulary(files, { module: "src/target-model/types/model.ts", symbol: "TargetTypeRef" });
-  const { carrierRegistry } = await import(pathToFileURL(path.join(root, "dist/target-model/types/carriers/registry.js")).href);
+  const { carrierRegistry } = await import(pathToFileURL(path.join(root, "test/target-model/types/carriers/registry/index.mjs")).href);
   return { files, vocabulary, rows: carrierRegistry };
 }

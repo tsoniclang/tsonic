@@ -187,11 +187,12 @@ Do not reopen `JsValue` layout as part of this contract.
 
 ## S4: carrier registry design
 
-The registry is a required Phase 3 addition, not implemented by these docs.
-Each target owns one pure declarative registry in
-`src/target-model/types/carriers/registry.ts` and its mirrored owner test.
-It describes existing carrier vocabulary; it is not a new runtime registry,
-representation kind, reflection mechanism or alternate selector.
+Each target keeps one declarative registry as test and audit data in
+`test/target-model/types/carriers/registry/`, read by its registry test and
+by the shared parity test; the compiler packages do not contain or read it.
+It describes existing carrier vocabulary; it is not a runtime registry,
+representation kind, reflection mechanism or alternate selector. Neither
+target's registry names the other target.
 
 Each registry row contains:
 
@@ -200,8 +201,7 @@ Each registry row contains:
 | `id` | Unique existing carrier family/contract identity |
 | `kinds` | Exact native `TargetTypeRef` discriminants represented by the row |
 | `declaration` | Owning pure model declaration, with its module and symbol |
-| `counterpart` | Corresponding carrier responsibility on the other target |
-| `divergence` | Signed native constraint when there is no identical counterpart; otherwise absent |
+| `responsibility` | Target-neutral responsibility key (`family/name`); rows with the same key on both targets are paired |
 | `frozen` | Whether the existing E71 capability is frozen for this PR |
 
 Use exact existing type/contract identities, not a library-name classifier.
@@ -211,10 +211,14 @@ existing exact identities distinguish them. Imported user-native names retain
 the generic imported-type contract; the registry does not enumerate or
 recognize particular smart-pointer libraries.
 
-The same row shape and responsibility taxonomy apply on both targets. The
-registry does not require Rust trait objects to become C# trait objects, or
-C# CLR delegates to become Rust delegates. Those native differences must cite
-their existing checked type/language contract in the structural register.
+The same row shape and responsibility taxonomy apply on both targets. Pairing
+lives only in the shared tree: `test/architecture/carrier-parity.mjs` joins the
+two registries by `responsibility`. A responsibility present on one target
+only, or a native difference inside a pair, has an entry there naming the
+target, the row's declaration symbol, a signed register entry of
+`csharp-rust-structure.md` and the reason. The registry does not require Rust
+trait objects to become C# trait objects, or C# CLR delegates to become Rust
+delegates.
 Selection remains in policy; registry entries contain no selecting closures,
 policy imports or dispatch routes, mutable caches, runtime factories or claimed
 cost numbers. Producer/policy ownership is checked at the corresponding layer,

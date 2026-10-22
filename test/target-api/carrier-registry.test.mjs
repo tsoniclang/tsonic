@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { carrierDeclarationId, deriveCarrierVocabulary, inspectCarrierRegistrySource,
-  validateCarrierRegistry, validateCarrierRegistrySymmetry } from "../helpers/carrier-registry.mjs";
+import { carrierDeclarationId, deriveCarrierVocabulary, productCarrierRegistryReferences,
+  validateCarrierParity, validateCarrierRegistry } from "../helpers/carrier-registry.mjs";
 
 const model = "src/target-model/types/model.ts";
 const constructors = "src/target-model/types/carriers/native.ts";
@@ -26,15 +26,20 @@ const source = new Map([
 ]);
 const root = { module: model, symbol: "TargetTypeRef" };
 const vocabulary = deriveCarrierVocabulary(source, root);
-const row = (id, declaration, kinds = ["target-named"]) => ({ id, kinds, declaration, counterpart: root, frozen: false });
+const responsibilityFor = (id, declaration) => id.startsWith("kind:") ? `kinds/${id.slice("kind:".length)}`
+  : `vocabulary/${declaration.symbol.replace(/([a-z0-9])([A-Z])/gu, "$1-$2").toLowerCase()}`;
+const row = (id, declaration, kinds = ["target-named"]) =>
+  ({ id, kinds, declaration, responsibility: responsibilityFor(id, declaration), frozen: false });
 const rows = [
   ...vocabulary.kinds.map(kind => row(`kind:${kind}`, root, [kind])),
   ...vocabulary.contracts.map(declaration => row(carrierDeclarationId(declaration), declaration)),
 ];
 const signed = new Set(["NATIVE-01"]);
+const parity = (left, right = rows, differences = []) =>
+  validateCarrierParity({ left: { rows: left }, right: { rows: right } }, differences, signed);
 const validate = (selected, selectedVocabulary = vocabulary, opposite = rows) => [
   ...validateCarrierRegistry(selected, selectedVocabulary),
-  ...validateCarrierRegistrySymmetry({ rows: selected, vocabulary: selectedVocabulary }, { rows: opposite, vocabulary }, signed),
+  ...parity(selected, opposite),
 ];
 
 test("carrier vocabulary derives discriminants through actual aliases and interfaces, not a maintained kind list", () => {
@@ -160,6 +165,7 @@ test("a concrete constructor outside the carriers folder still requires its regi
   assert.equal(validate(rows, discovered).includes(`Concrete carrier must have one owner: ${module}#additional`), true);
 });
 
+
 for (const [name, mutate, message] of [
   ["omitted structural family", selected => selected.filter(entry => entry.id !== "kind:source-primitive"), "Structural carrier must have one owner: source-primitive"],
   ["omitted concrete factory", selected => selected.filter(entry => entry.declaration.symbol !== "named"), `Concrete carrier must have one owner: ${constructors}#named`],
@@ -169,12 +175,12 @@ for (const [name, mutate, message] of [
   ["duplicate discriminant", selected => [{ ...selected[0], kinds: ["source-primitive", "source-primitive"] }, ...selected.slice(1)], "Unknown carrier discriminant: kind:source-primitive"],
   ["missing discriminant", selected => [{ ...selected[0], kinds: [] }, ...selected.slice(1)], "Unknown carrier discriminant: kind:source-primitive"],
   ["stale declaration symbol", selected => [{ ...selected[0], declaration: { module: model, symbol: "Missing" } }, ...selected.slice(1)], `Stale carrier declaration: ${model}#Missing`],
-  ["unexplained asymmetry", selected => [{ ...selected[0], counterpart: null }, ...selected.slice(1)], "Unexplained one-sided carrier: kind:source-primitive"],
-  ["unregistered counterpart", selected => [{ ...selected[0], counterpart: { module: constructors, symbol: "read" } }, ...selected.slice(1)], "Missing carrier counterpart: kind:source-primitive"],
-  ["stale counterpart", selected => [{ ...selected[0], counterpart: { module: model, symbol: "Missing" } }, ...selected.slice(1)], "Missing carrier counterpart: kind:source-primitive"],
-  ["unsigned native difference", selected => [{ ...selected[0], divergence: { register: "UNSIGNED", reason: "asserted difference" } }, ...selected.slice(1)], "Unproved native carrier difference: kind:source-primitive"],
-  ["empty native reason", selected => [{ ...selected[0], divergence: { register: "NATIVE-01", reason: " " } }, ...selected.slice(1)], "Unproved native carrier difference: kind:source-primitive"],
+  ["a structural row keyed to another responsibility", selected => [{ ...selected[0], responsibility: "vocabulary/named" }, ...selected.slice(1)], "Structural carrier responsibility must be kinds/source-primitive: kind:source-primitive"],
+  ["a responsibility that names a target", selected => selected.map(entry => entry.id === "src/target-model/types/carriers/native.ts#named" ? { ...entry, responsibility: "vocabulary/rust-named" } : entry), "Carrier responsibility is not a neutral key: src/target-model/types/carriers/native.ts#named"],
+  ["a responsibility that is not a family/name key", selected => selected.map(entry => entry.id === "src/target-model/types/carriers/native.ts#named" ? { ...entry, responsibility: "Named Carrier" } : entry), "Carrier responsibility is not a neutral key: src/target-model/types/carriers/native.ts#named"],
+  ["an unexplained one-sided responsibility", selected => selected.map(entry => entry.id === "src/target-model/types/carriers/native.ts#named" ? { ...entry, responsibility: "vocabulary/only-here" } : entry), "Unexplained one-sided carrier responsibility: left:vocabulary/only-here"],
   ["missing frozen classification", selected => [{ ...selected[0], frozen: undefined }, ...selected.slice(1)], "Missing freeze classification: kind:source-primitive"],
+  ["a counterpart naming the other target's declaration", selected => [{ ...selected[0], counterpart: root }, ...selected.slice(1)], "Invalid carrier row fields: kind:source-primitive"],
   ["a selecting closure instead of declarative data", selected => [{ ...selected[0], select: () => "target-named" }, ...selected.slice(1)], "Invalid carrier row fields: kind:source-primitive"],
 ]) {
   test(`carrier registry rejects ${name}`, () => {
@@ -182,157 +188,42 @@ for (const [name, mutate, message] of [
   });
 }
 
-test("a signed native difference describes the actual boundary without fabricating a counterpart", () => {
-  const selected = [{ ...rows[0], counterpart: null,
-    divergence: { register: "NATIVE-01", reason: "The selected native language expresses this responsibility in its type qualifier." } }, ...rows.slice(1)];
-  assert.deepEqual(validate(selected), []);
+// The left target has one responsibility the right target lacks.
+const oneSided = [...rows, { id: "native-qualifier", kinds: ["target-named"], declaration: { module: constructors, symbol: "named" },
+  responsibility: "vocabulary/native-qualifier", frozen: false }];
+
+test("a signed shared difference explains a one-sided responsibility without a cross-target reference", () => {
+  const difference = { responsibility: "vocabulary/native-qualifier", target: "left", symbol: "named", register: "NATIVE-01",
+    reason: "The selected native language expresses this responsibility in its type qualifier." };
+  assert.deepEqual(parity(oneSided, rows, [difference]), []);
 });
 
-test("a structural family absent on the counterpart cannot hide behind its generic model declaration", () => {
-  const left = { rows, vocabulary };
-  const right = { rows, vocabulary: { ...vocabulary, kinds: ["target-named"] } };
-  assert.equal(validateCarrierRegistrySymmetry(left, right, signed).includes("Unexplained one-sided carrier: kind:source-primitive"), true);
-});
-
-test("an existing registered counterpart with the wrong structural kind is rejected in either direction", () => {
-  for (const divergence of [undefined, { register: "NATIVE-01", reason: "A claimed native constraint does not change a known structural kind." }]) {
-    const incorrect = rows.map(entry => entry.id === "kind:source-primitive"
-      ? { ...entry, counterpart: { module: constructors, symbol: "named" }, ...(divergence === undefined ? {} : { divergence }) } : entry);
-    const valid = { rows, vocabulary };
-    const invalid = { rows: incorrect, vocabulary };
-    for (const [left, right] of [[valid, invalid], [invalid, valid]]) {
-      assert.equal(validateCarrierRegistrySymmetry(left, right, signed)
-        .includes("Structural carrier counterpart kind mismatch: kind:source-primitive"), true);
-    }
-  }
-});
-
-const registryMetadata = `import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";
-import type { TargetTypeRef } from "../model.js";
-export const nativeEntries: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]>[] = Object.freeze([
-  { id: "native#carrier", kinds: ["target-named"], declaration: { module: "native.ts", symbol: "nativeCarrier" },
-    counterpart: { module: "native.ts", symbol: "csharpCarrier" },
-    divergence: { register: "NATIVE-01", reason: "dotnet has a different native qualifier" }, frozen: false }
-]);`;
-const inspectMetadata = (text, extra = []) => inspectCarrierRegistrySource(
-  new Map([["src/unrestricted-name.ts", text], ...extra]), signed);
-
-test("declared inert counterpart metadata is recognized structurally, not by filename", () => {
-  const proof = inspectMetadata(registryMetadata);
-  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
-  assert.equal(proof.modules.length, 1, "the actual typed metadata module is proven");
-  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
-  assert.equal(proof.sources.get("src/unrestricted-name.ts").includes('symbol: "nativeCarrier"'), true,
-    "own declaration identity remains visible");
-});
-
-test("metadata masking preserves authored UTF-16 offsets and never hides leading comments", () => {
-  const text = `/* é😀 */\n${registryMetadata.replace('"csharpCarrier"', '/* roslyn */ "csharpCarrier"')}`;
-  const proof = inspectMetadata(text);
-  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
-  assert.match(proof.sources.get("src/unrestricted-name.ts"), /\/\* roslyn \*\//u);
-  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharpCarrier|dotnet/iu);
-  assert.equal(proof.sources.get("src/unrestricted-name.ts").length, text.length, "exact offsets retained");
-});
-
-test("type-only aliases retain the same exact shared registry identity", () => {
-  const text = registryMetadata.replace("{ TargetCarrierRegistryEntry }", "{ TargetCarrierRegistryEntry as Entry }")
-    .replace("readonly TargetCarrierRegistryEntry<", "readonly Entry<");
-  const proof = inspectMetadata(text);
-  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
-  assert.doesNotMatch(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
-});
-
-for (const [name, change] of [
-  ["runtime DTO import", text => text.replace("import type { TargetCarrierRegistryEntry }", "import { TargetCarrierRegistryEntry }")],
-  ["foreign implementation import", text => `import { select } from "@tsonic/csharp";\n${text}`],
-  ["foreign type-only import", text => `import type { Foreign } from "@tsonic/csharp";\n${text}`],
-  ["additional executable statement", text => `${text}\nconsole.log("dotnet");`],
-  ["mutable registry binding", text => text.replace("export const nativeEntries", "export let nativeEntries")],
-  ["a different type operator", text => text.replace("readonly TargetCarrierRegistryEntry", "keyof TargetCarrierRegistryEntry")],
-  ["uninitialized declaration", text => text.slice(0, text.indexOf(" = Object.freeze")) + ";"],
-  ["unfrozen registry array", text => text.replace("Object.freeze([", "[").replace("\n]);", "\n];")],
-  ["plain function instead of freeze", text => text.replace("Object.freeze([", "freeze([")],
-  ["indexed freeze access", text => text.replace("Object.freeze([", 'Object["freeze"]([')],
-  ["constructor instead of freeze", text => text.replace("Object.freeze([", "new Object([")],
-  ["computed counterpart", text => text.replace('symbol: "csharpCarrier"', 'symbol: select("csharp")')],
-  ["computed counterpart key", text => text.replace('counterpart: { module:', 'counterpart: { ["module"]:')],
-  ["counterpart getter", text => text.replace('symbol: "csharpCarrier"', 'get symbol() { return "csharpCarrier"; }')],
-  ["selecting closure", text => text.replace("frozen: false", 'frozen: false, select: () => "csharp"')],
-  ["spread row", text => text.replace('id: "native#carrier"', '...selected, id: "native#carrier"')],
-  ["computed frozen flag", text => text.replace("frozen: false", "frozen: Boolean(0)")],
-  ["duplicate row field", text => text.replace("frozen: false", "frozen: false, frozen: true")],
-  ["unknown row field", text => text.replace("frozen: false", "frozen: false, extra: 1")],
-  ["unsigned native divergence", text => text.replace('register: "NATIVE-01"', 'register: "UNSIGNED"')],
-  ["computed divergence reason", text => text.replace('reason: "dotnet has a different native qualifier"', 'reason: explain("dotnet")')],
-  ["empty divergence reason", text => text.replace('reason: "dotnet has a different native qualifier"', 'reason: ""')],
-  ["Object binding shadows freeze", text => text.replace("export const nativeEntries", "export const Object")],
+for (const [name, difference, message] of [
+  ["an unsigned native difference", { register: "UNSIGNED", reason: "asserted difference" }, "Unproved native carrier difference: left:vocabulary/native-qualifier"],
+  ["an empty native reason", { register: "NATIVE-01", reason: " " }, "Unproved native carrier difference: left:vocabulary/native-qualifier"],
 ]) {
-  test(`inert registry proof rejects ${name} without masking any source`, () => {
-    const text = change(registryMetadata);
-    const proof = inspectMetadata(text);
-    assert.equal(proof.failures.length > 0, true, name);
-    assert.equal(proof.sources.get("src/unrestricted-name.ts"), text, "invalid source remains fully visible");
+  test(`shared carrier parity rejects ${name}`, () => {
+    assert.equal(parity(oneSided, rows, [{ responsibility: "vocabulary/native-qualifier", target: "left", symbol: "named", ...difference }])
+      .includes(message), true);
   });
 }
 
-test("same-spelled local registry types cannot authorize counterpart masking", () => {
-  const text = registryMetadata.replace('import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";',
-    "type TargetCarrierRegistryEntry<Kind> = { kind: Kind };");
-  const proof = inspectMetadata(text);
-  assert.equal(proof.modules.length, 0, "no canonical shared declaration");
-  assert.match(proof.sources.get("src/unrestricted-name.ts"), /csharp/iu);
+test("a shared difference for a responsibility its target does not have is stale", () => {
+  const difference = { responsibility: "vocabulary/native-qualifier", target: "right", symbol: "named", register: "NATIVE-01", reason: "stale" };
+  assert.equal(parity(oneSided, rows, [difference]).includes("Stale carrier difference: right:vocabulary/native-qualifier"), true);
 });
 
-test("foreign names outside the two admitted metadata fields remain prohibited", () => {
-  for (const text of [registryMetadata.replace('id: "native#carrier"', 'id: "dotnet#carrier"'),
-    registryMetadata.replace('symbol: "nativeCarrier"', 'symbol: "csharpOwnCarrier"'),
-    `${registryMetadata}\n/* roslyn */`]) {
-    const proof = inspectMetadata(text);
-    assert.equal(proof.failures.length, 0, "literal metadata shape is still inert");
-    assert.match(proof.sources.get("src/unrestricted-name.ts"), /csharp|roslyn|dotnet/iu);
-  }
+test("a structural family absent on the other target is a one-sided responsibility", () => {
+  const right = rows.filter(entry => entry.id !== "kind:source-primitive");
+  assert.equal(parity(rows, right).includes("Unexplained one-sided carrier responsibility: left:kinds/source-primitive"), true);
 });
 
-test("only pure registry aggregation may consume counterpart data", () => {
-  const aggregate = `import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";
-import type { TargetTypeRef } from "../model.js";
-import { nativeEntries } from "./unrestricted-name.js";
-export const registry: readonly TargetCarrierRegistryEntry<TargetTypeRef["kind"]>[] = Object.freeze([...nativeEntries]);`;
-  const proof = inspectMetadata(registryMetadata, [["src/aggregate.ts", aggregate]]);
-  assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
-  assert.equal(proof.modules.length, 2, "literal metadata and its non-selecting aggregate");
-  const alias = aggregate.replace("{ nativeEntries }", "{ nativeEntries as selectedEntries }")
-    .replace("[...nativeEntries]", "[...selectedEntries]");
-  const aliased = inspectMetadata(registryMetadata, [["src/aggregate.ts", alias]]);
-  assert.equal(aliased.failures.length, 0, aliased.failures.join("\n"));
-  for (const invalidAggregate of [
-    aggregate.replace("{ nativeEntries }", "{ nativeEntries, nativeEntries as Object }"),
-    aggregate.replace("[...nativeEntries]", "[...unboundEntries]"),
-    aggregate.replace("{ nativeEntries }", "{ wrongExport as nativeEntries }"),
-    aggregate.replace("{ nativeEntries }", "* as nativeEntries"),
-    aggregate.replace("{ nativeEntries }", "nativeEntries"),
-  ]) {
-    const invalid = inspectMetadata(registryMetadata, [["src/aggregate.ts", invalidAggregate]]);
-    assert.equal(invalid.failures.length > 0, true, "only the actual imported metadata export can be aggregated");
-    assert.equal(invalid.sources.get("src/unrestricted-name.ts"), registryMetadata, "invalid bindings authorize no masking");
-  }
-  for (const consumer of [
-    'import { nativeEntries } from "./unrestricted-name.js"; export const selected = nativeEntries[0].counterpart.symbol;',
-    'export { nativeEntries } from "./unrestricted-name.js";',
-    'export async function select() { return (await import("./unrestricted-name.js")).nativeEntries[0].counterpart; }',
-    'export async function select() { return (await import(`./unrestricted-name.js`)).nativeEntries[0].counterpart; }',
-    'export async function select() { return (await import(("./unrestricted-name.js"))).nativeEntries[0].counterpart; }',
-    'export async function select() { return (await import(((`./unrestricted-name.js`)))).nativeEntries[0].counterpart; }',
-    'export type Counterpart = (typeof import("./unrestricted-name.js"))["nativeEntries"][number]["counterpart"];',
-    ...['"./unrestricted-name.js"', '`./unrestricted-name.js`'].flatMap(specifier => [
-      `${specifier} as const`, `${specifier} satisfies string`, `${specifier}!`, `<const>${specifier}`,
-      `((${specifier} as const) satisfies string)!`,
-    ].map(operand => `export async function select() { return (await import(${operand})).nativeEntries[0].counterpart; }`)),
-  ]) {
-    const invalid = inspectMetadata(registryMetadata, [["src/consumer.ts", consumer]]);
-    assert.equal(invalid.failures.includes("Production consumer of carrier registry metadata: src/consumer.ts"), true,
-      "ordinary code may neither decide with nor expose the counterpart records");
-    assert.equal(invalid.sources.get("src/unrestricted-name.ts"), registryMetadata, "no mask on an invalid graph");
-  }
+test("product source that carries or reads registry data is reported", () => {
+  const files = new Map([
+    ["src/target-model/types/carriers/registry-native.ts", `import type { TargetCarrierRegistryEntry } from "@tsonic/target-api";`],
+    ["src/analysis/reader.ts", `import { carrierRegistry } from "../target-model/types/carriers/registry.js";`],
+    ["src/analysis/ordinary.ts", `export const registryPatch = "crates-io";`],
+  ]);
+  assert.deepEqual(productCarrierRegistryReferences(files),
+    ["src/target-model/types/carriers/registry-native.ts", "src/analysis/reader.ts"]);
 });

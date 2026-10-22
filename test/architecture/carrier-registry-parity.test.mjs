@@ -1,29 +1,55 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { inspectCarrierRegistrySource, loadCarrierRegistry, readCarrierDivergenceRegister,
-  readCarrierRegistrySourceFiles, validateCarrierRegistrySymmetry } from "../helpers/carrier-registry.mjs";
+import { loadCarrierRegistry, productCarrierRegistryReferences, readCarrierDivergenceRegister,
+  readCarrierRegistrySourceFiles, validateCarrierParity, validateCarrierRegistry } from "../helpers/carrier-registry.mjs";
+import { carrierParityDifferences } from "./carrier-parity.mjs";
 import { readArchitectureTypeScript } from "./tooling/typescript-source.mjs";
 
 const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const registries = [];
-for (const repository of ["tsonic-csharp", "tsonic-rust"]) {
-  registries.push(await loadCarrierRegistry(path.join(workspace, repository)));
+const repositories = { csharp: "tsonic-csharp", rust: "tsonic-rust" };
+const registries = {};
+for (const [target, repository] of Object.entries(repositories)) {
+  registries[target] = await loadCarrierRegistry(path.join(workspace, repository));
 }
 const signedDifferences = await readCarrierDivergenceRegister();
+const parity = (selected = registries, differences = carrierParityDifferences) =>
+  validateCarrierParity(selected, differences, signedDifferences);
+const withoutDifference = (target, responsibility) => carrierParityDifferences.filter(entry =>
+  !(entry.target === target && entry.responsibility === responsibility));
 
-test("both target registries are inert declared data without production consumers", async () => {
-  for (const repository of ["tsonic-csharp", "tsonic-rust"]) {
+test("carrier registries are test data: no product module carries or reads them", async () => {
+  for (const repository of Object.values(repositories)) {
     const files = await readCarrierRegistrySourceFiles(path.join(workspace, repository));
-    const proof = inspectCarrierRegistrySource(files, signedDifferences);
-    assert.equal(proof.modules.length, 6, `${repository} has five literal registries and their pure aggregate`);
-    assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
+    assert.deepEqual(productCarrierRegistryReferences(files), [], `${repository} product source`);
+    const carriers = await readdir(path.join(workspace, repository, "src/target-model/types/carriers"));
+    assert.deepEqual(carriers.filter(name => name.startsWith("registry")), [], `${repository} ships no registry module`);
   }
 });
 
-test("the native trait constructor has its actual named-contract counterpart and preserves native arguments", async () => {
+test("neither compiler's registry names the other compiler; pairing lives only in the shared tree", async () => {
+  for (const [target, pattern] of [["rust", /csharp|c#|clr|dotnet|roslyn/iu], ["csharp", /rust|cargo/iu]]) {
+    const directory = path.join(workspace, repositories[target], "test/target-model/types/carriers/registry");
+    for (const name of await readdir(directory)) {
+      assert.doesNotMatch(await readFile(path.join(directory, name), "utf8"), pattern, `${target} ${name}`);
+    }
+  }
+});
+
+test("both registries cover their own carrier vocabulary", () => {
+  for (const [target, registry] of Object.entries(registries)) {
+    assert.deepEqual(validateCarrierRegistry(registry.rows, registry.vocabulary), [], target);
+  }
+});
+
+test("the registries pair by responsibility; one-sided responsibilities have signed native differences", () => {
+  assert.equal(signedDifferences.size > 0, true);
+  assert.deepEqual(parity(), []);
+});
+
+test("the native trait constructor pairs with the named-contract owner and preserves native arguments", async () => {
   const { rustNativeTraitRef } = await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
   const { csharpTargetNamedType } = await import("../../../tsonic-csharp/dist/target-model/types/factories.js");
   const value = { kind: "source-primitive", name: "int64" };
@@ -37,24 +63,17 @@ test("the native trait constructor has its actual named-contract counterpart and
   assert.equal(native.genericArguments[1].lifetime === lifetime, true);
   assert.equal(native.genericArguments[2].value === extent, true);
   assert.equal(native.associatedConstraints.length, 0, "the actual constructor does not invent associated bindings");
-  const counterpart = csharpTargetNamedType("checked.Contract`1", [value], undefined,
-    { allowsRefLikeTypeArguments: [false] });
-  assert.equal(counterpart.kind, "target-named");
-  assert.equal(counterpart.typeArguments[0] === value, true, "the CLR native named contract preserves its type argument");
-  const row = registries[1].rows.find(entry => entry.declaration.symbol === "rustNativeTraitRef");
-  assert.equal(row !== undefined, true, "the concrete native constructor must have one registry owner");
-  assert.equal(row.kinds.length, 1);
-  assert.equal(row.kinds[0], "trait-ref");
-  assert.equal(row.counterpart.module, "src/target-model/types/factories.ts");
-  assert.equal(row.counterpart.symbol, "csharpTargetNamedType");
+  const named = csharpTargetNamedType("checked.Contract`1", [value], undefined, { allowsRefLikeTypeArguments: [false] });
+  assert.equal(named.kind, "target-named");
+  assert.equal(named.typeArguments[0] === value, true, "the CLR native named contract preserves its type argument");
+  const rustRow = registries.rust.rows.find(entry => entry.declaration.symbol === "rustNativeTraitRef");
+  const csharpRow = registries.csharp.rows.find(entry => !entry.id.startsWith("kind:") && entry.declaration.symbol === "csharpTargetNamedType");
+  assert.equal(rustRow !== undefined && csharpRow !== undefined, true, "both concrete constructors have one registry owner");
+  assert.deepEqual(rustRow.kinds, ["trait-ref"]);
+  assert.equal(rustRow.responsibility, csharpRow.responsibility, "paired by one neutral responsibility");
 });
 
-test("built C# and Rust carrier registries share checked counterparts or signed native constraints", () => {
-  assert.equal(signedDifferences.size > 0, true);
-  assert.deepEqual(validateCarrierRegistrySymmetry(registries[0], registries[1], signedDifferences), []);
-});
-
-test("the structural native difference is pinned to fixed arrays and never replaces concrete counterpart proof", async () => {
+test("the structural native difference is pinned to fixed arrays and never replaces the concrete row's proof", async () => {
   const { rustFixedArrayTargetType, rustFixedArrayCarrierValue } =
     await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
   const { rustTypeFromCarrier } = await import("../../../tsonic-rust/dist/backend/planner/types/render.js");
@@ -69,47 +88,41 @@ test("the structural native difference is pinned to fixed arrays and never repla
   const rendered = rustTypeFromCarrier(carrier);
   assert.equal(rendered?.kind, "fixed-array", "native array syntax, not a manufactured CLR carrier");
   assert.equal(rendered.length.value, 9007199254740993n, "native extent never rounds through a number");
-  const [csharp, rust] = registries;
-  const structural = rust.rows.find(row => row.id === "kind:target-specific");
-  assert.equal(structural?.divergence?.register, "S11-11", "only the signed native fixed-array constraint");
-  for (const actual of [structural, rust.rows.find(row => row.declaration.symbol === "rustFixedArrayTargetType")]) {
-    assert.equal(actual !== undefined, true, "both structural and concrete rows are required");
-    const rows = rust.rows.map(row => {
-      if (row !== actual) return row;
-      const { divergence, ...unsigned } = row;
-      return unsigned;
-    });
-    assert.equal(validateCarrierRegistrySymmetry(csharp, { ...rust, rows }, signedDifferences)
-      .includes(`Unexplained one-sided carrier: ${actual.id}`), true,
+  const structural = carrierParityDifferences.find(entry => entry.target === "rust" && entry.responsibility === "kinds/target-specific");
+  assert.equal(structural?.register, "S11-11", "only the signed native fixed-array constraint");
+  const concrete = registries.rust.rows.find(row => row.declaration.symbol === "rustFixedArrayTargetType");
+  for (const responsibility of ["kinds/target-specific", concrete.responsibility]) {
+    assert.equal(parity(registries, withoutDifference("rust", responsibility))
+      .includes(`Unexplained one-sided carrier responsibility: rust:${responsibility}`), true,
     "neither the umbrella nor the concrete carrier can borrow the other's native-constraint proof");
   }
 });
 
-test("an existing built native primitive constructor cannot masquerade as the structural array counterpart", () => {
-  const [current, counterpart] = registries;
-  const incorrect = counterpart.rows.find(row => !row.id.startsWith("kind:") &&
-    row.kinds.length === 1 && row.kinds[0] === "source-primitive");
-  assert.equal(incorrect !== undefined, true);
-  const rows = current.rows.map(row => row.id === "kind:array" ? { ...row, counterpart: incorrect.declaration } : row);
-  assert.equal(validateCarrierRegistrySymmetry({ ...current, rows }, counterpart, signedDifferences)
-    .includes("Structural carrier counterpart kind mismatch: kind:array"), true);
+test("a structural kind row cannot be keyed to another responsibility", () => {
+  const rows = registries.csharp.rows.map(row => row.id === "kind:array" ? { ...row, responsibility: "vocabulary/string" } : row);
+  assert.equal(validateCarrierRegistry(rows, registries.csharp.vocabulary)
+    .includes("Structural carrier responsibility must be kinds/array: kind:array"), true);
 });
 
 test("native const and associated-type rows fail strict parity without their exact proven register entries", () => {
-  const [csharp, rust] = registries;
   for (const [symbol, register] of [["rustFixedArrayTargetType", "S11-11"], ["rustIndexedFieldTrait", "S11-12"],
     ["rustIndexedFieldProjection", "S11-12"]]) {
-    const actual = rust.rows.find(row => row.declaration.symbol === symbol);
-    assert.equal(actual?.divergence?.register, register, symbol);
-    assert.equal(actual.counterpart, null, symbol);
-    const rows = rust.rows.map(row => {
-      if (row !== actual) return row;
-      const { divergence, ...unsigned } = row;
-      return unsigned;
-    });
-    assert.equal(validateCarrierRegistrySymmetry(csharp, { ...rust, rows }, signedDifferences)
-      .includes(`Unexplained one-sided carrier: ${actual.id}`), true, symbol);
+    const actual = registries.rust.rows.find(row => row.declaration.symbol === symbol);
+    const entry = carrierParityDifferences.find(candidate => candidate.target === "rust" &&
+      candidate.responsibility === actual?.responsibility);
+    assert.equal(entry?.register, register, symbol);
+    assert.equal(registries.csharp.rows.some(row => row.responsibility === actual.responsibility), false, symbol);
+    assert.equal(parity(registries, withoutDifference("rust", actual.responsibility))
+      .includes(`Unexplained one-sided carrier responsibility: rust:${actual.responsibility}`), true, symbol);
   }
+});
+
+test("a difference for a responsibility its target lacks, or without a signed register, is rejected", () => {
+  const stale = [...carrierParityDifferences, { responsibility: "vocabulary/never-present", target: "csharp",
+    symbol: "csharpNeverPresent", register: "S11-01", reason: "stale" }];
+  assert.equal(parity(registries, stale).includes("Stale carrier difference: csharp:vocabulary/never-present"), true);
+  const unsigned = carrierParityDifferences.map((entry, index) => index === 0 ? { ...entry, register: "S99-99" } : entry);
+  assert.equal(parity(registries, unsigned).some(failure => failure.startsWith("Unproved native carrier difference:")), true);
 });
 
 test("native memory item names have mirrored pure name owners and never manufacture a value carrier or syntax node", async () => {
@@ -136,6 +149,5 @@ test("native memory item names have mirrored pure name owners and never manufact
   };
   for (const file of checked.sourceFiles) visit(file);
   assert.equal(strings, 7);
-  const csharp = registries[0];
-  assert.equal(csharp.rows.some(row => row.declaration.symbol === "csharpRuntimeNativeLocationTargetType"), false);
+  assert.equal(registries.csharp.rows.some(row => row.declaration.symbol === "csharpRuntimeNativeLocationTargetType"), false);
 });

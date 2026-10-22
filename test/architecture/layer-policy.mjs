@@ -73,7 +73,6 @@ export const sharedRootPolicies = Object.freeze([
   ]),
   root("packages/target-api/src/", [
     "packages/target-api/src/artifacts.ts",
-    "packages/target-api/src/carrier-registry.ts",
     "packages/target-api/src/config.ts",
     "packages/target-api/src/module-reference.ts",
     "packages/target-api/src/registry.ts",
