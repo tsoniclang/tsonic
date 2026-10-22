@@ -18,7 +18,7 @@ test("both target registries are inert declared data without production consumer
   for (const repository of ["tsonic-csharp", "tsonic-rust"]) {
     const files = await readCarrierRegistrySourceFiles(path.join(workspace, repository));
     const proof = inspectCarrierRegistrySource(files, signedDifferences);
-    assert.equal(proof.modules.length, 5, `${repository} has four literal registries and their pure aggregate`);
+    assert.equal(proof.modules.length, 6, `${repository} has five literal registries and their pure aggregate`);
     assert.equal(proof.failures.length, 0, proof.failures.join("\n"));
   }
 });
