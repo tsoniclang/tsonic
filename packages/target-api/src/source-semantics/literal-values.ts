@@ -1,6 +1,6 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceIntegerConstantReader } from "./integer-constant.js";
-import { parseNativeIntegerLiteral, sourceIntegerLiteralValue } from "./integer-literal.js";
+import { sourceIntegerLiteralValue } from "./integer-literal.js";
 import type { SourceLiteralIndex, SourceLiteralValue, SourceNumericLiteralEvidence, SourceScalarLiteralValue } from "./literal-values-model.js";
 import { parseFiniteNumberLiteral } from "./literal-text.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
@@ -56,11 +56,7 @@ export function analyzeSourceLiteralValues(
         ...(number === undefined ? {} : { number }), ...(integer === undefined ? {} : { integer }) });
     }
     if (ast.is.IsBigIntLiteral(node)) {
-      // A bigint literal TSTS synthesized has no authored token; its checked text is still the exact integer, so this
-      // checked literal-value owner reads it (the authored-token reader refuses synthetic tokens).
-      const integer = sourceLiteralToken(ast, node).kind === "synthetic" ? parseNativeIntegerLiteral(ast.text(node))
-        : sourceIntegerLiteralValue(ast, node);
-      return scalar("bigint", { integer });
+      return scalar("bigint", { integer: sourceIntegerLiteralValue(ast, node) });
     }
     if (ast.is.IsPrefixUnaryExpression(node)) {
       const operator = ast.operatorKindName(node);

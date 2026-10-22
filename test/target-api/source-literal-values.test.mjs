@@ -125,7 +125,7 @@ test("a prefix sign has a datum only when its operand is a numeric, bigint, sign
     ["-0", prefix("KindMinusToken", numericNode("0")), -0, 0n],
     ["-1e400", prefix("KindMinusToken", numericNode("1e400")), undefined, undefined],
     ["- -1e400", prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1e400"))), undefined, undefined],
-    [`-1${"0".repeat(40)}n`, prefix("KindMinusToken", bigint(`1${"0".repeat(40)}n`)), undefined, undefined],
+    [`-1${"0".repeat(40)}n`, prefix("KindMinusToken", bigint(`1${"0".repeat(40)}n`)), undefined, -(10n ** 40n)],
   ];
   const index = analyzeSourceLiteralValues(syntheticAst(),
     [{ kind: "SourceFile", children: [...nonLiterals, ...literals.map(([, node]) => node)] }]);
@@ -138,5 +138,5 @@ test("a prefix sign has a datum only when its operand is a numeric, bigint, sign
     const value = index.literalValue.get(node);
     return !(value?.form === "prefix-unary" && Object.is(value.number, number) && value.integer === integer);
   }).map(([label]) => label), [], "a sign over a numeric, bigint, grouped or signed literal keeps its exact number and integer, " +
-    "and a sign over a non-finite numeric or an out-of-range bigint literal keeps a datum with neither");
+    "a sign over a non-finite numeric keeps a datum with neither, and a bigint literal keeps every digit");
 });

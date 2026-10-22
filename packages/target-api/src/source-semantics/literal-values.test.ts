@@ -139,6 +139,10 @@ test("exact token comparisons and bounded integer facts share normalization with
   assert.equal(parseNativeIntegerLiteral("0e9999999999999999999"), 0n);
   assert.equal(parseNativeIntegerLiteral("1_000.00e-2"), 10n);
   assert.equal(parseNativeIntegerLiteral("9007199254740993n"), 9007199254740993n);
+  assert.equal(parseNativeIntegerLiteral("1606938044258990275541962092341162602522202993782792835301376n"),
+    1606938044258990275541962092341162602522202993782792835301376n, "a bigint literal keeps every digit");
+  assert.equal(parseNativeIntegerLiteral("0x1" + "0".repeat(33) + "n"), 1n << 132n);
+  assert.equal(parseNativeIntegerLiteral("1e5n"), undefined);
 });
 
 test("exact magnitude comparison accepts scaled coefficient evidence without a fabricated source token", () => {
