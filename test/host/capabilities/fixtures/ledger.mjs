@@ -7603,12 +7603,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/core/control-flow/expressions.test.mjs",
       "../tsonic-csharp/test/policy/operations/regexp-literals.test.mjs",
-      "../tsonic-csharp/test/source/facts/source-literal-values.test.mjs",
+      "test/target-api/source-literal-values.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/core/control-flow/expressions.test.mjs",
       "../tsonic-csharp/test/policy/operations/regexp-literals.test.mjs",
-      "../tsonic-csharp/test/source/facts/source-literal-values.test.mjs",
+      "test/target-api/source-literal-values.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
