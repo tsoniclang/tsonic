@@ -57,7 +57,10 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
           if (!selected.has(actual) && !temporary.add(1)) return undefined;
           selected.add(actual);
         }
-        if (!found) return undefined;
+        if (!found) {
+          budget.reject("Source storage activations require a captured parent scope for every creation-footprint owner.");
+          return undefined;
+        }
       }
       return Object.freeze([...selected]);
     });
