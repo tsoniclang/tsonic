@@ -1,7 +1,7 @@
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceReceiverOwner } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
@@ -298,6 +298,10 @@ export function createSourceStorageTransport(
     }
     const parent = ast.parent(node);
     if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
+      connect(subjectFor(node), subject(parent));
+    // A simple assignment expression evaluates to its right operand's value (as well as storing it).
+    if (parent !== undefined && ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindEqualsToken" &&
+      sourceNodesEqual(ast, ast.as.AsBinaryExpression(parent)?.Right, node))
       connect(subjectFor(node), subject(parent));
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
     const bindingPattern = ast.is.IsBindingElement(node) ? ast.parent(node) : undefined;
