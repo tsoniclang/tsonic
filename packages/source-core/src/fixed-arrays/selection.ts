@@ -208,9 +208,9 @@ function selectResolvedFixedArray(
   }
   const count = queries.numericLiteralValue(lengthType);
   if ((typeof count !== "number" && typeof count !== "bigint") || count < 0 ||
-      (extent === undefined && typeof count === "number" && !Number.isInteger(count)) ||
+      (extent === undefined && typeof count === "number" && !Number.isSafeInteger(count)) ||
       (extent !== undefined && extent.length < 0n)) {
-    return invalid("FixedArray<T, N> requires N to be one exact non-negative integer numeric or bigint literal type.");
+    return invalid("FixedArray<T, N> requires N to be one exact non-negative safe numeric or bigint literal type.");
   }
   if (extent !== undefined && (extent.lengthRuntimeBase !== typeof count ||
       typeof count === "bigint" && count !== extent.length ||
