@@ -192,7 +192,7 @@ test("CLI rejects object-shape spread members without finalized target carriers"
   assert.match(build.stderr, /Object literal spread source member 'label' requires a finalized target object-shape member carrier/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-test("CLI emits structural type-literal methods as delegate-backed object shapes", async () => {
+test("CLI emits structural type-literal methods as authored object-shape methods", async () => {
   const projectDirectory = resolve(tempRoot, "structural-object-methods");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -229,10 +229,10 @@ test("CLI emits structural type-literal methods as delegate-backed object shapes
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public required Func<double, double> __tsonic_shape_method_0_run;/);
-  assert.match(generatedShapes, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_0_run\(arg0\);/);
-  assert.match(generatedSource, /__tsonic_shape_method_0_run = \(double value\) =>/);
-  assert.match(generatedSource, /return value \+ 1;/);
+  // Checkpoint form (RULINGS: checkpoint output stands; Phase B observation TEST:host:3bd2e0d6 emitted
+  // `public class ObjectShape_… { public double run(double value) { return value + 1; } }`), as in tsonic-csharp 4298d72c.
+  assert.match(generatedShapes, /public class ObjectShape_[a-f0-9]{12,64}[^{]*\{[\s\S]*?public double run\(double value\)\s*\{\s*return value \+ 1;\s*\}/u);
+  assert.doesNotMatch(generatedShapes + generatedSource, /__tsonic_shape_method_/u);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeMethods.csproj"), "--nologo", "--v:minimal"]);
