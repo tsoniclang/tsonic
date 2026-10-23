@@ -6,7 +6,7 @@ import type { SourceStorageBindings, SourceStorageQueries } from "../source-stor
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection, SourceCallableRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 import { sourceEnclosingCallable, sourceExpressionCallArgument, sourceExpressionResultDisposition,
-  sourceImmediatelyAwaitedLocal } from "../../source-navigation/index.js";
+  sourceImmediatelyAwaitedLocal, sourceTransparentExpressionOperand, Node_Expression } from "../../source-navigation/index.js";
 
 export function createSourceCallableRetentionQuery(input: {
   readonly source: TargetSourceProgram;
@@ -89,7 +89,18 @@ export function createSourceCallableRetentionQuery(input: {
               continue;
             }
             if (use.kind === "direct-call" && use.role === "call-target") {
-              const call = ast.parent(use.reference);
+              let callee = use.reference;
+              let call = ast.parent(callee);
+              const parents = new Set<Node>();
+              while (call !== undefined && sourceTransparentExpressionOperand(ast, call) === callee) {
+                if (!budget.step() || parents.has(call)) break;
+                parents.add(call);
+                callee = call;
+                call = ast.parent(callee);
+              }
+              if (call === undefined || !ast.is.IsCallExpression(call) || Node_Expression(ast, call) !== callee) {
+                reason ??= "A callable reference requires its original checked invocation occurrence."; continue;
+              }
               const checked = call === undefined ? undefined : semantics.forNode(call).operations.call(call);
               if (checked === undefined) { reason ??= "A callable invocation requires its exact checked call use."; continue; }
               const types = semantics.forNode(call!).types;

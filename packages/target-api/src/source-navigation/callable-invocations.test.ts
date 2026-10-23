@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees } from "./callable-invocations.js";
+import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
+  createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -38,6 +39,31 @@ function fixture(body: string) {
     return query(declaration!);
   } };
 }
+
+test("native callable reference selection shares exact binding, alias and implementation facts", () => {
+  const current = fixture(`function work(): number { return 1; } const alias = work; return work() + alias();`);
+  const declaration = current.declaration("work");
+  const uses = current.source.navigation.declarationUses(declaration);
+  const direct = uses.find(use => use.kind === "direct-call")!.reference;
+  const stored = uses.find(use => use.role === "storage")!.reference;
+  const alias = current.source.ast.parent(stored)!;
+  const aliasUse = current.source.navigation.declarationUses(alias).find(use => use.kind === "direct-call")!.reference;
+  const query = createSourceCallableInvocationReferenceQuery({ ast: current.source.ast, navigation: current.source.navigation,
+    nativeCallableFor: binding => binding === alias ? declaration : undefined,
+    lexicalBindingFor: target => target === declaration ? declaration : undefined,
+    callAliasFor: binding => binding === alias ? declaration : undefined });
+  const native = query.forTarget(direct, declaration);
+  assert.equal(native.nativeFunction && native.directDeclaration && native.directLexical, true,
+    "the original checked declaration invokes its native helper");
+  const selectedAlias = query.forTarget(aliasUse, declaration);
+  assert.equal(selectedAlias.referenceDeclaration === alias && selectedAlias.directModule && selectedAlias.callAlias, true,
+    "already selected native and call-only alias identities are retained");
+  assert.equal(query.forTarget(aliasUse, declaration) === selectedAlias, true, "all consumers share the same selected reference fact");
+  const valueQuery = createSourceCallableInvocationReferenceQuery({ ast: current.source.ast, navigation: current.source.navigation,
+    nativeCallableFor: () => undefined, lexicalBindingFor: () => undefined, callAliasFor: () => undefined });
+  assert.equal(valueQuery.forTarget(aliasUse, declaration).nativeFunction, false,
+    "the target declaration alone cannot turn an indirect value into a native helper invocation");
+});
 
 test("single lexical invocation proof retains hoisting and exact transitive callers", () => {
   const current = fixture(`const value = through();

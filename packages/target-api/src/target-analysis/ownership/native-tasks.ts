@@ -65,6 +65,7 @@ export function analyzeSourceNativeTaskGraph(input: {
     if (input.spawns.length !== 0 && input.lifecycleOwner === undefined)
       reject(input.spawns[0]!.node, "lifecycle-owner", "Native task scope requires its actual root lifecycle source identity.");
     const edges: { readonly node: Node; readonly owner: Node; readonly targets: readonly Node[]; readonly exact: boolean }[] = [];
+    const openEdges = new Map<Node, { readonly node: Node; readonly reason: string }[]>();
     const contracts = new Map<Node, readonly Node[]>();
     const implementations = new Map<Node, Node[]>();
     if (spawns.length !== 0) for (const node of input.nodes) {
@@ -94,9 +95,15 @@ export function analyzeSourceNativeTaskGraph(input: {
       if (owner === undefined) { reject(node, "scope-owner", "A native task invocation has no checked caller owner."); continue; }
       const bindings = ast.is.IsSourceFile(owner) ? { kind: "resolved" as const, bindings: storage.emptyBindings }
         : storage.bindingsForLexicalOwner(owner);
-      if (bindings.kind === "unresolved") { reject(node, "call-graph", bindings.reason); continue; }
-      const targets = storage.invocationImplementationsFor(node, bindings.bindings);
-      if (targets.kind === "unresolved") { reject(node, "call-graph", targets.reason); continue; }
+      const targets = bindings.kind === "unresolved" ? bindings : storage.invocationImplementationsFor(node, bindings.bindings);
+      if (targets.kind === "unresolved") {
+        const previous = openEdges.get(declaration);
+        if (!rows.add(previous === undefined ? 2 : 1)) break;
+        const entry = Object.freeze({ node, reason: targets.reason });
+        if (previous === undefined) openEdges.set(declaration, [entry]);
+        else previous.push(entry);
+        continue;
+      }
       if (rows.add(1 + targets.nodes.length)) edges.push(Object.freeze({ node, owner, targets: targets.nodes, exact: targets.exact }));
     }
     const incoming = new Map<Node, typeof edges>();
@@ -138,6 +145,7 @@ export function analyzeSourceNativeTaskGraph(input: {
         if (!budget.step()) break;
         requireOwner(member);
       }
+      for (const edge of openEdges.get(owner) ?? []) reject(edge.node, "call-graph", edge.reason);
       for (const edge of incoming.get(owner) ?? []) {
         if (!budget.step()) break;
         const mode = input.callInputs.get(edge.node);

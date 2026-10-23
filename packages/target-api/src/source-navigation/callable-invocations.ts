@@ -14,6 +14,47 @@ export type SourceSubtreeParticipation =
 type SourceLexicalFunctionNavigation = Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationSymbol" |
   "referencesWithin" | "sourceReferenceFor" | "callableImplementation">;
 
+export interface SourceCallableInvocationReference {
+  readonly referenceDeclaration: Node | undefined;
+  readonly directDeclaration: boolean;
+  readonly directModule: boolean;
+  readonly directLexical: boolean;
+  readonly callAlias: boolean;
+  readonly nativeFunction: boolean;
+}
+
+export function createSourceCallableInvocationReferenceQuery(input: {
+  readonly ast: AstReader;
+  readonly navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "callableImplementation">;
+  readonly nativeCallableFor: (binding: Node) => Node | undefined;
+  readonly lexicalBindingFor: (declaration: Node) => Node | undefined;
+  readonly callAliasFor: (binding: Node) => Node | undefined;
+}): { forTarget(callee: Node, declaration: Node): SourceCallableInvocationReference } {
+  const selected = new Map<Node, Map<Node, SourceCallableInvocationReference>>();
+  return Object.freeze({
+    forTarget(callee: Node, declaration: Node): SourceCallableInvocationReference {
+      const existing = selected.get(callee)?.get(declaration);
+      if (existing !== undefined) return existing;
+      const referenceDeclaration = input.navigation.sourceReferenceFor(callee)?.declaration;
+      const implementation = referenceDeclaration === undefined ? undefined
+        : input.navigation.callableImplementation(referenceDeclaration);
+      const directModule = referenceDeclaration !== undefined && input.nativeCallableFor(referenceDeclaration) === declaration;
+      const directDeclaration = referenceDeclaration === declaration || implementation?.kind === "resolved" &&
+        implementation.implementation.declaration === declaration;
+      const lexicalBinding = input.lexicalBindingFor(declaration);
+      const directLexical = lexicalBinding !== undefined && lexicalBinding === referenceDeclaration;
+      const callAlias = referenceDeclaration !== undefined && input.callAliasFor(referenceDeclaration) === declaration;
+      const result: SourceCallableInvocationReference = Object.freeze({ referenceDeclaration, directDeclaration,
+        directModule, directLexical, callAlias, nativeFunction: directModule || directLexical || callAlias ||
+          input.ast.is.IsFunctionDeclaration(declaration) && referenceDeclaration === declaration });
+      const targets = selected.get(callee) ?? new Map<Node, SourceCallableInvocationReference>();
+      targets.set(declaration, result);
+      selected.set(callee, targets);
+      return result;
+    },
+  });
+}
+
 function lexicalFunctionUseSummaries(declaration: Node, ast: AstReader,
   navigation: SourceLexicalFunctionNavigation): readonly SourceDeclarationUseSummary[] | undefined {
   const sourceFile = ast.getSourceFile(declaration);
