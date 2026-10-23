@@ -317,7 +317,7 @@ export function createSourceStorageTransport(
   });
   const memberFlow = createSourceStorageMemberFlow(source, budget, sourceFileFor, retainCheckedContext);
   const implementationsFor = createSourceStorageMemberImplementations(source, budget, {
-    subject, subjectFor, incomingFor, originsFor: originSubjects, declarationsFor: memberFlow.declarationsFor,
+    subject, subjectFor, incomingFor, originsFor: originSubjects, declarationsFor: memberFlow.declarationsFor, isCopiedFor: memberFlow.isCopiedFor,
     storesFor: storedValues.storesFor, constructionLineagesFor, contracts: memberImplementations, accessorTargets,
   });
   const collectInvocationImplementations = (invocation: Node,
@@ -475,7 +475,7 @@ export function createSourceStorageTransport(
         const matching = members?.filter(pair => pair.kind === "present" &&
           (pair.destination.property.symbol === selected?.selectedSymbol || pair.destination.property.symbol === selected?.sourceSymbol ||
             declaration !== undefined && pair.destination.declarations.includes(declaration)));
-        if (matching === undefined || matching.length === 0) {
+        if (selected === undefined || matching === undefined || matching.length === 0) {
           const reason = "Source member writes require exact checked physical destination correspondence.";
           unresolvedSubjects.set(origin, reason);
           for (const pair of type === undefined ? [] : memberFlow.membersFor(origin, type) ?? []) {
@@ -493,7 +493,11 @@ export function createSourceStorageTransport(
           if (pair.kind !== "present") continue;
           for (const member of pair.source.declarations) {
             if (!step()) break;
-            const copied = rest || ast.is.IsObjectLiteralExpression(origin.node) && ast.parent(member) !== origin.node;
+            const copied = memberFlow.isCopiedFor(origin, member, selected.receiver.type);
+            if (copied === undefined) {
+              unresolvedSubjects.set(origin, budget.failure() ?? "Source member writes require exact checked physical copy correspondence.");
+              continue;
+            }
             if (ast.is.IsSetAccessorDeclaration(member) || !copied && ast.is.IsGetAccessorDeclaration(member)) continue;
             const location = copied ? subject(origin.node, origin.kind, [...origin.projection, {
               kind: sourceStorageIsMethodMember(member, ast) ? "method-value" : "member", declaration: member,

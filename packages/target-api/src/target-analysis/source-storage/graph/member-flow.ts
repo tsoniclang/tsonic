@@ -61,9 +61,11 @@ export function createSourceStorageMemberFlow(
         for (const member of selected.members) {
           if (!budget.step()) return undefined;
           const contract = contextualByDestination.get(member.destination.property.symbol);
-          const physical: SourceStructuralMemberPair = member.kind === "present" && contract?.kind === "present" && contract.source.property.readonly
-            ? Object.freeze({ ...member, source: Object.freeze({ ...member.source,
-              property: Object.freeze({ ...member.source.property, readonly: true }) }) }) : member;
+          const allocated: SourceStructuralMemberPair = member.kind === "absent" && contract?.kind === "present" &&
+            contract.source.property.optional ? Object.freeze({ kind: "present", destination: member.destination, source: contract.source }) : member;
+          const physical: SourceStructuralMemberPair = allocated.kind === "present" && contract?.kind === "present" && contract.source.property.readonly
+            ? Object.freeze({ ...allocated, source: Object.freeze({ ...allocated.source,
+              property: Object.freeze({ ...allocated.source.property, readonly: true }) }) }) : allocated;
           physicalMembers.push(physical);
           if (physical.kind !== "present") continue;
           for (const target of physical.destination.declarations) {
@@ -274,6 +276,13 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze({ kind: "absent" });
   };
+  const isCopiedFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): boolean | undefined => {
+    if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return true;
+    if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return false;
+    if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return true;
+    const contribution = copyContributionFor(owner, declaration, destinationType, owner.node);
+    return contribution === undefined ? undefined : contribution.kind === "spread";
+  };
   const componentsFor = (owner: SourceStorageSubject): readonly SourceStorageProjection[] | undefined => {
     const file = sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
@@ -314,7 +323,7 @@ export function createSourceStorageMemberFlow(
     const selected = source.semantics.forFile(file).types.structuralMembers(type, destination);
     return selected.kind === "unavailable" && selected.reason === "missing-required-member";
   };
-  return Object.freeze({ declarationsFor, excludes, copyContributionFor, spreadMembersFor, componentsFor,
+  return Object.freeze({ declarationsFor, excludes, copyContributionFor, isCopiedFor, spreadMembersFor, componentsFor,
     membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
       selectedIndex(owner, destinationType)?.members });
 }
@@ -326,6 +335,7 @@ interface SourceStorageMemberImplementationInputs {
   originsFor(subject: SourceStorageSubject): Iterable<SourceStorageSubject> | undefined;
   storesFor(subject: SourceStorageSubject): Iterable<import("./stored-values.js").SourceStorageStore> | undefined;
   readonly declarationsFor: ReturnType<typeof createSourceStorageMemberFlow>["declarationsFor"];
+  readonly isCopiedFor: ReturnType<typeof createSourceStorageMemberFlow>["isCopiedFor"];
   constructionLineagesFor(invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined): readonly {
       readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
@@ -423,8 +433,8 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
         unknown ||= members === undefined;
         for (const member of members ?? []) {
           if (!step()) return { nodes: selected, exact: false };
-          const copied = sourceStorageObjectRestOwner(origin.node, ast) !== undefined ||
-            ast.parent(member) !== origin.node;
+          const copied = receiverType === undefined ? undefined : inputs.isCopiedFor(origin, member, receiverType);
+          if (copied === undefined) { unknown = true; continue; }
           if (copied) {
             const slot = inputs.subject(origin.node, origin.kind, [...origin.projection, {
               kind: ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member) ? "method-value" : "member", declaration: member,

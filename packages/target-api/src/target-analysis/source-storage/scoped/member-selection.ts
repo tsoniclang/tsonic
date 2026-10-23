@@ -46,8 +46,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
             .some(symbol => selected.symbolDeclarations(symbol).includes(target)))) : [];
         return members.length === 1 ? members[0]! : receiverType;
       };
-      const correspondence = symbolic || declarations === undefined
-        ? transport.memberFlow.membersFor(selectedView, declaring()) : undefined;
+      const correspondence = transport.memberFlow.membersFor(selectedView, declaring());
       if (declarations === undefined) {
         if (correspondence?.some(member => member.kind === "absent" && member.destination.declarations.includes(target)) !== true)
           return unresolved("Source storage members require exact checked correspondence.");
