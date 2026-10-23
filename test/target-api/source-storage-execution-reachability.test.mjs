@@ -12,6 +12,7 @@ function fixture(length = 16, maximumTransportRows = 128) {
     is: { IsNewExpression: () => false, IsCallExpression: () => false },
   } }, budget, {
     invocations: new Set(calls), accessorTargets: new Map(),
+    pointerInvocations: new Set(), invocationEffects: new Map(),
     regions: { enclosing: node => node.region, callable: node => [node.region], instance: () => ({ regions: [], exact: true }) },
     callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],
     invocationImplementations: node => { inspected += 1; inspect(node); return new Set([node.candidate]); },
@@ -71,6 +72,7 @@ test("forward execution retains calls, accessors, constructor initializers and c
     as: { AsNewExpression: node => ({ Expression: node.target }) },
   } }, budget, {
     invocations: new Set(calls), accessorTargets: new Map([[access, [access.target]]]),
+    pointerInvocations: new Set(), invocationEffects: new Map(),
     regions: { enclosing: node => node.region, callable: node => [node],
       instance: node => ({ regions: [{ node: node.initialize }], exact: true }) },
     callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],

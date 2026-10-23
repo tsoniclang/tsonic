@@ -344,12 +344,16 @@ function sourceReferenceIsCaptured(
   declaration: Node,
   reference: Node,
 ): boolean {
-  const declarationOwner = enclosingValueEvaluation(ast, declaration);
+  if (reference === declaration || sourceMemberAccessForReference(ast, reference) !== undefined) return false;
+  const useOwner = enclosingValueEvaluation(ast, reference);
+  const functionBinding = ast.is.IsFunctionDeclaration(declaration);
+  if (functionBinding && useOwner === declaration) return false;
+  const declarationOwner = enclosingValueEvaluation(ast, functionBinding ? ast.parent(declaration) : declaration);
   return declarationOwner !== undefined &&
-    enclosingValueEvaluation(ast, reference) !== declarationOwner;
+    useOwner !== declarationOwner;
 }
 
-function enclosingValueEvaluation(ast: AstReader, node: Node): Node | undefined {
+function enclosingValueEvaluation(ast: AstReader, node: Node | undefined): Node | undefined {
   let current: Node | undefined = node;
   let child: Node | undefined;
   while (current !== undefined) {

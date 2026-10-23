@@ -89,7 +89,7 @@ test("native callback input components preserve their distinct actual roles", ()
 
 test("native constructor execution does not expand the invocation-only lifetime permission", () => {
   const identity = { ownerName: "PromiseConstructor", memberName: "constructor" };
-  assert.deepEqual(jsSourceCallableParameterEffects(identity), [{ parameterIndex: 0, timing: "synchronous" }]);
+  assert.deepEqual(jsSourceCallableParameterEffects(identity), [{ parameterIndex: 0, timing: "synchronous", rejection: 1 }]);
   assert.equal(jsSourceInvocationOnlyCallableParameters(identity) === jsSourceInvocationOnlyCallableParameters(undefined), true,
     "the existing lifetime answer stays canonical empty, independent of known eager execution");
   assert.equal(jsSourceCallableParameterEffects({ ownerName: "ForeignPromiseConstructor", memberName: "constructor" }) === undefined,

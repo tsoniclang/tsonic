@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
+import { sourceStorageRegionOwner } from "../source-storage/graph/lexical-regions.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection, SourceCallableRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
@@ -29,7 +30,8 @@ export function createSourceCallableRetentionQuery(input: {
         return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked source implementation.");
       const initial = storage.bindingsForLexicalOwner(declaration);
       if (initial.kind === "unresolved") return sourceOwnershipUnresolved(declaration, initial.reason);
-      const originOwner = sourceEnclosingCallable(declaration, ast);
+      const originRegion = storage.enclosingRegionFor(declaration);
+      const originOwner = originRegion === undefined ? undefined : sourceStorageRegionOwner(ast, originRegion);
       const rows = budget.createRows();
       try {
         const pending = [{ node: declaration, bindings: initial.bindings }];

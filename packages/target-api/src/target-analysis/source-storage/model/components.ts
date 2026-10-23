@@ -12,8 +12,17 @@ export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSeman
 
 export function sourcePresentStorageType(type: Type, semantics: SourceFileSemantics): Type | undefined {
   if (!semantics.types.isUnion(type)) return type;
-  const present = semantics.types.unionOrIntersectionTypes(type).filter(member => !semantics.types.isNullish(member));
-  return present.length === 1 ? present[0] : undefined;
+  const present = semantics.types.nonNullableType(type);
+  return present === undefined || semantics.types.isNever(present) ? undefined : present;
+}
+
+function sourceStorageIsTupleType(type: Type, semantics: SourceFileSemantics): boolean {
+  const selected = sourcePresentStorageType(type, semantics);
+  if (selected === undefined) return false;
+  if (semantics.types.isTuple(selected)) return true;
+  if (!semantics.types.isUnion(selected)) return false;
+  const alternatives = semantics.types.unionOrIntersectionTypes(selected);
+  return alternatives.length > 0 && alternatives.every(alternative => semantics.types.isTuple(alternative));
 }
 
 export function sourceStorageAccessDeclarations(source: TargetSourceProgram, access: Node,
@@ -50,7 +59,11 @@ export function sourceStorageComponentType(
     return properties.length === 1 ? properties[0]!.type : undefined;
   }
   if (component.kind === "tuple-element") {
-    if (!semantics.types.isTuple(selected)) return undefined;
+    if (!sourceStorageIsTupleType(selected, semantics)) return undefined;
+    if (semantics.types.isUnion(selected)) {
+      const properties = semantics.types.propertyInfos(selected).filter(property => property.name === String(component.index));
+      return properties.length === 1 ? properties[0]!.type : undefined;
+    }
     const elements = semantics.types.tupleElementInfos(selected);
     const element = elements[component.index];
     return element?.elementKind === "required" || element?.elementKind === "optional" ? element.type : undefined;
@@ -78,7 +91,7 @@ export function sourceStorageOriginalComponents(
         })) : []);
   }
   return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
-    : [semantics.types.isTuple(from) ? component : { kind: "array-element" }];
+    : [sourceStorageIsTupleType(from, semantics) ? component : { kind: "array-element" }];
 }
 
 export function* sourceStorageComponents(
@@ -87,11 +100,13 @@ export function* sourceStorageComponents(
 ): Iterable<SourceStorageProjection> {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return;
-  if (semantics.types.isTuple(selected)) {
-    for (const [index, element] of semantics.types.tupleElementInfos(selected).entries()) {
-      if (element.elementKind === "required" || element.elementKind === "optional")
-        yield { kind: "tuple-element", index };
+  if (sourceStorageIsTupleType(selected, semantics)) {
+    const alternatives = semantics.types.isUnion(selected) ? semantics.types.unionOrIntersectionTypes(selected) : [selected];
+    const indexes = new Set<number>();
+    for (const alternative of alternatives) for (const [index, element] of semantics.types.tupleElementInfos(alternative).entries()) {
+      if (element.elementKind === "required" || element.elementKind === "optional") indexes.add(index);
     }
+    for (const index of indexes) yield { kind: "tuple-element", index };
   } else if (sourceArrayElementType(selected, semantics) !== undefined)
     yield { kind: "array-element" };
 }
@@ -170,7 +185,7 @@ export function sourceIndexedStorageProjection(
 ): SourceStorageProjection | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
-  if (semantics.types.isTuple(selected)) {
+  if (sourceStorageIsTupleType(selected, semantics)) {
     const indexType = index === undefined ? undefined : semantics.types.expressionType(index);
     const value = indexType === undefined ? undefined : semantics.types.numericLiteralValue(indexType);
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&

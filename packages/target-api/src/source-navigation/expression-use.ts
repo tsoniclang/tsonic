@@ -9,7 +9,15 @@ export function sourceImmediatelyAwaitedLocal(ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationUses">, call: Node): boolean {
   const disposition = sourceExpressionResultDisposition(ast, call);
   const declaration = disposition.use;
-  if (disposition.kind !== "stored" || !ast.is.IsVariableDeclaration(declaration) || Node_Initializer(ast, declaration) !== call) return false;
+  if (disposition.kind !== "stored" || !ast.is.IsVariableDeclaration(declaration)) return false;
+  let initializer = Node_Initializer(ast, declaration);
+  const initializers = new Set<Node>();
+  while (initializer !== undefined && !sourceNodesEqual(ast, initializer, call)) {
+    if (initializers.has(initializer)) return false;
+    initializers.add(initializer);
+    initializer = sourceTransparentExpressionOperand(ast, initializer);
+  }
+  if (initializer === undefined) return false;
   const list = ast.parent(declaration);
   const statement = list === undefined ? undefined : ast.parent(list);
   const block = statement === undefined ? undefined : ast.parent(statement);
