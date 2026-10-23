@@ -11,11 +11,15 @@ import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-n
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 
 interface MemberIndex {
-  readonly members: readonly SourceStructuralMemberPair[];
-  readonly declarations: ReadonlyMap<Node, readonly Node[]>;
+  aggregateReady: boolean;
+  members: readonly SourceStructuralMemberPair[] | undefined;
+  readonly declarations: Map<Node, {
+    readonly member: SourceStructuralMemberPair;
+    readonly originals: readonly Node[];
+  } | undefined>;
 }
 
-const noMembers: MemberIndex = Object.freeze({ members: Object.freeze([]), declarations: new Map() });
+const noMembers: readonly SourceStructuralMemberPair[] = Object.freeze([]);
 
 export interface SourceStorageSpreadMember {
   readonly property: TypePropertyInfo;
@@ -35,7 +39,7 @@ export function createSourceStorageMemberFlow(
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ) {
-  const selections = new Map<SourceFile, Map<Type, Map<Type | undefined, Map<Type, MemberIndex | undefined>>>>();
+  const selections = new Map<SourceFile, Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>>();
   const physicalMember = (member: SourceStructuralMemberPair, contract: SourceStructuralMemberPair | undefined): SourceStructuralMemberPair => {
     const allocated: SourceStructuralMemberPair = member.kind === "absent" && contract?.kind === "present" &&
       contract.source.property.optional ? Object.freeze({ kind: "present", destination: member.destination, source: contract.source }) : member;
@@ -43,59 +47,66 @@ export function createSourceStorageMemberFlow(
       ? Object.freeze({ ...allocated, source: Object.freeze({ ...allocated.source,
         property: Object.freeze({ ...allocated.source.property, readonly: true }) }) }) : allocated;
   };
-  const indexFor = (file: SourceFile, from: Type, to: Type, contextual?: Type): MemberIndex | undefined => {
+  const indexFor = (file: SourceFile, from: Type, to: Type, contextual: Type | undefined,
+    selection: "aggregate" | Node): MemberIndex | undefined => {
     const sources = selections.get(file);
     const contexts = sources?.get(from);
     const destinations = contexts?.get(contextual);
-    if (destinations?.has(to)) return destinations.get(to);
+    const existing = destinations?.get(to);
+    if (selection === "aggregate" ? existing?.aggregateReady : existing?.declarations.has(selection)) return existing;
     const rows = budget.createRows();
-    const temporary = budget.createRows();
     let published = false;
     try {
       const queries = source.semantics.forFile(file);
-      const selected = queries.types.structuralMembers(from, to);
-      let index: MemberIndex | undefined;
-      if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
-      if (selected.kind === "available") {
-        if (!rows.add(1 + selected.members.length)) return undefined;
-        const contextualMembers = contextual === undefined
-          ? undefined : queries.types.structuralMembers(contextual, to);
-        const contextualByDestination = new Map<SourceStructuralMemberPair["destination"]["property"]["symbol"], SourceStructuralMemberPair>();
-        if (contextualMembers?.kind === "available") for (const member of contextualMembers.members) {
-          if (!budget.step() || !temporary.add(1)) return undefined;
-          contextualByDestination.set(member.destination.property.symbol, member);
-        }
-        const physicalMembers: SourceStructuralMemberPair[] = [];
-        const members = new Map<Node, Set<Node>>();
-        for (const member of selected.members) {
-          if (!budget.step()) return undefined;
-          const contract = contextualByDestination.get(member.destination.property.symbol);
-          const physical = physicalMember(member, contract);
-          physicalMembers.push(physical);
-          if (physical.kind !== "present") continue;
-          for (const target of physical.destination.declarations) {
+      const contextualMember = (declaration: Node): SourceStructuralMemberPair | undefined => contextual === undefined
+        ? undefined : queries.types.structuralMember(contextual, to, declaration);
+      let aggregate: readonly SourceStructuralMemberPair[] | undefined;
+      let selectedMember: { readonly member: SourceStructuralMemberPair; readonly originals: readonly Node[] } | undefined;
+      if (selection === "aggregate") {
+        const selected = queries.types.structuralMembers(from, to);
+        if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") aggregate = noMembers;
+        if (selected.kind === "available") {
+          if (!rows.add(1 + selected.members.length)) return undefined;
+          const members: SourceStructuralMemberPair[] = [];
+          for (const member of selected.members) {
             if (!budget.step()) return undefined;
-            let originals = members.get(target);
-            if (originals === undefined) {
-              if (!rows.add(1)) return undefined;
-              originals = new Set();
-              members.set(target, originals);
-            }
-            for (const original of physical.source.declarations) {
-              if (!budget.step()) return undefined;
-              if (originals.has(original)) continue;
-              if (!rows.add(1)) return undefined;
-              originals.add(original);
-            }
+            const declaration = member.destination.declarations[0];
+            members.push(physicalMember(member, declaration === undefined ? undefined : contextualMember(declaration)));
           }
+          aggregate = Object.freeze(members);
         }
-        index = Object.freeze({ members: Object.freeze(physicalMembers),
-          declarations: new Map([...members].map(([target, originals]) => [target, Object.freeze([...originals])])) });
+      } else {
+        if (!budget.step()) return undefined;
+        const selected = queries.types.structuralMember(from, to, selection);
+        if (selected !== undefined) {
+          if (!rows.add(2)) return undefined;
+          const member = physicalMember(selected, contextualMember(selection));
+          let selectedDeclaration = false;
+          for (const declaration of member.destination.declarations) {
+            if (!budget.step()) return undefined;
+            selectedDeclaration ||= declaration === selection;
+          }
+          if (!selectedDeclaration) return undefined;
+          const originals = new Set<Node>();
+          if (member.kind === "present") for (const original of member.source.declarations) {
+            if (!budget.step()) return undefined;
+            if (originals.has(original)) continue;
+            if (!rows.add(1)) return undefined;
+            originals.add(original);
+          }
+          if (member.kind === "absent" || originals.size !== 0)
+            selectedMember = Object.freeze({ member, originals: Object.freeze([...originals]) });
+        }
+        if (!rows.add(1)) return undefined;
       }
-      if (!rows.add(1 + (sources === undefined ? 1 : 0) + (contexts === undefined ? 1 : 0) + (destinations === undefined ? 1 : 0))) return undefined;
-      const retainedSources = sources ?? new Map<Type, Map<Type | undefined, Map<Type, MemberIndex | undefined>>>();
-      const retainedContexts = contexts ?? new Map<Type | undefined, Map<Type, MemberIndex | undefined>>();
-      const retainedDestinations = destinations ?? new Map<Type, MemberIndex | undefined>();
+      if (budget.failure() !== undefined || existing === undefined &&
+        !rows.add(1 + (sources === undefined ? 1 : 0) + (contexts === undefined ? 1 : 0) + (destinations === undefined ? 1 : 0))) return undefined;
+      const index = existing ?? { aggregateReady: false, members: undefined, declarations: new Map() };
+      if (selection === "aggregate") { index.members = aggregate; index.aggregateReady = true; }
+      else index.declarations.set(selection, selectedMember);
+      const retainedSources = sources ?? new Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>();
+      const retainedContexts = contexts ?? new Map<Type | undefined, Map<Type, MemberIndex>>();
+      const retainedDestinations = destinations ?? new Map<Type, MemberIndex>();
       retainedDestinations.set(to, index);
       retainedContexts.set(contextual, retainedDestinations);
       retainedSources.set(from, retainedContexts);
@@ -103,7 +114,6 @@ export function createSourceStorageMemberFlow(
       published = true;
       return index;
     } finally {
-      temporary.release();
       if (!published) rows.release();
     }
   };
@@ -122,50 +132,27 @@ export function createSourceStorageMemberFlow(
       : refinement?.kind === "members" && refinement.types.length === 1 ? refinement.types[0] : undefined;
     return { file, type, destinationType, contextual, selectedType };
   };
-  const selectedIndex = (owner: SourceStorageSubject, receiverType: Type): MemberIndex | undefined => {
+  const aggregateIndex = (owner: SourceStorageSubject, receiverType: Type): MemberIndex | undefined => {
     const selected = receiverSelection(owner, receiverType);
     return selected?.selectedType === undefined ? undefined
-      : indexFor(selected.file, selected.selectedType, selected.destinationType, selected.contextual);
+      : indexFor(selected.file, selected.selectedType, selected.destinationType, selected.contextual, "aggregate");
   };
-  const excludes = (owner: SourceStorageSubject, destinationType: Type): boolean => selectedIndex(owner, destinationType) === noMembers;
-  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): SourceStructuralMemberPair | undefined => {
-    const file = sourceFileFor(owner);
-    if (file === undefined) return undefined;
-    const checked = (member: SourceStructuralMemberPair | undefined): SourceStructuralMemberPair | undefined => {
-      if (member?.kind === "present" && member.source.declarations.length === 0) return undefined;
-      if (member?.kind === "present") for (const original of member.source.declarations) {
-        if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
-      }
-      return member;
-    };
-    const index = selectedIndex(owner, receiverType);
-    if (index !== undefined) {
-      const members = index.members.filter(member => member.destination.declarations.includes(declaration));
-      return checked(members.length === 1 ? members[0] : undefined);
-    }
+  const excludes = (owner: SourceStorageSubject, destinationType: Type): boolean => aggregateIndex(owner, destinationType)?.members === noMembers;
+  const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: Type) => {
     const selected = receiverSelection(owner, receiverType);
     if (selected === undefined) return undefined;
-    const queries = source.semantics.forFile(selected.file);
-    const member = queries.types.structuralMember(selected.selectedType ?? selected.type, selected.destinationType, declaration);
-    if (member === undefined) return undefined;
-    const contract = selected.contextual === undefined ? undefined
-      : queries.types.structuralMember(selected.contextual, selected.destinationType, declaration);
-    return checked(physicalMember(member, contract));
-  };
-  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): readonly Node[] | undefined => {
-    const file = sourceFileFor(owner);
-    if (file === undefined) return undefined;
-    const index = selectedIndex(owner, destinationType);
-    if (index === noMembers) return Object.freeze([]);
-    const member = index === undefined ? memberFor(owner, declaration, destinationType) : undefined;
-    if (member?.kind === "absent") return member.destination.property.optional ? Object.freeze([]) : undefined;
-    const declarations = index === undefined ? member?.kind === "present" ? member.source.declarations : undefined
-      : index.declarations.get(declaration);
-    if (declarations === undefined || declarations.length === 0) return undefined;
-    for (const original of index === undefined ? [] : declarations) {
-      if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
+    const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType,
+      selected.contextual, declaration)?.declarations.get(declaration);
+    for (const original of entry?.originals ?? []) {
+      if (!budget.step() || !retainCheckedContext(original, selected.file)) return undefined;
     }
-    return declarations;
+    return entry;
+  };
+  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): SourceStructuralMemberPair | undefined =>
+    selectedMember(owner, declaration, receiverType)?.member;
+  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): readonly Node[] | undefined => {
+    const entry = selectedMember(owner, declaration, receiverType);
+    return entry?.member.kind === "present" ? entry.originals : undefined;
   };
   const membersInLineage = <Bindings>(lineage: {
     readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
@@ -367,7 +354,7 @@ export function createSourceStorageMemberFlow(
   };
   return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, isCopiedFor, spreadMembersFor, componentsFor,
     membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
-      selectedIndex(owner, destinationType)?.members });
+      aggregateIndex(owner, destinationType)?.members });
 }
 
 interface SourceStorageMemberImplementationInputs {
@@ -377,6 +364,7 @@ interface SourceStorageMemberImplementationInputs {
   originsFor(subject: SourceStorageSubject): Iterable<SourceStorageSubject> | undefined;
   storesFor(subject: SourceStorageSubject): Iterable<import("./stored-values.js").SourceStorageStore> | undefined;
   readonly declarationsFor: ReturnType<typeof createSourceStorageMemberFlow>["declarationsFor"];
+  readonly excludes: ReturnType<typeof createSourceStorageMemberFlow>["excludes"];
   readonly membersInLineage: ReturnType<typeof createSourceStorageMemberFlow>["membersInLineage"];
   readonly isCopiedFor: ReturnType<typeof createSourceStorageMemberFlow>["isCopiedFor"];
   constructionLineagesFor(invocation: Node,
@@ -460,6 +448,7 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
           }
         }
       } else if (ast.is.IsObjectLiteralExpression(origin.node) || sourceStorageObjectRestOwner(origin.node, ast) !== undefined) {
+        if (receiverType !== undefined && inputs.excludes(origin, receiverType)) continue;
         const members = receiverType === undefined ? undefined : inputs.declarationsFor(origin, declaration, receiverType);
         unknown ||= members === undefined;
         for (const member of members ?? []) {

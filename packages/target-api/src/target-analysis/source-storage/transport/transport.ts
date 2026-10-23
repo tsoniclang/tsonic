@@ -318,7 +318,7 @@ export function createSourceStorageTransport(
   const memberFlow = createSourceStorageMemberFlow(source, budget, subject, sourceFileFor, retainCheckedContext);
   const implementationsFor = createSourceStorageMemberImplementations(source, budget, {
     subject, subjectFor, incomingFor, originsFor: originSubjects, declarationsFor: memberFlow.declarationsFor,
-    membersInLineage: memberFlow.membersInLineage, isCopiedFor: memberFlow.isCopiedFor,
+    membersInLineage: memberFlow.membersInLineage, excludes: memberFlow.excludes, isCopiedFor: memberFlow.isCopiedFor,
     storesFor: storedValues.storesFor, constructionLineagesFor, contracts: memberImplementations, accessorTargets,
   });
   const collectInvocationImplementations = (invocation: Node,
