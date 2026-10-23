@@ -100,8 +100,18 @@ test("a discarded receiving future retains the original void-returning callback"
   const selected = current.select("child");
   assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
   assert.equal(selected.retention, "retained", "the receiving future, not callback()'s void result, determines the lifetime");
-  assert.equal(selected.witnesses.some(node => current.source.ast.is.IsCallExpression(node) &&
-    current.source.ast.text(node).includes("later(ready, child)")), true,
+  const { ast } = current.source;
+  const receiving = current.storage.nodes.filter(node => {
+    if (!ast.is.IsCallExpression(node)) return false;
+    const expression = ast.as.AsCallExpression(node).Expression;
+    if (!ast.is.IsIdentifier(expression) || ast.text(expression) !== "later") return false;
+    const call = current.source.semantics.forNode(node).operations.call(node);
+    return call !== undefined && call.sourceArguments.length === 2 &&
+      call.sourceArguments.every((argument, index) => ast.is.IsIdentifier(argument.expression) &&
+        ast.text(argument.expression) === ["ready", "child"][index]);
+  });
+  assert.equal(receiving.length, 1, "the fixture has one exact checked later(ready, child) invocation");
+  assert.equal(selected.witnesses.some(node => node === receiving[0]), true,
   "the exact original deferred receiving invocation witnesses retention");
 });
 

@@ -129,6 +129,50 @@ test("Error mutation proof follows exact generic invocation bindings rather than
     "the second activation binds only the other owner");
 });
 
+for (const changesOwner of [false, true]) {
+  test(`opaque construction retains uncertainty and evaluates its arguments (${changesOwner})`, async () => {
+    const current = await analyzed(`error-origin-opaque-constructor-argument-${changesOwner}`, `
+      interface Constructor { new(value: Stored): Stored; }
+      export function inspect(owner: Stored, factory: Constructor): Stored {
+        function argument(): Stored { ${changesOwner ? 'owner.message = "changed";' : ""} return owner; }
+        return new factory(argument());
+      }
+    `);
+    const owner = current.source.ast.parameters(current.declaration("inspect"))[0];
+    const construction = requiredNode(current.source.ast, projectSourceFile(current.source, "src/index.ts"),
+      node => current.source.ast.is.IsNewExpression(node));
+    const result = current.demand.invalidationFor(owner, construction, new Set());
+    assert.equal(result.kind === (changesOwner ? "invalidated" : "unproven"), true,
+      "an open constructor is not preserved and cannot suppress an argument's real owner mutation");
+  });
+}
+
+for (const inherited of [false, true]) {
+  test(`closed constructor footprints retain the actual bound owner (${inherited})`, async () => {
+    const current = await analyzed(`error-origin-bound-construction-${inherited}`, `
+      function create(value: Stored): object {
+        class Base {
+          ${inherited ? 'initialized = (() => { value.message = "changed"; return value; })();'
+            : 'constructor() { value.message = "changed"; }'}
+        }
+        ${inherited ? "class Derived extends Base {}" : ""}
+        const Factory = ${inherited ? "Derived" : "Base"};
+        return new Factory();
+      }
+      const owner = { message: "owner" };
+      const other = { message: "other" };
+      function changeOwner(): void { create(owner); }
+      function changeOther(): void { create(other); }
+      changeOwner();
+      changeOther();
+    `);
+    assert.equal(current.demand.invalidationFor(current.variable("owner"), current.call("changeOwner"), new Set()).kind === "invalidated", true,
+      "the admitted constructor and inherited initializer use the original bound owner");
+    assert.equal(current.demand.invalidationFor(current.variable("owner"), current.call("changeOther"), new Set()).kind === "preserved", true,
+      "an independent construction never rebinds its initializer to the owner's activation");
+  });
+}
+
 test("unknown opaque Error access cannot prove preservation while a known alias remains observed", async () => {
   const current = await analyzed("error-origin-opaque-alias", `
     const owner = { message: "owner" };

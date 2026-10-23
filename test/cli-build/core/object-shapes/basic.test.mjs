@@ -186,10 +186,12 @@ test("CLI emits interface object literals through provider object-shape adapters
   const shapeName = /public class (NamedShape_[a-f0-9]{12}) : Named/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);
   assert.match(generated, /public interface Named[\s\S]*string name \{ get; set; \}[\s\S]*double run\(double value\);/);
-  assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named[\s\S]*public double run\(double value\)[\s\S]*return value \+ 1;[\s\S]*public required string name[\s\S]*get;[\s\S]*set;/);
+  assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named/u);
+  assert.match(generatedShapes, /public double run\(double value\)[\s\S]*return value \+ 1D;/u);
+  assert.match(generatedShapes, /public required string name\s*\{\s*get;\s*set;\s*\}/u);
   assert.doesNotMatch(generatedShapes, /Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}\\s*\\{\\s*name = "one",\\s*\\};`));
-  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
+  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2D\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -616,7 +618,7 @@ test("CLI runs nested object literals through the canonical broad TypeScript-val
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(\(int\)1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
