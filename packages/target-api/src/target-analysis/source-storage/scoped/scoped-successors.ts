@@ -440,6 +440,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const bound = term.subject.kind === "input" ? sourceStorageInputBinding(source, budget, transport, scopes, term, initializer)
       : scopes.lookup(term.subject, term.scope);
     if (bound !== undefined) return bound;
+    const inputOwner = term.subject.kind === "input" && term.scope === scopes.empty
+      ? sourceStorageFormalOwner(term.subject, ast) : undefined;
+    if (inputOwner !== undefined && ast.body(inputOwner) !== undefined) {
+      const root = transport.subjectFor(term.subject.node);
+      if (root === undefined) return undefined;
+      return { kind: "project", inputs: [Object.freeze({ kind: "execution-root", demand: term.subject.node, deferred: true })],
+        select: value => value.kind === "empty" ? [] : value.subject === root && scopes.owningScope(value.scope, inputOwner) !== undefined
+          ? [sourceStorageReference(term.subject, value.scope)] : [] };
+    }
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
