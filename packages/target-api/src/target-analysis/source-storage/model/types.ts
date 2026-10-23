@@ -16,7 +16,6 @@ export interface SourceStorageCallEffect {
   readonly resultAllocation?: Node;
   readonly preservedInputs?: readonly Node[];
   readonly resumeReceiver?: true;
-  readonly throwInput?: number;
 }
 
 export interface SourceStorageEffects {
@@ -227,7 +226,6 @@ export interface SourceStorageQueries {
   originsFor(subject: SourceStorageSubject): SourceStorageOriginsSelection;
   closedOriginsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageClosedOriginsSelection;
   storageProducersFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
-  generatorThrowInputsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
   localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
   invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageImplementationsSelection;

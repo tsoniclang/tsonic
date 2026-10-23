@@ -186,10 +186,6 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     const scope = applyScope(term.scope, replacements);
     if (scope === undefined) return undefined;
-    if (term.kind === "generator-inputs") {
-      const original = applyTerm(term.original, replacements);
-      return original === undefined ? undefined : Object.freeze({ ...term, scope, original });
-    }
     if (term.kind === "pointer") {
       const pointer = applyTerm(term.pointer, replacements);
       const input = term.input === undefined ? undefined : applyTerm(term.input, replacements);

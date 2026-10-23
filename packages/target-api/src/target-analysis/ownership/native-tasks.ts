@@ -15,7 +15,6 @@ export interface SourceNativeTaskGraph {
   readonly lifecycleOwner: SourceFile | undefined;
   readonly spawns: readonly SourceNativeTaskSpawn[];
   readonly owners: readonly Node[];
-  readonly capturedOwners: ReadonlySet<Node>;
   readonly parameterOwners: ReadonlySet<Node>;
   readonly calls: readonly { readonly node: Node; readonly owner: Node; readonly targets: readonly Node[] }[];
   readonly entries: readonly Node[];
@@ -24,7 +23,6 @@ export interface SourceNativeTaskGraph {
 export interface SourceNativeTaskOwnerUse {
   readonly capture: boolean;
   readonly parameter: boolean;
-  readonly creations: readonly Node[];
 }
 
 export interface SourceNativeTaskIssue {
@@ -56,22 +54,14 @@ export function analyzeSourceNativeTaskGraph(input: {
   };
   const ownerFor = (node: Node): Node | undefined => {
     const visited = new Set<Node>();
-    let current = node;
-    while (budget.step() && !visited.has(current)) {
+    const region = storage.enclosingRegionFor(node);
+    if (region === undefined) return undefined;
+    for (let current: Node | undefined = node; current !== undefined && current !== region; current = ast.parent(current)) {
+      if (!budget.step() || visited.has(current)) return undefined;
       visited.add(current);
-      const region = storage.enclosingRegionFor(current);
-      if (region === undefined || ast.is.IsSourceFile(region)) return region;
-      const owner = sourceStorageRegionOwner(ast, region);
-      if (owner === undefined) return undefined;
-      const field = ast.parent(region);
-      if ((ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
-          field !== undefined && ast.is.IsPropertyDeclaration(field) && ast.hasModifierKind(field, "static")) {
-        current = owner;
-        continue;
-      }
-      return owner;
+      if (ast.is.IsClassStaticBlockDeclaration(current)) return current;
     }
-    return undefined;
+    return ast.is.IsSourceFile(region) ? region : sourceStorageRegionOwner(ast, region);
   };
   try {
     const spawns: SourceNativeTaskSpawn[] = [];
@@ -117,15 +107,7 @@ export function analyzeSourceNativeTaskGraph(input: {
       if (owner === undefined) { reject(node, "scope-owner", "A native task invocation has no checked caller owner."); continue; }
       const bindings = ast.is.IsSourceFile(owner) ? { kind: "resolved" as const, bindings: storage.emptyBindings }
         : storage.bindingsForLexicalOwner(owner);
-      const construction = !ast.is.IsNewExpression(node) || bindings.kind === "unresolved" ? undefined
-        : storage.constructionFor(node, bindings.bindings);
-      const targets = bindings.kind === "unresolved" ? bindings : construction === undefined
-        ? storage.invocationImplementationsFor(node, bindings.bindings)
-        : construction.kind === "unresolved" ? construction : Object.freeze({ kind: "resolved" as const, exact: true,
-            nodes: Object.freeze([...new Set(construction.alternatives.flatMap(alternative => [
-              ...alternative.classes.filter(entry => entry.regions.length !== 0).map(entry => entry.owner),
-              ...(alternative.implementation === undefined ? [] : [alternative.implementation.declaration]),
-            ]))]) });
+      const targets = bindings.kind === "unresolved" ? bindings : storage.invocationImplementationsFor(node, bindings.bindings);
       if (targets.kind === "unresolved") {
         const declarations = accessor ? [...sourceStorageAccessDeclarations(source, node, "read") ?? [],
           ...sourceStorageAccessDeclarations(source, node, "write") ?? []] : declaration === undefined ? [] : [declaration];
@@ -162,21 +144,26 @@ export function analyzeSourceNativeTaskGraph(input: {
       if (!budget.step()) break;
       const owner = queue[index]!;
       if (ast.is.IsSourceFile(owner)) continue;
+      if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) ||
+          ast.is.IsConstructorDeclaration(owner) || ast.is.IsClassStaticBlockDeclaration(owner)) {
+        reject(owner, "scope-owner", "Native explicit void spawn is unsupported in a constructor or initializer.");
+        continue;
+      }
+      if (semantics.forNode(owner).operations.generator(owner) !== undefined) {
+        reject(owner, "scope-owner", "Native explicit void spawn is unsupported in a generator activation.");
+        continue;
+      }
       const use = input.ownerUses.get(owner);
-      if (use === undefined || !use.capture && !use.parameter) {
-        reject(owner, "scope-owner", "A demanded task owner requires its checked native helper and value-capture contracts."); continue;
+      if (use?.capture === true) {
+        reject(owner, "scope-owner", "Native explicit void spawn is unsupported in a retained callable capture.");
+        continue;
+      }
+      if (use === undefined || !use.parameter) {
+        reject(owner, "scope-owner", "A demanded native task owner requires its checked direct helper parameter contract."); continue;
       }
       const authored = ast.parent(owner);
       if (input.publishedDeclarations.has(owner) || authored !== undefined && input.publishedDeclarations.has(authored))
         reject(owner, "public-scope", "A public package function requiring native task scope cannot expose an implicit executor parameter in its source ABI.");
-      if (use.capture && use.creations.length === 0)
-        reject(owner, "scope-owner", "A scope capture requires its actual checked value-creation occurrences.");
-      for (const creation of use.capture ? use.creations : []) {
-        if (!budget.step()) break;
-        const creator = ownerFor(creation === owner ? ast.parent(creation) ?? creation : creation);
-        if (creator === undefined || creator === owner) reject(creation, "scope-owner", "A scope capture requires its original checked creation owner.");
-        else requireOwner(creator);
-      }
       for (const member of [...contracts.get(owner) ?? [], ...implementations.get(owner) ?? []]) {
         if (!budget.step()) break;
         requireOwner(member);
@@ -185,14 +172,14 @@ export function analyzeSourceNativeTaskGraph(input: {
       for (const edge of incoming.get(owner) ?? []) {
         if (!budget.step()) break;
         const mode = input.callInputs.get(edge.node);
-        if (!edge.exact || mode === undefined || mode === "none" || edge.targets.some(target => {
+        if (!edge.exact || mode !== "parameter" || edge.targets.some(target => {
           const selected = input.ownerUses.get(target);
-          return selected === undefined || (mode === "parameter" ? !selected.parameter : !selected.capture);
+          return selected === undefined || !selected.parameter || selected.capture;
         })) {
           reject(edge.node, "call-graph", "A native task invocation requires one exact scope ownership contract for every callable alternative.");
           continue;
         }
-        if (mode === "capture") continue;
+        for (const target of edge.targets) requireOwner(target);
         if (!calls.has(edge.node) && !rows.add(1)) break;
         calls.set(edge.node, Object.freeze({ node: edge.node, owner: edge.owner, targets: edge.targets }));
         requireOwner(edge.owner);
@@ -208,7 +195,6 @@ export function analyzeSourceNativeTaskGraph(input: {
     const owners = [...needed].filter(owner => !ast.is.IsSourceFile(owner));
     const graph: SourceNativeTaskGraph = Object.freeze({ lifecycleOwner: spawns.length === 0 ? undefined : input.lifecycleOwner,
       spawns: Object.freeze(spawns), owners: Object.freeze(owners),
-      capturedOwners: new Set(owners.filter(owner => input.ownerUses.get(owner)?.capture === true)),
       parameterOwners: new Set(owners.filter(owner => input.ownerUses.get(owner)?.parameter === true)),
       calls: Object.freeze([...calls.values()]), entries: Object.freeze([...needed].filter(owner => ast.is.IsSourceFile(owner))) });
     published = true;

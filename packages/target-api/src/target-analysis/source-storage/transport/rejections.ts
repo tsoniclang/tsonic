@@ -13,7 +13,6 @@ import type { SourceStorageScopes } from "../scoped/scoped-scopes.js";
 import type { SourceStorageOperation, SourceStorageReduction, SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageExecutionDemands, walkSourceStorageExecution, type createSourceStorageExecutionReachability } from "../scoped/execution-reachability.js";
-import { sourceStorageGeneratorThrowInput, sourceStorageGeneratorThrownValues } from "./generator-resumes.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -289,16 +288,7 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
     if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
       const receiver = transport.subjectFor(source.semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression);
       if (receiver === undefined) return undefined;
-      const input = sourceStorageGeneratorThrowInput(source, transport, invocation);
       const terms: SourceStorageTerm[] = [queries.application(invocation, receiver, scope, [], { mode: "throw" })];
-      if (input !== undefined) {
-        const received = sourceStorageGeneratorThrownValues(input.argument, scope, queries.read);
-        if (received === undefined) return undefined;
-        terms.push(...received);
-      }
-      else if (transport.invocationEffects.get(invocation)?.throwInput !== undefined)
-        terms.push(Object.freeze({ kind: "unresolved", subject: receiver, scope, exposure: invocation,
-          reason: "A generator throw result requires its exact checked input producer." }));
       return terms;
     }
     const target = transport.invocationTargets.get(invocation);
@@ -345,16 +335,6 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
         if (sites === undefined) index.set(destination, [invocation]);
         else sites.push(invocation);
       }
-      for (const node of transport.visitedNodes) {
-        if (!budget.step()) return undefined;
-        if (source.semantics.forNode(node).operations.yield(node) === undefined) continue;
-        const destination = transport.regions.catchDestination(node);
-        if (destination === undefined) continue;
-        const sites = index.get(destination);
-        if (!relevantRows.add(sites === undefined ? 2 : 1)) return undefined;
-        if (sites === undefined) index.set(destination, [node]);
-        else sites.push(node);
-      }
       caughtSites = index;
     }
     const sites = caughtSites.get(reference.subject.node);
@@ -362,23 +342,12 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
     const terms: SourceStorageTerm[] = [...transport.incomingFor(reference.subject)]
       .map(subject => sourceStorageReference(subject, reference.scope));
     for (const invocation of sites) {
-      const yielded = source.semantics.forNode(invocation).operations.yield(invocation);
       const roots = sourceStorageExecutionDemands(transport, scopes, budget, invocation, reference.scope, scopes.isDeferred(reference.scope));
       if (roots === undefined) return undefined;
       for (const value of walkSourceStorageExecution(budget, roots, queries.read)) {
         if (!budget.step()) return undefined;
         if (value.kind === "unresolved") terms.push(value);
         if (value.kind !== "leaf" || value.subject.node !== invocation) continue;
-        if (yielded !== undefined) {
-          const activation = scopes.boundActivation(value.scope, yielded.generator.declaration);
-          const original = transport.subject(activation?.invocation);
-          terms.push(original === undefined || activation === undefined
-            ? Object.freeze({ kind: "unresolved", subject: reference.subject, scope: value.scope, exposure: invocation,
-              reason: "A suspended yield catch requires its original checked generator creation." })
-            : Object.freeze({ kind: "generator-inputs", original: Object.freeze({ kind: "leaf", subject: original,
-              scope: activation.scope }), scope: activation.scope }));
-          continue;
-        }
         const thrown = invocationThrows(invocation, value.scope);
         if (thrown === undefined) return undefined;
         terms.push(...thrown);

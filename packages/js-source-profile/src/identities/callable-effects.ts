@@ -38,13 +38,16 @@ interface CallableOperationEffects {
   readonly invocationOnly: readonly number[];
   readonly native?: true;
   readonly resumeReceiver?: true;
-  readonly throwInput?: number;
+  readonly refusal?: { readonly code: string; readonly message: string };
 }
 const lifetimeRows = (rows: Readonly<Record<string, readonly CallableParameterEffect[]>>, invocationOnly: readonly number[], native?: true):
   Readonly<Record<string, CallableOperationEffects>> => Object.freeze(Object.fromEntries(Object.entries(rows)
     .map(([name, entries]) => [name, Object.freeze({ entries, invocationOnly, ...(native === undefined ? {} : { native }) })])));
 const resume = Object.freeze({ entries: Object.freeze([]), invocationOnly: none, native: true as const, resumeReceiver: true as const });
-const resumes = Object.freeze({ next: resume, throw: Object.freeze({ ...resume, throwInput: 0 }), return: resume });
+const resumes = Object.freeze({ next: resume, return: resume, throw: Object.freeze({
+  entries: Object.freeze([]), invocationOnly: none,
+  refusal: Object.freeze({ code: "TSONIC_GENERATOR_THROW_UNSUPPORTED", message: "Generator throw-in is not supported." }),
+}) });
 const effects: Readonly<Record<string, Readonly<Record<string, CallableOperationEffects>>>> = Object.freeze({
   ArrayConstructor: lifetimeRows({ from: secondSynchronous }, second),
   Array: lifetimeRows({ ...array, sort: comparator }, first),
@@ -96,9 +99,9 @@ export function jsSourceReceiverResumeEffect(identity: {
   return operationFor(identity)?.resumeReceiver;
 }
 
-export function jsSourceReceiverThrowInput(identity: {
+export function jsSourceCallableRefusal(identity: {
   readonly ownerName: string;
   readonly memberName: string;
-} | undefined): number | undefined {
-  return operationFor(identity)?.throwInput;
+} | undefined): CallableOperationEffects["refusal"] {
+  return operationFor(identity)?.refusal;
 }

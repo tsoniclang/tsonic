@@ -145,10 +145,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const receiver = normalize(term.receiver, witnesses, temporary, false);
       return receiver === undefined ? undefined : Object.freeze({ ...term, receiver });
     }
-    if (term.kind === "generator-inputs") {
-      const original = normalize(term.original, witnesses, temporary, false);
-      return original === undefined ? undefined : Object.freeze({ ...term, original });
-    }
     if (term.kind === "pointer") {
       const pointer = normalize(term.pointer, witnesses, temporary, false);
       const input = term.input === undefined ? undefined : normalize(term.input, witnesses, temporary, false);
@@ -353,10 +349,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false,
-    operation: "value" | "generator-inputs" = "value") => withQuery(() => budget.withRows(temporary => {
-    const root = operation === "value" ? selectRoot(origin, scope)
-      : intern(Object.freeze({ kind: "generator-inputs", original: sourceStorageReference(origin, scope), scope }));
+    stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
+    const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
     const visited = new Map<SourceStorageRelation, Map<string, number>>();

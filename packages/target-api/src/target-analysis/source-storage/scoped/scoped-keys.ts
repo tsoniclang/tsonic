@@ -211,10 +211,6 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
               selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
-      if (selected.kind === "generator-inputs") {
-        const original = encodeTerm(selected.original);
-        return original === undefined ? undefined : [selected.kind, original];
-      }
       if (selected.kind === "pointer") {
         const pointer = encodeTerm(selected.pointer);
         const input = selected.input === undefined ? null : encodeTerm(selected.input);
