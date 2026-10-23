@@ -92,6 +92,10 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     if (role === "analysis" && layer !== "analysis") {
       emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry, "Cross-construct computation is owned by analysis.");
     }
+    if (role === "source-reader" && !entry.file.startsWith("src/source/extension/")) {
+      emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry,
+        "Checked source-fact readers are owned by source/extension.");
+    }
     if (role === "provider-metadata") {
       const check = layer?.startsWith("backend/") ? "AC2" : "AC1";
       if (!entry.file.startsWith("src/providers/native/")) {

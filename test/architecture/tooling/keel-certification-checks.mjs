@@ -1,4 +1,4 @@
-import { keelCheckIds, keelFinding, keelTargetNames, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelCheckIds, keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validPath } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { isAbsolute } from "node:path";
@@ -91,8 +91,35 @@ export function guardSucceeded(receipt, expectedExitCode = 0) {
     receipt.budget.memoryMiB === receipt.memoryMiB;
 }
 
-export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSources, currentModel, baseModel }) {
+export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSources, currentModel, baseModel, nativeUnsafeReviews = [] }) {
   const findings = [];
+  if (!Array.isArray(nativeUnsafeReviews)) throw new Error("Native safety reviews must be an exact array.");
+  const reviewedFiles = new Set();
+  const reviewedUnsafe = new Map();
+  for (const review of nativeUnsafeReviews) {
+    if (review === null || typeof review !== "object" || !keelWorkspaceRepositories.includes(review.repo) ||
+      !validPath(review.file) || !/^(?:test|tests)\/.+\.(?:rs|cs)$/u.test(review.file) ||
+      !/^[a-f0-9]{64}$/u.test(review.sourceSha256) || !Array.isArray(review.sites) || review.sites.length === 0) {
+      throw new Error("Native safety reviews require an exact repository, native test file, source digest and site list.");
+    }
+    const identity = `${review.repo}:${review.file}`;
+    if (reviewedFiles.has(identity)) throw new Error(`Duplicate native safety review '${identity}'.`);
+    reviewedFiles.add(identity);
+    const counts = new Map();
+    for (const site of review.sites) {
+      if (site === null || typeof site !== "object" || !/^[a-f0-9]{64}$/u.test(site.bodySha256) ||
+        !Number.isSafeInteger(site.count) || site.count <= 0 || counts.has(site.bodySha256) ||
+        typeof site.reason !== "string" || site.reason.trim().length === 0 ||
+        typeof site.nativeEvidence !== "string" || site.nativeEvidence.trim().length === 0) {
+        throw new Error(`Invalid or duplicate native safety site in '${identity}'.`);
+      }
+      counts.set(site.bodySha256, site.count);
+    }
+    const source = currentSources.get(review.file);
+    if (review.repo === repo && source !== undefined && keelDigest(source) === review.sourceSha256) {
+      reviewedUnsafe.set(review.file, counts);
+    }
+  }
   for (const file of trackedFiles) {
     if (file.split("/").includes(".analysis")) findings.push(keelFinding("AC12", repo, file,
       "tracked analysis", "Analysis records must be ignored and untracked."));
@@ -123,8 +150,10 @@ export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSou
         bodySha256: keelDigest(token.text),
       }));
     }
+    const allowances = reviewedUnsafe.get(file);
     for (const site of keelNativeUnsafeSites(text)) {
       if (take(beforeUnsafe, site)) continue;
+      if (allowances !== undefined && take(allowances, keelDigest(site))) continue;
       findings.push(keelFinding("AC12", repo, file, "native safety", "A new native unsafe site is forbidden.", {
         bodySha256: keelDigest(site),
       }));

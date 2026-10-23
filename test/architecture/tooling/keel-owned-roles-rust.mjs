@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    {"file":"src/source/extension/typed-locations.ts","symbol":"selectRustAddressOfSourceOperation","bodySha256":"cd636cc43d262e817c9541fb6e642329de252eca067d3ddb9cd8fd84e5d51520","role":"source-reader","evidence":[{"kind":"parameter","name":"subject"}],"reason":"Projects the exact existing checked typed-location fact for its original subject and marker; does not select a native form."},
+    {"file":"src/source/extension/typed-locations.ts","symbol":"selectRustBindPointerSourceOperation","bodySha256":"66234c1def89d2338a7c4a0eb4f9e7e932f5ef34f1ba8037e65a70ea58580685","role":"source-reader","evidence":[{"kind":"parameter","name":"subject"}],"reason":"Projects the exact existing checked typed-location fact for its original subject and marker; does not select a native form."},
+    {"file":"src/source/extension/typed-locations.ts","symbol":"selectRustTypedLocationSourceOperation","bodySha256":"dbad6d79ec54e82b81991dc6e33660aade62126958e96e59350f3c7156b86235","role":"source-reader","evidence":[{"kind":"parameter","name":"subject"}],"reason":"Projects the exact existing checked typed-location fact for its original subject and marker; does not select a native form."},
     { file: "src/policy/operations/provider-selection.ts", symbol: "selectRustProviderOperation",
       bodySha256: "57f282e44dba572ea308c20ad4bf91ed95b90d55f150c86f20a1dbc64f28502f", role: "selection",
       evidence: [{ kind: "parameter", name: "rows" }, { kind: "parameter", name: "identity" }, { kind: "parameter", name: "operationKind" }],

@@ -1,5 +1,6 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
+    {"file":"src/source/extension/arguments.ts","symbol":"selectCsharpSourceArgument","bodySha256":"1c97b86e75689f87408334ea84a58f0e04cbdb9c10457f07ad221a2a6fb0c591","role":"source-reader","evidence":[{"kind":"parameter","name":"sourceFacts"}],"reason":"Projects the original checked argument-passing fact and source operand; does not select a native form."},
     {"file":"src/policy/conversions/callable-parameters.ts","symbol":"selectCsharpCallableParameterAdapters","bodySha256":"659a5cf0c63c94fe3b209391e6c3bc5cfa3e419ab91d082cc465b734b6764d13","role":"selection","evidence":[{"kind":"parameter","name":"source"}],"reason":"Enumerates supplied finite native source/target signature vectors and already-admitted conversion recipes; no inference or source graph discovery."},
     { file: "src/policy/conversions/literals.ts", symbol: "selectCsharpExactPropertyKeyConversion",
       bodySha256: "018b9cc306f64ca1961c5323b06e9c52253b3e795312389a217d42833d864c08", role: "selection",
