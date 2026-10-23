@@ -17,10 +17,16 @@ function fixture(body, limits = {}) {
   const budget = { ...base, step() { steps += 1; return base.step(); } };
   const transport = createSourceStorageTransport(source, [file], budget);
   const subject = name => transport.subjectFor(Node_Initializer(source.ast, namedVariable(source.ast, file, name)));
+  const initialized = budget.usage();
+  const queryWork = [];
   const expect = (name, names) => {
+    const before = budget.usage();
     const origins = transport.substitutions.origins(subject(name), transport.substitutions.empty);
+    const after = budget.usage();
+    queryWork.push(`${name}:${after.steps - before.steps}`);
     assert.equal(origins !== undefined && origins.size === names.length && names.every(name => origins.has(subject(name))), true,
-      `${name}: exact origins ${names.join(", ")}; ${budget.failure() ?? "no resource failure"}`);
+      `${name}: exact origins ${names.join(", ")}; ${budget.failure() ?? "no resource failure"}; ` +
+      `initialized=${JSON.stringify(initialized)}; query steps=${queryWork.join(",")}; usage=${JSON.stringify(after)}`);
     assert.equal(budget.failure() === undefined, true);
   };
   return { budget, expect, steps: () => steps };
