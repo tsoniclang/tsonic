@@ -12,6 +12,12 @@ export interface SourceOwnershipUnresolved {
   readonly reason: string;
 }
 
+export type SourceCallableRetentionSelection = SourceOwnershipUnresolved | {
+  readonly kind: "resolved";
+  readonly retention: "scoped" | "retained";
+  readonly witnesses: readonly Node[];
+};
+
 export interface SourceOwnershipContractEvidence {
   readonly contractDeclaration: Node;
   readonly checkedType: Type;

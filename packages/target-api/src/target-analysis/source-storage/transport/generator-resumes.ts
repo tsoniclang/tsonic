@@ -22,6 +22,13 @@ export function sourceStorageGeneratorThrowInput(source: TargetSourceProgram, tr
   return receiver === undefined || argument === undefined ? undefined : Object.freeze({ receiver, argument });
 }
 
+export function sourceStorageGeneratorThrownValues(argument: SourceStorageSubject, scope: SourceStorageScope,
+  read: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined): readonly SourceStorageTerm[] | undefined {
+  const values = read(sourceStorageReference(argument, scope));
+  return values === undefined ? undefined : [...values].map(value => value.kind === "empty" && value.absence !== undefined
+    ? Object.freeze({ ...value.absence, kind: "leaf" as const }) : value);
+}
+
 export function createSourceStorageGeneratorResumes(source: TargetSourceProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
@@ -102,7 +109,9 @@ export function createSourceStorageGeneratorInputs(source: TargetSourceProgram, 
               reason: "A generator throw receiver has no completed original creation correspondence." }));
             continue;
           }
-          terms.push(sourceStorageReference(input.argument, execution.scope));
+          const received = sourceStorageGeneratorThrownValues(input.argument, execution.scope, queries.read);
+          if (received === undefined) return undefined;
+          terms.push(...received);
         }
       }
     }

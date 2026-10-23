@@ -3,8 +3,123 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection } from "./model.js";
+import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection, SourceCallableRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
+import { sourceEnclosingCallable, sourceExpressionCallArgument, sourceExpressionResultDisposition,
+  sourceImmediatelyAwaitedLocal } from "../../source-navigation/index.js";
+
+export function createSourceCallableRetentionQuery(input: {
+  readonly source: TargetSourceProgram;
+  readonly storage: SourceStorageQueries;
+  readonly budget: SourceOwnershipBudget;
+}) {
+  const { source, storage, budget } = input;
+  if (source !== storage.source) throw new Error("Callable retention and storage require the identical checked source program.");
+  const { ast, navigation, semantics } = source;
+  const cache = new Map<Node, SourceCallableRetentionSelection>();
+  const retainedRows = budget.createRows();
+  return Object.freeze({
+    forDeclaration(declaration: Node): SourceCallableRetentionSelection {
+      const existing = cache.get(declaration);
+      if (existing !== undefined) return existing;
+      const selected = storage.subjectFor(declaration);
+      if (selected.kind === "unresolved") return sourceOwnershipUnresolved(declaration, selected.reason);
+      if (semantics.forNode(declaration).types.declarationSignatureInfo(declaration) === undefined || ast.body(declaration) === undefined)
+        return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked source implementation.");
+      const rows = budget.createRows();
+      try {
+        const pending = [declaration];
+        const visited = new Set<Node>();
+        const witnesses: Node[] = [];
+        let reason: string | undefined;
+        let retained = false;
+        let observed = false;
+        const enqueue = (node: Node): void => { if (rows.add(1)) pending.push(node); };
+        const escaped = (node: Node): void => { retained = true; if (rows.add(1)) witnesses.push(node); };
+        while (pending.length !== 0) {
+          if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+          const current = pending.pop()!;
+          if (visited.has(current)) continue;
+          if (!rows.add(1)) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+          visited.add(current);
+          const expression = ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current);
+          const flow = expression ? navigation.expressionValueFlow(current) : undefined;
+          const summary = ast.is.IsParameterDeclaration(current) ? navigation.parameterUseSummary(current)
+            : expression ? undefined : navigation.declarationUseSummary(current);
+          const uses = flow?.uses ?? summary?.uses;
+          if (uses === undefined) { reason ??= "A retained callable use has no completed checked source-use summary."; continue; }
+          if (flow?.exported || summary?.exported) escaped(current);
+          if (summary?.bindingWritten || flow?.hasUnclassifiedUse || summary?.hasUnclassifiedValueUse)
+            reason ??= "Callable retention requires complete unmodified source value uses.";
+          if (ast.is.IsParameterDeclaration(current) && summary?.escapeKinds.includes("storage") &&
+            summary.uses.every(use => use.role !== "storage")) escaped(current);
+          for (const use of uses) {
+            if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+            if (use.kind === "type-only" || use.role === "type-only" || use.kind === "source-linkage") continue;
+            observed = true;
+            if (use.captured) {
+              const capture = sourceEnclosingCallable(use.reference, ast);
+              if (capture === undefined) reason ??= "A captured callable requires its original checked retaining callable.";
+              else enqueue(capture);
+            }
+            if (use.role === "return" || use.role === "yield") { escaped(use.reference); continue; }
+            if (use.role === "storage") {
+              const destination = sourceExpressionResultDisposition(ast, use.reference);
+              if (destination.kind === "stored" && ast.is.IsVariableDeclaration(destination.use) &&
+                ast.variableDeclarationKind(destination.use) === "const") enqueue(destination.use);
+              else escaped(use.reference);
+              continue;
+            }
+            if (use.role === "argument") {
+              const argument = sourceExpressionCallArgument(use.reference, source);
+              if (argument === undefined) { reason ??= "A forwarded callable requires its exact checked scalar argument."; continue; }
+              const transports = storage.argumentTransportsFor(argument.call);
+              if (transports.kind !== "resolved") { reason ??= transports.kind === "unresolved" ? transports.reason
+                : "An unchecked callable argument has an open retention boundary."; continue; }
+              const actuals = transports.arguments.filter(transport => transport.binding.sourceArgumentIndex === argument.argumentIndex);
+              if (actuals.length === 0) { reason ??= "A callable argument has no completed original source formal transport."; continue; }
+              for (const actual of actuals) {
+                if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+                const formal = actual.formal;
+                const owner = sourceStorageFormalOwner(formal, ast);
+                if (formal.kind !== "input" || formal.projection.length !== 0 || owner === undefined || ast.body(owner) === undefined)
+                  reason ??= "Native or unchecked formal storage has no closed source non-retention proof.";
+                else enqueue(formal.node);
+              }
+              continue;
+            }
+            if (use.kind === "direct-call" && use.role === "call-target") {
+              const call = ast.parent(use.reference);
+              const checked = call === undefined ? undefined : semantics.forNode(call).operations.call(call);
+              if (checked === undefined) { reason ??= "A callable invocation requires its exact checked call use."; continue; }
+              const types = semantics.forNode(call!).types;
+              const awaited = types.awaitedType(checked.sourceResultType);
+              if (awaited !== undefined && !types.isIdentical(awaited, checked.sourceResultType)) {
+                if (sourceExpressionResultDisposition(ast, call!).kind === "awaited-in-scope" || sourceImmediatelyAwaitedLocal(ast, navigation, call!)) continue;
+                const result = navigation.expressionValueFlow(call!);
+                if (result.returned || result.yielded || result.storedOutsideBinding || result.exported) escaped(call!);
+                else reason ??= "A source future's retaining activation is not proven to complete within its caller.";
+              }
+              continue;
+            }
+            if (use.role !== "comparison" && use.role !== "condition" && use.role !== "write")
+              reason ??= "A callable value has an unchecked retaining source use.";
+          }
+        }
+        if (budget.failure() !== undefined) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+        const result: SourceCallableRetentionSelection = retained
+          ? Object.freeze({ kind: "resolved", retention: "retained", witnesses: Object.freeze(witnesses) })
+          : reason !== undefined || !observed ? sourceOwnershipUnresolved(declaration,
+            reason ?? "An empty callable use inventory is not a closed non-retention proof.")
+            : Object.freeze({ kind: "resolved", retention: "scoped", witnesses: Object.freeze([...visited]) });
+        if (!retainedRows.add(2 + (result.kind === "resolved" ? result.witnesses.length : 1)))
+          return sourceOwnershipUnresolved(declaration, budget.failure()!);
+        cache.set(declaration, result);
+        return result;
+      } finally { rows.release(); }
+    },
+  });
+}
 
 export function createSourceRetentionQuery(input: {
   readonly source: TargetSourceProgram;

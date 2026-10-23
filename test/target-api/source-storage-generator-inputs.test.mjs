@@ -93,3 +93,15 @@ test("an external generator parameter never acquires an invented creation or bod
   }`);
   assert.equal(current.inputs("external").kind !== "complete", true, "unchecked original frame remains open");
 });
+
+test("an actual absent optional input is an original scoped producer rather than an empty error set", () => {
+  const current = fixture(`function* values(): Generator<number, void, unknown> { try { yield 0; } catch {} }
+    const missing: { error?: object } = {}; const created = values(); created.throw(missing.error);`);
+  const selected = current.inputs("created");
+  assert.equal(selected.kind === "complete", true, selected.reason ?? selected.kind);
+  assert.equal(selected.producers.length > 0, true, "native absence is a value, not an infallibility proof");
+  for (const producer of selected.producers) {
+    assert.equal(producer.bindings.kind, "source-storage-bindings", "the absence keeps its original activation");
+    assert.equal(current.storage.typeFor(producer.subject).kind, "resolved", "the checked original type is retained");
+  }
+});

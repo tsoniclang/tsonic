@@ -13,7 +13,7 @@ import type { SourceStorageScopes } from "../scoped/scoped-scopes.js";
 import type { SourceStorageOperation, SourceStorageReduction, SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageExecutionDemands, walkSourceStorageExecution, type createSourceStorageExecutionReachability } from "../scoped/execution-reachability.js";
-import { sourceStorageGeneratorThrowInput } from "./generator-resumes.js";
+import { sourceStorageGeneratorThrowInput, sourceStorageGeneratorThrownValues } from "./generator-resumes.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -291,7 +291,11 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
       if (receiver === undefined) return undefined;
       const input = sourceStorageGeneratorThrowInput(source, transport, invocation);
       const terms: SourceStorageTerm[] = [queries.application(invocation, receiver, scope, [], { mode: "throw" })];
-      if (input !== undefined) terms.push(sourceStorageReference(input.argument, scope));
+      if (input !== undefined) {
+        const received = sourceStorageGeneratorThrownValues(input.argument, scope, queries.read);
+        if (received === undefined) return undefined;
+        terms.push(...received);
+      }
       else if (transport.invocationEffects.get(invocation)?.throwInput !== undefined)
         terms.push(Object.freeze({ kind: "unresolved", subject: receiver, scope, exposure: invocation,
           reason: "A generator throw result requires its exact checked input producer." }));
