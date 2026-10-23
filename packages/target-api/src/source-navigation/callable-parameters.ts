@@ -6,7 +6,7 @@ export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
   context?: { readonly kind: "declaration" } |
     { readonly kind: "selected-invocation"; readonly signature: Signature }): readonly Node[] | undefined {
   const signature = context?.kind === "selected-invocation" ? context.signature
-    : context?.kind === "declaration" ? semantics.types.declarationSignatureInfo(declaration)?.signature
+    : context?.kind === "declaration" ? semantics.declarations.declarationSignature(declaration)
       : sourceCallableDeclarationSignature(ast, declaration, semantics);
   if (signature === undefined) return undefined;
   const parameters: Node[] = [];
@@ -23,11 +23,11 @@ export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
 
 function sourceCallableDeclarationSignature(ast: AstReader, declaration: Node,
   semantics: SourceFileSemantics): Signature | undefined {
-  const authored = semantics.types.declarationSignatureInfo(declaration);
-  if (authored !== undefined) return authored.signature;
+  const authored = semantics.declarations.declarationSignature(declaration);
+  if (authored !== undefined) return authored;
   const construction = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
   const type = construction ? semantics.declarations.declaredValueType(declaration) : semantics.types.expressionType(declaration);
   if (type === undefined) return undefined;
-  const signatures = semantics.types.signatureInfos(type, construction ? "construct" : "call");
-  return signatures.length === 1 ? signatures[0]!.signature : undefined;
+  const signatures = construction ? semantics.types.constructSignatures(type) : semantics.types.callSignatures(type);
+  return signatures.length === 1 ? signatures[0] : undefined;
 }

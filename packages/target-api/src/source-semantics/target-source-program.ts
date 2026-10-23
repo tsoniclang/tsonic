@@ -110,6 +110,7 @@ export function createTargetSourceProgram(
       rootSymbols(symbol: Symbol) {
         return definedValues(queries.checker.getRootSymbols(symbol));
       },
+      declarationSignature: queries.checker.getSignatureFromDeclaration,
       signatureDeclaration: queries.checker.getSignatureDeclaration,
       signatureParameters(signature: Signature) {
         return definedValues(queries.checker.getSignatureParameters(signature));
