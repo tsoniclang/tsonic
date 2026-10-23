@@ -53,6 +53,53 @@ for (const timing of ["synchronous", "deferred", undefined] as const) {
   }
 }
 
+for (const ordinary of [false, true]) {
+  test(`known aliased callback producers preserve same-activation execution uncertainty (${ordinary})`, () => {
+    const current = nativeEntryFixture(`
+      declare function nativeInvoke(callback: () => void): void;
+      function wrap<Value>(value: Value): Promise<Value> {
+        return new Promise<Value>(resolve => {
+          const callback = (): void => { resolve(value); };
+          const alias = callback;
+          nativeInvoke(alias);
+        });
+      }
+      export function use(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
+    `);
+    const selected = current.query();
+    if (ordinary) {
+      assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+        "ordinary payload proof remains independent of unknown native scheduling");
+    } else {
+      assert.equal(selected.kind, "unresolved", "a known source value is not a proven native callback execution");
+      if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), "resolve(value)",
+        "the actual demanded resolver operation retains its same-activation unknown witness");
+    }
+  });
+}
+
+test("uncertainty in one callback activation does not erase an independent checked resolving operation", () => {
+  const current = nativeEntryFixture(`
+    declare function nativeInvoke(callback: () => void): void;
+    function wrap<Value>(value: Value): Promise<Value> {
+      return new Promise<Value>(resolve => {
+        const ready = value;
+        nativeInvoke(() => { resolve(value); });
+        resolve(ready);
+      });
+    }
+    export function use(value: Promise<number>): void { void wrap(value); }
+  `);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "one independently proven adoption still owns the actual capability refusal");
+  if (selected.kind === "resolved") {
+    assert.equal(selected.issues.length, 1, "one actual unsupported generic instantiation");
+    assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "the same actual generic call owns admission");
+    assert.equal(current.textFor(selected.issues[0]!.operation), "resolve(ready)",
+      "an unknown sibling cannot masquerade as the independently checked source operation");
+  }
+});
+
 for (const reversed of [false, true]) {
   test("native helper callback/value rows stay correlated in source admission, order=" + reversed, () => {
     const current = nativeEntryFixture(`

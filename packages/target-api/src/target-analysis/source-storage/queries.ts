@@ -310,6 +310,8 @@ export function createSourceStorageQuery(
           !objectMember && !sourceClassFieldHasStorage(ast, declaration) && !sourceParameterIsProperty(ast, declaration))
           return unresolved(budget.failure() ?? "Member-write selection requires its exact authored physical member slot.");
         const ownerSubject = objectMember ? transport.subjectFor(owner) : undefined;
+        if (objectMember && ownerSubject === undefined)
+          return unresolved(budget.failure() ?? "Member-write selection requires its original checked physical object owner.");
         const correspondence = ownerSubject === undefined ? undefined : transport.directlyUnresolvedFor(ownerSubject);
         if (correspondence !== undefined) return unresolved(correspondence);
         const selected = domains.writeBoundariesFor(subject);

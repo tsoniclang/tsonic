@@ -475,34 +475,33 @@ export function analyzeSourceGenericAdoption(input: {
   };
   const executionContexts = (operation: Node, owner: Node,
     selection: Exclude<SourceStorageProducersSelection, { readonly kind: "unresolved" }>, unknown: (reason: string) => void) => {
-    const contexts: { readonly bindings: SourceStorageBindings; readonly uncertain: boolean }[] = [];
+    const contexts = new Map<SourceStorageBindings, boolean>();
+    const retain = (bindings: SourceStorageBindings, uncertain: boolean): boolean => {
+      if (!step(operation)) return false;
+      const previous = contexts.get(bindings);
+      if (previous === undefined && !rows.add(1)) { refuse(operation, budget.failure()!); return false; }
+      contexts.set(bindings, previous === true || uncertain);
+      return true;
+    };
     for (const producer of selection.producers) {
       if (!step(operation)) return undefined;
       const activations = input.storage.boundActivationsFor(owner, producer.bindings);
       if (activations.kind === "unresolved") { refuse(operation, activations.reason); return undefined; }
-      for (const activation of activations.activations) if (!contexts.some(context => context.bindings === activation.bindings && !context.uncertain))
-        contexts.push(Object.freeze({ bindings: activation.bindings, uncertain: false }));
+      for (const activation of activations.activations) if (!retain(activation.bindings, false)) return undefined;
     }
+    const producingBindings = [...contexts.keys()];
     if (selection.kind === "open") for (const boundary of selection.boundaries) {
       if (!step(operation)) return undefined;
       const owning = input.storage.boundActivationsFor(owner, boundary.bindings);
       if (owning.kind === "unresolved") {
-        // A possible execution whose creation bindings hold no activation of the demanded owner runs inside one of the
-        // owner's selected activations; it never invents another activation.
-        const selected = contexts.filter(context => !context.uncertain);
-        if (selected.length === 0 || input.storage.failureReason() !== undefined) { unknown(owning.reason); continue; }
-        for (const context of selected) if (!contexts.some(previous => previous.bindings === context.bindings && previous.uncertain))
-          contexts.push(Object.freeze({ bindings: context.bindings, uncertain: true }));
+        if (producingBindings.length === 0 || input.storage.failureReason() !== undefined) { unknown(owning.reason); continue; }
+        for (const bindings of producingBindings) if (!retain(bindings, true)) return undefined;
         continue;
       }
       if (owning.activations.length === 0) { unknown("An open source execution requires its nonempty demanded-owner activation domain."); continue; }
-      for (const activation of owning.activations) {
-        if (!step(operation)) return undefined;
-        if (!contexts.some(context => context.bindings === activation.bindings && context.uncertain))
-          contexts.push(Object.freeze({ bindings: activation.bindings, uncertain: true }));
-      }
+      for (const activation of owning.activations) if (!retain(activation.bindings, true)) return undefined;
     }
-    return Object.freeze(contexts);
+    return Object.freeze([...contexts].map(([bindings, uncertain]) => Object.freeze({ bindings, uncertain })));
   };
   const unknownArgument = (operation: Node, argument: Node, reason: string): void => {
     if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
