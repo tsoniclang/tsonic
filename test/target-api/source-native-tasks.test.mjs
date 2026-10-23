@@ -16,9 +16,10 @@ function fixture(body) {
   const declarations = new Map(nodes.filter(node => source.ast.is.IsFunctionDeclaration(node)).map(node =>
     [source.ast.text(source.ast.name(node)), node]));
   const ownerUses = new Map([...declarations.values()].map(node => [node, { capture: false, parameter: true, creations: [] }]));
-  for (const node of nodes) if (source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node))
+  for (const node of nodes) if (source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node) ||
+      source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node) || source.ast.is.IsConstructorDeclaration(node))
     ownerUses.set(node, { capture: false, parameter: true, creations: [] });
-  const callInputs = new Map(nodes.filter(node => source.ast.is.IsCallExpression(node)).map(node => [node, "parameter"]));
+  const callInputs = new Map(nodes.filter(node => source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)).map(node => [node, "parameter"]));
   for (const node of storage.accessorInvocations) callInputs.set(node, "parameter");
   const spawns = nodes.filter(node => source.ast.is.IsVoidExpression(node)).map(node => ({ node, operand: Node_Expression(source.ast, node) }));
   const select = (changes = {}) => analyzeSourceNativeTaskGraph({ source, storage, nodes, ownerUses, callInputs,

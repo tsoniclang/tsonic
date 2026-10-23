@@ -1,9 +1,9 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import { sourceEnclosingCallable } from "../../source-navigation/index.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget } from "./model.js";
 import { sourceStorageAccessDeclarations } from "../source-storage/model/components.js";
+import { sourceStorageRegionOwner } from "../source-storage/graph/lexical-regions.js";
 
 export interface SourceNativeTaskSpawn {
   readonly node: Node;
@@ -54,7 +54,25 @@ export function analyzeSourceNativeTaskGraph(input: {
   const reject = (node: Node, kind: SourceNativeTaskIssue["kind"], reason: string): void => {
     if (rows.add(1)) issues.push(Object.freeze({ kind, node, reason }));
   };
-  const ownerFor = (node: Node): Node | undefined => sourceEnclosingCallable(node, ast) ?? ast.getSourceFile(node);
+  const ownerFor = (node: Node): Node | undefined => {
+    const visited = new Set<Node>();
+    let current = node;
+    while (budget.step() && !visited.has(current)) {
+      visited.add(current);
+      const region = storage.enclosingRegionFor(current);
+      if (region === undefined || ast.is.IsSourceFile(region)) return region;
+      const owner = sourceStorageRegionOwner(ast, region);
+      if (owner === undefined) return undefined;
+      const field = ast.parent(region);
+      if ((ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
+          field !== undefined && ast.is.IsPropertyDeclaration(field) && ast.hasModifierKind(field, "static")) {
+        current = owner;
+        continue;
+      }
+      return owner;
+    }
+    return undefined;
+  };
   try {
     const spawns: SourceNativeTaskSpawn[] = [];
     for (const spawn of input.spawns) {
@@ -91,14 +109,23 @@ export function analyzeSourceNativeTaskGraph(input: {
       if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node) && !accessor) continue;
       const selected = semantics.forNode(node);
       const call = selected.operations.call(node);
-      const declaration = call === undefined ? undefined : selected.declarations.signatureDeclaration(call.selectedSignature);
+      const declaration = call === undefined ? undefined : selected.declarations.signatureDeclaration(call.selectedSignature) ??
+        (ast.is.IsNewExpression(node) ? call.sourceCallee.selectedDeclaration : undefined);
       const file = declaration === undefined ? undefined : ast.getSourceFile(declaration);
       if (!accessor && (declaration === undefined || file === undefined || ast.isDeclarationFile(file) || !semantics.includes(file))) continue;
       const owner = ownerFor(node);
       if (owner === undefined) { reject(node, "scope-owner", "A native task invocation has no checked caller owner."); continue; }
       const bindings = ast.is.IsSourceFile(owner) ? { kind: "resolved" as const, bindings: storage.emptyBindings }
         : storage.bindingsForLexicalOwner(owner);
-      const targets = bindings.kind === "unresolved" ? bindings : storage.invocationImplementationsFor(node, bindings.bindings);
+      const construction = !ast.is.IsNewExpression(node) || bindings.kind === "unresolved" ? undefined
+        : storage.constructionFor(node, bindings.bindings);
+      const targets = bindings.kind === "unresolved" ? bindings : construction === undefined
+        ? storage.invocationImplementationsFor(node, bindings.bindings)
+        : construction.kind === "unresolved" ? construction : Object.freeze({ kind: "resolved" as const, exact: true,
+            nodes: Object.freeze([...new Set(construction.alternatives.flatMap(alternative => [
+              ...alternative.classes.filter(entry => entry.regions.length !== 0).map(entry => entry.owner),
+              ...(alternative.implementation === undefined ? [] : [alternative.implementation.declaration]),
+            ]))]) });
       if (targets.kind === "unresolved") {
         const declarations = accessor ? [...sourceStorageAccessDeclarations(source, node, "read") ?? [],
           ...sourceStorageAccessDeclarations(source, node, "write") ?? []] : declaration === undefined ? [] : [declaration];
