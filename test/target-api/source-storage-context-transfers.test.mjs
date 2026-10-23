@@ -13,6 +13,14 @@ function fixture(limits = {}, callee = false) {
   const count = 64;
   const parameters = Array.from({ length: count }, () => ({}));
   const candidate = {};
+  const semantics = {
+    operations: {
+      generator: declaration => {
+        assert.equal(declaration === candidate, true, "the fixture's exact synchronous callable");
+        return undefined;
+      },
+    },
+  };
   const ports = parameters.map(node => subject(node, "input"));
   const nodes = Array.from({ length: count }, () => subject({}));
   const result = subject(candidate, "return");
@@ -30,7 +38,7 @@ function fixture(limits = {}, callee = false) {
     hasModifierKind: () => false,
     is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsNewExpression: () => false },
     parameters: node => node === candidate ? parameters : [],
-  } }, budget, {
+  }, semantics: { forNode: () => semantics } }, budget, {
     subject,
     invocationInputs: (port, owner, invocation) => {
       assert.equal(owner === candidate, true, "exact selected candidate");
