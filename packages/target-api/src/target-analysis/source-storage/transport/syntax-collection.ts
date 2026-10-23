@@ -1,4 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
+import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
@@ -13,6 +14,7 @@ import { sourceParameterIsProperty } from "../../../source-navigation/class-memb
 import type { SourceStorageWrite, createSourceStorageStoredValues } from "../graph/stored-values.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceStorageAccessDeclarations } from "../model/components.js";
+import { sourceStoragePointerCallEffect } from "../model/pointer-effects.js";
 import type { createSourceStorageProjectionFlow } from "../model/projections.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
@@ -24,6 +26,7 @@ export interface SourceStorageSyntaxCollectionContext {
   readonly effects: SourceStorageEffects;
   readonly mutationOwners: Map<Node, SourceStorageSubject>;
   readonly invocations: Set<Node>;
+  readonly pointerInvocations: Set<Node>;
   readonly invocationEffects: Map<Node, SourceStorageCallEffect>;
   readonly invocationTargets: Map<Node, SourceStorageSubject>;
   readonly invocationArguments: Map<Node, readonly Node[]>;
@@ -52,7 +55,7 @@ export interface SourceStorageSyntaxCollectionContext {
 
 /** The per-node collection pass of source storage transport: subjects, edges, writes, invocations and their transports. */
 export function createSourceStorageSyntaxCollection(context: SourceStorageSyntaxCollectionContext): (node: Node) => void {
-  const { source, budget, effects, mutationOwners, invocations, invocationEffects, invocationTargets, invocationArguments,
+  const { source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects, invocationTargets, invocationArguments,
     invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations, memberImplementations, visitedNodes,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor, locationFor, connect, projections,
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
@@ -171,9 +174,22 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       invocations.add(node);
       regions.recordInvocation(node);
+      const pointer = source.sourceFacts.getFact(node, pointerOperationFactKey);
+      const pointerEffect = sourceStoragePointerCallEffect(pointer);
+      if (pointerEffect !== undefined) {
+        if (!budget.row()) return;
+        pointerInvocations.add(node);
+      }
+      if (pointer?.operation === "store") {
+        const value = subjectFor(pointer.valueExpression);
+        storedValues.recordWrite(subject(node), Object.freeze({ reference: node, operation: node, kind: "mutation",
+          value, values: Object.freeze([Object.freeze({ source: undefined,
+            subjects: Object.freeze(value === undefined ? [] : [value]), reason: value === undefined
+              ? "A native pointer write requires its exact checked value producer." : undefined })]) }));
+      }
       const consumer = semantics.forNode(node);
       const selected = consumer.operations.call(node);
-      const contributed = selected === undefined ? undefined : effects.call?.(node, selected);
+      const contributed = selected === undefined ? undefined : pointerEffect ?? effects.call?.(node, selected);
       if (contributed !== undefined && selected !== undefined) {
         const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
         if (effect !== undefined) {
@@ -245,7 +261,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
-        const supplied = effects.callbackEntries?.(node, selected);
+        const supplied = pointerEffect === undefined ? effects.callbackEntries?.(node, selected) : [];
         const callbacks = supplied === undefined ? undefined : snapshotSourceStorageCallbackEffects(supplied, selected, budget);
         const nativeEntries: SourceStorageCallbackEntry[] = [];
         for (const argument of arguments_) {

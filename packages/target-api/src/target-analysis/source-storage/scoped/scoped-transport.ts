@@ -36,6 +36,7 @@ export interface SourceStorageScopedTransport {
   readonly contextualInputs: ReturnType<typeof createSourceStorageContextInputs>;
   contextLocation(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
   storedValuesFor(subject: SourceStorageSubject): readonly SourceStorageStoredProjection[] | undefined;
+  storesFor(subject: SourceStorageSubject): Iterable<SourceStorageStore> | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
   callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];

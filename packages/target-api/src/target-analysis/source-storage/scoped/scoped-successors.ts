@@ -21,6 +21,7 @@ import type { SourceStorageBoundSubject } from "./substitutions.js";
 import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors, type SourceStorageChildContext } from "./scoped-member-successors.js";
+import { createSourceStoragePointerValues } from "./pointer-values.js";
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -168,6 +169,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       return select(value);
     } });
+  const pointerValues = createSourceStoragePointerValues(source, budget, transport, {
+    materializeChild, readEffects, deferred: scopes.isDeferred, creatorScope,
+  });
   const replaceChild = (child: SourceStorageTerm,
     replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
     if (child.kind === "unresolved" || child.kind === "empty") return { kind: "replace", terms: [child] };
@@ -432,6 +436,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
+    const pointed = pointerValues(term);
+    if (pointed !== undefined) return pointed;
     const bindingPattern = ast.is.IsBindingElement(node) ? ast.parent(node) : undefined;
     if (bindingPattern !== undefined && ast.is.IsObjectBindingPattern(bindingPattern) &&
       sourceStorageObjectRestOwner(node, ast) === undefined && term.subject.projection.length === 0) {

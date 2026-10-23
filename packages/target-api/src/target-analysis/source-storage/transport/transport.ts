@@ -1,5 +1,6 @@
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
+import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
@@ -46,6 +47,7 @@ export function createSourceStorageTransport(
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
   const invocations = new Set<Node>();
+  const pointerInvocations = new Set<Node>();
   const invocationEffects = new Map<Node, SourceStorageCallEffect>();
   const invocationTargets = new Map<Node, SourceStorageSubject>();
   const invocationArguments = new Map<Node, readonly Node[]>();
@@ -226,6 +228,8 @@ export function createSourceStorageTransport(
   }, graphQueries);
   const accessorTargets = memberAccessors.targets;
   const storedValues = createSourceStorageStoredValues(ast, budget, regions.enclosing, node => {
+    const pointer = source.sourceFacts.getFact(node, pointerOperationFactKey);
+    if (pointer?.operation === "store") return subjectFor(pointer.pointerExpression);
     const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
       : ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined;
     return subjectFor(selected?.receiver.expression);
@@ -253,7 +257,7 @@ export function createSourceStorageTransport(
     unresolvedThrows.set(region, reason);
     graphQueries.invalidate({ node: region, kind: thrownOrigins });
   };
-  const visit = createSourceStorageSyntaxCollection({ source, budget, effects, mutationOwners, invocations, invocationEffects,
+  const visit = createSourceStorageSyntaxCollection({ source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects,
     invocationTargets, invocationArguments, invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations,
     memberImplementations, visitedNodes, subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow });
@@ -664,7 +668,7 @@ export function createSourceStorageTransport(
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
-    storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
+    storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
@@ -677,6 +681,7 @@ export function createSourceStorageTransport(
   for (const invocation of invocations) {
     if (!step()) break;
     const reason = unresolvedInvocations.get(invocation);
+    if (reason === undefined && pointerInvocations.has(invocation)) continue;
     const implementations = invocationImplementationSelection(invocation);
     if (reason === undefined && implementations?.exact === true &&
       [...implementations.nodes].some(candidate => ast.body(candidate) !== undefined ||
