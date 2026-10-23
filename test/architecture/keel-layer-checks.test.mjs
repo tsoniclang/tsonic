@@ -323,6 +323,31 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     }), "AC1", "owned by policy"), true);
   });
 
+  test(`${repo}: AC1 admits exact reviewed source-fact readers only at source/extension`, () => {
+    const source = "export function selectCheckedArgument(value: number): number { return value; }";
+    const file = "src/source/extension/arguments.ts";
+    const model = keelFixtureModel([[file, source]]);
+    const reviewed = keelFixtureReview(model, file, "selectCheckedArgument", "source-reader");
+    assert.equal(evaluateKeelLayers(repo, model, { functions: [reviewed] }).length, 0,
+      "a reviewed source reader keeps its checked source owner");
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model), "AC1", "reviewed semantic-role classification"), true,
+      "source placement does not implicitly classify an unreviewed reader");
+    for (const directory of ["source", "policy/operations", "analysis/operations", "backend/planner/expressions"]) {
+      const misplaced = `src/${directory}/arguments.ts`;
+      const moved = keelFixtureModel([[misplaced, source]]);
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, moved, {
+        functions: [keelFixtureReview(moved, misplaced, "selectCheckedArgument", "source-reader")],
+      }), directory.startsWith("backend/") ? "AC2" : "AC1", "source-fact readers are owned by source/extension"), true,
+      `${directory}: the same reviewed body cannot be placed at another deciding layer`);
+    }
+    const changed = keelFixtureModel([[file, source.replace("return value;", "return value + 1;")]]);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, changed, { functions: [reviewed] }),
+      "AC1", "missing, ambiguous or stale"), true, "changing the body invalidates its source-reader review");
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+      functions: [{ ...reviewed, evidence: [{ kind: "parameter", name: "absent" }] }],
+    }), "AC1", "structural evidence"), true, "source-reader evidence must identify an actual input");
+  });
+
   test(`${repo}: AC1 follows checked export aliases and does not mistake private nested names or data for selectors`, () => {
     const implementation = "src/analysis/operations/implementation.ts";
     const barrel = "src/analysis/operations/index.ts";

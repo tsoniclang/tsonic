@@ -58,6 +58,22 @@ test("capability ledger proof paths resolve to current executable evidence", () 
   assert.deepEqual(missing, []);
 });
 
+for (const [capabilityId, proofs] of [
+  ["source-core.lang.portable-intrinsics.allocate-pointer", [
+    "../tsonic-csharp/test/backend/planner/expressions/native-memory.test.mjs",
+    "../tsonic-rust/test/backend/planner/expressions/native-memory.test.mjs",
+  ]],
+  ["source-core.lang.portable-intrinsics.store-pointer", [
+    "../tsonic-csharp/test/backend/planner/expressions/planned-ref-store.test.mjs",
+  ]],
+]) test(`${capabilityId} retains executable native target refusal evidence`, () => {
+  const entry = capabilityLedger.find(candidate => candidate.capabilityId === capabilityId);
+  assert.equal(entry !== undefined, true, `${capabilityId}: the retained capability is present`);
+  for (const proof of proofs) {
+    assert.equal(entry?.negativeTests.includes(proof), true, `${capabilityId}: native refusal proof ${proof}`);
+  }
+});
+
 test("capability ledger does not describe the retired target-operation fact lifecycle", () => {
   const source = readFileSync(
     resolve(dirname(fileURLToPath(import.meta.url)), "fixtures/ledger.mjs"),
