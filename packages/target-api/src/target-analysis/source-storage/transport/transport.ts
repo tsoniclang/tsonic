@@ -32,6 +32,7 @@ import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
 import { createSourceStorageSyntaxCollection } from "./syntax-collection.js";
+import { createSourceStorageRejections } from "./rejections.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -402,8 +403,28 @@ export function createSourceStorageTransport(
     }
     return slots;
   };
+  const rejections = createSourceStorageRejections(source, budget, {
+    subjectFor, originsFor: originSubjects, callbackEntriesFor, callbackImplementationsFor,
+    implementationsFor: invocationImplementations,
+    invocationOrigins: (origin, candidate, invocation) => invocationOrigins(origin, candidate, invocation),
+    throwsFor(candidate, invocation) {
+      const origins: SourceStorageSubject[] = [];
+      let reason: string | undefined;
+      for (const region of regions.callable(candidate, invocation)) {
+        if (!step()) break;
+        graphQueries.read({ node: region, kind: thrownOrigins });
+        reason ??= unresolvedThrows.get(region);
+        origins.push(...thrownOrigins.get(region) ?? []);
+      }
+      return { origins, reason };
+    },
+  });
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
-    accessorTargets, invocation => unresolvedInvocations.has(invocation));
+    accessorTargets, invocation => unresolvedInvocations.has(invocation), (receiver, formal) => {
+      const selected = rejections.forOperand(receiver);
+      if (selected.reason !== undefined) unresolvedSubjects.set(formal, selected.reason);
+      return selected.reason === undefined ? selected.origins : undefined;
+    });
   const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
     { invocationInputs, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
 
@@ -535,6 +556,7 @@ export function createSourceStorageTransport(
         for (const region of instance.regions) targets.push({ candidate: region.owner, regions: [region.node] });
       }
       for (const target of targets) {
+        if (ast.hasModifierKind(target.candidate, "async")) continue;
         for (const region of target.regions) {
           graphQueries.read({ node: region, kind: thrownOrigins });
           const reason = unresolvedThrows.get(region);
@@ -560,6 +582,27 @@ export function createSourceStorageTransport(
         }
       }
     };
+    for (const awaited of visitedNodes) {
+      if (!ast.is.IsAwaitExpression(awaited)) continue;
+      yield () => {
+        if (!step()) return;
+        const operand = Node_Expression(ast, awaited);
+        if (operand === undefined) return;
+        const selected = rejections.forOperand(operand);
+        const caught = regions.catchDestination(awaited);
+        const destination = caught === undefined ? undefined : subject(caught, "input");
+        const enclosing = destination === undefined ? regions.enclosing(awaited) : undefined;
+        if (selected.reason !== undefined) {
+          if (destination !== undefined) unresolvedSubjects.set(destination, selected.reason);
+          else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, selected.reason);
+        }
+        for (const origin of selected.origins) {
+          if (!step()) return;
+          if (destination !== undefined) connect(origin, destination);
+          else if (enclosing !== undefined) recordThrow(enclosing, origin);
+        }
+      };
+    }
   };
   graphQueries.reconcile(operations());
   const contextLocation = createSourceStorageContextLocations(source, budget, storedValues.storesFor,

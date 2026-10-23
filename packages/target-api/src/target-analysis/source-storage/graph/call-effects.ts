@@ -14,16 +14,18 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
     const element: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
     if (element === null || typeof element !== "object") return undefined;
     const fields = Object.getOwnPropertyDescriptors(element);
-    if (Reflect.ownKeys(fields).some(key => key !== "parameterIndex" && key !== "timing" && key !== "inputs") ||
+    if (Reflect.ownKeys(fields).some(key => key !== "parameterIndex" && key !== "timing" && key !== "inputs" && key !== "rejection") ||
       Object.values(fields).some(field => !("value" in field))) return undefined;
     const parameterIndex: unknown = fields.parameterIndex?.value;
     const timing: unknown = fields.timing?.value;
+    const rejection: unknown = fields.rejection?.value;
     if (typeof parameterIndex !== "number" || !Number.isSafeInteger(parameterIndex) || parameterIndex < 0 ||
       positions.has(parameterIndex) || timing !== "synchronous" && timing !== "deferred" ||
-      !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === parameterIndex)) return undefined;
+      !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === parameterIndex) ||
+      rejection !== undefined && (typeof rejection !== "number" || !Number.isSafeInteger(rejection) || rejection < 0)) return undefined;
     positions.add(parameterIndex);
     const supplied: unknown = fields.inputs?.value;
-    const inputs: { readonly parameterIndex: number; readonly from: "receiver-element" | "argument-element";
+    const inputs: { readonly parameterIndex: number; readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
       readonly sourceParameterIndex?: number }[] = [];
     if (supplied !== undefined) {
       if (!Array.isArray(supplied)) return undefined;
@@ -40,8 +42,8 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
         const from: unknown = properties.from?.value;
         const sourceParameterIndex: unknown = properties.sourceParameterIndex?.value;
         if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 0 || parameters.has(input) ||
-          from !== "receiver-element" && from !== "argument-element" ||
-          from === "receiver-element" && sourceParameterIndex !== undefined ||
+          from !== "receiver-element" && from !== "argument-element" && from !== "receiver-rejection" ||
+          from !== "argument-element" && sourceParameterIndex !== undefined ||
           from === "argument-element" && (typeof sourceParameterIndex !== "number" || !Number.isSafeInteger(sourceParameterIndex) ||
             !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === sourceParameterIndex))) return undefined;
         parameters.add(input);
@@ -49,7 +51,8 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
           ...(from === "argument-element" ? { sourceParameterIndex: sourceParameterIndex as number } : {}) }));
       }
     }
-    effects.push(Object.freeze({ parameterIndex, timing, ...(supplied === undefined ? {} : { inputs: Object.freeze(inputs) }) }));
+    effects.push(Object.freeze({ parameterIndex, timing, ...(rejection === undefined ? {} : { rejection }),
+      ...(supplied === undefined ? {} : { inputs: Object.freeze(inputs) }) }));
   }
   return Object.freeze(effects);
 }

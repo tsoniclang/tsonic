@@ -190,7 +190,7 @@ function selectedEquationFixture() {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 65536 });
   const original = createSourceStorageTransport(source, [file], budget);
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, original.subject, original.subjectFor,
-    original.accessorTargets, invocation => original.unresolvedInvocations.has(invocation));
+    original.accessorTargets, invocation => original.unresolvedInvocations.has(invocation), () => undefined);
   const transport = { ...original, invocationInputs,
     bindingInputFor: createSourceStorageBindingInputs(source.ast, original, budget) };
   const graph = createSourceStorageGraphQueries(budget);

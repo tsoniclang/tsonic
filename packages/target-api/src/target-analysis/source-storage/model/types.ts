@@ -23,9 +23,10 @@ export interface SourceStorageEffects {
   readonly callbackEntries?: (node: Node, selected: ResolvedSourceCallInfo) => readonly {
     readonly parameterIndex: number;
     readonly timing: "synchronous" | "deferred";
+    readonly rejection?: number;
     readonly inputs?: readonly {
       readonly parameterIndex: number;
-      readonly from: "receiver-element" | "argument-element";
+      readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
       readonly sourceParameterIndex?: number;
     }[];
   }[] | undefined;
@@ -125,6 +126,7 @@ export interface SourceStorageArgumentTransport {
 export interface SourceStorageCallbackEntry {
   readonly argument: SourceStorageArgumentTransport;
   readonly timing: "synchronous" | "deferred" | "unknown";
+  readonly rejection?: number;
   readonly inputs?: NonNullable<ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>>>[number]["inputs"];
 }
 

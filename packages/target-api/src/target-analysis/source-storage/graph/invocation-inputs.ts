@@ -342,6 +342,7 @@ export function createSourceStorageInvocationInputs(
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
   accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>,
   isUnresolved: (invocation: Node) => boolean,
+  rejectionOriginsFor: (receiver: Node, formal: SourceStorageSubject) => readonly SourceStorageSubject[] | undefined,
 ): SourceStorageInvocationInputQuery {
   const { ast, semantics } = source;
   return (formal, candidate, invocation, callback) => {
@@ -385,6 +386,17 @@ export function createSourceStorageInvocationInputs(
           continue;
         }
         const input = callback.inputs?.find(input => input.parameterIndex === native.parameterIndex);
+        if (input?.from === "receiver-rejection") {
+          const receiver = selected.sourceReceiver?.expression;
+          const rejected = receiver === undefined ? undefined : rejectionOriginsFor(receiver, formal);
+          if (rejected === undefined || rejected.length === 0) calleeSubjects.add(formal);
+          else for (const origin of rejected) {
+            if (!budget.step()) break;
+            const projected = subject(origin.node, origin.kind, [...origin.projection, ...native.projection]);
+            if (projected !== undefined) subjects.add(projected);
+          }
+          continue;
+        }
         let receiver: Node | undefined;
         if (input?.from === "receiver-element") receiver = selected.sourceReceiver?.expression;
         else if (input?.from === "argument-element") {

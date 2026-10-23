@@ -260,7 +260,9 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             argumentType !== undefined && types.signatureInfos(argumentType, "call").length !== 0;
           if (known === undefined && !callable) continue;
           if (!budget.row()) break;
-          nativeEntries.push(Object.freeze({ argument, timing: known?.timing ?? "unknown", ...(known?.inputs === undefined ? {} : { inputs: known.inputs }) }));
+          nativeEntries.push(Object.freeze({ argument, timing: known?.timing ?? "unknown",
+            ...(known?.rejection === undefined ? {} : { rejection: known.rejection }),
+            ...(known?.inputs === undefined ? {} : { inputs: known.inputs }) }));
         }
         callbackEntries.set(node, Object.freeze(nativeEntries));
       } else {

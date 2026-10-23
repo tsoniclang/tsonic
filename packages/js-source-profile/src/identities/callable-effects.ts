@@ -4,9 +4,10 @@ const second: readonly number[] = Object.freeze([1]);
 interface CallableParameterEffect {
   readonly parameterIndex: number;
   readonly timing: "synchronous" | "deferred";
+  readonly rejection?: number;
   readonly inputs?: readonly {
     readonly parameterIndex: number;
-    readonly from: "receiver-element" | "argument-element";
+    readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
     readonly sourceParameterIndex?: number;
   }[];
 }
@@ -26,7 +27,12 @@ const array = Object.freeze({
   forEach: firstSynchronous, reduce: synchronous(first, [{ parameterIndex: 1, from: "receiver-element" }]),
 });
 const forEach = Object.freeze({ forEach: synchronous(first) });
-const reactions = Object.freeze({ then: deferred([0, 1]), catch: deferred(first), finally: deferred(first) });
+const rejectedInput = Object.freeze([{ parameterIndex: 0, from: "receiver-rejection" as const }]);
+const rejected = Object.freeze({ parameterIndex: 0, timing: "deferred" as const, inputs: rejectedInput });
+const reactions = Object.freeze({
+  then: Object.freeze([...deferred(first), Object.freeze({ ...rejected, parameterIndex: 1 })]),
+  catch: Object.freeze([rejected]), finally: deferred(first),
+});
 interface CallableOperationEffects {
   readonly entries: readonly CallableParameterEffect[];
   readonly invocationOnly: readonly number[];
@@ -43,7 +49,9 @@ const effects: Readonly<Record<string, Readonly<Record<string, CallableOperation
   TypedArray: lifetimeRows({ sort: comparator }, first),
   Promise: lifetimeRows(reactions, none),
   PromiseLike: lifetimeRows({ then: reactions.then }, none),
-  PromiseConstructor: lifetimeRows({ constructor: synchronous(first) }, none),
+  PromiseConstructor: lifetimeRows({ constructor: Object.freeze([
+    Object.freeze({ parameterIndex: 0, timing: "synchronous" as const, rejection: 1 }),
+  ]) }, none),
 });
 function operationFor(identity: {
   readonly ownerName: string;
