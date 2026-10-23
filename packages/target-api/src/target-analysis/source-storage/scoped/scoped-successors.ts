@@ -24,6 +24,7 @@ import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors, type SourceStorageChildContext } from "./scoped-member-successors.js";
 import { createSourceStoragePointerValues } from "./pointer-values.js";
 import { createSourceStorageScopedRejections } from "../transport/rejections.js";
+import { createSourceStorageGeneratorInputs } from "../transport/generator-resumes.js";
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -168,6 +169,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const pointerValues = createSourceStoragePointerValues(source, budget, transport, {
     readEffects, read: readRelation, deferred: scopes.isDeferred, creatorScope,
   });
+  const generatorInputs = createSourceStorageGeneratorInputs(source, budget, transport, scopes, { read: readRelation, birth });
   const rejections = createSourceStorageScopedRejections(source, budget, transport, scopes, reachability, {
     application, read: readRelation,
     pointerThrows: (invocation, scope) => pointerValues.execution(invocation, scope, invocation, scopes.isDeferred(scope), "throw"),
@@ -212,6 +214,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const reduce = (term: SourceStorageTerm, correlated = false): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
+    if (term.kind === "generator-inputs") return generatorInputs(term);
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf") {
         const replace = (value: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, value });
@@ -369,8 +372,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return scopes.enterApplication(term, selected.implementation.declaration, term.callee);
       }
       if (resumes) {
-        if (term.mode !== "execution") return undefined;
+        if (term.mode === "value") return undefined;
         const terms: SourceStorageTerm[] = [];
+        let supplied = false;
         if (term.callee.subject.kind === "value" && term.callee.subject.projection.length === 0 && ast.is.IsCallExpression(node)) {
           const implementations = transport.pointerInvocations.has(node) ? transport.pointerAccessors(node) : transport.invocationImplementations(node);
           if (implementations === undefined) return undefined;
@@ -380,11 +384,16 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             const activation = scopes.boundActivation(term.callee.scope, candidate);
             const body = ast.body(candidate);
             if (activation?.invocation !== node || body === undefined) continue;
-            terms.push(Object.freeze({ kind: "region", region: body, scope: activation.scope,
+            supplied = true;
+            if (term.mode === "throw") {
+              const thrown = rejections.callableThrows(term.callee.subject, candidate, node, activation.scope, undefined, "active");
+              if (thrown === undefined) return undefined;
+              terms.push(...thrown);
+            } else terms.push(Object.freeze({ kind: "region", region: body, scope: activation.scope,
               demand: term.demand, deferred: term.deferred }));
           }
         }
-        if (terms.length === 0) terms.push(Object.freeze({ kind: "unresolved", subject: term.callee.subject,
+        if (!supplied) terms.push(Object.freeze({ kind: "unresolved", subject: term.callee.subject,
           scope: term.callee.scope, exposure: term.invocation,
           reason: "A generator may-resume requires its original checked creation call and activation." }));
         return { kind: "replace", terms };

@@ -9,6 +9,19 @@ import type { SourceStorageScopedTransport } from "../scoped/scoped-transport.js
 import type { SourceStorageScopes } from "../scoped/scoped-scopes.js";
 import { sourceStorageExecutionDemands, walkSourceStorageExecution } from "../scoped/execution-reachability.js";
 
+export function sourceStorageGeneratorThrowInput(source: TargetSourceProgram, transport: SourceStorageScopedTransport,
+  invocation: Node): { readonly receiver: SourceStorageSubject; readonly argument: SourceStorageSubject } | undefined {
+  const effect = transport.invocationEffects.get(invocation);
+  if (effect?.throwInput === undefined) return undefined;
+  const call = source.semantics.forNode(invocation).operations.call(invocation);
+  const receiver = transport.subjectFor(call?.sourceReceiver?.expression);
+  const bindings = call?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === effect.throwInput);
+  const binding = bindings?.length === 1 ? bindings[0] : undefined;
+  const argument = binding?.sourceForm === "value" && binding.sourceParameterForm === "parameter"
+    ? transport.subjectFor(call?.sourceArguments[binding.sourceArgumentIndex]?.expression) : undefined;
+  return receiver === undefined || argument === undefined ? undefined : Object.freeze({ receiver, argument });
+}
+
 export function createSourceStorageGeneratorResumes(source: TargetSourceProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
@@ -61,15 +74,10 @@ export function createSourceStorageGeneratorInputs(source: TargetSourceProgram, 
       return { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope,
         reason: "Generator throw inputs require the original checked creation and its completed scoped birth." })] };
     const terms: SourceStorageTerm[] = [empty];
-    for (const [invocation, effect] of throws) {
+    for (const [invocation] of throws) {
       if (!budget.step()) return undefined;
-      const call = source.semantics.forNode(invocation).operations.call(invocation);
-      const receiver = transport.subjectFor(call?.sourceReceiver?.expression);
-      const bindings = call?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === effect.throwInput);
-      const binding = bindings?.length === 1 ? bindings[0] : undefined;
-      const argument = binding?.sourceForm === "value" && binding.sourceParameterForm === "parameter"
-        ? transport.subjectFor(call?.sourceArguments[binding.sourceArgumentIndex]?.expression) : undefined;
-      if (receiver === undefined || argument === undefined) {
+      const input = sourceStorageGeneratorThrowInput(source, transport, invocation);
+      if (input === undefined) {
         terms.push(Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope, exposure: invocation,
           reason: "A generator throw input requires its exact checked receiver and scalar argument." }));
         continue;
@@ -80,7 +88,7 @@ export function createSourceStorageGeneratorInputs(source: TargetSourceProgram, 
         if (!budget.step()) return undefined;
         if (execution.kind === "unresolved") { terms.push(execution); continue; }
         if (execution.kind !== "leaf" || execution.subject.node !== invocation) continue;
-        const receivers = queries.read(sourceStorageReference(receiver, execution.scope));
+        const receivers = queries.read(sourceStorageReference(input.receiver, execution.scope));
         if (receivers === undefined) return undefined;
         for (const selected of receivers) {
           if (!budget.step()) return undefined;
@@ -94,7 +102,7 @@ export function createSourceStorageGeneratorInputs(source: TargetSourceProgram, 
               reason: "A generator throw receiver has no completed original creation correspondence." }));
             continue;
           }
-          terms.push(sourceStorageReference(argument, execution.scope));
+          terms.push(sourceStorageReference(input.argument, execution.scope));
         }
       }
     }
