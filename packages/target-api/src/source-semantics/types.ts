@@ -120,6 +120,7 @@ export interface SourceSelectedDeclarationQueries {
   symbolDeclarations(symbol: Symbol): readonly Node[];
   primarySymbolDeclaration(symbol: Symbol): Node | undefined;
   rootSymbols(symbol: Symbol): readonly Symbol[];
+  declarationSignature(declaration: Node): Signature | undefined;
   signatureDeclaration(signature: Signature): Node | undefined;
   signatureParameters(signature: Signature): readonly Symbol[];
 }
