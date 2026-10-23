@@ -123,8 +123,14 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getWriteTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getWriteTypeOfSymbol(checker, symbol)),
         getDeclaredTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getDeclaredTypeOfSymbol(checker, symbol)),
         getResolvedSignature: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal)),
-        getSignatureFromDeclaration: declaration => !IsFunctionLike(declaration) ? undefined
-            : withChecker(program, GetSourceFileOfNode(declaration), defaultOptions, checker => Checker_GetSignatureFromDeclaration(checker, declaration)),
+        getSignatureFromDeclaration(declaration) {
+            if (!IsFunctionLike(declaration))
+                return undefined;
+            const sourceFile = GetSourceFileOfNode(declaration);
+            if (sourceFile === undefined || Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
+                return undefined;
+            return withChecker(program, sourceFile, defaultOptions, checker => Checker_GetSignatureFromDeclaration(checker, declaration));
+        },
         getResolvedCallInfo: (node) => memoizeResolvedNodeQuery(callInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
             if (!IsCallOrNewExpression(node)) {
                 return undefined;
