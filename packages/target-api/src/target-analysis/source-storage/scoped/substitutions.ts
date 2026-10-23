@@ -418,7 +418,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (completed === undefined) return undefined;
         if (completed) continue;
       }
-      if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
+      if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect" &&
+        (!("mode" in current) || current.mode === "value")) {
         const completed = results(relation);
         if (completed === undefined) return undefined;
         if (completed.size === 0) {
