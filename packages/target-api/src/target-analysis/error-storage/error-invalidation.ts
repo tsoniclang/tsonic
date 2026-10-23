@@ -95,8 +95,6 @@ export function createSourceErrorInvalidationQuery(
         const native = nativeSubjects.has(subject.subject) ? storage.closedOriginsFor(subject.subject, bindings) : undefined;
         if (native?.kind === "unresolved") return native;
         if (native?.kind === "open") unproven = "Native Error allocation requires complete checked constructor value provenance.";
-        const implementations = storage.invocationImplementationsFor(node, bindings);
-        if (implementations.kind === "unresolved") return implementations;
         let opaque = false;
         if (ast.is.IsNewExpression(node)) {
           const constructor = Node_Expression(ast, node);
@@ -107,6 +105,8 @@ export function createSourceErrorInvalidationQuery(
           const origins = storage.closedOriginsFor(subject.subject, bindings);
           if (origins.kind === "unresolved") return origins;
           if (origins.kind === "open") {
+            const arguments_ = storage.argumentTransportsFor(node);
+            if (arguments_.kind === "unresolved") return arguments_;
             opaque = true;
             unproven = "Constructor mutation requires a closed actual class-value domain in the exact invocation context.";
           } else {
@@ -125,6 +125,8 @@ export function createSourceErrorInvalidationQuery(
             }
           }
         } else {
+          const implementations = storage.invocationImplementationsFor(node, bindings);
+          if (implementations.kind === "unresolved") return implementations;
           let resolved = false;
           for (const candidate of implementations.nodes) {
             resolved = appendCallableRegions(candidate, node, bindings) || resolved;
