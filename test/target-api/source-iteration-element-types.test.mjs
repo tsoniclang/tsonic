@@ -27,7 +27,10 @@ test("final source queries expose the checked iteration protocol for every itera
     if (source.ast.is.IsVariableDeclaration(node)) {
       count += 1;
       const name = source.ast.text(source.ast.name(node));
-      const selected = context.types.iterationElementType(node);
+      const sourceType = context.types.expressionType(node);
+      const selected = sourceType === undefined ? undefined : context.types.iterationElementType(sourceType);
+      assert.equal(context.types.expressionIterationElementType(node) === selected, true,
+        `${name}: expression queries only forward their checked type to the canonical operation`);
       const expectedType = expected.get(name);
       assert.equal(selected === undefined ? undefined : checked.getSourceFileQueries(file).checker.typeToString(selected), expectedType,
         `${name}: final queries retain the checker answer, not the first type argument`);

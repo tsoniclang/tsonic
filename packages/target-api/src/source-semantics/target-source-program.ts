@@ -145,6 +145,9 @@ export function createTargetSourceProgram(
       expressionType: queries.checker.getTypeAtLocation,
       awaitedType: queries.checker.getAwaitedType,
       iterationElementType: queries.checker.getIterationElementType,
+      expressionIterationElementType(expression: Node) {
+        return queries.checker.getIterationElementType(queries.checker.getTypeAtLocation(expression));
+      },
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType: queries.checker.getContextualType,
       typeOfSymbol: queries.checker.getTypeOfSymbol,

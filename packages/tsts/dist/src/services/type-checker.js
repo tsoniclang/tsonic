@@ -75,15 +75,22 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             });
         },
         getTypeAtLocation: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeAtLocation(checker, node)),
-        getIterationElementType: (node) => memoizeResolvedNodeQuery(iterationElementTypes, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
-            if (checker === undefined)
-                return undefined;
-            const sourceType = Checker_GetTypeAtLocation(checker, node);
+        getIterationElementType(sourceType) {
             if (sourceType === undefined || IsTypeAny(sourceType))
                 return undefined;
-            const elementType = Checker_getIteratedTypeOrElementType(checker, IterationUseForOf, sourceType, checker.undefinedType, undefined, false);
-            return elementType === undefined || IsTypeAny(elementType) ? undefined : elementType;
-        })),
+            const cached = iterationElementTypes.get(sourceType);
+            if (cached !== undefined)
+                return cached;
+            const elementType = withCheckerForType(program, sourceType, defaultOptions, checker => {
+                if (checker === undefined)
+                    return undefined;
+                const elementType = Checker_getIteratedTypeOrElementType(checker, IterationUseForOf, sourceType, checker.undefinedType, undefined, false);
+                return elementType === undefined || IsTypeAny(elementType) ? undefined : elementType;
+            });
+            if (elementType !== undefined)
+                iterationElementTypes.set(sourceType, elementType);
+            return elementType;
+        },
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         getContextualType: (node, contextFlags = ContextFlagsNone) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getContextualType(checker, node, contextFlags)),
         getEffectivePropertyName(node) {
