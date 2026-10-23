@@ -36,10 +36,14 @@ const reactions = Object.freeze({
 interface CallableOperationEffects {
   readonly entries: readonly CallableParameterEffect[];
   readonly invocationOnly: readonly number[];
+  readonly native?: true;
+  readonly resumeReceiver?: true;
 }
-const lifetimeRows = (rows: Readonly<Record<string, readonly CallableParameterEffect[]>>, invocationOnly: readonly number[]):
+const lifetimeRows = (rows: Readonly<Record<string, readonly CallableParameterEffect[]>>, invocationOnly: readonly number[], native?: true):
   Readonly<Record<string, CallableOperationEffects>> => Object.freeze(Object.fromEntries(Object.entries(rows)
-    .map(([name, entries]) => [name, Object.freeze({ entries, invocationOnly })])));
+    .map(([name, entries]) => [name, Object.freeze({ entries, invocationOnly, ...(native === undefined ? {} : { native }) })])));
+const resume = Object.freeze({ entries: Object.freeze([]), invocationOnly: none, native: true as const, resumeReceiver: true as const });
+const resumes = Object.freeze({ next: resume, throw: resume, return: resume });
 const effects: Readonly<Record<string, Readonly<Record<string, CallableOperationEffects>>>> = Object.freeze({
   ArrayConstructor: lifetimeRows({ from: secondSynchronous }, second),
   Array: lifetimeRows({ ...array, sort: comparator }, first),
@@ -51,7 +55,8 @@ const effects: Readonly<Record<string, Readonly<Record<string, CallableOperation
   PromiseLike: lifetimeRows({ then: reactions.then }, none),
   PromiseConstructor: lifetimeRows({ constructor: Object.freeze([
     Object.freeze({ parameterIndex: 0, timing: "synchronous" as const, rejection: 1 }),
-  ]) }, none),
+  ]) }, none, true),
+  Generator: resumes, AsyncGenerator: resumes,
 });
 function operationFor(identity: {
   readonly ownerName: string;
@@ -74,4 +79,18 @@ export function jsSourceInvocationOnlyCallableParameters(identity: {
   readonly memberName: string;
 } | undefined): readonly number[] {
   return operationFor(identity)?.invocationOnly ?? none;
+}
+
+export function jsSourceNativeStorageOperation(identity: {
+  readonly ownerName: string;
+  readonly memberName: string;
+} | undefined): boolean {
+  return operationFor(identity)?.native === true;
+}
+
+export function jsSourceReceiverResumeEffect(identity: {
+  readonly ownerName: string;
+  readonly memberName: string;
+} | undefined): true | undefined {
+  return operationFor(identity)?.resumeReceiver;
 }

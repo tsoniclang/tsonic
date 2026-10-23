@@ -1,5 +1,6 @@
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import { createSourceStoragePointerBackings } from "./pointer-backings.js";
+import { createSourceStorageGeneratorResumes } from "./generator-resumes.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -409,37 +410,15 @@ export function createSourceStorageTransport(
     return slots;
   };
   const rejections = createSourceStorageRejections(source, budget, {
-    subjectFor, originsFor: originSubjects, callbackEntriesFor,
+    subjectFor, subject, originsFor: originSubjects, callbackEntriesFor,
     implementationsFor: invocationImplementationSelection,
     invocationOrigins: (origin, candidate, invocation) => invocationOrigins(origin, candidate, invocation),
-    throwsFor(candidate, invocation) {
-      const origins: SourceStorageSubject[] = [];
-      let reason: string | undefined;
-      for (const region of regions.callable(candidate, invocation)) {
-        if (!step()) break;
-        graphQueries.read({ node: region, kind: thrownOrigins });
-        reason ??= unresolvedThrows.get(region);
-        origins.push(...thrownOrigins.get(region) ?? []);
-      }
-      return { origins, reason };
-    },
+    regions, graph: graphQueries, thrownOrigins, unresolvedThrows, unresolvedSubjects, unresolvedInvocations,
+    sealed: () => sealed, isAccessorInvocation: invocation => accessorTargets.has(invocation),
+    enclosingCallable, recordThrow, recordUnresolvedThrow, connect,
   });
-  const rejectionFor = graphQueries.query(rejections.forOperand);
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
-    accessorTargets, invocation => unresolvedInvocations.has(invocation), (receiver, formal) => {
-      const selected = rejectionFor(receiver);
-      if (selected === undefined) return undefined;
-      const origins: SourceStorageSubject[] = [];
-      for (const value of selected) {
-        if (!step()) return undefined;
-        if (value.kind === "unresolved") {
-          if (!sealed) unresolvedSubjects.set(formal, value.reason);
-          return undefined;
-        }
-        origins.push(value);
-      }
-      return origins;
-    });
+    accessorTargets, invocation => unresolvedInvocations.has(invocation), rejections.receiverOriginsFor);
   const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
     { invocationInputs, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
 
@@ -448,6 +427,9 @@ export function createSourceStorageTransport(
   });
   const pointerBackings = graphQueries.query(pointers.backingsFor);
   const pointerAccessors = graphQueries.query(pointers.accessorsFor);
+  const resumedImplementations = graphQueries.query(createSourceStorageGeneratorResumes(source, budget, {
+    invocationEffects, subjectFor, originsFor: originSubjects, implementationsFor: invocationImplementations,
+  }));
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const invocation of pointerInvocations) {
       const pointer = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
@@ -536,7 +518,12 @@ export function createSourceStorageTransport(
         const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
           { kind: "source-implementation", signature: selected?.selectedSignature }, step);
         const result = selected === undefined ? undefined : consumer.operations.callResult(selected);
-        if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
+        const generator = semantics.forNode(candidate).operations.generator(candidate);
+        if (generator !== undefined && invocationImplementationSelection(invocation)?.exact === true &&
+          [...invocationImplementations(invocation)].every(owner => semantics.forNode(owner).operations.generator(owner) !== undefined))
+          invocationEffects.set(invocation, Object.freeze({ resultAllocation: invocation,
+            preservedInputs: Object.freeze([...(invocationArguments.get(invocation) ?? [])]) }));
+        if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async") && generator === undefined) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         const receiver = subject(candidate, "receiver");
         if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
@@ -568,91 +555,7 @@ export function createSourceStorageTransport(
       }
     };
     yield* memberAccessors.operations();
-    for (const invocation of new Set([...invocations, ...memberAccessors.sites])) yield () => {
-      if (!step()) return;
-      const destination = regions.catchDestination(invocation);
-      const enclosing = destination === undefined ? regions.enclosing(invocation) : undefined;
-      const reason = unresolvedInvocations.get(invocation);
-      if (reason !== undefined) {
-        const caught = destination === undefined ? undefined : subject(destination, "input");
-        if (caught !== undefined) unresolvedSubjects.set(caught, reason);
-        else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
-        return;
-      }
-      const targets = [...invocationImplementations(invocation)].map(candidate => ({ candidate,
-        regions: regions.callable(candidate, accessorTargets.has(invocation) ? undefined : invocation) }));
-      if (sourceStorageConstructionExpression(invocation, source, step) !== undefined) {
-        const instance = regions.instance(invocation);
-        if (instance === undefined) return;
-        for (const region of instance.regions) targets.push({ candidate: region.owner, regions: [region.node] });
-      }
-      for (const target of targets) {
-        if (ast.hasModifierKind(target.candidate, "async")) continue;
-        for (const region of target.regions) {
-          graphQueries.read({ node: region, kind: thrownOrigins });
-          const reason = unresolvedThrows.get(region);
-          if (reason !== undefined) {
-            const caught = destination === undefined ? undefined : subject(destination, "input");
-            if (caught !== undefined) unresolvedSubjects.set(caught, reason);
-            else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
-          }
-          for (const origin of thrownOrigins.get(region) ?? []) {
-            const origins = invocationOrigins(origin, target.candidate, invocation);
-            if (origins === undefined) {
-              const reason = "Thrown source storage requires completed original implementation input transport, not caller ABI correspondence alone.";
-              const caught = destination === undefined ? undefined : subject(destination, "input");
-              if (caught !== undefined) unresolvedSubjects.set(caught, reason);
-              else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
-              continue;
-            }
-            for (const actual of origins) {
-              if (destination !== undefined) connect(actual, subject(destination, "input"));
-              else if (enclosing !== undefined) recordThrow(enclosing, actual);
-            }
-          }
-        }
-      }
-    };
-    for (const node of visitedNodes) {
-      const owner = ast.is.IsReturnStatement(node) ? enclosingCallable(node)
-        : ast.is.IsArrowFunction(node) ? node : undefined;
-      if (owner === undefined || !ast.hasModifierKind(owner, "async")) continue;
-      const returned = ast.is.IsReturnStatement(node) ? Node_Expression(ast, node) : ast.body(owner);
-      if (returned === undefined || ast.is.IsBlock(returned)) continue;
-      yield () => {
-        const selected = rejectionFor(returned);
-        const region = regions.enclosing(returned);
-        if (selected === undefined || region === undefined) return;
-        for (const origin of selected) {
-          if (!step()) return;
-          if (origin.kind === "unresolved") recordUnresolvedThrow(region, origin.reason);
-          else recordThrow(region, origin);
-        }
-      };
-    }
-    for (const awaited of visitedNodes) {
-      if (!ast.is.IsAwaitExpression(awaited)) continue;
-      yield () => {
-        if (!step()) return;
-        const operand = Node_Expression(ast, awaited);
-        if (operand === undefined) return;
-        const selected = rejectionFor(operand);
-        if (selected === undefined) return;
-        const caught = regions.catchDestination(awaited);
-        const destination = caught === undefined ? undefined : subject(caught, "input");
-        const enclosing = destination === undefined ? regions.enclosing(awaited) : undefined;
-        for (const origin of selected) {
-          if (!step()) return;
-          if (origin.kind === "unresolved") {
-            if (destination !== undefined) unresolvedSubjects.set(destination, origin.reason);
-            else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, origin.reason);
-            continue;
-          }
-          if (destination !== undefined) connect(origin, destination);
-          else if (enclosing !== undefined) recordThrow(enclosing, origin);
-        }
-      };
-    }
+    yield* rejections.operations(visitedNodes, new Set([...invocations, ...memberAccessors.sites]));
   };
   graphQueries.reconcile(operations());
   const contextLocation = createSourceStorageContextLocations(source, budget, storedValues.storesFor,
@@ -701,7 +604,7 @@ export function createSourceStorageTransport(
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, pointerInvocations, pointerAccessors,
+    invocationDeclarations, invocationEffects, invocations, pointerInvocations, pointerAccessors, resumedImplementations,
     accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
@@ -756,7 +659,7 @@ export function createSourceStorageTransport(
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
-    invocations, pointerInvocations, pointerAccessors, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
+    invocations, pointerInvocations, pointerAccessors, resumedImplementations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,

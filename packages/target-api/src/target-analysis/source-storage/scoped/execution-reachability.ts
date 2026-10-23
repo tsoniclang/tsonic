@@ -91,7 +91,8 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
         for (const candidate of transport.invocationImplementations(invocation)) {
           if (!budget.step()) return undefined;
           for (const child of transport.regions.callable(candidate, transport.accessorTargets.has(invocation) ? undefined : invocation))
-            if (!add(child)) return undefined;
+            if ((source.semantics.forNode(candidate).operations.generator(candidate) === undefined || child !== source.ast.body(candidate)) &&
+              !add(child)) return undefined;
         }
         if (transport.pointerInvocations.has(invocation)) {
           const pointerAccessors = transport.pointerAccessors(invocation);
@@ -99,6 +100,15 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
           for (const candidate of pointerAccessors) {
             if (!budget.step()) return undefined;
             for (const child of transport.regions.callable(candidate, undefined)) if (!add(child)) return undefined;
+          }
+        }
+        if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
+          const resumed = transport.resumedImplementations(invocation);
+          if (resumed === undefined) return undefined;
+          for (const candidate of resumed) {
+            if (!budget.step()) return undefined;
+            const body = source.ast.body(candidate);
+            if (body === undefined || !add(body)) return undefined;
           }
         }
         for (const entry of transport.callbackEntriesFor(invocation)) {

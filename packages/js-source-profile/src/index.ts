@@ -19,4 +19,4 @@ export { jsArrayMemberEffect } from "./identities/array-effects.js";
 export { sourceErrorDeclarations } from "./declarations/errors.js";
 export { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage } from "./identities/storage-effects.js";
 export type { JsSourceStorageOperationIdentity } from "./identities/storage-effects.js";
-export { jsSourceInvocationOnlyCallableParameters, jsSourceCallableParameterEffects } from "./identities/callable-effects.js";
+export { jsSourceInvocationOnlyCallableParameters, jsSourceCallableParameterEffects, jsSourceNativeStorageOperation } from "./identities/callable-effects.js";

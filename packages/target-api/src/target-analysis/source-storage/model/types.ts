@@ -15,6 +15,7 @@ export interface SourceStorageCallEffect {
   readonly resultAlias?: Node;
   readonly resultAllocation?: Node;
   readonly preservedInputs?: readonly Node[];
+  readonly resumeReceiver?: true;
 }
 
 export interface SourceStorageEffects {

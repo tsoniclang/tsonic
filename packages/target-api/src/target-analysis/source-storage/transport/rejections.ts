@@ -5,6 +5,9 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
 import { sourceStorageSubjectType } from "../model/components.js";
+import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
+import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -12,10 +15,19 @@ interface SourceStorageRejectionQueries {
   callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
   implementationsFor(invocation: Node): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean } | undefined;
   invocationOrigins(origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined;
-  throwsFor(candidate: Node, invocation: Node): {
-    readonly origins: readonly SourceStorageSubject[];
-    readonly reason: string | undefined;
-  };
+  readonly regions: ReturnType<typeof createSourceStorageExecutionRegions>;
+  readonly graph: Pick<ReturnType<typeof createSourceStorageGraphQueries>, "read" | "query">;
+  readonly thrownOrigins: ReadonlyMap<Node, ReadonlySet<SourceStorageSubject>>;
+  readonly unresolvedThrows: ReadonlyMap<Node, string>;
+  readonly unresolvedSubjects: Map<SourceStorageSubject, string>;
+  readonly unresolvedInvocations: ReadonlyMap<Node, string>;
+  isAccessorInvocation(node: Node): boolean;
+  sealed(): boolean;
+  subject(node: Node | undefined, kind: SourceStorageSubject["kind"]): SourceStorageSubject | undefined;
+  enclosingCallable(node: Node): Node | undefined;
+  connect(origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined): void;
+  recordThrow(region: Node, subject: SourceStorageSubject): void;
+  recordUnresolvedThrow(region: Node, reason: string): void;
 }
 
 export function createSourceStorageRejections(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -38,11 +50,15 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       }
     };
     const thrown = (candidate: Node, invocation: Node): void => {
-      const selected = queries.throwsFor(candidate, invocation);
-      if (selected.reason !== undefined) refuse(selected.reason);
-      for (const origin of selected.origins) {
+      for (const region of queries.regions.callable(candidate, invocation)) {
         if (!budget.step()) return;
-        add(origin, candidate, invocation);
+        queries.graph.read({ node: region, kind: queries.thrownOrigins });
+        const reason = queries.unresolvedThrows.get(region);
+        if (reason !== undefined) refuse(reason);
+        for (const origin of queries.thrownOrigins.get(region) ?? []) {
+          if (!budget.step()) return;
+          add(origin, candidate, invocation);
+        }
       }
     };
     const executor = (candidate: Node, invocation: Node, parameterIndex: number): void => {
@@ -138,5 +154,99 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
     if (reason !== undefined) origins.add(Object.freeze({ kind: "unresolved", reason }));
     return origins;
   });
-  return Object.freeze({ forOperand });
+  const rejected = queries.graph.query(forOperand);
+  const receiverOriginsFor = (receiver: Node, formal: SourceStorageSubject): readonly SourceStorageSubject[] | undefined => {
+    const selected = rejected(receiver);
+    if (selected === undefined) return undefined;
+    const origins: SourceStorageSubject[] = [];
+    for (const value of selected) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "unresolved") {
+        if (!queries.sealed()) queries.unresolvedSubjects.set(formal, value.reason);
+        return undefined;
+      }
+      origins.push(value);
+    }
+    return origins;
+  };
+  const operations = function* (nodes: readonly Node[], invocations: Iterable<Node>): Generator<SourceStorageReconciliation> {
+    for (const invocation of invocations) yield () => {
+      if (!budget.step()) return;
+      const destination = queries.regions.catchDestination(invocation);
+      const enclosing = destination === undefined ? queries.regions.enclosing(invocation) : undefined;
+      const caught = destination === undefined ? undefined : queries.subject(destination, "input");
+      const unresolved = (reason: string): void => {
+        if (caught !== undefined) queries.unresolvedSubjects.set(caught, reason);
+        else if (enclosing !== undefined) queries.recordUnresolvedThrow(enclosing, reason);
+      };
+      const reason = queries.unresolvedInvocations.get(invocation);
+      if (reason !== undefined) { unresolved(reason); return; }
+      const targets = [...queries.implementationsFor(invocation)?.nodes ?? []].map(candidate => ({ candidate,
+        regions: queries.regions.callable(candidate, queries.isAccessorInvocation(invocation) ? undefined : invocation) }));
+      if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
+        const instance = queries.regions.instance(invocation);
+        if (instance === undefined) return;
+        for (const region of instance.regions) targets.push({ candidate: region.owner, regions: [region.node] });
+      }
+      for (const target of targets) {
+        if (ast.hasModifierKind(target.candidate, "async")) continue;
+        for (const region of target.regions) {
+          if (semantics.forNode(target.candidate).operations.generator(target.candidate) !== undefined && region === ast.body(target.candidate)) continue;
+          queries.graph.read({ node: region, kind: queries.thrownOrigins });
+          const reason = queries.unresolvedThrows.get(region);
+          if (reason !== undefined) unresolved(reason);
+          for (const origin of queries.thrownOrigins.get(region) ?? []) {
+            const origins = queries.invocationOrigins(origin, target.candidate, invocation);
+            if (origins === undefined) {
+              unresolved("Thrown source storage requires completed original implementation input transport, not caller ABI correspondence alone.");
+              continue;
+            }
+            for (const actual of origins) {
+              if (destination !== undefined) queries.connect(actual, queries.subject(destination, "input"));
+              else if (enclosing !== undefined) queries.recordThrow(enclosing, actual);
+            }
+          }
+        }
+      }
+    };
+    for (const node of nodes) {
+      const owner = ast.is.IsReturnStatement(node) ? queries.enclosingCallable(node)
+        : ast.is.IsArrowFunction(node) ? node : undefined;
+      if (owner === undefined || !ast.hasModifierKind(owner, "async")) continue;
+      const returned = ast.is.IsReturnStatement(node) ? Node_Expression(ast, node) : ast.body(owner);
+      if (returned === undefined || ast.is.IsBlock(returned)) continue;
+      yield () => {
+        const selected = rejected(returned);
+        const region = queries.regions.enclosing(returned);
+        if (selected === undefined || region === undefined) return;
+        for (const origin of selected) {
+          if (!budget.step()) return;
+          if (origin.kind === "unresolved") queries.recordUnresolvedThrow(region, origin.reason);
+          else queries.recordThrow(region, origin);
+        }
+      };
+    }
+    for (const awaited of nodes) {
+      if (!ast.is.IsAwaitExpression(awaited)) continue;
+      yield () => {
+        if (!budget.step()) return;
+        const operand = Node_Expression(ast, awaited);
+        if (operand === undefined) return;
+        const selected = rejected(operand);
+        if (selected === undefined) return;
+        const caught = queries.regions.catchDestination(awaited);
+        const destination = caught === undefined ? undefined : queries.subject(caught, "input");
+        const enclosing = destination === undefined ? queries.regions.enclosing(awaited) : undefined;
+        for (const origin of selected) {
+          if (!budget.step()) return;
+          if (origin.kind === "unresolved") {
+            if (destination !== undefined) queries.unresolvedSubjects.set(destination, origin.reason);
+            else if (enclosing !== undefined) queries.recordUnresolvedThrow(enclosing, origin.reason);
+          } else if (destination !== undefined) queries.connect(origin, destination);
+          else if (enclosing !== undefined) queries.recordThrow(enclosing, origin);
+        }
+      };
+    }
+  };
+  return Object.freeze({ receiverOriginsFor, operations });
 }

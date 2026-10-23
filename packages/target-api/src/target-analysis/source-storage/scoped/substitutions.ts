@@ -307,10 +307,12 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return selected?.origins;
   };
-  const contributingExecutions = (origin: SourceStorageSubject, declaration: Node, creation: SourceStorageScope) =>
+  const contributingExecutions = (origin: SourceStorageSubject, declaration: Node, creation: SourceStorageScope,
+    entry: "callable" | "generator-result") =>
     withQuery(() => budget.withRows(temporary => {
       const body = source.ast.body(declaration);
-      const scope = scopes.declarationFor(declaration, creation);
+      const scope = entry === "generator-result" ? scopes.owningScope(creation, declaration)
+        : scopes.declarationFor(declaration, creation);
       if (body === undefined || scope === undefined) return undefined;
       const root: SourceStorageTerm = Object.freeze({ kind: "region", region: body, scope, demand: origin.node, deferred: true });
       const selected = walkSourceStorageExecution(budget, [root], term => {

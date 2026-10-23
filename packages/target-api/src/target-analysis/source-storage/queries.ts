@@ -493,14 +493,21 @@ export function createSourceStorageQuery(
         if (reason !== undefined) return unresolved(reason);
         const states = bindingStates.get(creation);
         if (states?.length !== 1) return unresolved("A source callback entry requires one owned creation activation.");
+        const callable = sourceStorageHasOriginalCallableValue(callback, source.ast);
+        const generator = !callable && callback.kind === "value" && callback.projection.length === 0 &&
+          source.ast.is.IsCallExpression(callback.node)
+          ? [...transport.invocationImplementations(callback.node)].filter(candidate =>
+            source.semantics.forNode(candidate).operations.generator(candidate) !== undefined &&
+            transport.substitutions.boundActivation(states[0]!, candidate)?.invocation === callback.node) : [];
         if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
-          !sourceStorageHasOriginalCallableValue(callback, source.ast))
+          !callable && generator.length !== 1)
           return unresolved(budget.failure() ?? "A source callback entry requires its actual checked implementation and demanded owner.");
         const region = transport.regions.enclosing(subject.node);
         if (region === undefined || sourceStorageRegionOwner(source.ast, region) !== declaration ||
           subject.kind !== "value" || subject.projection.length !== 0 || transport.subjectFor(subject.node) !== subject)
           return unresolved(budget.failure() ?? "A source execution demand requires an identical unprojected value use in its checked owner.");
-        const selected = transport.substitutions.contributingExecutions(subject, callback.node, states[0]!);
+        const selected = transport.substitutions.contributingExecutions(subject, callable ? callback.node : generator[0]!,
+          states[0]!, callable ? "callable" : "generator-result");
         if (selected === undefined || selected.reason !== undefined)
           return unresolved(selected?.reason ?? budget.failure() ?? "Source callback execution has no completed correlated activation selection.");
         const seen = new Set<SourceStorageSubstitutions>();

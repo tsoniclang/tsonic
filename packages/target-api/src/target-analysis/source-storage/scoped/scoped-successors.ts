@@ -251,6 +251,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           if (pointerExecution === undefined) return undefined;
           terms.push(...pointerExecution); continue;
         }
+        if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
+          const receiver = semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
+          const subject = transport.subjectFor(receiver);
+          if (subject === undefined) return undefined;
+          terms.push(application(invocation, subject, term.scope, [], {
+            mode: "execution", demand: term.demand, deferred: term.deferred,
+          }));
+          continue;
+        }
         const possible = nativeInputExecutions(invocation, term.scope, term.demand, term.deferred);
         if (possible === undefined) return undefined;
         terms.push(...possible);
@@ -344,14 +353,34 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.kind === "member") return member(term, correlated);
     if (term.kind === "application") {
-      const dependencies = dispatchDependencies(term.invocation, term.scope);
+      const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
+      const dependencies = resumes ? [] : dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
         const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), {
-          independentCallee: independentCalleeFor(term.invocation),
+          independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
         });
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
       }
       const node = term.callee.subject.node;
+      if (resumes) {
+        if (term.mode !== "execution") return undefined;
+        const terms: SourceStorageTerm[] = [];
+        if (term.callee.subject.kind === "value" && term.callee.subject.projection.length === 0 && ast.is.IsCallExpression(node)) {
+          for (const candidate of transport.invocationImplementations(node)) {
+            if (!budget.step()) return undefined;
+            if (semantics.forNode(candidate).operations.generator(candidate) === undefined) continue;
+            const activation = scopes.boundActivation(term.callee.scope, candidate);
+            const body = ast.body(candidate);
+            if (activation?.invocation !== node || body === undefined) continue;
+            terms.push(Object.freeze({ kind: "region", region: body, scope: activation.scope,
+              demand: term.demand, deferred: term.deferred }));
+          }
+        }
+        if (terms.length === 0) terms.push(Object.freeze({ kind: "unresolved", subject: term.callee.subject,
+          scope: term.callee.scope, exposure: term.invocation,
+          reason: "A generator may-resume requires its original checked creation call and activation." }));
+        return { kind: "replace", terms };
+      }
       if (term.callback !== undefined) {
         const type = sourceStorageSubjectType(source, term.callee.subject);
         if (type !== undefined && semantics.forNode(term.invocation).types.isNullish(type)) return absent;
@@ -425,9 +454,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const candidate = selected.implementation.declaration;
       const scope = equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
       if (scope === undefined) return undefined;
+      const generator = semantics.forNode(candidate).operations.generator(candidate);
       if (term.mode === "execution") {
         const regions = regionsFor(candidate, term.invocation, scope, term.demand, undefined, term.deferred);
-        return regions === undefined ? undefined : { kind: "replace", terms: regions };
+        return regions === undefined ? undefined : { kind: "replace", terms: generator === undefined ? regions
+          : regions.filter(region => region.kind !== "region" || region.region !== ast.body(candidate)) };
+      }
+      if (generator !== undefined) {
+        const result = transport.subject(term.invocation, "value", term.projection);
+        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
       }
       if (ast.hasModifierKind(candidate, "async")) {
         const result = transport.subject(term.invocation, "value", term.projection);

@@ -5,22 +5,26 @@ import type { ResolvedSourceCallInfo } from "../../../source-semantics/call-resu
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/types.js";
 import type { SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
 
-export interface SourceGlobalCallStorageEffect {
-  readonly declaration: Node;
-  readonly binding: { readonly name: string; readonly providerId: string };
-  readonly form: "member" | "value";
-  readonly effect: SourceStorageCallEffect;
+interface SourceGlobalStorageBinding {
+  readonly name: string;
+  readonly providerId: string;
 }
+
+export type SourceGlobalCallStorageEffect = {
+  readonly declaration: Node;
+  readonly effect: SourceStorageCallEffect;
+} & ({ readonly form: "member" | "value"; readonly binding: SourceGlobalStorageBinding }
+  | { readonly form: "receiver" });
 
 export function createSourceGlobalCallStorageEffects(
   source: TargetSourceProgram,
   select: (node: Node, call: ResolvedSourceCallInfo) => SourceGlobalCallStorageEffect | undefined,
   selectConstructor: (declaration: Node, context: SourceFileSemantics) =>
-    Pick<SourceGlobalCallStorageEffect, "declaration" | "binding"> | undefined,
+    { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding } | undefined,
 ): SourceStorageEffects {
   const selectValue = createSourceCallableValueQuery(source);
   const matchesBinding = (binding: Node | undefined,
-    operation: Pick<SourceGlobalCallStorageEffect, "declaration" | "binding">): boolean => {
+    operation: { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding }): boolean => {
     const file = binding === undefined ? undefined : source.ast.getSourceFile(binding);
     if (binding === undefined || file === undefined || !source.ast.is.IsVariableDeclaration(binding) ||
       source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
@@ -70,6 +74,8 @@ export function createSourceGlobalCallStorageEffects(
       if (operation === undefined) return undefined;
       if (source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature) !== operation.declaration)
         return undefined;
+      if (operation.form === "receiver")
+        return call.sourceReceiver === undefined || call.sourceCalleeAccess === undefined ? undefined : operation.effect;
       const value = selectValue(call.sourceCallee.expression);
       if (value === undefined) return undefined;
       const access = value.property ?? value.element;

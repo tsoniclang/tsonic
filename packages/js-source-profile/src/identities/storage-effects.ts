@@ -1,5 +1,6 @@
 import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
 import { jsSourceSemanticsIdentity } from "./source.js";
+import { jsSourceReceiverResumeEffect } from "./callable-effects.js";
 
 export interface JsSourceStorageOperationIdentity {
   readonly ownerName: string;
@@ -11,6 +12,7 @@ export interface JsSourceCallStorageEffect {
   readonly resultAlias?: Node;
   readonly resultAllocation?: Node;
   readonly preservedInputs: readonly Node[];
+  readonly resumeReceiver?: true;
 }
 
 const nativeErrorConstructorOwners = new Set([
@@ -43,6 +45,8 @@ export function selectJsSourceCallStorageEffect(
 ) {
   const effect = jsSourceCallStorageEffect(identity, call);
   if (identity === undefined || effect === undefined) return undefined;
+  if (effect.resumeReceiver === true)
+    return Object.freeze({ declaration: identity.declaration, form: "receiver" as const, effect });
   const binding = operationBinding(identity);
   if (binding === undefined) return undefined;
   const form: "member" | "value" = identity.memberName === "constructor" || identity.memberName === "call"
@@ -55,6 +59,8 @@ export function jsSourceCallStorageEffect(identity: {
   readonly memberName: string;
 } | undefined, call: ResolvedSourceCallInfo): JsSourceCallStorageEffect | undefined {
   if (call.sourceSelectedSignatureKind !== "resolved") return undefined;
+  if (jsSourceReceiverResumeEffect(identity) === true && call.sourceReceiver !== undefined)
+    return Object.freeze({ resumeReceiver: true, preservedInputs: Object.freeze([call.sourceReceiver.expression]) });
   if (identity !== undefined && nativeErrorConstructorOwners.has(identity.ownerName) &&
     (identity.memberName === "constructor" || identity.memberName === "call")) {
     return Object.freeze({ resultAllocation: call.call, preservedInputs: Object.freeze([]) });

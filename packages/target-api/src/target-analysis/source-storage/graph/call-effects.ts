@@ -68,12 +68,15 @@ export function snapshotSourceStorageCallEffect(
   };
   if (!budget.row() || typeof value !== "object" || value === null) return reject();
   const keys = Reflect.ownKeys(value);
-  if (keys.length > 3 || keys.some(key => key !== "resultAlias" && key !== "resultAllocation" && key !== "preservedInputs")) return reject();
+  if (keys.some(key => key !== "resultAlias" && key !== "resultAllocation" && key !== "preservedInputs" && key !== "resumeReceiver")) return reject();
   const descriptors = Object.getOwnPropertyDescriptors(value);
   if (Object.values(descriptors).some(descriptor => !("value" in descriptor))) return reject();
   const alias: unknown = descriptors.resultAlias?.value;
   const allocation: unknown = descriptors.resultAllocation?.value;
   const preserved: unknown = descriptors.preservedInputs?.value;
+  const resumeReceiver: unknown = descriptors.resumeReceiver?.value;
+  if (resumeReceiver !== undefined && (resumeReceiver !== true || selected.sourceReceiver === undefined ||
+    selected.sourceSelectedSignatureKind !== "resolved")) return reject();
   if (allocation !== undefined && (alias !== undefined || allocation !== selected.call || selected.sourceSelectedSignatureKind !== "resolved")) return reject();
   const bindingCounts = new Map<number, { count: number; scalar: boolean }>();
   for (const binding of selected.sourceArgumentBindings) {
@@ -111,5 +114,6 @@ export function snapshotSourceStorageCallEffect(
     ...(alias === undefined ? {} : { resultAlias: alias as Node }),
     ...(allocation === undefined ? {} : { resultAllocation: allocation as Node }),
     ...(preserved === undefined ? {} : { preservedInputs: Object.freeze(inputs) }),
+    ...(resumeReceiver === undefined ? {} : { resumeReceiver }),
   });
 }

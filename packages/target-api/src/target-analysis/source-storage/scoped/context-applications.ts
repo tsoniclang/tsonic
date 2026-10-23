@@ -97,7 +97,8 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     for (const input of direct) if (!budget.step() || !forward(input)) return false;
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
-    const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async"));
+    const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async") ||
+      source.semantics.forNode(candidate).operations.generator(candidate) !== undefined);
     if (deferred && !emit(current)) return false;
     if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node) || deferred) {
       for (const expression of queries.argumentsFor(current.node)) {
@@ -112,7 +113,8 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     }
     for (const candidate of candidates) {
       if (!budget.step()) return false;
-      if (source.ast.hasModifierKind(candidate, "async")) continue;
+      if (source.ast.hasModifierKind(candidate, "async") ||
+        source.semantics.forNode(candidate).operations.generator(candidate) !== undefined) continue;
       const result = queries.subject(candidate, "return", current.projection);
       const projection = projectionFor(current, candidate, current.node);
       if (result === undefined || projection === undefined) {
