@@ -1,4 +1,5 @@
 import type { ExtensionDiagnostic, Node } from "@tsonic/tsts";
+import { formatDiagnosticEvidenceDetails } from "./diagnostic-evidence.js";
 
 export type TargetArtifactKind =
   | "source"
@@ -38,7 +39,8 @@ export function targetDiagnosticFromExtension(
     message: diagnostic.message,
     ...(node === undefined ? {} : { sourceNode: node }),
     ...(diagnostic.evidence === undefined || diagnostic.evidence.length === 0 ? {} : {
-      evidence: Object.freeze([...new Set(diagnostic.evidence.map(entry => entry.message))]),
+      evidence: Object.freeze([...new Set(diagnostic.evidence.map(entry => entry.details === undefined ? entry.message
+        : `${entry.message}: ${formatDiagnosticEvidenceDetails(entry.details)}`))]),
     }),
   };
 }

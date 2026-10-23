@@ -1,3 +1,4 @@
+export { formatDiagnosticEvidenceDetails } from "../diagnostic-evidence.js";
 export type {
   TargetArtifact,
   TargetArtifactKind,
