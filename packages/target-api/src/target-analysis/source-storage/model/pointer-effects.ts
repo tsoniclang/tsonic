@@ -3,15 +3,12 @@ import type { SourceStorageCallEffect } from "./types.js";
 
 export function sourceStoragePointerCallEffect(operation: PointerOperationFact | undefined): SourceStorageCallEffect | undefined {
   switch (operation?.operation) {
-    case "allocate": return Object.freeze({ resultAllocation: operation.call,
-      preservedInputs: Object.freeze([operation.initialExpression]) });
-    case "load": return Object.freeze({ preservedInputs: Object.freeze([operation.pointerExpression]) });
-    case "store": return Object.freeze({ preservedInputs: Object.freeze([operation.pointerExpression, operation.valueExpression]) });
-    case "address-of": return Object.freeze({ preservedInputs: Object.freeze([operation.storageExpression]) });
-    case "bind-pointer": return Object.freeze({ preservedInputs: Object.freeze([
-      operation.identityExpression, operation.readExpression, operation.writeExpression]) });
-    case "project-pointer": return Object.freeze({ preservedInputs: Object.freeze([
-      operation.pointerExpression, operation.fromSourceExpression, operation.toSourceExpression]) });
+    case "allocate": return Object.freeze({ resultAllocation: operation.call });
+    case "load":
+    case "store":
+    case "address-of":
+    case "bind-pointer":
+    case "project-pointer": return Object.freeze({});
     default: return undefined;
   }
 }

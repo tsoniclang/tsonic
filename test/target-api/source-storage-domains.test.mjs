@@ -49,6 +49,74 @@ function open(selected, kind, label) {
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.boundaries) && selected.boundaries.every(Object.isFrozen), true);
 }
 
+function memberWriteSelection(current) {
+  const { ast } = current.source;
+  const declaration = requiredNode(ast, current.initializer("owner"), node => ast.is.IsMethodDeclaration(node) &&
+    ast.text(ast.name(node)) === "read");
+  const selected = current.storage.memberSubjectFor(declaration);
+  assert.equal(selected.kind, "resolved", "the original authored method has its canonical slot identity");
+  return current.storage.memberWritesFor(selected.subject);
+}
+
+for (const [name, body, boundary] of [
+  ["exported object", "export const owner = { read() { return 1; } };", "external-write"],
+  ["known write and export", "export const owner = { read() { return 1; } }; owner.read = () => 2;", "external-write"],
+  ["opaque native use", "declare function opaque(input: { read(): number }): void; const owner = { read() { return 1; } }; opaque(owner);", "opaque-write"],
+  ["opaque readonly alias", "declare function opaque(input: { readonly read: () => number }): void; const owner = { read() { return 1; } }; const alias: { readonly read: () => number } = owner; opaque(alias);", "opaque-write"],
+  ["unclassified exposure", 'const owner = { read() { return 1; } }; const rendered = `value:${owner}`;', "unclassified-exposure"],
+  ["returned exported alias", "const owner = { read() { return 1; } }; export function expose() { return owner; }", "external-write"],
+]) {
+  test(`member writes retain outside writer uncertainty for ${name}`, async () => {
+    const current = await fixture(`storage-member-writes-${name.replaceAll(" ", "-")}`, body);
+    const selected = memberWriteSelection(current);
+    assert.equal(selected.kind, "open", `${name}: no empty closed writer proof is fabricated`);
+    assert.equal(selected.boundaries.some(value => value.kind === boundary), true, `${name}: the actual exposure remains recorded`);
+    assert.equal(selected.writes.length, name === "known write and export" ? 1 : 0,
+      `${name}: openness does not discard independently known original mutations`);
+    assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.writes) && Object.isFrozen(selected.boundaries) &&
+      selected.boundaries.every(Object.isFrozen), true, `${name}: published evidence is immutable`);
+  });
+}
+
+test("closed checked source body is the preservation control, not an opaque signature", async () => {
+  const current = await fixture("storage-member-writes-source-body", `
+    const owner = { read() { return 1; } };
+    function inspect(input: { read(): number }): number { return input.read(); }
+    inspect(owner);
+  `);
+  const selected = memberWriteSelection(current);
+  assert.equal(selected.kind === "complete" && selected.writes.length === 0, true,
+    "the selected source body and complete alias graph contain no possible slot mutation");
+  const opaque = await fixture("storage-member-writes-provider-claim", `
+    declare function inspect(input: { read(): number }): number;
+    const owner = { read() { return 1; } };
+    inspect(owner);
+  `);
+  const unknown = memberWriteSelection(opaque);
+  assert.equal(unknown.kind === "open" && unknown.boundaries.some(value => value.kind === "opaque-write"), true,
+    "a selected signature is not an exact compiler-understood native nonmutation guarantee");
+});
+
+test("recognized source builtin identity does not certify native member preservation", async () => {
+  const profile = "interface ObjectConstructor { isFrozen(value: {}): boolean; } declare var Object: ObjectConstructor;";
+  const current = await fixture("storage-member-writes-source-builtin", `
+    const owner = { read() { return 1; } };
+    Object.isFrozen(owner);
+  `, { profile, effectsFactory(source) {
+    const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
+    const declarations = new Set(source.ast.members(owner));
+    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
+      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      return declarations.has(declaration)
+        ? selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "isFrozen", declaration }, selected)
+        : undefined;
+    }, () => undefined);
+  } });
+  const selected = memberWriteSelection(current);
+  assert.equal(selected.kind === "open" && selected.boundaries.some(value => value.kind === "opaque-write"), true,
+    "selected source identity and a provider effect are not native signature or qualifier evidence");
+});
+
 test("complete domains preserve private arrows, immutable aliases and known private callback transport", async () => {
   const current = await fixture("storage-domain-private-callback", `
     const callback = (value: {}): {} => value;
@@ -401,21 +469,18 @@ test("owned native Error call and constructor allocations do not certify externa
   }
 });
 
-test("call result aliases and input preservation remain independent semantic proofs", async () => {
-  for (const mode of ["alias", "preserve", "both"]) {
+test("call result aliases and native writer completeness remain independent semantic proofs", async () => {
+  for (const mode of ["alias", "opaque", "allocation"]) {
     const current = await fixture(`storage-domain-effects-${mode}`, `
       declare function operation(value: { token: {} }): { token: {} };
       const value = { token: {} };
       const result = operation(value);
       const selected = value.token;
-    `, { effects: { call: (_node, selected) => ({
-      ...(mode === "preserve" ? {} : { resultAlias: selected.sourceArguments[0].expression }),
-      ...(mode === "alias" ? {} : { preservedInputs: [selected.sourceArguments[0].expression] }),
-    }) } });
-    if (mode === "preserve") open(current.selection("result"), "opaque-result", "preservation does not prove result identity");
+    `, { effects: { call: (_node, selected) => mode === "opaque" ? undefined : mode === "alias"
+      ? { resultAlias: selected.sourceArguments[0].expression } : { resultAllocation: selected.call } } });
+    if (mode === "opaque") open(current.selection("result"), "opaque-result", "an opaque signature does not prove result identity");
     else complete(current.selection("result"), "checked exact alias");
-    if (mode === "alias") open(current.selection("selected"), "opaque-write", "alias does not prove preservation");
-    else complete(current.selection("selected"), "exact input preservation");
+    open(current.selection("selected"), "opaque-write", "source alias and preservation claims do not prove native nonmutation");
   }
 });
 
@@ -485,13 +550,13 @@ test("native global effects reject foreign provider artifacts and operation decl
   assert.equal(effects(undefined).call(node, call) === undefined, true, "missing owned global fact");
 });
 
-test("one preserved input does not suppress a second unpreserved alias", async () => {
+test("a result alias does not suppress either opaque argument's independent writer exposure", async () => {
   const current = await fixture("storage-domain-effects-other-alias", `
     declare function operation(first: { token: {} }, second: { token: {} }): {};
     const value = { token: {} };
     operation(value, value);
     const selected = value.token;
-  `, { effects: { call: (_node, selected) => ({ preservedInputs: [selected.sourceArguments[0].expression] }) } });
+  `, { effects: { call: (_node, selected) => ({ resultAlias: selected.sourceArguments[0].expression }) } });
   open(current.selection("selected"), "opaque-write", "other occurrence retains independent exposure");
 });
 

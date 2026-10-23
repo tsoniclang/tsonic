@@ -37,7 +37,7 @@ function fixture(kind: "input-duration" | "type-argument",
     call(node, selected) {
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       return declaration !== undefined && source.ast.is.IsFunctionDeclaration(declaration) && source.ast.body(declaration) === undefined
-        ? { resultAllocation: node, preservedInputs: [] } : undefined;
+        ? { resultAllocation: node } : undefined;
     },
   });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);

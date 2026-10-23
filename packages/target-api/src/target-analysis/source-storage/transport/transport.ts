@@ -448,7 +448,6 @@ export function createSourceStorageTransport(
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
       const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
-      if (selected === undefined) return;
       const write: SourceStorageWrite = writeFor(access)
         ?? { reference: access, operation: ast.parent(access) ?? access, kind: "mutation", values: Object.freeze([]),
           reason: "Source storage mutation requires its exact selected value producer." };
@@ -456,7 +455,7 @@ export function createSourceStorageTransport(
       storedValues.recordWrite(storage, write);
       for (const origin of originSubjects(owner) ?? []) {
         if (!step()) break;
-        if (property === undefined && storage !== undefined && storage.projection.length > owner.projection.length) {
+        if (selected !== undefined && property === undefined && storage !== undefined && storage.projection.length > owner.projection.length) {
           const file = sourceFileFor(origin);
           const type = sourceStorageSubjectType(source, origin, file);
           if (file === undefined || type === undefined) continue;
@@ -470,10 +469,28 @@ export function createSourceStorageTransport(
         const rest = sourceStorageObjectRestOwner(origin.node, ast) !== undefined;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node) && !rest) continue;
         if (!once(origin)) continue;
-        for (const pair of memberFlow.membersFor(origin, selected.receiver.type) ?? []) {
-          if (pair.kind !== "present" || pair.destination.property.symbol !== selected.selectedSymbol &&
-            pair.destination.property.symbol !== selected.sourceSymbol &&
-            (declaration === undefined || !pair.destination.declarations.includes(declaration))) continue;
+        const file = sourceFileFor(origin);
+        const type = sourceStorageSubjectType(source, origin, file);
+        const members = selected === undefined || type === undefined ? undefined : memberFlow.membersFor(origin, selected.receiver.type);
+        const matching = members?.filter(pair => pair.kind === "present" &&
+          (pair.destination.property.symbol === selected?.selectedSymbol || pair.destination.property.symbol === selected?.sourceSymbol ||
+            declaration !== undefined && pair.destination.declarations.includes(declaration)));
+        if (matching === undefined || matching.length === 0) {
+          const reason = "Source member writes require exact checked physical destination correspondence.";
+          unresolvedSubjects.set(origin, reason);
+          for (const pair of type === undefined ? [] : memberFlow.membersFor(origin, type) ?? []) {
+            if (!step()) return;
+            if (pair.kind !== "present") continue;
+            for (const member of pair.source.declarations) {
+              if (!step()) return;
+              const location = sourceStorageMemberSubject(member, ast, subject);
+              if (location !== undefined) unresolvedSubjects.set(location, reason);
+            }
+          }
+          continue;
+        }
+        for (const pair of matching) {
+          if (pair.kind !== "present") continue;
           for (const member of pair.source.declarations) {
             if (!step()) break;
             const copied = rest || ast.is.IsObjectLiteralExpression(origin.node) && ast.parent(member) !== origin.node;
@@ -522,8 +539,7 @@ export function createSourceStorageTransport(
         const generator = semantics.forNode(candidate).operations.generator(candidate);
         if (generator !== undefined && invocationImplementationSelection(invocation)?.exact === true &&
           [...invocationImplementations(invocation)].every(owner => semantics.forNode(owner).operations.generator(owner) !== undefined))
-          invocationEffects.set(invocation, Object.freeze({ resultAllocation: invocation,
-            preservedInputs: Object.freeze([...(invocationArguments.get(invocation) ?? [])]) }));
+          invocationEffects.set(invocation, Object.freeze({ resultAllocation: invocation }));
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async") && generator === undefined) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         const receiver = subject(candidate, "receiver");

@@ -11,8 +11,8 @@ test("owned native Error construction publishes one exact fresh result without a
       const effect = jsSourceCallStorageEffect({ ownerName, memberName }, call);
       assert.equal(effect?.resultAllocation === invocation, true, `${ownerName}.${memberName}`);
       assert.equal(effect.resultAlias === undefined, true);
-      assert.equal(effect.preservedInputs.length, 0);
-      assert.equal(Object.isFrozen(effect) && Object.isFrozen(effect.preservedInputs), true);
+      assert.equal(Object.hasOwn(effect, "preservedInputs"), false, "allocation is not a native preservation assertion");
+      assert.equal(Object.isFrozen(effect), true);
       assert.equal(jsSourceCallStorageEffect({ ownerName, memberName }, { ...call, sourceSelectedSignatureKind: "untyped" }) === undefined, true);
     }
   }
@@ -32,19 +32,15 @@ function selectedCall() {
   };
 }
 
-test("owned freeze alias and input preservation are distinct immutable source effects", () => {
+test("owned freeze alias does not assert native input preservation", () => {
   const call = selectedCall();
   const argument = call.sourceArguments[1].expression;
   const freeze = jsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "freeze" }, call);
   const inspect = jsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "isFrozen" }, call);
   assert.equal(freeze.resultAlias === argument, true);
-  assert.equal(freeze.preservedInputs.length, 1);
-  assert.equal(freeze.preservedInputs[0] === argument, true);
-  assert.equal(inspect.resultAlias, undefined);
-  assert.equal(inspect.preservedInputs.length, 1);
-  assert.equal(inspect.preservedInputs[0] === argument, true);
-  assert.equal(Object.isFrozen(freeze) && Object.isFrozen(inspect), true);
-  assert.equal(Object.isFrozen(freeze.preservedInputs) && Object.isFrozen(inspect.preservedInputs), true);
+  assert.equal(Object.hasOwn(freeze, "preservedInputs"), false, "a source identity is not compiler-native mutability evidence");
+  assert.equal(inspect, undefined, "isFrozen has no storage alias or allocation effect");
+  assert.equal(Object.isFrozen(freeze), true);
   for (const identity of [undefined, { ownerName: "Object", memberName: "freeze" },
     { ownerName: "Other", memberName: "freeze" }, { ownerName: "ObjectConstructor", memberName: "replace" }]) {
     assert.equal(jsSourceCallStorageEffect(identity, call) === undefined, true);
@@ -77,7 +73,7 @@ test("effect selection snapshots containers while retaining exact checked operan
   call.sourceArguments[1].expression = Object.freeze({});
   call.sourceArgumentBindings.length = 0;
   assert.equal(effect.resultAlias === argument, true);
-  assert.equal(effect.preservedInputs[0] === argument, true);
+  assert.equal(Object.hasOwn(effect, "preservedInputs"), false, "no removed preservation field is silently retained");
 });
 
 test("public catalogue selection retains semantic declaration and global identity without program navigation", () => {

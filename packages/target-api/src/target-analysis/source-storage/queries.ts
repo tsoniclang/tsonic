@@ -12,7 +12,8 @@ import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection, SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageDomainBoundary } from "./model/types.js";
+import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
+import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection, SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageDomainBoundary, SourceStorageWriteOccurrence } from "./model/types.js";
 
 export function createSourceStorageQuery(
   source: TargetSourceProgram,
@@ -291,6 +292,45 @@ export function createSourceStorageQuery(
       const write = transport.writeAt(reference);
       if (write === undefined) return unresolved(budget.failure() ?? "A source write has no original published store occurrence.");
       return Object.freeze({ kind: "resolved", write, bindings });
+    },
+    memberWritesFor(subject) {
+      return budget.withRows(rows => {
+        const reason = subjectReason(subject) ?? budget.failure();
+        if (reason !== undefined) return unresolved(reason);
+        const { ast } = source;
+        const declaration = subject.node;
+        const file = transport.sourceFileFor(subject);
+        const owner = ast.parent(declaration);
+        const objectMember = owner !== undefined && ast.is.IsObjectLiteralExpression(owner) &&
+          (ast.is.IsMethodDeclaration(declaration) || ast.is.IsPropertyAssignment(declaration) ||
+            ast.is.IsShorthandPropertyAssignment(declaration));
+        if (!checkedNode(declaration) || file === undefined || file.IsDeclarationFile ||
+          !source.navigation.isProjectDeclaration(declaration) || subject.projection.length !== 0 ||
+          sourceStorageMemberSubject(declaration, ast, transport.subject) !== subject ||
+          !objectMember && !sourceClassFieldHasStorage(ast, declaration) && !sourceParameterIsProperty(ast, declaration))
+          return unresolved(budget.failure() ?? "Member-write selection requires its exact authored physical member slot.");
+        const ownerSubject = objectMember ? transport.subjectFor(owner) : undefined;
+        const correspondence = ownerSubject === undefined ? undefined : transport.directlyUnresolvedFor(ownerSubject);
+        if (correspondence !== undefined) return unresolved(correspondence);
+        const selected = domains.writeBoundariesFor(subject);
+        if (selected.reason !== undefined) return unresolved(selected.reason);
+        const writes: SourceStorageWriteOccurrence[] = [];
+        const references = new Set<Node>();
+        for (const store of transport.storesFor(subject) ?? []) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          if (store.kind !== "mutation" || references.has(store.reference)) continue;
+          const write = transport.writeAt(store.reference);
+          if (write === undefined || write.kind !== "mutation" || !write.destinations.includes(subject))
+            return unresolved(budget.failure() ?? "Member writes require every original published physical destination.");
+          if (!rows.add(2)) return unresolved(budget.failure()!);
+          references.add(store.reference);
+          writes.push(write);
+        }
+        if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+        return selected.boundaries.length === 0
+          ? Object.freeze({ kind: "complete", writes: Object.freeze(writes) })
+          : Object.freeze({ kind: "open", writes: Object.freeze(writes), boundaries: selected.boundaries });
+      });
     },
     typeFor(subject) {
       const reason = subjectReason(subject);

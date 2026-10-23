@@ -108,7 +108,7 @@ export function ownershipFixture(options = {}) {
     call(node, selected) {
       const current = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       return current !== undefined && ["borrow", "pending", "anotherPending", "sharedGlobal"].some(name => current === declaration(name))
-        ? { resultAllocation: node, preservedInputs: [] } : undefined;
+        ? { resultAllocation: node } : undefined;
     },
   });
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...options.limits });

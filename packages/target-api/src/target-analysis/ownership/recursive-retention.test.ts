@@ -107,7 +107,7 @@ function fixture(reverse: boolean, recursive: "self" | "mutual", additional = ""
     call(node) {
       const declaration = selectedDeclaration(node);
       return declaration !== undefined && source.ast.is.IsFunctionDeclaration(declaration) && source.ast.body(declaration) === undefined
-        ? { resultAllocation: node, preservedInputs: [] } : undefined;
+        ? { resultAllocation: node } : undefined;
     },
   });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);

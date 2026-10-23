@@ -25,6 +25,94 @@ function fixture(body) {
   return { source, budget, transport, declaration, field, variable, stores };
 }
 
+function memberWrites(current, ownerName = "owner", memberName = "read") {
+  const { ast } = current.source;
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const literal = Node_Initializer(ast, current.variable(ownerName));
+  const declaration = query.nodes.find(node => ast.is.IsMethodDeclaration(node) && ast.parent(node) === literal &&
+    ast.text(ast.name(node)) === memberName);
+  assert.equal(declaration !== undefined, true, "the exact authored object method exists");
+  const selected = query.memberSubjectFor(declaration);
+  assert.equal(selected.kind, "resolved", "the identical graph owns the physical slot");
+  return { query, subject: selected.subject, selected: query.memberWritesFor(selected.subject) };
+}
+
+test("member-write inventory proves a closed empty local method slot from complete checked source", () => {
+  const current = fixture("const owner = { value: 1, read() { return this.value; } }; owner.read();");
+  const { selected } = memberWrites(current);
+  assert.equal(selected.kind, "complete", "no caller or outside writer remains unknown");
+  assert.equal(selected.writes.length, 0, "calling a method does not replace its physical slot");
+  assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.writes), true, "the proof is immutable");
+});
+
+for (const [name, mutation] of [
+  ["direct replacement", "owner.read = () => 2;"],
+  ["same-value assignment", "owner.read = owner.read;"],
+  ["structural alias", "interface View { read(): number; } const alias: View = owner; alias.read = () => 2;"],
+  ["source parameter", "function replace(input: { read(): number }): void { input.read = () => 2; } replace(owner);"],
+  ["returned alias", "function pass(input: { read(): number }) { return input; } pass(owner).read = () => 2;"],
+  ["captured alias", "function replace(): void { owner.read = () => 2; } replace();"],
+  ["unknown replacement value", "declare const replacement: () => number; owner.read = replacement;"],
+]) {
+  test(`member-write inventory retains the original occurrence through ${name}`, () => {
+    const current = fixture(`const owner = { read() { return 1; } }; ${mutation}`);
+    const { query, subject, selected } = memberWrites(current);
+    assert.equal(selected.kind, "complete", `${name}: all possible writers are checked source`);
+    assert.equal(selected.writes.length, 1, `${name}: the actual mutation is not inferred from a changed value`);
+    const write = selected.writes[0];
+    assert.equal(write.kind === "mutation" && write.destination === "member", true, `${name}: native slot mutation`);
+    assert.equal(write.destinations.includes(subject), true, `${name}: alias correspondence reaches the physical slot`);
+    const published = query.writeAt(write.reference, query.emptyBindings);
+    assert.equal(published.kind === "resolved" && published.write === write, true, `${name}: one canonical occurrence owner`);
+    assert.equal(Object.isFrozen(write) && Object.isFrozen(write.destinations), true, `${name}: destinations are sealed`);
+  });
+}
+
+test("equal method signatures do not identify distinct physical member slots", () => {
+  const current = fixture("const owner = { read() { return 1; } }; const other = { read() { return 1; } }; other.read = () => 2;");
+  const first = memberWrites(current);
+  const second = memberWrites(current, "other");
+  assert.equal(first.selected.kind === "complete" && first.selected.writes.length === 0, true,
+    "a different creation's writer does not contaminate the original physical slot");
+  assert.equal(second.selected.kind === "complete" && second.selected.writes.length === 1, true,
+    "the identical signature does not hide the other creation's actual mutation");
+});
+
+test("missing dynamic member correspondence is unresolved rather than an empty writer proof", () => {
+  const current = fixture(`
+    const owner: { [key: string]: () => number } = { read() { return 1; } };
+    declare const key: string;
+    owner[key] = () => 2;
+  `);
+  const { selected } = memberWrites(current);
+  assert.equal(selected.kind === "unresolved" && selected.reason.includes("physical destination correspondence"), true,
+    "a possible write with no exact selected field cannot certify a non-replaceable method");
+});
+
+test("member-write queries reject foreign identities and exhausted construction without claiming empty", () => {
+  const current = fixture("const owner = { read() { return 1; } };");
+  const { query, subject } = memberWrites(current);
+  const foreign = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  for (const selected of [foreign.memberWritesFor(subject), query.memberWritesFor(Object.freeze({ ...subject }))])
+    assert.equal(selected.kind === "unresolved", true, "only the identical canonical physical identity is admitted");
+  const refused = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles,
+    { ...defaultSourceStorageLimits, maximumSteps: 1 });
+  const selected = refused.memberWritesFor(subject);
+  assert.equal(selected.kind === "unresolved" && refused.failureReason() !== undefined, true,
+    "a resource refusal never becomes complete with no writes");
+});
+
+test("a native class method is not manufactured into an authored per-instance writable slot", () => {
+  const current = fixture("class Owner { read() { return 1; } } const owner = new Owner(); owner.read();");
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const declaration = current.declaration("read", current.source.ast.is.IsMethodDeclaration);
+  const selected = query.memberSubjectFor(declaration);
+  assert.equal(selected.kind, "resolved", "the class declaration still owns its method value");
+  const writes = query.memberWritesFor(selected.subject);
+  assert.equal(writes.kind === "unresolved" && writes.reason.includes("authored physical member slot"), true,
+    "fixed native methods use their native declaration rather than an invented object slot");
+});
+
 test("initializer-less declared iteration has one loop-owned initialization and no invented declaration store", () => {
   const current = fixture(`
     const values: object[] = [{}];
