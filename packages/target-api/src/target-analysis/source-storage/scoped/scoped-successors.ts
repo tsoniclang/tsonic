@@ -18,12 +18,12 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
-import type { SourceStorageBoundSubject } from "./substitutions.js";
+import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors, type SourceStorageChildContext } from "./scoped-member-successors.js";
 import { createSourceStoragePointerValues } from "./pointer-values.js";
-import { createSourceStorageScopedRejections } from "../transport/rejections.js";
+import { createSourceStorageScopedRejections } from "./rejections.js";
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -77,10 +77,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const classQueries = {
     subjectFor: transport.subjectFor,
     nativeConstructorsFor: transport.nativeConstructorsFor,
-    valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined {
+    valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined {
       const terms = readRelation(sourceStorageReference(subject, bindings));
       if (terms === undefined) return undefined;
-      const values = new Set<SourceStorageBoundSubject>();
+      const values = new Set<SourceStorageScopedSubject>();
       for (const term of terms) {
         if (!budget.step()) return undefined;
         if (term.kind === "unresolved") { budget.reject(term.reason); return undefined; }
@@ -112,7 +112,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return selected;
   };
   const regionsFor = (candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
-    construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageBoundSubject[] }, deferred = false,
+    construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageScopedSubject[] }, deferred = false,
     actualTypes?: readonly (readonly Type[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
     const terms: SourceStorageTerm[] = [];
     const frame = scope.kind === "substitution" ? scope.scope : scope;
