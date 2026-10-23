@@ -66,7 +66,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       : value !== null && typeof value === "object" && "kind" in value && value.kind === "key" ? value : encoder.intern(value);
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
-        component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
+        component.kind === "tuple-element" || component.kind === "type-argument-slot" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
       if (selected !== undefined && !selected.closed) closed = false;
@@ -210,6 +210,10 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
               selected.selection.evaluation === undefined ? null : scopes.identity(selected.selection.evaluation),
               selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
+      }
+      if (selected.kind === "generator-inputs") {
+        const original = encodeTerm(selected.original);
+        return original === undefined ? undefined : [selected.kind, original];
       }
       if (selected.kind === "pointer") {
         const pointer = encodeTerm(selected.pointer);

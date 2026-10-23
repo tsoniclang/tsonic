@@ -92,6 +92,7 @@ export type SourceStorageTerm =
   | ({ readonly kind: "pointer"; readonly invocation: Node; readonly pointer: SourceStorageTerm;
       readonly input: SourceStorageTerm | undefined; readonly scope: SourceStorageScope;
       readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
+  | { readonly kind: "generator-inputs"; readonly original: SourceStorageTerm; readonly scope: SourceStorageScope }
   | ({ readonly kind: "member"; readonly selection: SourceStorageMemberSelection; readonly receiver: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;

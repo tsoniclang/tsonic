@@ -1,6 +1,6 @@
 import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
 import { jsSourceSemanticsIdentity } from "./source.js";
-import { jsSourceReceiverResumeEffect } from "./callable-effects.js";
+import { jsSourceReceiverResumeEffect, jsSourceReceiverThrowInput } from "./callable-effects.js";
 
 export interface JsSourceStorageOperationIdentity {
   readonly ownerName: string;
@@ -13,6 +13,7 @@ export interface JsSourceCallStorageEffect {
   readonly resultAllocation?: Node;
   readonly preservedInputs: readonly Node[];
   readonly resumeReceiver?: true;
+  readonly throwInput?: number;
 }
 
 const nativeErrorConstructorOwners = new Set([
@@ -59,8 +60,15 @@ export function jsSourceCallStorageEffect(identity: {
   readonly memberName: string;
 } | undefined, call: ResolvedSourceCallInfo): JsSourceCallStorageEffect | undefined {
   if (call.sourceSelectedSignatureKind !== "resolved") return undefined;
-  if (jsSourceReceiverResumeEffect(identity) === true && call.sourceReceiver !== undefined)
-    return Object.freeze({ resumeReceiver: true, preservedInputs: Object.freeze([call.sourceReceiver.expression]) });
+  if (jsSourceReceiverResumeEffect(identity) === true && call.sourceReceiver !== undefined) {
+    const throwInput = jsSourceReceiverThrowInput(identity);
+    const preservedInputs = [call.sourceReceiver.expression, ...throwInput === undefined ? []
+      : call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === throwInput &&
+        binding.sourceForm === "value" && binding.sourceParameterForm === "parameter")
+        .flatMap(binding => call.sourceArguments[binding.sourceArgumentIndex]?.expression ?? [])];
+    return Object.freeze({ resumeReceiver: true, preservedInputs: Object.freeze(preservedInputs),
+      ...(throwInput === undefined ? {} : { throwInput }) });
+  }
   if (identity !== undefined && nativeErrorConstructorOwners.has(identity.ownerName) &&
     (identity.memberName === "constructor" || identity.memberName === "call")) {
     return Object.freeze({ resultAllocation: call.call, preservedInputs: Object.freeze([]) });

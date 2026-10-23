@@ -390,7 +390,7 @@ export function createSourceStorageDomains(
     return member !== undefined && (transport.storedValuesFor(member)?.length ?? 0) !== 0;
   };
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
-    purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
+    purpose: "values" | "storage-producers" = "values", operation: "value" | "generator-inputs" = "value") => budget.withRows(rows => {
     initialize();
     const isExternalInput = (current: SourceStorageBoundSubject): boolean => {
       const boundaries = boundariesFor(current.subject);
@@ -404,7 +404,7 @@ export function createSourceStorageDomains(
         (boundary.owner === undefined || stores === undefined) &&
         !closedSourceInvocation(boundary.exposure, current.bindings));
     };
-    const selected = transport.substitutions.walk(subject, bindings, isExternalInput);
+    const selected = transport.substitutions.walk(subject, bindings, isExternalInput, false, operation);
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),
