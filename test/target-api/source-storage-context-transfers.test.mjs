@@ -12,8 +12,20 @@ function fixture(limits = {}, callee = false) {
   graph.seal();
   const count = 64;
   const parameters = Array.from({ length: count }, () => ({}));
+  const parameterNodes = new Set(parameters);
+  const parameterSymbols = parameters.map(() => ({}));
+  const parameterDeclarations = new Map(parameterSymbols.map((symbol, index) => [symbol, parameters[index]]));
   const candidate = {};
+  const signature = {};
   const semantics = {
+    declarations: {
+      declarationSignature: declaration => declaration === candidate ? signature : undefined,
+      signatureParameters: selected => {
+        assert.equal(selected === signature, true, "the fixture's exact checked declaration signature");
+        return parameterSymbols;
+      },
+      primarySymbolDeclaration: symbol => parameterDeclarations.get(symbol),
+    },
     operations: {
       generator: declaration => {
         assert.equal(declaration === candidate, true, "the fixture's exact synchronous callable");
@@ -36,9 +48,12 @@ function fixture(limits = {}, callee = false) {
   let instantiations = 0;
   const selections = createSourceStorageContextApplications({ ast: {
     hasModifierKind: () => false,
-    is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsNewExpression: () => false },
-    parameters: node => node === candidate ? parameters : [],
-  }, semantics: { forNode: () => semantics } }, budget, {
+    is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsNewExpression: () => false,
+      IsParameterDeclaration: node => parameterNodes.has(node) },
+  }, semantics: { forNode: declaration => {
+    assert.equal(declaration === candidate, true, "the fixture's exact checked callable context");
+    return semantics;
+  } } }, budget, {
     subject,
     invocationInputs: (port, owner, invocation) => {
       assert.equal(owner === candidate, true, "exact selected candidate");
