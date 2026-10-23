@@ -7,6 +7,11 @@ export function sourceStoragePointerCallEffect(operation: PointerOperationFact |
       preservedInputs: Object.freeze([operation.initialExpression]) });
     case "load": return Object.freeze({ preservedInputs: Object.freeze([operation.pointerExpression]) });
     case "store": return Object.freeze({ preservedInputs: Object.freeze([operation.pointerExpression, operation.valueExpression]) });
+    case "address-of": return Object.freeze({ preservedInputs: Object.freeze([operation.storageExpression]) });
+    case "bind-pointer": return Object.freeze({ preservedInputs: Object.freeze([
+      operation.identityExpression, operation.readExpression, operation.writeExpression]) });
+    case "project-pointer": return Object.freeze({ preservedInputs: Object.freeze([
+      operation.pointerExpression, operation.fromSourceExpression, operation.toSourceExpression]) });
     default: return undefined;
   }
 }

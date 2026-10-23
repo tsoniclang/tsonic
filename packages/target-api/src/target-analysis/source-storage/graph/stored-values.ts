@@ -15,13 +15,14 @@ export interface SourceStorageWrite {
   readonly values: readonly SourceStorageWrittenValue[];
   readonly reason?: string;
   readonly birth?: NonNullable<SourceStorageWriteProjection["birth"]>;
+  readonly destination?: "binding" | "member" | "element" | "pointer";
 }
 
 export interface SourceStorageStore extends SourceStorageWrite {
   readonly storage: SourceStorageSubject;
   readonly region: Node;
   readonly receiver?: SourceStorageSubject;
-  readonly destination: "binding" | "member" | "element";
+  readonly destination: "binding" | "member" | "element" | "pointer";
 }
 
 export function createSourceStorageStoredValues(
@@ -101,9 +102,9 @@ export function createSourceStorageStoredValues(
       ? declarationName : undefined;
     if (!rows.add(6 + (write.birth === undefined ? 0 : 1 + 3 * write.birth.length) + write.values.reduce((total, value) => total + 1 + value.subjects.length, 0) +
       (selected === undefined ? 1 : 0) + (regional === undefined ? 1 : 0) + (alias === undefined ? 0 : 1))) return;
-    const destination = kind === "initialization"
+    const destination = write.destination ?? (kind === "initialization"
       ? ast.is.IsVariableDeclaration(storage.node) || ast.is.IsBindingElement(storage.node) ? "binding" : "member"
-      : receiver === undefined ? "binding" : storage.projection.length === 0 ? "member" : "element";
+      : receiver === undefined ? "binding" : storage.projection.length === 0 ? "member" : "element");
     const store = Object.freeze({ ...write, storage, region, receiver, kind, destination });
     selected ??= new Map<Node, SourceStorageStore>();
     const retained = regional ?? new Set<SourceStorageStore>();
@@ -156,7 +157,7 @@ export function createSourceStorageStoredValues(
     return { *[Symbol.iterator]() {
       for (const store of stores.values()) {
         if (!budget.step()) return;
-        if (store.destination === destination) yield store;
+        if (store.destination === destination || store.destination === "pointer") yield store;
       }
     } };
   };

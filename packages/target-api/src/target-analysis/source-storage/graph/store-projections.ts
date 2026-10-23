@@ -40,6 +40,7 @@ export function createSourceStorageStoreProjections(budget: SourceStorageBudget,
         for (const store of storesFor(prefix) ?? []) {
           if (!budget.step()) return undefined;
           hasStores = true;
+          if (store.destination === "pointer") { collect(store, undefined); continue; }
           if (store.birth !== undefined && selected !== prefix) {
             for (const component of store.birth) {
               if (!budget.step()) return undefined;

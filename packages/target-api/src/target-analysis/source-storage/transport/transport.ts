@@ -1,4 +1,5 @@
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
+import { createSourceStoragePointerBackings } from "./pointer-backings.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -442,7 +443,23 @@ export function createSourceStorageTransport(
   const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
     { invocationInputs, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
 
+  const pointers = createSourceStoragePointerBackings(source, budget, {
+    subjectFor, locationFor, originsFor: originSubjects,
+  });
+  const pointerBackings = graphQueries.query(pointers.backingsFor);
+  const pointerAccessors = graphQueries.query(pointers.accessorsFor);
   const operations = function* (): Generator<SourceStorageReconciliation> {
+    for (const invocation of pointerInvocations) {
+      const pointer = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
+      if (pointer?.operation !== "store") continue;
+      yield () => {
+        const selected = pointerBackings(pointer.pointerExpression);
+        for (const backing of selected ?? []) {
+          if (!step()) return;
+          storedValues.bind(backing, invocation);
+        }
+      };
+    }
     for (const [access, owner] of mutationOwners) yield once => {
       if (!step()) return;
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
@@ -683,8 +700,9 @@ export function createSourceStorageTransport(
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
+    subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
+    invocationDeclarations, invocationEffects, invocations, pointerInvocations, pointerAccessors,
+    accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, graphQueries);
@@ -738,7 +756,7 @@ export function createSourceStorageTransport(
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
-    invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
+    invocations, pointerInvocations, pointerAccessors, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,

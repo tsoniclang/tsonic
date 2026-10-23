@@ -62,7 +62,7 @@ export interface SourceStorageWriteOccurrence {
   readonly operation: Node;
   readonly region: Node;
   readonly kind: "initialization" | "mutation";
-  readonly destination: "binding" | "member" | "element";
+  readonly destination: "binding" | "member" | "element" | "pointer";
   readonly receiver: SourceStorageSubject | undefined;
   readonly value: SourceStorageSubject | undefined;
   readonly values: readonly SourceStorageWrittenValue[];

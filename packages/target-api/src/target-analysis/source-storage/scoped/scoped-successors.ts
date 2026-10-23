@@ -154,6 +154,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const { member, symbolicProjection } = createSourceStorageMemberSuccessors({ source, budget, transport, scopes, reachability,
     birth, readRelation, readEffects, leaf, creatorScope, passiveMember, regionsFor, application, classLineages,
+    pointerWrites: (destination, store, projection, type, invocation, scope) =>
+      pointerValues.writes(destination, store, projection, type, invocation, scope),
     materializeChild: (child, select, independentCallee) => materializeChild(child, select, independentCallee),
     replaceChild: (child, replace, childContext) => replaceChild(child, replace, childContext) });
   const materializeChild = (child: SourceStorageTerm,
@@ -170,7 +172,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return select(value);
     } });
   const pointerValues = createSourceStoragePointerValues(source, budget, transport, {
-    materializeChild, readEffects, deferred: scopes.isDeferred, creatorScope,
+    materializeChild, readEffects, read: readRelation, scopes, deferred: scopes.isDeferred, creatorScope,
   });
   const replaceChild = (child: SourceStorageTerm,
     replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
@@ -244,6 +246,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const reaches = reachability.invocation(invocation, term.demand);
         if (reaches === undefined) return undefined;
         if (!reaches) continue;
+        if (transport.pointerInvocations.has(invocation)) {
+          const pointerExecution = pointerValues.execution(invocation, term.scope, term.demand, term.deferred);
+          if (pointerExecution === undefined) return undefined;
+          terms.push(...pointerExecution); continue;
+        }
         const possible = nativeInputExecutions(invocation, term.scope, term.demand, term.deferred);
         if (possible === undefined) return undefined;
         terms.push(...possible);
@@ -436,7 +443,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
-    const pointed = pointerValues(term);
+    const pointed = pointerValues.reduce(term);
     if (pointed !== undefined) return pointed;
     const bindingPattern = ast.is.IsBindingElement(node) ? ast.parent(node) : undefined;
     if (bindingPattern !== undefined && ast.is.IsObjectBindingPattern(bindingPattern) &&
@@ -528,6 +535,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       for (const { store, value } of stores) {
         if (!budget.step()) return undefined;
         if (store.reason !== undefined) continue;
+        if (store.destination === "pointer") {
+          const type = sourceStorageSubjectType(source, term.subject);
+          const written = type === undefined ? undefined : pointerValues.writes(leaf(term.subject,
+            creatorScope(term.subject.node, term.scope)), store, [], type, term.subject.node, term.scope);
+          if (written === undefined) return undefined;
+          terms.push(...written); continue;
+        }
         if (value === undefined) continue;
         if (store.kind === "initialization") {
           const creator = creatorScope(store.storage.node, term.scope);

@@ -26,7 +26,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     return present === undefined || !types.isIdentical(type, present);
   };
   const callable = (declaration: Node, invocation: Node | undefined,
-    argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry): readonly Node[] => {
+    argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry,
+    actualTypes?: readonly (readonly Type[] | undefined)[]): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
     const regions = [body];
@@ -44,6 +45,14 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       }
       const initializer = Node_Initializer(ast, parameter);
       if (initializer === undefined) continue;
+      if (actualTypes !== undefined) {
+        const inputs = slots?.filter(slot => slot.parameter === parameter);
+        if (inputs === undefined || inputs.length === 0 || inputs.some(input => {
+          const supplied = actualTypes[input.effectiveIndex];
+          return supplied === undefined || supplied.length === 0 || supplied.some(type => typeMayBeAbsent(type, invocation ?? declaration));
+        })) regions.push(initializer);
+        continue;
+      }
       if (callback !== undefined && invocation !== undefined) {
         const inputs = sourceStorageNativeInputSlots(source, declaration,
           { node: parameter, kind: "input", projection: [] }, callback.argument.binding.selectedParameterType, consumer, step);

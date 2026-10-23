@@ -23,6 +23,8 @@ export interface SourceStorageScopedTransport {
   readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
   readonly invocationDeclarations: ReadonlyMap<Node, Node>;
   readonly invocations: ReadonlySet<Node>;
+  readonly pointerInvocations: ReadonlySet<Node>;
+  pointerAccessors(invocation: Node): ReadonlySet<Node> | undefined;
   readonly accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>;
   readonly invocationInputs: SourceStorageInvocationInputQuery;
   readonly sourceFiles: readonly SourceFile[];
@@ -30,6 +32,7 @@ export interface SourceStorageScopedTransport {
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
   readonly guardedValues: ReturnType<typeof createSourceStorageGuardedValues>;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+  locationFor(node: Node | undefined): SourceStorageSubject | undefined;
   nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
   bindingInputFor(subject: SourceStorageSubject): SourceStorageSubject | undefined;
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;

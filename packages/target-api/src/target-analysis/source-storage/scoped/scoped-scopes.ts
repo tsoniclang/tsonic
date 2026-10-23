@@ -325,6 +325,45 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     });
   };
   const frames = new Map<string, SourceStorageFrame>();
+  const publishFrame = (key: string, frame: SourceStorageFrame): SourceStorageFrame | undefined => {
+    if (budget.failure() !== undefined || !rows.add(1 + frame.entries.size +
+      [...frame.entries.values()].reduce((cost, entry) => cost + entry.values.length, 0))) return undefined;
+    frames.set(key, frame);
+    identity(frame);
+    return frame;
+  };
+  const frameForActuals = (candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
+    actuals: readonly SourceStorageReference[]): SourceStorageFrame | undefined => {
+    if (!budget.step()) return undefined;
+    const key = `actuals:${[candidate, invocation, caller, captured].map(identity).join(":")}:${actuals.map(value =>
+      `${identity(value.subject)}/${identity(value.scope)}`).join(";")}`;
+    const cached = frames.get(key);
+    if (cached !== undefined) return cached;
+    const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
+    const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller,
+      entries, parents: Object.freeze([captured]) });
+    const slots = sourceStorageCallableInputSlots(source, candidate, source.semantics.forNode(invocation),
+      { kind: "source-implementation", signature: undefined }, budget.step);
+    if (slots === undefined) return undefined;
+    for (const parameter of source.ast.parameters(candidate)) {
+      if (!budget.step()) return undefined;
+      const formal = subject(parameter, "input");
+      if (formal === undefined) return undefined;
+      const initial = Node_Initializer(source.ast, parameter);
+      const fallback = initial === undefined ? undefined : subject(initial);
+      entries.set(formal, Object.freeze({ initialization: fallback === undefined ? "absent" : "initialized",
+        values: Object.freeze([fallback === undefined ? Object.freeze({ kind: "leaf", subject: formal, scope: frame })
+          : sourceStorageReference(fallback, frame)]) }));
+    }
+    for (const slot of slots) {
+      if (!budget.step() || slot.projection === undefined) return undefined;
+      const formal = subject(slot.parameter, "input", slot.projection);
+      if (formal === undefined) return undefined;
+      const values = slot.repeated ? actuals.slice(slot.effectiveIndex) : actuals.slice(slot.effectiveIndex, slot.effectiveIndex + 1);
+      if (values.length !== 0) entries.set(formal, Object.freeze({ initialization: "actual", values: Object.freeze(values) }));
+    }
+    return publishFrame(key, frame);
+  };
   const declarations = new Map<Node, Map<SourceStorageScope, SourceStorageFrame>>();
   const declarationFor = (owner: Node, parent: SourceStorageScope): SourceStorageFrame | undefined => {
     if (!budget.step()) return undefined;
@@ -403,10 +442,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       entries.set(formal, Object.freeze({ values: Object.freeze(values), initialization: selected.omitted ? "absent"
         : selected.context === "callee" ? "initialized" : "actual" }));
     }
-    if (budget.failure() !== undefined || !rows.add(1 + entries.size + [...entries.values()].reduce((cost, entry) => cost + entry.values.length, 0))) return undefined;
-    frames.set(key, frame);
-    identity(frame);
-    return frame;
+    return publishFrame(key, frame);
   };
   const owningScope = (scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined => withTraversal(memo => {
     if (!budget.step()) return undefined;
@@ -491,7 +527,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   });
-  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, declarationFor,
+  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, frameForActuals, declarationFor,
     executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];

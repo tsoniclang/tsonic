@@ -182,7 +182,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       }
       if (pointer?.operation === "store") {
         const value = subjectFor(pointer.valueExpression);
-        storedValues.recordWrite(subject(node), Object.freeze({ reference: node, operation: node, kind: "mutation",
+        storedValues.recordWrite(subject(node), Object.freeze({ reference: node, operation: node, kind: "mutation", destination: "pointer",
           value, values: Object.freeze([Object.freeze({ source: undefined,
             subjects: Object.freeze(value === undefined ? [] : [value]), reason: value === undefined
               ? "A native pointer write requires its exact checked value producer." : undefined })]) }));
