@@ -68,12 +68,13 @@ export function decideSourceAsyncResultUse(input: {
       if (current === undefined) {
         return sourceOwnershipUnresolved(disposition.use, "The immediate await does not occur inside the checked source lease's valid region.");
       }
-    } else if (completion.resultPolicy === "observe-rejection") {
+    } else if (completion.resultPolicy === "observe-rejection" || completion.resultPolicy === "native-discard") {
       return Object.freeze({ kind: "resolved", call, disposition, dependencies, decision: "rejected",
         diagnostic: Object.freeze({ code: "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", at: call,
           message: "An asynchronous result retaining a source-scoped lease across pending work cannot be discarded, stored or returned." }) });
     }
   }
   return Object.freeze({ kind: "resolved", call, disposition, dependencies,
-    decision: disposition.kind === "discarded" ? "observe-discarded-rejection" : "admitted" });
+    decision: disposition.kind !== "discarded" ? "admitted"
+      : completion.resultPolicy === "observe-rejection" ? "observe-discarded-rejection" : "discard-native-result" });
 }

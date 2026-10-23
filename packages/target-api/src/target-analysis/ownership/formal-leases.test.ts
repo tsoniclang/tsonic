@@ -215,13 +215,76 @@ test("the native result-use owner admits explicit void only after actual continu
   assert.equal(retentionReads, 1, "unknown continuation requests the independent retained-origin evidence");
   const query = createSourceOwnershipQuery({ ...current, premises });
   const admitted = query.forCall(explicit.call);
-  assert.equal(admitted.kind === "resolved" && admitted.decision === "observe-discarded-rejection", true,
+  assert.equal(admitted.kind === "resolved" && admitted.decision === "discard-native-result", true,
     admitted.kind === "unresolved" ? admitted.reason : "actual checked owned explicit void remains supported");
   const implicitDecision = query.forCall(implicit.call);
   assert.equal(implicitDecision.kind === "resolved" && implicitDecision.decision === "rejected" &&
     implicitDecision.diagnostic.code === "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", true,
   "the composed query preserves the independent native implicit-discard rule");
 });
+
+test("native discard and provider rejection observation remain distinct selected actions", () => {
+  const current = fixture("input-duration", premise => premise, "function explicitRoot(): void { void (independent()); }");
+  const calls = current.storage.invocations.filter(call => current.source.ast.is.IsCallExpression(call) &&
+    current.selectedDeclaration(call) === current.declaration("independent"));
+  const discarded = calls.filter(call =>
+    resolveSourceAsyncResultDisposition(current.source, current.storage, call, current.budget).kind === "discarded");
+  assert.equal(discarded.length, 2, "the implicit and explicit owned result uses both remain present");
+  for (const policy of ["native-discard", "observe-rejection"] as const) {
+    const premises: SourceOwnershipPremises = {
+      ...current.premises,
+      completionFor(call, selected, bindings) {
+        const completion = current.premises.completionFor(call, selected, bindings);
+        return completion.kind === "async" ? { ...completion, resultPolicy: policy } : completion;
+      },
+    };
+    const query = createSourceOwnershipQuery({ ...current, premises });
+    for (const call of discarded) {
+      const selected = query.forCall(call);
+      assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : policy);
+      assert.equal(selected.kind === "resolved" && selected.decision ===
+        (policy === "native-discard" ? "discard-native-result" : "observe-discarded-rejection"), true,
+      `${policy}: a native discard is never relabelled as provider rejection observation`);
+      assert.equal(selected.kind === "resolved" && selected.dependencies.length === 0, true,
+        `${policy}: the actual independent body introduces no invented lease`);
+      const contract = current.source.semantics.forNode(call).operations.call(call);
+      assert.equal(contract?.sourceSelectedSignatureKind === "resolved", true, `${policy}: exact selected source call`);
+      if (contract?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked discard contract");
+      const unknown = { kind: "unresolved" as const, at: call, reason: "No completed native continuation or retention." };
+      const unresolved = decideSourceAsyncResultUse({ ...current, call,
+        completion: premises.completionFor(call, contract, current.storage.emptyBindings),
+        disposition: resolveSourceAsyncResultDisposition(current.source, current.storage, call, current.budget),
+        continuation: () => unknown, retention: () => unknown });
+      assert.equal(unresolved.kind === "unresolved" && unresolved.reason === unknown.reason, true,
+        `${policy}: an admitted native discard policy is not a fabricated ownership proof`);
+    }
+  }
+});
+
+for (const kind of ["input-duration", "type-argument"] as const) {
+  test(`native discard preserves the actual ${kind} await and rejects both borrowed escapes`, () => {
+    const current = fixture(kind);
+    const premises: SourceOwnershipPremises = {
+      ...current.premises,
+      completionFor(call, selected, bindings) {
+        const completion = current.premises.completionFor(call, selected, bindings);
+        return completion.kind === "async" ? { ...completion, resultPolicy: "native-discard" } : completion;
+      },
+    };
+    const query = createSourceOwnershipQuery({ ...current, premises });
+    for (const [index, call] of current.calls.entries()) {
+      const selected = query.forCall(call);
+      if (index === 0) {
+        assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+          selected.kind === "unresolved" ? selected.reason : `${kind}: the actual caller await remains in scope`);
+      } else {
+        assert.equal(selected.kind === "resolved" && selected.decision === "rejected" &&
+          selected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES" && selected.diagnostic.at === call, true,
+        selected.kind === "unresolved" ? selected.reason : `${kind}: discarded and stored source borrows cannot escape`);
+      }
+    }
+  });
+}
 
 test("formal lease admission keeps the actual origin and does not accept a copied subject", () => {
   const current = fixture("input-duration", premise => ({ ...premise, value: { ...premise.value } }));
