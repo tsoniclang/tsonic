@@ -201,10 +201,11 @@ export function createSourceStorageDomains(
             const child = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             const declaringOwner = ast.parent(declaration);
-            const objectMethod = ast.is.IsMethodDeclaration(declaration) && declaringOwner !== undefined &&
-              ast.is.IsObjectLiteralExpression(declaringOwner);
-            if (publication.writes && (!member.destination.property.readonly || !member.source.property.readonly) &&
-              (member.destination.read !== "method" || objectMethod) &&
+            const objectSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
+              (ast.is.IsMethodDeclaration(declaration) || ast.is.IsPropertyAssignment(declaration) ||
+                ast.is.IsShorthandPropertyAssignment(declaration));
+            if (publication.writes && (objectSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
+              (member.destination.read !== "method" || objectSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
               add(child, publication.kind, publication.exposure, owner);
             if (publication.writes) for (const setter of member.source.setters) {

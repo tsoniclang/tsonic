@@ -63,6 +63,7 @@ for (const [name, body, boundary] of [
   ["known write and export", "export const owner = { read() { return 1; } }; owner.read = () => 2;", "external-write"],
   ["opaque native use", "declare function opaque(input: { read(): number }): void; const owner = { read() { return 1; } }; opaque(owner);", "opaque-write"],
   ["opaque readonly alias", "declare function opaque(input: { readonly read: () => number }): void; const owner = { read() { return 1; } }; const alias: { readonly read: () => number } = owner; opaque(alias);", "opaque-write"],
+  ["opaque contextual readonly view", "declare function opaque(input: { readonly read: () => number }): void; const owner: { readonly read: () => number } = { read() { return 1; } }; opaque(owner);", "opaque-write"],
   ["unclassified exposure", 'const owner = { read() { return 1; } }; const rendered = `value:${owner}`;', "unclassified-exposure"],
   ["returned exported alias", "const owner = { read() { return 1; } }; export function expose() { return owner; }", "external-write"],
 ]) {

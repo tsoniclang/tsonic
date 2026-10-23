@@ -47,6 +47,7 @@ test("member-write inventory proves a closed empty local method slot from comple
 
 for (const [name, mutation] of [
   ["direct replacement", "owner.read = () => 2;"],
+  ["constant indexed replacement", 'owner["read"] = () => 2;'],
   ["same-value assignment", "owner.read = owner.read;"],
   ["structural alias", "interface View { read(): number; } const alias: View = owner; alias.read = () => 2;"],
   ["source parameter", "function replace(input: { read(): number }): void { input.read = () => 2; } replace(owner);"],
@@ -111,6 +112,17 @@ test("a native class method is not manufactured into an authored per-instance wr
   const writes = query.memberWritesFor(selected.subject);
   assert.equal(writes.kind === "unresolved" && writes.reason.includes("authored physical member slot"), true,
     "fixed native methods use their native declaration rather than an invented object slot");
+});
+
+test("a structural method signature has no fabricated authored physical writer inventory", () => {
+  const current = fixture("interface Owner { read(): number; } declare const owner: Owner;");
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const declaration = current.declaration("read", current.source.ast.is.IsMethodSignatureDeclaration);
+  const selected = query.memberSubjectFor(declaration);
+  assert.equal(selected.kind, "resolved", "the checked signature still has its actual source identity");
+  const writes = query.memberWritesFor(selected.subject);
+  assert.equal(writes.kind === "unresolved" && writes.reason.includes("authored physical member slot"), true,
+    "a structural promise does not create a physical slot or complete empty inventory");
 });
 
 test("initializer-less declared iteration has one loop-owned initialization and no invented declaration store", () => {
