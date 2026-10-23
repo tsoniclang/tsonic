@@ -20,6 +20,23 @@ test("extension diagnostic transport preserves native fields without an invented
   }
 });
 
+test("extension diagnostic transport preserves an actual public code and otherwise only the actual numeric identity", () => {
+  for (const category of ["error", "warning", "suggestion"] as const) {
+    const publicDiagnostic = targetDiagnosticFromExtension(undefined, { ...selected, category,
+      publicCode: "CSHARP_GENERATOR_THROW_UNSUPPORTED" });
+    assert.equal(publicDiagnostic.code, "CSHARP_GENERATOR_THROW_UNSUPPORTED", "the approved public refusal is not replaced with its transport number");
+    assert.equal(publicDiagnostic.category, category, "the actual native category is preserved independently of its public code");
+    assert.equal(publicDiagnostic.source, selected.extensionId, "the declaring owner is preserved");
+    assert.equal(publicDiagnostic.message, selected.message, "the original refusal message is preserved");
+    assert.equal("sourceNode" in publicDiagnostic, false, "absence of a source node remains genuine");
+    assert.equal("evidence" in publicDiagnostic, false, "absence of evidence remains genuine");
+    const numericDiagnostic = targetDiagnosticFromExtension(undefined, { ...selected, category, numericCode: 0,
+      extensionCode: "NOT_A_PUBLIC_CODE" });
+    assert.equal(numericDiagnostic.code, "TS0", "a missing public code uses the exact numeric value, including zero");
+    assert.equal(numericDiagnostic.category, category, "numeric transport preserves the same category");
+  }
+});
+
 test("extension diagnostic transport retains exact source identity and stable immutable evidence", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": "export const value = 1;" },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();

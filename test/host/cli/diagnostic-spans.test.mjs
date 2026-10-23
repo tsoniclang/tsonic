@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { collectTstsDiagnostics, finalizeTargetDiagnostics } from "../../../packages/host/dist/diagnostics.js";
 
 function sourceSnapshot(text) {
@@ -144,4 +145,41 @@ test("host diagnostic filename policy remains relative inside and absolute outsi
       sourceSpan: { fileName: expected, line: 1, column: 1, endLine: 1, endColumn: 6 },
     }, `${fileName}: preserve the original host payload and display rule`);
   }
+});
+
+test("host extension diagnostics use canonical public identities and evidence while retaining their actual checked spans", () => {
+  const text = "export const value = 1;";
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/project",
+    files: { "/project/source.ts": text },
+    compilerOptions: { noLib: true, module: "esnext", target: "es2022" },
+  }).checkSource();
+  const file = checked.getSourceFile("/project/source.ts");
+  assert.equal(file !== undefined && checked.containsSourceFile(file), true, "the span uses the exact checked source, not a fabricated AST");
+  const evidence = [{ message: "first" }, { message: "native", details: { value: 7 } }, { message: "first" }];
+  const extension = { extensionId: "fixture.owner", extensionCode: "INTERNAL_REFUSAL", numericCode: 9001,
+    category: "error", message: "original native refusal", publicCode: "CSHARP_GENERATOR_THROW_UNSUPPORTED",
+    nodeOrSpan: { sourceFile: file, pos: 0, end: Buffer.byteLength(text) }, evidence };
+  const { publicCode: ignoredPublicCode, ...numeric } = extension;
+  const inputs = { ...checked, diagnostics: [], extensionDiagnostics: [extension,
+    { ...numeric, numericCode: 0, category: "warning" },
+    { ...numeric, category: "suggestion", evidence: [] },
+  ] };
+  const selected = collectTstsDiagnostics(inputs, "/project");
+  assert.equal(selected[0].code, "CSHARP_GENERATOR_THROW_UNSUPPORTED", "the Host keeps the actual public source refusal");
+  assert.equal(selected[1].code, "TS0", "a missing public identity preserves the actual numeric value");
+  assert.equal(selected[2].code, "TS9001", "the internal extension code is not substituted for an absent public identity");
+  for (const [index, diagnostic] of selected.entries()) {
+    assert.equal(diagnostic.category, inputs.extensionDiagnostics[index].category, "every actual category is preserved");
+    assert.equal(diagnostic.source, "fixture.owner", "the owning extension is preserved");
+    assert.equal(diagnostic.message, "original native refusal", "message bytes remain unchanged");
+    assert.equal("sourceNode" in diagnostic, false, "the Host adds its span without manufacturing a source node");
+    assert.deepEqual(diagnostic.sourceSpan, { fileName: "source.ts", line: 1, column: 1,
+      endLine: 1, endColumn: text.length + 1 }, "the Host alone supplies its project-relative checked span");
+  }
+  assert.deepEqual(selected[0].evidence, ["first", 'native: {"value":7}'], "canonical evidence is complete, ordered and deduplicated");
+  assert.equal(Object.isFrozen(selected[0].evidence), true, "transported evidence is immutable");
+  assert.equal(selected[2].evidence === undefined, true, "an empty evidence list stays absent");
+  const finalized = finalizeTargetDiagnostics(checked, selected, "/project");
+  assert.equal(finalized[0].evidence === selected[0].evidence, true, "finalization retains the same evidence vector");
+  assert.equal(finalized[0].sourceSpan === selected[0].sourceSpan, true, "finalization retains the exact Host span");
 });
