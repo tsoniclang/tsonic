@@ -171,8 +171,6 @@ export function createSourceStorageDomains(
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
-      if (publication.writes && publication.kind === "opaque-write")
-        add(publication.subject, publication.kind, publication.exposure, publication.inputOwner);
       if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
         context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
       for (const owner of publicationOrigins(publication.subject, publication.externalEntry)) {
