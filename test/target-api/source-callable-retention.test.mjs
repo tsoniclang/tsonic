@@ -88,3 +88,85 @@ test("one retaining source path keeps the same callable retained on every query"
   assert.equal(current.select("child") === first, true, "the owner publishes one immutable selection");
   assert.equal(Object.isFrozen(first) && Object.isFrozen(first.witnesses), true, "source evidence cannot be rewritten by native consumers");
 });
+
+const pendingReceiver = `declare const pending: Promise<void>;
+  async function later(ready: Promise<void>, callback: () => void): Promise<void> { await ready; callback(); }`;
+
+test("a discarded receiving future retains the original void-returning callback", () => {
+  const current = fixture(`${pendingReceiver}
+    function start(ready: Promise<void>): void {
+      const text = "kept"; function child(): void { void text; } void later(ready, child);
+    } start(pending);`);
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+  assert.equal(selected.retention, "retained", "the receiving future, not callback()'s void result, determines the lifetime");
+  assert.equal(selected.witnesses.some(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.text(node).includes("later(ready, child)")), true,
+  "the exact original deferred receiving invocation witnesses retention");
+});
+
+for (const [label, invocation] of [
+  ["direct await", "await later(ready, child);"],
+  ["immediately awaited local", "const continuation = later(ready, child); await continuation;"],
+]) {
+  test(`the same deferred receiver stays scoped under ${label}`, () => {
+    const current = fixture(`${pendingReceiver}
+      async function start(ready: Promise<void>): Promise<void> {
+        const text = "kept"; function child(): void { void text; } ${invocation}
+      } void start(pending);`);
+    const selected = current.select("child");
+    assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+    assert.equal(selected.retention, "scoped", "the original caller proves completion before its local callback region ends");
+    assert.equal(selected.witnesses.length > 0, true, "scoped use is a nonempty source proof, not an async-wide ownership default");
+  });
+}
+
+test("a returned receiving future follows its actual forwarding caller frame", () => {
+  const current = fixture(`${pendingReceiver}
+    function forward(ready: Promise<void>, callback: () => void): Promise<void> { return later(ready, callback); }
+    async function start(ready: Promise<void>): Promise<void> {
+      const text = "kept"; function child(): void { void text; } await forward(ready, child);
+    } void start(pending);`);
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+  assert.equal(selected.retention, "scoped", "the forwarding formal preserves the receiving invocation and original awaiting caller");
+  assert.equal(selected.witnesses.some(node => current.source.ast.is.IsParameterDeclaration(node)), true,
+    "the original formal path is retained as evidence");
+});
+
+test("returning a future from the callback's own creator retains its local environment", () => {
+  const current = fixture(`${pendingReceiver}
+    function start(ready: Promise<void>): Promise<void> {
+      const text = "kept"; function child(): void { void text; } return later(ready, child);
+    } const continuation = start(pending);`);
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+  assert.equal(selected.retention, "retained", "a source factory's local region ends before its returned future");
+});
+
+test("one receiving owner is classified separately for each original call activation", () => {
+  const current = fixture(`${pendingReceiver}
+    async function start(ready: Promise<void>): Promise<void> {
+      const text = "kept"; function child(): void { void text; }
+      await later(ready, child); void later(ready, child);
+    } void start(pending);`);
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+  assert.equal(selected.retention, "retained", "the awaited invocation cannot close the independent discarded invocation");
+});
+
+test("an externally checked deferred formal remains an open retention boundary", () => {
+  const current = fixture(`declare function later(callback: () => void): Promise<void>;
+    function child(): void {} void later(child);`);
+  assert.equal(current.select("child").kind, "unresolved", "a Promise result does not invent a checked callback retaining body");
+});
+
+test("a returned source generator retains its actual original callback activation", () => {
+  const current = fixture(`function* values(callback: () => void): Generator<number, void, unknown> { yield 1; callback(); }
+    function start(): Generator<number, void, unknown> {
+      const text = "kept"; function child(): void { void text; } return values(child);
+    } const iterator = start();`);
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
+  assert.equal(selected.retention, "retained", "the generator's actual deferred input frame outlives the source factory");
+});
