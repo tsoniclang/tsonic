@@ -270,8 +270,7 @@ export function createSourceRetentionQuery(input: {
             return sourceOwnershipUnresolved(actual.node, "A formal lease requires a closed checked execution activation.");
           }
           if (premise.region.kind === "input-duration") {
-            if (actual.kind !== "input" || premise.region.parameter !== actual.node ||
-              sourceStorageFormalOwner(actual, source) !== premise.executionOwner) {
+            if (actual.kind !== "input" || premise.region.parameter !== actual.node) {
               return sourceOwnershipUnresolved(actual.node, "An input-duration lease must identify that exact native input.");
             }
           } else {

@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionReadSelection } from "./model.js";
+import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionPremise, SourceRetentionReadSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 
 export function decideSourceAsyncResultUse(input: {
@@ -11,10 +11,10 @@ export function decideSourceAsyncResultUse(input: {
   readonly call: Node;
   readonly completion: SourceAsyncCompletionSelection;
   readonly disposition: SourceAsyncResultDisposition | SourceOwnershipUnresolved;
-  readonly continuation: SourceContinuationDependenciesSelection;
-  readonly retention: SourceRetentionReadSelection;
+  readonly continuation: () => SourceContinuationDependenciesSelection;
+  readonly retention: () => SourceRetentionReadSelection;
 }): SourceAsyncOwnershipSelection {
-  const { source, storage, budget, call, completion, disposition, continuation, retention } = input;
+  const { source, storage, budget, call, completion, disposition } = input;
   if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
   if (source !== storage.source) return sourceOwnershipUnresolved(call, "Result-use and storage require the identical checked source program.");
   const file = source.ast.getSourceFile(call);
@@ -35,15 +35,19 @@ export function decideSourceAsyncResultUse(input: {
       diagnostic: Object.freeze({ code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", at: call,
         message: "A native asynchronous call result must be observed, not discarded." }) });
   }
-  if (continuation.kind === "unresolved" && (retention.kind === "unresolved" || retention.premises.length === 0)) {
-    return continuation;
-  }
-  if (continuation.kind === "unresolved" && retention.kind === "resolved" && retention.reference !== call) {
-    return sourceOwnershipUnresolved(call, "Native async retention must describe this exact result-use call, not another source read.");
+  const continuation = input.continuation();
+  let leases: readonly SourceRetentionPremise[];
+  if (continuation.kind === "resolved") {
+    leases = continuation.dependencies.map(dependency => dependency.retention);
+  } else {
+    const retention = input.retention();
+    if (retention.kind === "unresolved" || retention.premises.length === 0) return continuation;
+    if (retention.reference !== call) {
+      return sourceOwnershipUnresolved(call, "Native async retention must describe this exact result-use call, not another source read.");
+    }
+    leases = retention.premises;
   }
   const dependencies = continuation.kind === "resolved" ? continuation.dependencies : Object.freeze([]);
-  const leases = continuation.kind === "resolved" ? continuation.dependencies.map(dependency => dependency.retention)
-    : retention.kind === "resolved" ? retention.premises : [];
   for (const lease of leases) {
     if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
     if (lease.kind !== "scoped-borrowed" && lease.kind !== "formal-borrowed") continue;
