@@ -16,6 +16,29 @@ import { sourceStorageReference } from "../../packages/target-api/dist/target-an
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
+function callableSource(owners) {
+  const file = {};
+  const parameters = new Set(owners.flatMap(owner => owner.parameters));
+  const nodes = new Set([...owners, ...parameters, ...owners.map(owner => owner.body)]);
+  const signatures = new Map(owners.map(owner => [owner, Object.freeze({
+    parameters: Object.freeze(owner.parameters.map(declaration => Object.freeze({ declaration }))),
+  })]));
+  const declarations = Object.freeze({
+    declarationSignature: owner => signatures.get(owner),
+    signatureParameters: signature => signature.parameters,
+    primarySymbolDeclaration: symbol => symbol.declaration,
+  });
+  return { ast: { parent: node => node.parent, body: node => node.body,
+    getSourceFile: node => nodes.has(node) ? file : undefined,
+    is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
+      IsParameterDeclaration: node => parameters.has(node) } },
+  semantics: { includes: candidate => candidate === file,
+    forFile(candidate) {
+      if (candidate !== file) throw new Error("The recursive fixture requires its exact checked source file.");
+      return { declarations };
+    } } };
+}
+
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
@@ -24,9 +47,7 @@ function fixture(limits = {}) {
   const firstInput = { parent: first }; const secondInput = { parent: second };
   first.parameters.push(firstInput); second.parameters.push(secondInput);
   const firstCall = { region: first.body }; const secondCall = { region: second.body };
-  const source = { ast: { parent: node => node.parent, body: node => node.body,
-    parameters: node => node.parameters, is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
-      IsParameterDeclaration: node => node === firstInput || node === secondInput } } };
+  const source = callableSource([first, second]);
   let calls = 0; let inspect = () => {}; let context = "caller";
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([firstCall, secondCall]), accessorTargets: new Map(),
@@ -64,9 +85,7 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
   const calls = owners.map((caller, index) => ({ region: caller.body, caller, candidate: owners[(index + 1) % owners.length] }));
   const self = { region: owners[1].body, caller: owners[1], candidate: owners[1] };
   const entry = { region: external.body, caller: external, candidate: owners[1] };
-  const parameters = new Set([...owners, external].flatMap(owner => owner.parameters));
-  const source = { ast: { parent: node => node.parent, body: node => node.body, parameters: node => node.parameters,
-    is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsParameterDeclaration: node => parameters.has(node) } } };
+  const source = callableSource([...owners, external]);
   let selections = 0;
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),
