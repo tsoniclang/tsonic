@@ -79,16 +79,13 @@ export function sourceStorageOriginalComponents(
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
-    const correspondence = semantics.types.structuralMembers(from, to);
-    if (correspondence.kind !== "available") return [];
-    return correspondence.members.flatMap(member => member.kind === "present" &&
-      (component.kind === "method-value" ? member.destination.read === "method"
-        : member.destination.read === "property" || member.destination.read === "accessor") &&
-      member.source.read !== "unavailable" &&
-      member.destination.declarations.includes(component.declaration)
-      ? (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
-          kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
-        })) : []);
+    const member = semantics.types.structuralMember(from, to, component.declaration);
+    if (member?.kind !== "present" || member.source.read === "unavailable" ||
+      (component.kind === "method-value" ? member.destination.read !== "method"
+        : member.destination.read !== "property" && member.destination.read !== "accessor")) return [];
+    return (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
+      kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
+    }));
   }
   return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
     : [sourceStorageIsTupleType(from, semantics) ? component : { kind: "array-element" }];

@@ -22,7 +22,13 @@ function fixture(relation, limits = {}, context = () => true) {
         IsIdentifier: node => node.kind === "identifier" } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to) => {
+      types: { expressionType: node => node.expressionType, isUnion: () => false,
+        structuralMember(from, to, declaration) {
+          const selected = relation(file, from, to);
+          if (selected.kind !== "available") return undefined;
+          const members = selected.members.filter(member => member.destination.declarations.includes(declaration));
+          return members.length === 1 ? members[0] : undefined;
+        }, structuralMembers: (from, to) => {
         calls.push({ file, from, to });
         const selected = relation(file, from, to);
         return selected.kind !== "available" ? selected : { ...selected,
@@ -31,7 +37,8 @@ function fixture(relation, limits = {}, context = () => true) {
       } },
     }) },
   };
-  const flow = createSourceStorageMemberFlow(source, budget, owner => owner.file ?? file,
+  const flow = createSourceStorageMemberFlow(source, budget, (node, kind = "value", projection = []) => ({ node, kind, projection }),
+    owner => owner.file ?? file,
     (node, file) => { retained.push({ node, file }); return context(node, file); });
   return { flow, budget, file, calls, retained };
 }
