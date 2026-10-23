@@ -26,7 +26,7 @@ export function createSourceCallableRetentionQuery(input: {
       if (existing !== undefined) return existing;
       const selected = storage.subjectFor(declaration);
       if (selected.kind === "unresolved") return sourceOwnershipUnresolved(declaration, selected.reason);
-      if (semantics.forNode(declaration).types.declarationSignatureInfo(declaration) === undefined || ast.body(declaration) === undefined)
+      if (semantics.forNode(declaration).declarations.declarationSignature(declaration) === undefined || ast.body(declaration) === undefined)
         return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked source implementation.");
       const originRegion = storage.enclosingRegionFor(declaration);
       if (originRegion === undefined)

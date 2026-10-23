@@ -514,10 +514,10 @@ export function analyzeSourceGenericAdoption(input: {
     if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
     const semantics = source.semantics.forNode(operation);
     const type = semantics.types.nonNullableType(callback);
-    const signatures = type === undefined ? [] : semantics.types.signatureInfos(type, "call");
+    const signatures = type === undefined ? [] : semantics.types.callSignatures(type);
     if (signatures.length === 0) { refuse(operation, "An unresolved native callback requires its checked input type bounds."); return; }
     for (const signature of signatures) {
-      const parameter = signature.parameters[0];
+      const parameter = semantics.types.signatureParameterInfos(signature)[0];
       if (parameter !== undefined) markType(operation, parameter.type, semantics,
         Object.freeze({ kind: "unresolved", at: operation, reason }));
     }
@@ -595,7 +595,7 @@ export function analyzeSourceGenericAdoption(input: {
       if (input.storage.failureReason() !== undefined) refuse(node, input.storage.failureReason()!);
       else for (const binding of selected.sourceArgumentBindings) {
         const type = semantics.types.nonNullableType(binding.selectedParameterType);
-        if (type !== undefined && semantics.types.signatureInfos(type, "call").length !== 0)
+        if (type !== undefined && semantics.types.callSignatures(type).length !== 0)
           unknownNativeInput(node, binding.selectedParameterType, callbacks.reason);
       }
     }
@@ -629,10 +629,10 @@ export function analyzeSourceGenericAdoption(input: {
             if (callbacks.kind === "open" || context.uncertain || openOrigins) unresolved ??=
               Object.freeze({ kind: "unresolved", at: node, reason: "A native resolver callback requires its complete same-activation execution and identity." });
             const type = semantics.types.nonNullableType(callback.binding.selectedParameterType);
-            const signatures = type === undefined ? [] : semantics.types.signatureInfos(type, "call");
+            const signatures = type === undefined ? [] : semantics.types.callSignatures(type);
             if (signatures.length !== 1) { unknownNativeInput(node, callback.binding.selectedParameterType,
               "A native resolver callback requires its exact checked contextual signature."); continue; }
-            const parameter = signatures[0]!.parameters[0];
+            const parameter = semantics.types.signatureParameterInfos(signatures[0]!)[0];
             if (parameter === undefined) continue;
             if (resolvers.length !== 0 && (semantics.types.isAny(parameter.type) || semantics.types.isUnknown(parameter.type))) {
               markType(node, entry.resultType, semantics, Object.freeze({ kind: "unresolved", at: node,

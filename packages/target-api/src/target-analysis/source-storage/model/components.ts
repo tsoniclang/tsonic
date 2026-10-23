@@ -151,7 +151,8 @@ function sourceStorageReceiverType(source: TargetSourceProgram, node: Node, sema
   const visited = new Set<Node>();
   for (let depth = 0; depth < 128 && !visited.has(node); depth += 1) {
     visited.add(node);
-    const explicit = semantics.types.declarationSignatureInfo(node)?.thisParameter?.type;
+    const signature = semantics.declarations.declarationSignature(node);
+    const explicit = signature === undefined ? undefined : semantics.types.signatureThisParameterInfo(signature)?.type;
     if (explicit !== undefined) return explicit;
     if (source.ast.is.IsArrowFunction(node)) {
       const owner = sourceEnclosingCallable(source.ast.parent(node), source.ast);
