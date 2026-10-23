@@ -100,6 +100,5 @@ export function createSourceStorageEdges(
 function equalProjection(left: SourceStorageProjection, right: SourceStorageProjection): boolean {
   return left.kind === right.kind && (left.kind === "array-element" ||
     left.kind === "tuple-element" && right.kind === "tuple-element" && left.index === right.index ||
-    left.kind === "type-argument-slot" && right.kind === "type-argument-slot" && left.index === right.index ||
     sourceStorageIsMemberProjection(left) && sourceStorageIsMemberProjection(right) && left.declaration === right.declaration);
 }

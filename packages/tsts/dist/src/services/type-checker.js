@@ -10,10 +10,9 @@ import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_IsSourceF
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
-import { CheckModeNormal, IterationUseForOf, getNumberLiteralValue } from "../internal/checker/checker/state.js";
+import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
-import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getContextualType, Checker_getIteratedTypeOrElementType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
-import { IsTypeAny } from "../internal/checker/utilities.js";
+import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getContextualType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
@@ -32,7 +31,6 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const propertyAccessInfos = new WeakMap();
     const elementAccessInfos = new WeakMap();
     const iterationInfos = new WeakMap();
-    const iterationElementTypes = new WeakMap();
     const objectLiteralElementInfos = new WeakMap();
     const objectLiteralElementSymbols = new WeakMap();
     const storageInfos = new WeakMap();
@@ -75,22 +73,6 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             });
         },
         getTypeAtLocation: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeAtLocation(checker, node)),
-        getIterationElementType(sourceType) {
-            if (sourceType === undefined || IsTypeAny(sourceType))
-                return undefined;
-            const cached = iterationElementTypes.get(sourceType);
-            if (cached !== undefined)
-                return cached;
-            const elementType = withCheckerForType(program, sourceType, defaultOptions, checker => {
-                if (checker === undefined)
-                    return undefined;
-                const elementType = Checker_getIteratedTypeOrElementType(checker, IterationUseForOf, sourceType, checker.undefinedType, undefined, false);
-                return elementType === undefined || IsTypeAny(elementType) ? undefined : elementType;
-            });
-            if (elementType !== undefined)
-                iterationElementTypes.set(sourceType, elementType);
-            return elementType;
-        },
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         getContextualType: (node, contextFlags = ContextFlagsNone) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getContextualType(checker, node, contextFlags)),
         getEffectivePropertyName(node) {

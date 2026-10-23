@@ -4,7 +4,6 @@ import { sourceParameterIsProperty } from "../../../source-navigation/class-memb
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
-  | { readonly kind: "type-argument-slot"; readonly index: number }
   | { readonly kind: "member"; readonly declaration: Node }
   | { readonly kind: "method-value"; readonly declaration: Node };
 
@@ -84,7 +83,7 @@ export function sourceStorageProjectionPath(projection: readonly SourceStoragePr
     const declaration: unknown = component !== null && typeof component === "object"
       ? Object.getOwnPropertyDescriptor(component, "declaration")?.value : undefined;
     if (kind === "array-element") normalized.push(Object.freeze({ kind }));
-    else if ((kind === "tuple-element" || kind === "type-argument-slot") && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
+    else if (kind === "tuple-element" && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
       normalized.push(Object.freeze({ kind, index: ordinal }));
     else if ((kind === "member" || kind === "method-value") && declaration !== null && typeof declaration === "object")
       normalized.push(Object.freeze({ kind, declaration: declaration as Node }));

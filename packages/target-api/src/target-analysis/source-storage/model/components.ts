@@ -42,7 +42,6 @@ export function sourceStorageComponentType(
 ): Type | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
-  if (component.kind === "type-argument-slot") return semantics.types.effectiveTypeArguments(selected)?.[component.index];
   if (sourceStorageIsMemberProjection(component)) {
     if (component.kind === "method-value" ? !sourceStorageIsMethodMember(component.declaration, ast)
       : !sourceStorageIsDataMember(component.declaration, ast) && !ast.is.IsGetAccessorDeclaration(component.declaration)) return undefined;
@@ -65,8 +64,6 @@ export function sourceStorageOriginalComponents(
   component: SourceStorageProjection,
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
-  if (component.kind === "type-argument-slot")
-    return semantics.types.effectiveTypeArguments(from)?.[component.index] === undefined ? [] : [component];
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
     const correspondence = semantics.types.structuralMembers(from, to);

@@ -15,10 +15,10 @@ function fixture(body) {
   const nodes = storage.nodes;
   const declarations = new Map(nodes.filter(node => source.ast.is.IsFunctionDeclaration(node)).map(node =>
     [source.ast.text(source.ast.name(node)), node]));
-  const ownerUses = new Map([...declarations.values()].map(node => [node, { capture: false, parameter: true, creations: [] }]));
+  const ownerUses = new Map([...declarations.values()].map(node => [node, { capture: false, parameter: true }]));
   for (const node of nodes) if (source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node) ||
       source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node) || source.ast.is.IsConstructorDeclaration(node))
-    ownerUses.set(node, { capture: false, parameter: true, creations: [] });
+    ownerUses.set(node, { capture: false, parameter: true });
   const callInputs = new Map(nodes.filter(node => source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)).map(node => [node, "parameter"]));
   for (const node of storage.accessorInvocations) callInputs.set(node, "parameter");
   const spawns = nodes.filter(node => source.ast.is.IsVoidExpression(node)).map(node => ({ node, operand: Node_Expression(source.ast, node) }));
@@ -40,24 +40,22 @@ test("native task demand propagates from a source spawn through its original cal
   assert.equal(selected.graph.entries.length === 1 && selected.graph.entries[0] === current.file, true, "one checked root lifecycle");
 });
 
-test("one named callable can have a captured value and a native helper parameter", () => {
+test("a demanded retained callable capture is refused even when a direct helper contract exists", () => {
   const current = fixture(`async function child(): Promise<void> {}
     function work(): void { void child(); }
     const callback = work; work(); callback();`);
   const work = current.declarations.get("work");
-  const references = current.source.navigation.declarationUses(work);
-  const creation = references.find(use => use.role === "storage").reference;
-  current.ownerUses.set(work, { capture: true, parameter: true, creations: [creation] });
+  current.ownerUses.set(work, { capture: true, parameter: true });
   for (const node of current.callInputs.keys()) {
     if (current.source.ast.text(Node_Expression(current.source.ast, node)) === "callback") current.callInputs.set(node, "capture");
   }
   const selected = current.select();
-  assert.equal(selected.kind === "resolved", true, "capture and helper facets are independent");
-  assert.equal(selected.graph.capturedOwners.has(work), true, "the value creation retains its scope");
-  assert.equal(selected.graph.parameterOwners.has(work), true, "the direct helper receives scope");
-  assert.equal(selected.graph.calls.length, 1, "the value invocation does not receive a second caller scope");
-  assert.equal(current.source.ast.text(Node_Expression(current.source.ast, selected.graph.calls[0].node)), "work",
-    "the actual direct helper is the sole implicit call input");
+  assert.equal(selected.kind, "unresolved", "v1 has no hidden scope capture staging");
+  assert.equal(selected.issues.length, 1, "the unsupported owner has one refusal");
+  assert.equal(selected.issues[0].node === work, true, "the original retaining callable is the subject");
+  assert.equal(selected.issues[0].kind, "scope-owner", "capture is rejected before target ABI publication");
+  assert.equal(selected.issues[0].reason, "Native explicit void spawn is unsupported in a retained callable capture.",
+    "a direct helper facet cannot mask an unsupported captured facet");
 });
 
 test("an unknown demanded scope calling form is refused rather than assumed native", () => {
@@ -83,13 +81,14 @@ test("a task demand without a lifecycle is not admitted from an arbitrary module
   assert.equal(selected.issues.some(issue => issue.kind === "lifecycle-owner"), true, "missing lifecycle is the precise cause");
 });
 
-test("a scope capture without original creation occurrences is not an ownership proof", () => {
+test("a capture-only demanded owner cannot manufacture an implicit helper parameter", () => {
   const current = fixture(`async function child(): Promise<void> {}
     function work(): void { void child(); } work();`);
-  current.ownerUses.set(current.declarations.get("work"), { capture: true, parameter: true, creations: [] });
+  current.ownerUses.set(current.declarations.get("work"), { capture: true, parameter: false });
   const selected = current.select();
-  assert.equal(selected.kind, "unresolved", "a callable declaration is not a value creation");
-  assert.equal(selected.issues.some(issue => issue.kind === "scope-owner"), true, "the missing occurrence stays visible");
+  assert.equal(selected.kind, "unresolved", "a captured activation is outside the direct native helper capability");
+  assert.equal(selected.issues.some(issue => issue.kind === "scope-owner" && issue.reason.includes("retained callable capture")), true,
+    "the unsupported capture remains the precise refusal");
 });
 
 test("a root without native tasks has no task scope graph or call inputs", () => {
@@ -124,3 +123,25 @@ test("an implicit setter invocation propagates its native task scope without a f
   assert.equal(selected.graph.calls.some(call => call.targets.includes(setter)), true, "the original assignment is the invoking occurrence");
   assert.equal(selected.graph.entries.includes(current.file), true, "the assignment's caller owns the scope");
 });
+
+for (const [label, sourceText] of [
+  ["instance initializer", `async function child(): Promise<void> {} function start(): number { void child(); return 1; }
+    class Box { value = start(); } function make(): Box { return new Box(); } const box = make();`],
+  ["static initializer", `async function child(): Promise<void> {} function start(): number { void child(); return 1; }
+    class Box { static value = start(); }`],
+  ["static block", `async function child(): Promise<void> {} function start(): void { void child(); }
+    class Box { static { start(); } }`],
+  ["generator activation", `async function child(): Promise<void> {} function* work(): Generator<number, void, unknown> {
+    void child(); yield 1; } const values = work(); values.next();`],
+]) {
+  test(`native task demand refuses an unsupported ${label} at its original source owner`, () => {
+    const current = fixture(sourceText);
+    const selected = current.select();
+    assert.equal(selected.kind, "unresolved", "no constructor or captured scope machinery is synthesized");
+    assert.equal(selected.issues.some(issue => issue.kind === "scope-owner" &&
+      (issue.reason.includes("initializer") || issue.reason.includes("generator activation"))), true,
+    "the checked unsupported execution owner supplies the precise refusal");
+    assert.equal(selected.issues.every(issue => current.nodes.includes(issue.node)), true,
+      "every diagnostic subject is an original checked source node");
+  });
+}

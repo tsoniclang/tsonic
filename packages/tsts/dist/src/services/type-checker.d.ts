@@ -62,7 +62,6 @@ export interface TypeCheckerQueries {
     readonly getGlobalValueSymbol: (name: string) => GoPtr<Symbol>;
     readonly isDefaultLibraryDeclaration: (node: GoPtr<Node>) => boolean;
     readonly getAwaitedType: (type: GoPtr<Type>) => GoPtr<Type>;
-    readonly getIterationElementType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;
