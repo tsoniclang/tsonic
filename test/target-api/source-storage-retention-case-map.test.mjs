@@ -236,3 +236,26 @@ test("an exported formal keeps the external entry beside observed private calls"
   assert.equal(origins.boundaries.some(boundary => boundary.kind === "external-input"), true,
     "the actual external entry remains explicit");
 });
+
+test("deferred callback lifetime follows the receiving input rather than the parameter's binding value", () => {
+  const current = fixture(`${deferred}
+    function start(ready: Promise<void>): void {
+      const text = "retained";
+      function child(): void { void text; }
+      void later(ready, child);
+    }
+    start(pending);
+  `);
+  const parameter = current.source.ast.parameters(current.declaration("later"))[1];
+  const binding = current.storage.subjectFor(parameter);
+  const input = current.storage.subject(parameter, "input");
+  assert.equal(binding.kind === "resolved" && binding.subject.kind === "value", true,
+    "the parameter's physical binding value is not a formal activation port");
+  assert.equal(input.kind === "resolved" && input.subject.kind === "input" && input.subject !== binding.subject, true,
+    "the identical checked declaration has a distinct actual receiving input");
+  const selected = current.retention("child");
+  assert.equal(selected.kind === "resolved" && selected.retention === "retained", true,
+    "a discarded receiving future cannot be hidden by looking for an input owner on the binding-value subject");
+  assert.equal(selected.witnesses.some(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.text(node) === "later(ready, child)"), true, "the actual original receiving call owns the escape");
+});

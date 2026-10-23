@@ -39,7 +39,7 @@ test("owned freeze alias does not assert native input preservation", () => {
   const inspect = jsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "isFrozen" }, call);
   assert.equal(freeze.resultAlias === argument, true);
   assert.equal(Object.hasOwn(freeze, "preservedInputs"), false, "a source identity is not compiler-native mutability evidence");
-  assert.equal(inspect, undefined, "isFrozen has no storage alias or allocation effect");
+  assert.equal(inspect === undefined, true, "isFrozen has no storage alias or allocation effect");
   assert.equal(Object.isFrozen(freeze), true);
   for (const identity of [undefined, { ownerName: "Object", memberName: "freeze" },
     { ownerName: "Other", memberName: "freeze" }, { ownerName: "ObjectConstructor", memberName: "replace" }]) {

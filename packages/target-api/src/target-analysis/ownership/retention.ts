@@ -104,7 +104,8 @@ export function createSourceCallableRetentionQuery(input: {
           const uses = flow?.uses ?? summary?.uses;
           if (uses === undefined) { reason ??= "A retained callable use has no completed checked source-use summary."; continue; }
           if (ast.is.IsParameterDeclaration(current)) {
-            const formal = storage.subjectFor(current);
+            const formal = storage.subject(current, "input");
+            if (formal.kind === "unresolved") reason ??= formal.reason;
             const owner = formal.kind === "resolved" ? sourceStorageFormalOwner(formal.subject, ast) : undefined;
             if (owner !== undefined && (ast.hasModifierKind(owner, "async") || semantics.forNode(owner).operations.generator(owner) !== undefined)) {
               const activations = storage.boundActivationsFor(owner, bindings);
