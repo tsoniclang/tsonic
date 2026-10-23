@@ -46,7 +46,7 @@ export function createTargetSourceProgram(
   };
 
   const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
-    if (!sourceFileSet.has(sourceFile)) {
+    if (!source.containsSourceFile(sourceFile)) {
       throw new Error("Source semantics require an exact source file from the checked program.");
     }
     const existing = cache.get(sourceFile);

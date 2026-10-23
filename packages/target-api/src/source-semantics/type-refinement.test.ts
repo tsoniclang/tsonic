@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
+import { createTargetSourceProgram, sourceCallableValueParameters } from "../public/source.js";
 
 function inspect(sourceText: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": sourceText },
@@ -194,4 +194,42 @@ test("cross-file refinements preserve exact narrowing and reject unrelated check
   const foreignFile = create().getSourceFile("/src/index.ts");
   assert.ok(foreignFile);
   assert.throws(() => source.semantics.forNode(foreignFile), /exact source file/u);
+});
+
+test("checked declaration semantics preserve hidden native formals without exposing bodies or foreign programs", () => {
+  const create = () => createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/native.ts": "export declare function read(value: number): number;",
+    "/src/index.ts": 'import { read } from "./native.js"; export const value = read(1);',
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  const checked = create();
+  assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"), "");
+  assert.equal(checked.extensionDiagnostics.length, 0, "the native declaration is actually checked");
+  const consumer = checked.getSourceFile("/src/index.ts")!;
+  const native = checked.getSourceFile("/src/native.ts")!;
+  const declaration = checked.ast.statements(native).find(node => node !== undefined && checked.ast.is.IsFunctionDeclaration(node))!;
+  const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([consumer]) });
+  const semantics = source.semantics.forNode(declaration);
+  assert.equal(semantics.sourceFile === native, true, "the semantic context is the original checked declaration's own file");
+  assert.equal(source.semantics.forFile(native) === semantics, true, "file and node queries share the exact cached semantic owner");
+  const signature = semantics.declarations.declarationSignature(declaration);
+  assert.ok(signature);
+  assert.equal(semantics.declarations.signatureDeclaration(signature) === declaration, true, "the raw checked signature retains declaration identity");
+  const parameters = sourceCallableValueParameters(source.ast, declaration, semantics, { kind: "declaration" });
+  assert.equal(parameters?.length, 1, "the canonical declaration query retains its complete input-only vector");
+  assert.equal(parameters?.[0] === source.ast.parameters(declaration)[0], true, "the original authored parameter Node is retained");
+  assert.equal(source.ast.body(declaration) === undefined, true, "a checked native signature never fabricates a source body");
+  assert.equal(source.sourceFiles.length, 1, "semantic access never expands the exposed source vector");
+  assert.equal(source.sourceFiles[0] === consumer, true, "the actual exposed file remains unchanged");
+  assert.equal(source.navigation.sourceFiles.includes(native), false, "semantic access never expands navigation traversal");
+  assert.equal(source.semantics.includes(native), false, "storage ownership keeps its original exposed membership boundary");
+  assert.equal(source.documents.all.some(document => document.sourceFile === native), false, "semantic access creates no emitted source document");
+  assert.throws(() => source.documents.forNode(declaration), /exact source file/u, "a hidden declaration remains outside authored documents");
+  const foreign = create();
+  const foreignNative = foreign.getSourceFile("/src/native.ts")!;
+  const foreignDeclaration = foreign.ast.statements(foreignNative).find(node => node !== undefined && foreign.ast.is.IsFunctionDeclaration(node))!;
+  assert.equal(source.ast.getFileName(foreignNative), source.ast.getFileName(native), "the foreign owner deliberately has the same file name");
+  assert.throws(() => source.semantics.forFile(foreignNative), /exact source file/u, "file semantics reject a foreign same-URI owner");
+  assert.throws(() => source.semantics.forNode(foreignDeclaration), /exact source file/u, "node semantics reject a foreign same-URI declaration");
+  assert.equal(semantics.declarations.declarationSignature(foreignDeclaration) === undefined, true,
+    "a valid local query context does not admit another program's raw signature");
 });
