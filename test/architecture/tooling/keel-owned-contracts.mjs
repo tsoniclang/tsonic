@@ -73,7 +73,7 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/analysis/project-types/receiver-captures.ts", symbol: "RustReceiverFieldCaptureQueries.storageDeclaration" },
       { file: "src/analysis/project-types/receiver-field-aliases.ts", symbol: "RustReceiverFieldAliasQueries.aliasFor" },
       { file: "src/analysis/project/binary-dispatch-demand.ts", symbol: "RustBinaryDispatchDemandPlan.forHook" },
-      { file: "src/analysis/project/dispatch-contexts.ts", symbol: "RustDispatchContextCatalog.declaration" },
+      { file: "src/analysis/project/dispatch-contexts.ts", symbol: "RustDispatchContextDeclarations.declaration" },
       { file: "src/analysis/project/dispatch-demand.ts", symbol: "RustDispatchContextDemandPlan.forComponent" },
       { file: "src/target-model/records/source-modules.ts", symbol: "RustSourceModuleConstructionIndex.construction" },
       { file: "src/target-model/records/source-modules.ts", symbol: "RustSourceModuleConstructionIndex.entries" },
@@ -103,10 +103,64 @@ export const keelOwnedTargets = Object.freeze({
   }),
 });
 
+export const keelOwnedNativeUnsafeReviews = Object.freeze([{
+  repo: "rust-runtime",
+  file: "tests/helpers/allocation_counts.rs",
+  sourceSha256: "51b161241b9b6d49690154c9ab0506b671d1546075a7a81c5ee45335f9b48dc5",
+  sites: [
+    {
+      bodySha256: "2d4e42f4ace84e3f2c93ff1ccfc183ced355240fc8d7191bdf25631d520fe21d", count: 1,
+      reason: "CountingAllocator implements the native unsafe GlobalAlloc trait and preserves System's pointer, Layout and ownership contracts.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:144; allocation_counts.rs:160-192. The recorder uses atomics and const-initialized thread-local Cells without allocating or unwinding.",
+    },
+    {
+      bodySha256: "9c5471e7a81f26728563010cbd392f3644d9a31e293f528b407300c736dda281", count: 1,
+      reason: "GlobalAlloc::alloc requires an unsafe implementation; the exact Layout and System return value are preserved.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:178; allocation_counts.rs:161-167.",
+    },
+    {
+      bodySha256: "59c607597524f4a0af0ae1a0cb9e729577202f53ac23765dcfea3dcf611c9ff4", count: 1,
+      reason: "System.alloc requires the native unsafe call; its original Layout and returned pointer pass unchanged exactly once.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:178; allocation_counts.rs:166. The measurement recorder does not access allocation memory.",
+    },
+    {
+      bodySha256: "336dd46742f06612817d2af3a9d1b4a9071df93c5d29d03eca9acba6b42b8191", count: 1,
+      reason: "GlobalAlloc::alloc_zeroed requires an unsafe implementation; the native System zeroed allocation remains authoritative.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:216; allocation_counts.rs:169-175.",
+    },
+    {
+      bodySha256: "71ad1bc261c0adce798f5db20e3a1384c04e1c333dbbc19a2c7a0258c937c33a", count: 1,
+      reason: "System.alloc_zeroed receives the original Layout and provides the exact zeroed pointer or null result.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:216; allocation_counts.rs:174. Counting does not initialize, read or retain allocated memory.",
+    },
+    {
+      bodySha256: "7b8f09b247ad095d5e8ded229ec89ab9ab3a8d36a852d14a9994dd9dd2f106d6", count: 1,
+      reason: "GlobalAlloc::dealloc requires an unsafe implementation; the caller's pointer and Layout obligations are unchanged.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:193; allocation_counts.rs:177-182.",
+    },
+    {
+      bodySha256: "6773fa899b171958d427eac74e03d27687ced14dba3b177094cee3ae661e2894", count: 1,
+      reason: "System.dealloc receives the original pointer and Layout exactly once; counting never dereferences or retains the pointer.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:193; allocation_counts.rs:181.",
+    },
+    {
+      bodySha256: "d070e622c807dbe147dfab4c744ff0f0929ccde6cac73a0ec69b95719615bc60", count: 1,
+      reason: "GlobalAlloc::realloc requires an unsafe implementation; original allocation and failure ownership semantics remain native.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:286; allocation_counts.rs:184-191. This method's token context is also present in the seven-site baseline.",
+    },
+    {
+      bodySha256: "1e79ad9757624717c1bac0197a861284c6808db671b300512e88a9e896d7cefc", count: 1,
+      reason: "System.realloc receives the original pointer, Layout and requested size exactly once; the original allocation is not separately freed.",
+      nativeEvidence: "Rust 1.98.1 core/src/alloc/global.rs:286; allocation_counts.rs:190. System's returned pointer and null failure semantics are preserved.",
+    },
+  ],
+}]);
+
 export function keelDefaultManifest() {
   return {
     schemaVersion: 1, basePins: keelBasePins, targets: keelOwnedTargets,
     runtimeFamilies: keelOwnedRuntimeFamilies, nodeModules: keelOwnedNodeModules,
     determinismPrograms: keelOwnedDeterminismPrograms,
+    nativeUnsafeReviews: keelOwnedNativeUnsafeReviews,
   };
 }

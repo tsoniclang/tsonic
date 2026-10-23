@@ -8,7 +8,7 @@ export const keelWorkspaceRepositories = Object.freeze([
   "express", "tsumo-rust", "csharp-pudding", "rust-pudding", "tsumo-csharp",
 ]);
 export const keelRoles = Object.freeze([
-  "selection", "analysis", "syntax", "sealed-reader", "planner-invariant",
+  "selection", "analysis", "source-reader", "syntax", "sealed-reader", "planner-invariant",
   "vocabulary", "orchestration", "provider-metadata",
 ]);
 

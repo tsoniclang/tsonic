@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createKeelViolationInventory, evaluateKeelDeterminism, evaluateKeelSafety,
@@ -8,6 +12,8 @@ import { keelCheckIds, keelFinding } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
 import { keelFixtureGeneration, keelFixtureGuard, keelFixtureHas, keelFixtureModel } from "./tooling/keel-test-fixtures.mjs";
 import { evaluateKeelLayers } from "./tooling/keel-layer-checks.mjs";
+import { keelBasePins, keelOwnedNativeUnsafeReviews } from "./tooling/keel-owned-contracts.mjs";
+import { keelNativeUnsafeSites } from "./tooling/keel-native-tokens.mjs";
 
 test("AC11 covers both targets and complete independent artifact sets with guarded provenance", () => {
   const { programs, samples } = keelFixtureGeneration();
@@ -132,6 +138,91 @@ for (const [repo, file] of [["rust-runtime", "src/lib.rs"], ["csharp-runtime", "
     assert.equal(evaluateKeelSafety(sources).filter(row => row.check === "AC12").length, 1);
   });
 }
+
+test("AC12 admits only the exact reviewed nine-site native allocator boundary after the unchanged seven-site baseline", () => {
+  const [review] = keelOwnedNativeUnsafeReviews;
+  const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const source = readFileSync(resolve(workspace, review.repo, review.file), "utf8");
+  const baseFile = "tests/helpers/error_allocations.rs";
+  const before = execFileSync("git", ["show", `${keelBasePins[review.repo]}:${baseFile}`], {
+    cwd: resolve(workspace, review.repo), encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
+  });
+  const common = { repo: review.repo, trackedFiles: [], currentSources: new Map([[review.file, source]]),
+    baseSources: new Map([[baseFile, before]]) };
+  assert.equal(keelDigest(source), review.sourceSha256, "the actual entire helper is the reviewed source");
+  assert.equal(keelNativeUnsafeSites(before).length, 7, "seven inherited native unsafe sites");
+  assert.equal(keelNativeUnsafeSites(source).length, 9, "nine actual current native unsafe sites");
+  const unmatched = evaluateKeelSafety(common);
+  assert.equal(unmatched.length, 8, "eight changed token contexts, not eight new unsafe operations");
+  const originalIds = new Set([
+    "0da8a98e1dedc0e650c18da21cb194b82eb5d62774ffdbb12edcf148c65c625e",
+    "23904f4f5dd776952f73a1771f3ff3ea327e5b5cec8dd198a4a1181d47c32571",
+    "3149fd51d56ff0db1f69ec08bee6082751e92ca113f46e7148c5d7034b144549",
+    "48ead374943ee8990195eeb48d7af3ec25603c753cafc9bff68463199bd13650",
+    "508e1aaf67f67a29272fe120e2ce844101fb5b8fb8a7a54f587334481427f755",
+    "55784d7dfab6eaea7bc056482620623b582de5aee983965ea370979d2af10ca3",
+    "5c85ef3ceef018f6eda9a7d23ca17bcfe0fd69c2e140870abdec6a1924ad204a",
+    "9b74f853ab22d8415cfac1d65f5d0dc08f3d6203b8d4e4f3f215bc33a91ad300",
+  ]);
+  for (const finding of unmatched) assert.equal(originalIds.has(finding.id), true, `original native safety finding ${finding.id}`);
+  assert.equal(evaluateKeelSafety({ ...common, nativeUnsafeReviews: [review] }).length, 0,
+    "the exact reviewed current multiset is admitted without changing baseline consumption");
+  const unmatchedSites = new Set(unmatched.map(finding => finding.evidence.bodySha256));
+  for (const omitted of review.sites) {
+    const partial = { ...review, sites: review.sites.filter(site => site !== omitted) };
+    assert.equal(evaluateKeelSafety({ ...common, nativeUnsafeReviews: [partial] }).length,
+      unmatchedSites.has(omitted.bodySha256) ? 1 : 0, `${omitted.bodySha256}: baseline is consumed before site allowances`);
+  }
+  for (const [label, currentSources, repo] of [
+    ["changed enclosing source", new Map([[review.file, `${source}\n`]]), review.repo],
+    ["extra unsafe site", new Map([[review.file, `${source}\nunsafe { unreviewed(); }`]]), review.repo],
+    ["changed native operation", new Map([[review.file, source.replace("System.alloc(layout)", "System.alloc_zeroed(layout)")]]), review.repo],
+    ["copied helper", new Map([["tests/helpers/copied.rs", source]]), review.repo],
+    ["production placement", new Map([["src/allocation_counts.rs", source]]), review.repo],
+    ["another repository", common.currentSources, "rust-js"],
+  ]) assert.equal(keelFixtureHas(evaluateKeelSafety({ ...common, repo, currentSources, nativeUnsafeReviews: [review] }),
+    "AC12", "unsafe site"), true, `${label}: no whole-file or repository waiver`);
+  assert.equal(evaluateKeelSafety({ ...common, currentSources: common.baseSources, nativeUnsafeReviews: [review] }).length, 0,
+    "unchanged baseline native safety still needs no review allowance");
+});
+
+test("AC12 consumes each exact reviewed token occurrence once and rejects malformed or duplicate review data", () => {
+  const file = "tests/helpers/counter.rs";
+  const fragment = "let before = (1 + 2 + 3); unsafe { operation(); } let after = (4 + 5 + 6);";
+  const source = `${fragment}\n${fragment}`;
+  const sites = keelNativeUnsafeSites(source);
+  assert.equal(sites.length, 2, "the fixture contains two actual native unsafe occurrences");
+  assert.equal(sites[0], sites[1], "the two unsafe token contexts are deliberately identical");
+  const site = { bodySha256: keelDigest(sites[0]), count: 1, reason: "Exact native forwarding fixture.",
+    nativeEvidence: "Native GlobalAlloc unsafe boundary control." };
+  const review = { repo: "rust-runtime", file, sourceSha256: keelDigest(source), sites: [site] };
+  const common = { repo: review.repo, trackedFiles: [], currentSources: new Map([[file, source]]), baseSources: new Map() };
+  assert.equal(evaluateKeelSafety({ ...common, nativeUnsafeReviews: [review] }).length, 1,
+    "one reviewed occurrence cannot admit a second identical token context");
+  assert.equal(evaluateKeelSafety({ ...common, nativeUnsafeReviews: [{ ...review, sites: [{ ...site, count: 2 }] }] }).length, 0,
+    "only the explicitly reviewed multiplicity is admitted");
+  for (const invalid of [
+    null, {}, { ...review, repo: "unknown" }, { ...review, file: "tests/**/counter.rs" },
+    { ...review, file: "src/counter.rs" }, { ...review, sourceSha256: "not-a-digest" },
+    { ...review, sites: [] }, { ...review, sites: [site, site] },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map(count => ({ ...review, sites: [{ ...site, count }] })),
+    { ...review, sites: [{ ...site, reason: "" }] }, { ...review, sites: [{ ...site, nativeEvidence: "" }] },
+    { ...review, sites: [{ ...site, bodySha256: "not-a-digest" }] },
+  ]) assert.throws(() => evaluateKeelSafety({ ...common, nativeUnsafeReviews: [invalid] }), /[Nn]ative safety/u);
+  assert.throws(() => evaluateKeelSafety({ ...common, nativeUnsafeReviews: [review, review] }), /Duplicate native safety/u);
+  assert.throws(() => evaluateKeelSafety({ ...common, nativeUnsafeReviews: null }), /Native safety/u);
+});
+
+test("AC12 native review data does not admit unchecked assertions, suppressions or tracked analysis", () => {
+  const file = "src/analysis/value.ts";
+  const model = keelFixtureModel([[file, "export function value(input: unknown): unknown { return input as any; }"]]);
+  const result = evaluateKeelSafety({ repo: "rust-runtime", trackedFiles: ["nested/.analysis/notes.json"],
+    currentSources: new Map([["tests/helpers/other.rs", "// @ts-ignore\nunsafe { extra(); }"]]),
+    baseSources: new Map(), currentModel: model, nativeUnsafeReviews: keelOwnedNativeUnsafeReviews });
+  for (const reason of ["unchecked any", "suppression", "ignored and untracked", "unsafe site"]) {
+    assert.equal(keelFixtureHas(result, "AC12", reason), true, `${reason}: the exact native contract changes no other safety gate`);
+  }
+});
 
 test("AC12 assertion lineage is exact and counted within a repo, not inferred from physical filenames", () => {
   const source = "export function value(input: unknown): unknown { return input as any; }";

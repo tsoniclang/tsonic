@@ -94,7 +94,7 @@ export function evaluateKeelWorkspace(workspace, manifest, {
         factoryName: `create${target}ProviderPackage`,
       }).map(reason => keelFinding("AC10", repo, "nodejs/src/provider", "provider ownership", reason)));
     }
-    findings.push(...safety(root, repo, tracked, manifest.basePins[repo]));
+    findings.push(...safety(root, repo, tracked, manifest.basePins[repo], manifest.nativeUnsafeReviews));
   }
   findings.push(...evaluateKeelSkeleton(targetSources, manifest.nativeDifferences));
   findings.push(...evaluateKeelTestSkeleton(targetTests));
@@ -206,7 +206,7 @@ function productSources(root, repo) {
   return result;
 }
 
-function safety(root, repo, tracked, base) {
+function safety(root, repo, tracked, base, nativeUnsafeReviews) {
   const changed = new Set(git(root, ["diff", "--name-only", "-z", base, "--"]).split("\0").filter(Boolean));
   for (const file of git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) changed.add(file);
   const currentSources = new Map();
@@ -219,7 +219,7 @@ function safety(root, repo, tracked, base) {
   }
   const typed = entries => new Map([...entries].filter(([file]) => sourceExtensions.some(extension => file.endsWith(extension))));
   return evaluateKeelSafety({
-    repo, trackedFiles: tracked, currentSources, baseSources,
+    repo, trackedFiles: tracked, currentSources, baseSources, nativeUnsafeReviews,
     currentModel: analyzeKeelTypeScript(typed(currentSources), { resolveReferences: false }),
     baseModel: analyzeKeelTypeScript(typed(baseSources), { resolveReferences: false }),
   });
