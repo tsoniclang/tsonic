@@ -94,3 +94,42 @@ test("declaration context never picks a public overload for a callable holder", 
   assert.equal(sourceCallableValueParameters(source.ast, holder!, source.semantics.forNode(holder!)) === undefined, true,
     "a holder without checked invocation selection does not choose its first overload");
 });
+
+const overloadedImplementationCases = [
+  { name: "function", source: "function read(value: number): number; function read(value: number, delta: number): number; function read(value: number, delta?: number): number { return value + (delta ?? 0); } read(1);" },
+  { name: "method", source: "class Owner { read(value: number): number; read(value: number, delta: number): number; read(value: number, delta?: number): number { return value + (delta ?? 0); } } new Owner().read(1);" },
+  { name: "constructor", source: "class Owner { constructor(value: number); constructor(value: number, delta: number); constructor(value: number, delta?: number) {} } new Owner(1);" },
+];
+
+for (const example of overloadedImplementationCases) {
+  test(`selected ${example.name} inputs stay distinct from its native implementation inputs`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+      "/src/index.ts": example.source,
+    }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, `${example.name} overload correspondence is checked`);
+    const source = createTargetSourceProgram(checked);
+    const file = checked.getSourceFile("/src/index.ts")!;
+    let implementation: Node | undefined;
+    let invocation: Node | undefined;
+    const visit = (node: Node): void => {
+      if (source.ast.body(node) !== undefined && (source.ast.is.IsFunctionDeclaration(node) ||
+        source.ast.is.IsMethodDeclaration(node) || source.ast.is.IsConstructorDeclaration(node))) implementation = node;
+      if (example.name === "constructor" ? source.ast.is.IsNewExpression(node) : source.ast.is.IsCallExpression(node)) invocation = node;
+      source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    };
+    visit(file);
+    assert.equal(implementation !== undefined && invocation !== undefined, true, "both actual checked contexts are retained");
+    const semantics = source.semantics.forNode(invocation!);
+    const call = semantics.operations.call(invocation!);
+    assert.equal(call?.sourceSelectedSignatureKind === "resolved", true, "the public overload is selected");
+    const logical = sourceCallableValueParameters(source.ast, implementation!, semantics,
+      { kind: "selected-invocation", signature: call!.selectedSignature });
+    const native = sourceCallableValueParameters(source.ast, implementation!, source.semantics.forNode(implementation!),
+      { kind: "declaration" });
+    assert.equal(logical?.length, 1, "the selected public overload has one logical input");
+    assert.equal(native?.length, 2, "the emitted implementation keeps its required and optional native inputs");
+    assert.equal(native?.[1] === source.ast.parameters(implementation!)[1], true,
+      "the native default slot retains its actual implementation parameter identity");
+    assert.equal(Object.isFrozen(logical) && Object.isFrozen(native), true, "both distinct vectors are immutable");
+  });
+}

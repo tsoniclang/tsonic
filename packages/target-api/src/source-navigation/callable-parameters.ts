@@ -3,8 +3,11 @@ import type { SourceFileSemantics } from "../source-semantics/types.js";
 
 export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
   semantics: SourceFileSemantics,
-  context?: { readonly kind: "selected-invocation"; readonly signature: Signature }): readonly Node[] | undefined {
-  const signature = context === undefined ? sourceCallableDeclarationSignature(ast, declaration, semantics) : context.signature;
+  context?: { readonly kind: "declaration" } |
+    { readonly kind: "selected-invocation"; readonly signature: Signature }): readonly Node[] | undefined {
+  const signature = context?.kind === "selected-invocation" ? context.signature
+    : context?.kind === "declaration" ? semantics.types.declarationSignatureInfo(declaration)?.signature
+      : sourceCallableDeclarationSignature(ast, declaration, semantics);
   if (signature === undefined) return undefined;
   const parameters: Node[] = [];
   const seen = new Set<Node>();
