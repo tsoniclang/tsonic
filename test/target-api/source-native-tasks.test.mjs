@@ -16,7 +16,10 @@ function fixture(body) {
   const declarations = new Map(nodes.filter(node => source.ast.is.IsFunctionDeclaration(node)).map(node =>
     [source.ast.text(source.ast.name(node)), node]));
   const ownerUses = new Map([...declarations.values()].map(node => [node, { capture: false, parameter: true, creations: [] }]));
+  for (const node of nodes) if (source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node))
+    ownerUses.set(node, { capture: false, parameter: true, creations: [] });
   const callInputs = new Map(nodes.filter(node => source.ast.is.IsCallExpression(node)).map(node => [node, "parameter"]));
+  for (const node of storage.accessorInvocations) callInputs.set(node, "parameter");
   const spawns = nodes.filter(node => source.ast.is.IsVoidExpression(node)).map(node => ({ node, operand: Node_Expression(source.ast, node) }));
   const select = (changes = {}) => analyzeSourceNativeTaskGraph({ source, storage, nodes, ownerUses, callInputs,
     spawns, lifecycleOwner: file, publishedDeclarations: new Set(), budget: createSourceStorageBudget(defaultSourceStorageLimits), ...changes });
@@ -95,4 +98,28 @@ test("a root without native tasks has no task scope graph or call inputs", () =>
   assert.equal(selected.graph.lifecycleOwner, undefined, "no lifecycle scope is introduced");
   assert.equal(selected.graph.spawns.length + selected.graph.owners.length + selected.graph.calls.length + selected.graph.entries.length,
     0, "no task-related graph or ABI machinery");
+});
+
+test("an implicit getter invocation propagates its native task scope to the original caller", () => {
+  const current = fixture(`async function child(): Promise<void> {}
+    class Box { get value(): number { void child(); return 1; } }
+    const box = new Box(); const result = box.value;`);
+  const getter = current.nodes.find(node => current.source.ast.is.IsGetAccessorDeclaration(node));
+  const selected = current.select();
+  assert.equal(selected.kind === "resolved", true, "the existing checked accessor transport supplies the invocation");
+  assert.equal(selected.graph.parameterOwners.has(getter), true, "the getter's real native helper is demanded");
+  assert.equal(selected.graph.calls.some(call => call.targets.includes(getter)), true, "property access is an actual implicit call edge");
+  assert.equal(selected.graph.entries.includes(current.file), true, "the source initializer owns the scope");
+});
+
+test("an implicit setter invocation propagates its native task scope without a fabricated value call", () => {
+  const current = fixture(`async function child(): Promise<void> {}
+    class Box { set value(input: number) { void child(); } }
+    const box = new Box(); box.value = 1;`);
+  const setter = current.nodes.find(node => current.source.ast.is.IsSetAccessorDeclaration(node));
+  const selected = current.select();
+  assert.equal(selected.kind === "resolved", true, "the selected write accessor is transported by the same checked graph");
+  assert.equal(selected.graph.parameterOwners.has(setter), true, "the setter participates in the native ABI demand");
+  assert.equal(selected.graph.calls.some(call => call.targets.includes(setter)), true, "the original assignment is the invoking occurrence");
+  assert.equal(selected.graph.entries.includes(current.file), true, "the assignment's caller owns the scope");
 });

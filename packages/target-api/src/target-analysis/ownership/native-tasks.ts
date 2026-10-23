@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { sourceEnclosingCallable } from "../../source-navigation/index.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget } from "./model.js";
+import { sourceStorageAccessDeclarations } from "../source-storage/model/components.js";
 
 export interface SourceNativeTaskSpawn {
   readonly node: Node;
@@ -66,6 +67,7 @@ export function analyzeSourceNativeTaskGraph(input: {
       reject(input.spawns[0]!.node, "lifecycle-owner", "Native task scope requires its actual root lifecycle source identity.");
     const edges: { readonly node: Node; readonly owner: Node; readonly targets: readonly Node[]; readonly exact: boolean }[] = [];
     const openEdges = new Map<Node, { readonly node: Node; readonly reason: string }[]>();
+    const accessorInvocations = new Set(storage.accessorInvocations);
     const contracts = new Map<Node, readonly Node[]>();
     const implementations = new Map<Node, Node[]>();
     if (spawns.length !== 0) for (const node of input.nodes) {
@@ -85,23 +87,30 @@ export function analyzeSourceNativeTaskGraph(input: {
           }
         }
       }
-      if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node)) continue;
+      const accessor = accessorInvocations.has(node);
+      if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node) && !accessor) continue;
       const selected = semantics.forNode(node);
       const call = selected.operations.call(node);
       const declaration = call === undefined ? undefined : selected.declarations.signatureDeclaration(call.selectedSignature);
       const file = declaration === undefined ? undefined : ast.getSourceFile(declaration);
-      if (declaration === undefined || file === undefined || ast.isDeclarationFile(file) || !semantics.includes(file)) continue;
+      if (!accessor && (declaration === undefined || file === undefined || ast.isDeclarationFile(file) || !semantics.includes(file))) continue;
       const owner = ownerFor(node);
       if (owner === undefined) { reject(node, "scope-owner", "A native task invocation has no checked caller owner."); continue; }
       const bindings = ast.is.IsSourceFile(owner) ? { kind: "resolved" as const, bindings: storage.emptyBindings }
         : storage.bindingsForLexicalOwner(owner);
       const targets = bindings.kind === "unresolved" ? bindings : storage.invocationImplementationsFor(node, bindings.bindings);
       if (targets.kind === "unresolved") {
-        const previous = openEdges.get(declaration);
-        if (!rows.add(previous === undefined ? 2 : 1)) break;
-        const entry = Object.freeze({ node, reason: targets.reason });
-        if (previous === undefined) openEdges.set(declaration, [entry]);
-        else previous.push(entry);
+        const declarations = accessor ? [...sourceStorageAccessDeclarations(source, node, "read") ?? [],
+          ...sourceStorageAccessDeclarations(source, node, "write") ?? []] : declaration === undefined ? [] : [declaration];
+        if (declarations.length === 0) reject(node, "call-graph", targets.reason);
+        for (const target of new Set(declarations)) {
+          if (!budget.step()) break;
+          const previous = openEdges.get(target);
+          if (!rows.add(previous === undefined ? 2 : 1)) break;
+          const entry = Object.freeze({ node, reason: targets.reason });
+          if (previous === undefined) openEdges.set(target, [entry]);
+          else previous.push(entry);
+        }
         continue;
       }
       if (rows.add(1 + targets.nodes.length)) edges.push(Object.freeze({ node, owner, targets: targets.nodes, exact: targets.exact }));
