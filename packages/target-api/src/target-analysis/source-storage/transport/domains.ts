@@ -85,9 +85,11 @@ export function createSourceStorageDomains(
       for (const parameter of ast.parameters(owner)) {
         if (!budget.step()) return;
         const formal = transport.subject(parameter, "input");
-        const nativeInput = formal !== undefined && transport.invocations.has(exposure) &&
-          transport.callbackEntriesFor(exposure).some(callback => {
-            if (!budget.step() || !transport.callbackImplementationsFor(callback).has(owner)) return false;
+        const entries = transport.invocations.has(exposure) ? transport.callbackEntriesFor(exposure).filter(callback =>
+          budget.step() && transport.callbackImplementationsFor(callback).has(owner)) : [];
+        const nativeInput = formal !== undefined && entries.length !== 0 &&
+          entries.every(callback => {
+            if (!budget.step()) return false;
             const selected = transport.invocationInputs(formal, owner, exposure, callback);
             return selected.subjects.size !== 0 && !selected.subjects.has(formal) &&
               selected.calleeSubjects?.includes(formal) !== true;

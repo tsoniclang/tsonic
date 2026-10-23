@@ -4,13 +4,13 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
+import { sourceStorageSubjectType } from "../model/components.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   originsFor(subject: SourceStorageSubject): Iterable<SourceStorageSubject> | undefined;
   callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
-  callbackImplementationsFor(entry: SourceStorageCallbackEntry): ReadonlySet<Node>;
-  implementationsFor(invocation: Node): ReadonlySet<Node>;
+  implementationsFor(invocation: Node): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean } | undefined;
   invocationOrigins(origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined;
   throwsFor(candidate: Node, invocation: Node): {
     readonly origins: readonly SourceStorageSubject[];
@@ -87,29 +87,54 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       thrown(candidate, invocation);
     };
     const selected = queries.subjectFor(operand);
+    const type = selected === undefined ? undefined : sourceStorageSubjectType(source, selected);
+    const types = semantics.forNode(operand).types;
+    const awaited = type === undefined ? undefined : types.awaitedType(type);
+    if (type !== undefined && awaited !== undefined && !types.isAny(type) && !types.isUnknown(type) &&
+      !types.couldContainTypeVariables(type) && types.isIdentical(type, awaited)) return origins;
     const producers = selected === undefined ? undefined : queries.originsFor(selected);
     if (producers === undefined) refuse("Awaited rejection storage requires a completed checked value origin.");
+    let produced = false;
     for (const producer of producers ?? []) {
       if (!budget.step()) break;
+      produced = true;
       const invocation = producer.node;
       if (producer.kind !== "value" || producer.projection.length !== 0 ||
-        !ast.is.IsCallExpression(invocation) && !ast.is.IsNewExpression(invocation)) continue;
+        !ast.is.IsCallExpression(invocation) && !ast.is.IsNewExpression(invocation)) {
+        refuse("Awaited rejection storage has an original value without a completed checked rejection channel.");
+        continue;
+      }
+      let handled = false;
       for (const entry of queries.callbackEntriesFor(invocation)) {
         if (!budget.step()) break;
         if (entry.rejection === undefined) continue;
-        const candidates = queries.callbackImplementationsFor(entry);
-        if (candidates.size === 0) refuse("A rejection channel requires its checked executor implementation.");
-        for (const candidate of candidates) {
+        handled = true;
+        const candidates = queries.originsFor(entry.argument.actual);
+        let supplied = false;
+        for (const original of candidates ?? []) {
           if (!budget.step()) break;
-          executor(candidate, invocation, entry.rejection);
+          supplied = true;
+          const candidate = navigation.callableImplementation(original.node);
+          if (original.kind !== "value" || original.projection.length !== 0 || candidate.kind !== "resolved" ||
+            ast.body(candidate.implementation.declaration) === undefined) {
+            refuse("A rejection channel requires every original executor to have its exact checked implementation.");
+            continue;
+          }
+          executor(candidate.implementation.declaration, invocation, entry.rejection);
         }
+        if (!supplied) refuse("A rejection channel requires its checked executor implementation.");
       }
-      for (const candidate of queries.implementationsFor(invocation)) {
+      const implementations = queries.implementationsFor(invocation);
+      for (const candidate of implementations?.nodes ?? []) {
         if (!budget.step()) break;
         if (!ast.hasModifierKind(candidate, "async")) continue;
+        handled = true;
         thrown(candidate, invocation);
       }
+      if (!handled || implementations?.exact !== true && !queries.callbackEntriesFor(invocation).some(entry => entry.rejection !== undefined))
+        refuse("Awaited rejection storage requires a completed rejection channel for every original producer.");
     }
+    if (!produced) refuse("Awaited rejection storage has no completed original rejection-channel producer.");
     if (reason !== undefined) origins.add(Object.freeze({ kind: "unresolved", reason }));
     return origins;
   });

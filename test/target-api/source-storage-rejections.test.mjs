@@ -82,6 +82,53 @@ for (const reaction of ["catch(caught => { const result = caught; })", "then(und
   });
 }
 
+for (const arrow of [false, true]) {
+  test(`async returned Promises adopt their original rejection (${arrow ? "expression" : "return"})`, () => {
+    const current = fixture(`
+      const original = {};
+      const wrapped = ${arrow ? "async () => new Promise<void>((resolve, reject) => reject(original))"
+        : "async function (): Promise<void> { return new Promise<void>((resolve, reject) => reject(original)); }"};
+      async function run(): Promise<void> {
+        try { await wrapped(); } catch (caught) { const result = caught; }
+      }
+      void run();
+    `);
+    current.expectOriginal("result", "original");
+  });
+}
+
+test("a known rejection does not conceal an opaque alternative producer", () => {
+  const current = fixture(`
+    declare function importedPromise(): Promise<void>;
+    const original = {};
+    export async function run(flag: boolean): Promise<void> {
+      try { await (flag ? new Promise<void>((resolve, reject) => reject(original)) : importedPromise()); }
+      catch (caught) { const result = caught; }
+    }
+  `);
+  const selected = current.query("result");
+  assert.equal(selected.kind === "unresolved", true, "every opaque rejection producer remains unproved");
+});
+
+test("an external Promise parameter never certifies its unknown rejection channel", () => {
+  const current = fixture(`
+    export async function run(pending: Promise<void>): Promise<void> {
+      try { await pending; } catch (caught) { const result = caught; }
+    }
+  `);
+  assert.equal(current.query("result").kind === "unresolved", true, "external rejection payloads have no invented producer");
+});
+
+test("one handler in fulfillment and rejection slots retains the unproved fulfillment input", () => {
+  const current = fixture(`
+    const original = {};
+    const pending = new Promise<object>((resolve, reject) => reject(original));
+    function handler(caught: unknown): void { const result = caught; }
+    pending.then(handler, handler);
+  `);
+  assert.equal(current.query("result").kind === "unresolved", true, "a mapped reaction never hides an unmapped sibling entry");
+});
+
 test("distinct Promise constructions retain distinct rejection channels", () => {
   const current = fixture(`
     const original = {}; const separate = {};

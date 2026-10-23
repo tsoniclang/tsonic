@@ -408,8 +408,8 @@ export function createSourceStorageTransport(
     return slots;
   };
   const rejections = createSourceStorageRejections(source, budget, {
-    subjectFor, originsFor: originSubjects, callbackEntriesFor, callbackImplementationsFor,
-    implementationsFor: invocationImplementations,
+    subjectFor, originsFor: originSubjects, callbackEntriesFor,
+    implementationsFor: invocationImplementationSelection,
     invocationOrigins: (origin, candidate, invocation) => invocationOrigins(origin, candidate, invocation),
     throwsFor(candidate, invocation) {
       const origins: SourceStorageSubject[] = [];
@@ -596,6 +596,23 @@ export function createSourceStorageTransport(
         }
       }
     };
+    for (const node of visitedNodes) {
+      const owner = ast.is.IsReturnStatement(node) ? enclosingCallable(node)
+        : ast.is.IsArrowFunction(node) ? node : undefined;
+      if (owner === undefined || !ast.hasModifierKind(owner, "async")) continue;
+      const returned = ast.is.IsReturnStatement(node) ? Node_Expression(ast, node) : ast.body(owner);
+      if (returned === undefined || ast.is.IsBlock(returned)) continue;
+      yield () => {
+        const selected = rejectionFor(returned);
+        const region = regions.enclosing(returned);
+        if (selected === undefined || region === undefined) return;
+        for (const origin of selected) {
+          if (!step()) return;
+          if (origin.kind === "unresolved") recordUnresolvedThrow(region, origin.reason);
+          else recordThrow(region, origin);
+        }
+      };
+    }
     for (const awaited of visitedNodes) {
       if (!ast.is.IsAwaitExpression(awaited)) continue;
       yield () => {
