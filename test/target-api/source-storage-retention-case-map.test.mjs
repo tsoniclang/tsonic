@@ -184,3 +184,46 @@ for (const [label, declarations, read, expected] of [
     assert.equal(current.storage.failureReason() === undefined, true, `${label}: finite exact projection`);
   });
 }
+
+test("whole-program formal origins traverse execution regions without losing per-call bindings", () => {
+  const current = fixture(`function relay(value: object): object { return value; }
+    const first = {}; const second = {};
+    const firstResult = relay(first); const secondResult = relay(second);`);
+  const { ast } = current.source;
+  const variable = name => current.storage.nodes.find(node => ast.is.IsVariableDeclaration(node) &&
+    ast.text(ast.name(node)) === name);
+  const formal = current.storage.subject(ast.parameters(current.declaration("relay"))[0], "input");
+  assert.equal(formal.kind === "resolved", true, "exact unbound formal subject");
+  const selected = current.storage.closedOriginsFor(formal.subject);
+  assert.equal(selected.kind === "complete", true, selected.reason ?? selected.kind);
+  assert.equal(selected.origins.length, 2, "both and only actual program activations contribute");
+  for (const [result, original] of [["firstResult", "first"], ["secondResult", "second"]]) {
+    const subject = current.storage.subjectFor(variable(result));
+    assert.equal(subject.kind === "resolved", true, `${result}: exact checked subject`);
+    const origins = current.storage.closedOriginsFor(subject.subject);
+    const initializer = ast.as.AsVariableDeclaration(variable(original))?.Initializer;
+    assert.equal(origins.kind === "complete" && origins.origins.length === 1 &&
+      origins.origins[0].subject.node === initializer, true, `${result}: only its original caller`);
+  }
+  assert.equal(current.storage.failureReason() === undefined, true, "completed finite execution traversal");
+});
+
+test("an uncalled formal does not gain a producer from an empty execution selection", () => {
+  const current = fixture("function unused(value: object): object { return value; }");
+  const parameter = current.source.ast.parameters(current.declaration("unused"))[0];
+  const subject = current.storage.subject(parameter, "input");
+  assert.equal(subject.kind === "resolved", true, "exact uncalled formal");
+  assert.equal(current.storage.closedOriginsFor(subject.subject).kind, "unresolved", "no zero-edge closed-value proof");
+});
+
+test("an exported formal keeps the external entry beside observed private calls", () => {
+  const current = fixture(`export function relay(value: object): object { return value; }
+    const original = {}; const result = relay(original);`);
+  const parameter = current.source.ast.parameters(current.declaration("relay"))[0];
+  const subject = current.storage.subject(parameter, "input");
+  assert.equal(subject.kind === "resolved", true, "exact exported formal");
+  const origins = current.storage.closedOriginsFor(subject.subject);
+  assert.equal(origins.kind, "open", "observed callers do not close the exported input");
+  assert.equal(origins.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "the actual external entry remains explicit");
+});

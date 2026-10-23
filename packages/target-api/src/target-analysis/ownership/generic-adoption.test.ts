@@ -691,6 +691,29 @@ test("an opaque resolver relation does not refuse a proven ordinary actual", () 
     selected.kind === "unresolved" ? selected.reason : "the actual number is proven non-adopting without inventing an alias body");
 });
 
+for (const alias of [false, true]) for (const ordinary of [false, true]) {
+  test(`observed resolving calls own latent native input uncertainty (${alias}, ${ordinary})`, () => {
+    const operation = alias ? "forwarded(value)" : "done(value)";
+    const current = fixture(`declare function opaque<T>(value: T): T;
+      function wrap<T>(value: T) {
+        return new Promise<T>(resolve => {
+          const done = opaque(resolve);
+          ${alias ? "const forwarded = done; forwarded(value);" : "done(value);"}
+        });
+      }
+      void wrap(${ordinary ? "7" : "Promise.resolve(7)"});`);
+    const selected = current.query();
+    if (ordinary) {
+      assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+        "a proven ordinary actual remains non-adopting through the same opaque relation");
+    } else {
+      assert.equal(selected.kind, "unresolved", "opaque returned callable provenance stays unknown");
+      if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), operation,
+        "the actual demanded resolving call precedes an inferred latent native callback input");
+    }
+  });
+}
+
 test("a canonical Promise wrapper is adopting even when its payload still has an outer binder", () => {
   const current = fixture(`${identity}
     function wrap<Value>(value: Value) { return identity(Promise.resolve(value)); }
