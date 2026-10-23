@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, Signature, Type } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
@@ -83,7 +84,9 @@ export function sourceStorageCallableInputSlots(source: TargetSourceProgram, dec
   const signature = evidence.kind === "source-implementation" && contract !== declaration
     ? semantics.types.declarationSignatureInfo(declaration)?.signature : evidence.signature;
   if (signature === undefined || semantics.declarations.signatureDeclaration(signature) !== declaration) return undefined;
-  const parameters = ast.parameters(declaration);
+  const parameters = sourceCallableValueParameters(ast, declaration, semantics,
+    { kind: "selected-invocation", signature });
+  if (parameters === undefined) return undefined;
   const symbols = semantics.declarations.signatureParameters(signature);
   const effectiveParameters = semantics.types.signatureParameterInfos(signature);
   const slots: SourceStorageCallableInputSlot[] = [];
@@ -293,6 +296,9 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
   return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
     if (queries.isUnresolved(invocation)) return undefined;
     const context = source.semantics.forNode(invocation);
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+      { kind: "declaration" });
+    if (parameters === undefined) return undefined;
     const slots = source.ast.body(candidate) === undefined ? undefined : sourceStorageCallableInputSlots(source, candidate, context,
       { kind: "source-implementation", signature: context.operations.call(invocation)?.selectedSignature }, budget.step);
     return budget.withRows(rows => {
@@ -306,14 +312,14 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
         if (!rows.add(1)) return undefined;
         visited.add(current);
         if (source.ast.body(candidate) === undefined && current.projection.length === 0 &&
-          source.ast.is.IsParameterDeclaration(current.node) && source.ast.parameters(candidate).includes(current.node) &&
+          source.ast.is.IsParameterDeclaration(current.node) && parameters.includes(current.node) &&
           source.ast.as.AsParameterDeclaration(current.node)?.DotDotDotToken !== undefined) {
           origins.add(current);
           continue;
         }
         if (current.kind === "receiver" || current.kind === "input") {
           if (current.kind === "input" && source.ast.body(candidate) !== undefined &&
-            sourceStorageFormalOwner(current, source.ast) === candidate) {
+            sourceStorageFormalOwner(current, source) === candidate) {
             const selected = slots?.filter(slot => slot.parameter === current.node);
             if (selected === undefined || selected.length === 0 || selected.some(slot => slot.repeated || slot.projection === undefined)) return undefined;
           }

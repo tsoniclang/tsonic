@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -40,7 +41,12 @@ export function createSourceStorageCallbackInputFrontiers(
         for (const invocation of invocations) for (const callback of callbackEntriesFor(invocation))
           for (const candidate of callbackImplementationsFor(callback)) {
             if (!step()) return undefined;
-            for (const parameter of ast.parameters(candidate)) {
+            const parameters = sourceCallableValueParameters(ast, candidate, semantics.forNode(candidate), { kind: "declaration" });
+            if (parameters === undefined) {
+              budget.reject("Source storage native callback frontiers require their exact checked value parameters.");
+              return undefined;
+            }
+            for (const parameter of parameters) {
               if (!step()) return undefined;
               const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
               if (parameter === undefined || file === undefined || !semantics.includes(file) ||
@@ -81,7 +87,7 @@ export function createSourceStorageCallbackInputFrontiers(
       if (origins === undefined) return undefined;
       for (const origin of origins) {
         if (!step()) return undefined;
-        const owner = sourceStorageFormalOwner(origin, ast);
+        const owner = sourceStorageFormalOwner(origin, source);
         if (owner === undefined || origin.kind !== "input") continue;
         const entries = nativeArguments.get(origin.node) ?? [];
         for (const entry of entries) {

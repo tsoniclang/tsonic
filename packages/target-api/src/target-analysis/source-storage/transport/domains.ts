@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
@@ -82,7 +83,12 @@ export function createSourceStorageDomains(
       }
       publish(transport.subject(owner, "receiver"), exposure);
     } else {
-      for (const parameter of ast.parameters(owner)) {
+      const parameters = sourceCallableValueParameters(ast, owner, semantics.forNode(owner), { kind: "declaration" });
+      if (parameters === undefined) {
+        budget.reject("Source storage callable publication requires its exact checked value parameters.");
+        return;
+      }
+      for (const parameter of parameters) {
         if (!budget.step()) return;
         const formal = transport.subject(parameter, "input");
         const entries = transport.invocations.has(exposure) ? transport.callbackEntriesFor(exposure).filter(callback =>

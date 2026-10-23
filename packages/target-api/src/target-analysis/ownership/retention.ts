@@ -106,7 +106,7 @@ export function createSourceCallableRetentionQuery(input: {
           if (ast.is.IsParameterDeclaration(current)) {
             const formal = storage.subject(current, "input");
             if (formal.kind === "unresolved") reason ??= formal.reason;
-            const owner = formal.kind === "resolved" ? sourceStorageFormalOwner(formal.subject, ast) : undefined;
+            const owner = formal.kind === "resolved" ? sourceStorageFormalOwner(formal.subject, source) : undefined;
             if (owner !== undefined && (ast.hasModifierKind(owner, "async") || semantics.forNode(owner).operations.generator(owner) !== undefined)) {
               const activations = storage.boundActivationsFor(owner, bindings);
               if (activations.kind === "unresolved" || activations.activations.length === 0)
@@ -156,7 +156,7 @@ export function createSourceCallableRetentionQuery(input: {
               for (const actual of actuals) {
                 if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
                 const formal = actual.formal;
-                const owner = sourceStorageFormalOwner(formal, ast);
+                const owner = sourceStorageFormalOwner(formal, source);
                 if (formal.kind !== "input" || formal.projection.length !== 0 || owner === undefined || ast.body(owner) === undefined)
                   reason ??= "Native or unchecked formal storage has no closed source non-retention proof.";
                 else {
@@ -260,7 +260,7 @@ export function createSourceRetentionQuery(input: {
             return sourceOwnershipUnresolved(actual.node, "A program-duration owner requires a retained module-owner premise, not a source-scoped lease.");
           }
         } else if (premise.kind === "formal-borrowed") {
-          if (sourceStorageFormalOwner(actual, source.ast) !== premise.executionOwner ||
+          if (sourceStorageFormalOwner(actual, source) !== premise.executionOwner ||
             source.ast.body(premise.executionOwner) === undefined) {
             return sourceOwnershipUnresolved(actual.node, "A formal lease requires its actual input or receiver execution owner.");
           }
@@ -271,7 +271,7 @@ export function createSourceRetentionQuery(input: {
           }
           if (premise.region.kind === "input-duration") {
             if (actual.kind !== "input" || premise.region.parameter !== actual.node ||
-              !source.ast.parameters(premise.executionOwner).includes(premise.region.parameter)) {
+              sourceStorageFormalOwner(actual, source) !== premise.executionOwner) {
               return sourceOwnershipUnresolved(actual.node, "An input-duration lease must identify that exact native input.");
             }
           } else {

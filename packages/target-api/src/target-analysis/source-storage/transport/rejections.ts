@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
@@ -62,7 +63,8 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       }
     };
     const executor = (candidate: Node, invocation: Node, parameterIndex: number): void => {
-      const parameter = ast.parameters(candidate)[parameterIndex];
+      const parameters = sourceCallableValueParameters(ast, candidate, semantics.forNode(candidate), { kind: "declaration" });
+      const parameter = parameters?.[parameterIndex];
       if (parameter === undefined) {
         refuse("A rejection channel requires its exact checked executor parameter.");
         return;

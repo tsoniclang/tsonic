@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
@@ -110,8 +111,14 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
             else {
               const parent = ast.parent(access);
               const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent) ? undefined : ast.as.AsBinaryExpression(parent);
-              if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken")
-                queries.connect(queries.subjectFor(assignment.Right), queries.subject(ast.parameters(candidate)[0], "input"));
+              if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken") {
+                const parameters = sourceCallableValueParameters(ast, candidate, source.semantics.forNode(candidate),
+                  { kind: "declaration" });
+                if (parameters?.length !== 1) {
+                  budget.reject("A setter write requires its exact checked value parameter."); return;
+                }
+                queries.connect(queries.subjectFor(assignment.Right), queries.subject(parameters[0], "input"));
+              }
             }
           }
         }

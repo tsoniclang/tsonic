@@ -76,7 +76,7 @@ function fixture(kind: "input-duration" | "type-argument",
       if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("keep")) {
         return undefined;
       }
-      const owner = sourceStorageFormalOwner(value, source.ast);
+      const owner = sourceStorageFormalOwner(value, source);
       if (value.kind !== "input" || owner === undefined) return { kind: "resolved", premises: [{ kind: "retained",
         value, reason: "owned-value", contractDeclaration: value.node, checkedType: type.type }] };
       const semantics = source.semantics.forNode(value.node);

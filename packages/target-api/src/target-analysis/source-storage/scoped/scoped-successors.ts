@@ -447,7 +447,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return { kind: "replace", terms, dependencies };
       }
       if (scopes.isSymbolic(term.callee)) {
-        const owner = sourceStorageFormalOwner(term.callee.subject, ast);
+        const owner = sourceStorageFormalOwner(term.callee.subject, source);
         const native = owner === undefined ? undefined : scopes.boundActivation(term.callee.scope, owner)?.nativeEntry;
         if (term.mode === "execution" && native !== undefined) {
           const possible = nativeInputExecutions(term.invocation, term.scope, term.demand, term.deferred);
@@ -504,7 +504,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const caught = rejections.caught(term);
     if (caught !== undefined || budget.failure() !== undefined) return caught;
     const inputOwner = term.subject.kind === "input" && term.scope === scopes.empty
-      ? sourceStorageFormalOwner(term.subject, ast) : undefined;
+      ? sourceStorageFormalOwner(term.subject, source) : undefined;
     if (inputOwner !== undefined && ast.body(inputOwner) !== undefined) {
       const root = transport.subjectFor(term.subject.node);
       if (root === undefined) return undefined;
@@ -519,7 +519,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return budget.failure() === undefined ? { kind: "replace", terms } : undefined;
     }
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
-      sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
+      sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
     const pointed = pointerValues.reduce(term);
     if (pointed !== undefined) return pointed;

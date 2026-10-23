@@ -267,7 +267,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
       if (!budget.step()) return undefined;
       if (callback === undefined ? frontier.callback !== undefined
         : frontier.callback !== callback.entry || frontier.owner !== callback.subject) continue;
-      const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, ast);
+      const owner = frontier.owner === undefined ? undefined : sourceStorageFormalOwner(frontier.owner, source);
       const actual = callback === undefined || owner === undefined ? undefined
         : scopes.boundActivation(callback.bindings, owner)?.nativeEntry;
       if (callback !== undefined) {
