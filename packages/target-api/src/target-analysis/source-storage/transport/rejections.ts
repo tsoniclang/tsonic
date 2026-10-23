@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -8,6 +8,11 @@ import { sourceStorageSubjectType } from "../model/components.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
+import type { SourceStorageScopedTransport } from "../scoped/scoped-transport.js";
+import type { SourceStorageScopes } from "../scoped/scoped-scopes.js";
+import type { SourceStorageOperation, SourceStorageReduction, SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
+import { sourceStorageReference } from "../graph/scoped-model.js";
+import { sourceStorageExecutionDemands, type createSourceStorageExecutionReachability } from "../scoped/execution-reachability.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -249,4 +254,93 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
     }
   };
   return Object.freeze({ receiverOriginsFor, operations });
+}
+
+export function createSourceStorageScopedRejections(source: TargetSourceProgram, budget: SourceStorageBudget, transport: SourceStorageScopedTransport,
+  scopes: SourceStorageScopes, reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
+  queries: {
+    pointerThrows(invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
+    application(invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
+      projection: SourceStorageSubject["projection"], operation: SourceStorageOperation): SourceStorageTerm;
+  }) {
+  const relevant = new Map<Node, boolean>();
+  const relevantRows = budget.createRows();
+  let caughtSites: ReadonlyMap<Node, readonly Node[]> | undefined;
+  const reachesPointer = (invocation: Node): boolean | undefined => {
+    const previous = relevant.get(invocation);
+    if (previous !== undefined) return previous;
+    let selected = false;
+    for (const pointer of transport.pointerInvocations) {
+      if (!budget.step()) return undefined;
+      const reaches = pointer === invocation || reachability.invocation(invocation, pointer);
+      if (reaches === undefined) return undefined;
+      if (reaches) { selected = true; break; }
+    }
+    if (!relevantRows.add(1)) return undefined;
+    relevant.set(invocation, selected);
+    return selected;
+  };
+  const invocationThrows = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined => {
+    if (transport.pointerInvocations.has(invocation)) return queries.pointerThrows(invocation, scope);
+    const target = transport.invocationTargets.get(invocation);
+    return target === undefined ? undefined : [queries.application(invocation, target, scope, [], { mode: "throw" })];
+  };
+  const callableThrows = (subject: SourceStorageSubject, candidate: Node, invocation: Node, scope: SourceStorageScope,
+    actualTypes?: readonly (readonly Type[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
+    if (source.ast.hasModifierKind(candidate, "async")) return [];
+    const terms: SourceStorageTerm[] = [];
+    for (const region of transport.regions.callable(candidate, invocation, undefined, undefined, actualTypes)) {
+      if (!budget.step()) return undefined;
+      const reason = transport.unresolvedThrows.get(region);
+      if (reason !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject, scope, reason, exposure: invocation }));
+      for (const origin of transport.thrownOrigins.get(region) ?? []) {
+        if (!budget.step()) return undefined;
+        terms.push(sourceStorageReference(origin, scope));
+      }
+      for (const nested of transport.regions.invocationsIn(region) ?? []) {
+        if (!budget.step()) return undefined;
+        if (transport.regions.catchDestination(nested) !== undefined) continue;
+        const relevant = reachesPointer(nested);
+        if (relevant === undefined) return undefined;
+        if (!relevant) continue;
+        const selected = invocationThrows(nested, scope);
+        if (selected === undefined) return undefined;
+        terms.push(...selected);
+      }
+    }
+    return terms;
+  };
+  const caught = (reference: SourceStorageReference): SourceStorageReduction | undefined => {
+    if (reference.subject.kind !== "input" || reference.subject.projection.length !== 0 || transport.pointerInvocations.size === 0) return undefined;
+    if (caughtSites === undefined) {
+      const index = new Map<Node, Node[]>();
+      for (const invocation of transport.invocations) {
+        if (!budget.step()) return undefined;
+        const destination = transport.regions.catchDestination(invocation);
+        if (destination === undefined) continue;
+        const selected = reachesPointer(invocation);
+        if (selected === undefined) return undefined;
+        if (!selected) continue;
+        const sites = index.get(destination);
+        if (!relevantRows.add(sites === undefined ? 2 : 1)) return undefined;
+        if (sites === undefined) index.set(destination, [invocation]);
+        else sites.push(invocation);
+      }
+      caughtSites = index;
+    }
+    const sites = caughtSites.get(reference.subject.node);
+    if (sites === undefined) return undefined;
+    const demands: SourceStorageTerm[] = [];
+    for (const invocation of sites) {
+      const roots = sourceStorageExecutionDemands(transport, scopes, budget, invocation, reference.scope, scopes.isDeferred(reference.scope));
+      if (roots === undefined) return undefined;
+      demands.push(...roots);
+    }
+    const inputs = [...transport.incomingFor(reference.subject)].map(subject => sourceStorageReference(subject, reference.scope));
+    return { kind: "project", inputs: [...inputs, ...demands], select: value => {
+      if (value.kind === "empty") return [];
+      return sites.includes(value.subject.node) ? invocationThrows(value.subject.node, value.scope) : [value];
+    } };
+  };
+  return Object.freeze({ caught, callableThrows });
 }

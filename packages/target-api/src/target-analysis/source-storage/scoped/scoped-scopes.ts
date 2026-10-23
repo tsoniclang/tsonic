@@ -64,7 +64,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
-        ...[...scope.entries.values()].flatMap(entry => entry.values.map(value => value.scope))];
+        ...[...scope.entries.values()].flatMap(entry => entry.values.flatMap(value =>
+          value.kind === "empty" ? value.absence === undefined ? [] : [value.absence.scope] : [value.scope]))];
     for (const input of inputs) {
       if (!budget.step()) return false;
       if (scope.kind !== "substitution") {
@@ -187,7 +188,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (scope === undefined) return undefined;
     if (term.kind === "application") {
       const callee = applyTerm(term.callee, replacements);
-      return callee === undefined ? undefined : Object.freeze({ ...term, scope, callee });
+      const entered = term.activation.kind === "entered" ? applyScope(term.activation.scope, replacements) : undefined;
+      return callee === undefined || term.activation.kind === "entered" && entered === undefined ? undefined
+        : Object.freeze({ ...term, scope, callee, activation: term.activation.kind === "invoke" ? term.activation
+          : Object.freeze({ kind: "entered", scope: entered!, actualTypes: term.activation.actualTypes }) });
     }
     if (term.kind === "member") {
       const receiver = applyTerm(term.receiver, replacements);
@@ -195,8 +199,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return Object.freeze({ ...term, scope });
   };
-  const project = (entry: SourceStorageReference, origin: SourceStorageSubject, retain: (cost: number) => boolean,
+  const project = (entry: SourceStorageFrameInput["values"][number], origin: SourceStorageSubject, retain: (cost: number) => boolean,
     selectedRoot?: SourceStorageSubject): readonly SourceStorageTerm[] | undefined => {
+    if (entry.kind === "empty") return retain(1) ? [entry] : undefined;
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
     const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
@@ -333,10 +338,11 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return frame;
   };
   const frameForActuals = (candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
-    actuals: readonly SourceStorageReference[]): SourceStorageFrame | undefined => {
+    actuals: SourceStorageFrameInput["values"]): SourceStorageFrame | undefined => {
     if (!budget.step()) return undefined;
     const key = `actuals:${[candidate, invocation, caller, captured].map(identity).join(":")}:${actuals.map(value =>
-      `${identity(value.subject)}/${identity(value.scope)}`).join(";")}`;
+      value.kind === "empty" ? value.absence === undefined ? "empty" : `empty:${identity(value.absence.subject)}/${identity(value.absence.scope)}`
+        : `${identity(value.subject)}/${identity(value.scope)}`).join(";")}`;
     const cached = frames.get(key);
     if (cached !== undefined) return cached;
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();

@@ -329,7 +329,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
             [...term.receiver.subject.projection, { kind: "member", declaration: original }]);
           const written = type === undefined || projected === undefined ? undefined : context.pointerWrites(
-            leaf(projected, term.receiver.scope), store, [], type, original, term.scope);
+            leaf(projected, term.receiver.scope), store, term.projection, type, original, term.scope);
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }

@@ -18,6 +18,10 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
   const scopeFor = (candidate: Node, invocation: Node, caller: SourceStorageScope,
     captured: SourceStorageScope, term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStorageScope | undefined => {
     if (!budget.step()) return undefined;
+    if (term.activation.kind === "entered") {
+      const entered = scopes.boundActivation(term.activation.scope, candidate);
+      return entered?.invocation === invocation ? entered.scope : undefined;
+    }
     const component = recursion.componentFor(candidate);
     if (budget.failure() !== undefined) return undefined;
     if (component === undefined) return scopes.frameFor(candidate, invocation, caller, captured, undefined, term.callback);

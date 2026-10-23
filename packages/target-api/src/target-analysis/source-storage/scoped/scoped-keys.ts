@@ -237,10 +237,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           arguments_.push(encoded);
         }
         const callback = selected.callback === undefined ? null : scopes.callbackKey(selected.callback);
-        if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), callback, activation, callee, receiver, arguments_];
+        const entered = selected.activation.kind === "invoke" ? null : scopes.identity(selected.activation.scope);
+        if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), callback, activation, callee, receiver, arguments_, entered];
         return [selected.kind, selected.mode, selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
           scopes.identity(selected.invocation), callback, activation, callee, receiver,
-          arguments_, encodeProjection(selected.projection)];
+          arguments_, entered, encodeProjection(selected.projection)];
       }
       const omittedInput = selected.kind === "leaf" && selected.subject.kind === "input"
         ? scopes.lookup(selected.subject, selected.scope) : undefined;

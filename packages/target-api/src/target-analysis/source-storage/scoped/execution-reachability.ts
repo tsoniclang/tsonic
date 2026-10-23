@@ -45,6 +45,22 @@ export function* walkSourceStorageExecution(budget: SourceStorageBudget, roots: 
   } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
 }
 
+export function sourceStorageExecutionDemands(transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
+  budget: SourceStorageBudget, demand: Node, context: SourceStorageScope | undefined, deferred: boolean,
+  execution?: SourceStorageTerm): readonly SourceStorageTerm[] | undefined {
+  if (execution !== undefined) return [execution];
+  const roots = context === undefined ? [] : scopes.executionRoots(context);
+  if (roots === undefined) return undefined;
+  if (roots.length === 0) return [Object.freeze({ kind: "execution-root", demand, deferred })];
+  const selected: SourceStorageTerm[] = [];
+  for (const root of roots) for (const region of transport.regions.callable(root.owner, root.invocation,
+    undefined, root.callback, undefined, "active")) {
+    if (!budget.step()) return undefined;
+    selected.push(Object.freeze({ kind: "region", region, scope: root.scope, demand, deferred }));
+  }
+  return selected;
+}
+
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
   let index: { readonly callers: ReadonlyMap<Node, ReadonlySet<Node>>;
@@ -91,8 +107,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
         for (const candidate of transport.invocationImplementations(invocation)) {
           if (!budget.step()) return undefined;
           for (const child of transport.regions.callable(candidate, transport.accessorTargets.has(invocation) ? undefined : invocation))
-            if ((source.semantics.forNode(candidate).operations.generator(candidate) === undefined || child !== source.ast.body(candidate)) &&
-              !add(child)) return undefined;
+            if (!add(child)) return undefined;
         }
         if (transport.pointerInvocations.has(invocation)) {
           const pointerAccessors = transport.pointerAccessors(invocation);
@@ -305,7 +320,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
           if (!budget.step()) return undefined;
           if (frontier.subject !== frontier.owner && value.subject !== frontier.subject) continue;
           if (frontier.callback?.timing === "deferred" && !deferred) continue;
-          const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation,
+          const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation, activation: Object.freeze({ kind: "invoke" }),
             callee: leaf(value.subject, value.bindings), scope, projection: [],
             ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
             mode: "execution", demand, deferred });

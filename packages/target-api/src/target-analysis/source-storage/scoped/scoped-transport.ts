@@ -24,6 +24,8 @@ export interface SourceStorageScopedTransport {
   readonly invocationDeclarations: ReadonlyMap<Node, Node>;
   readonly invocations: ReadonlySet<Node>;
   readonly pointerInvocations: ReadonlySet<Node>;
+  readonly thrownOrigins: ReadonlyMap<Node, ReadonlySet<SourceStorageSubject>>;
+  readonly unresolvedThrows: ReadonlyMap<Node, string>;
   pointerAccessors(invocation: Node): ReadonlySet<Node> | undefined;
   resumedImplementations(invocation: Node): ReadonlySet<Node> | undefined;
   readonly accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>;

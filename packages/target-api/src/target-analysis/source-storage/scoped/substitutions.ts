@@ -554,7 +554,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
             inputs.push({ subject, term }); return true;
           };
           if (target !== undefined) {
-            if (!add(Object.freeze({ kind: "application", mode: "execution", demand: invocation,
+            if (!add(Object.freeze({ kind: "application", mode: "execution", demand: invocation, activation: Object.freeze({ kind: "invoke" }),
               invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) }))) return undefined;
           } else if (receiver !== undefined) {
             if (!add(Object.freeze({ kind: "member", mode: "execution", demand: invocation,
@@ -612,6 +612,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         return undefined;
       }
       return equations.scopeFor(candidate, invocation, caller, captured, Object.freeze({ kind: "application",
+        activation: Object.freeze({ kind: "invoke" }),
         mode: "execution", demand: invocation, invocation, callee: Object.freeze({ kind: "leaf", subject: callee, scope: captured }),
         scope: caller, projection: Object.freeze([]) }));
     },

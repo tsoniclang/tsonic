@@ -428,7 +428,8 @@ export function createSourceStorageTransport(
   const pointerBackings = graphQueries.query(pointers.backingsFor);
   const pointerAccessors = graphQueries.query(pointers.accessorsFor);
   const resumedImplementations = graphQueries.query(createSourceStorageGeneratorResumes(source, budget, {
-    invocationEffects, subjectFor, originsFor: originSubjects, implementationsFor: invocationImplementations,
+    invocationEffects, subjectFor, originsFor: originSubjects,
+    implementationsFor: invocation => pointerInvocations.has(invocation) ? pointerAccessors(invocation) : invocationImplementations(invocation),
   }));
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const invocation of pointerInvocations) {
@@ -604,7 +605,7 @@ export function createSourceStorageTransport(
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, pointerInvocations, pointerAccessors, resumedImplementations,
+    invocationDeclarations, invocationEffects, invocations, pointerInvocations, pointerAccessors, resumedImplementations, thrownOrigins, unresolvedThrows,
     accessorTargets, invocationInputs, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,

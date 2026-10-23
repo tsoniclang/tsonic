@@ -27,10 +27,10 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
   };
   const callable = (declaration: Node, invocation: Node | undefined,
     argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry,
-    actualTypes?: readonly (readonly Type[] | undefined)[]): readonly Node[] => {
+    actualTypes?: readonly (readonly Type[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
-    const regions = [body];
+    const regions = phase === "active" || semantics.forNode(declaration).operations.generator(declaration) === undefined ? [body] : [];
     const consumer = semantics.forNode(invocation ?? declaration);
     const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
     const slots = sourceStorageCallableInputSlots(source, declaration, consumer,

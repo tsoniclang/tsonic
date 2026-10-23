@@ -17,7 +17,8 @@ export function createSourceStorageProgramEntries(source: TargetSourceProgram, t
     const regions: { readonly region: Node; readonly owner?: Node }[] = [];
     const exported = (declaration: Node): boolean => navigation.declarationUseSummary(declaration).exported;
     const entry = (callable: Node): void => {
-      for (const region of transport.regions.callable(callable, undefined)) regions.push(Object.freeze({ region, owner: callable }));
+      for (const region of transport.regions.callable(callable, undefined, undefined, undefined, undefined, "active"))
+        regions.push(Object.freeze({ region, owner: callable }));
     };
     for (const file of transport.sourceFiles) {
       if (!step()) return undefined;

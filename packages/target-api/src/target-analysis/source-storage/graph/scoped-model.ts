@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import type { SourceStorageValueGuards } from "./guarded-values.js";
@@ -17,7 +17,7 @@ export interface SourceStorageFrame {
 }
 
 export interface SourceStorageFrameInput {
-  readonly values: readonly SourceStorageReference[];
+  readonly values: readonly (SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" }>)[];
   readonly initialization: "actual" | "initialized" | "absent";
 }
 
@@ -65,6 +65,7 @@ export interface SourceStorageReference {
 
 export type SourceStorageOperation =
   | { readonly mode: "value" }
+  | { readonly mode: "throw" }
   | { readonly mode: "execution"; readonly demand: Node; readonly deferred?: boolean };
 
 export interface SourceStorageAccessorInvocation {
@@ -84,6 +85,8 @@ export type SourceStorageTerm =
   | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
+      readonly activation: { readonly kind: "invoke" } | { readonly kind: "entered"; readonly scope: SourceStorageScope;
+        readonly actualTypes: readonly (readonly Type[] | undefined)[] };
       readonly callback?: SourceStorageCallbackEntry } & SourceStorageOperation)
   | ({ readonly kind: "member"; readonly selection: SourceStorageMemberSelection; readonly receiver: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
