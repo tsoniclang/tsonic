@@ -117,7 +117,7 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
   assert.match(generatedSource, /return flag \? 1\.5D : default\(double\?\);/);
   assert.match(generatedSource, /public static double\? maybeNumberUndefined\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? 2\.5 : default\(double\?\);/);
+  assert.match(generatedSource, /return flag \? 2\.5D : default\(double\?\);/);
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
   assert.match(generatedSource, /return flag \? true : default\(bool\?\);/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);

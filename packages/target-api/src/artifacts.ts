@@ -33,7 +33,7 @@ export function targetDiagnosticFromExtension(
   diagnostic: ExtensionDiagnostic,
 ): TargetDiagnostic {
   return {
-    code: `TS${diagnostic.numericCode}`,
+    code: diagnostic.publicCode ?? `TS${diagnostic.numericCode}`,
     category: diagnostic.category,
     source: diagnostic.extensionId,
     message: diagnostic.message,

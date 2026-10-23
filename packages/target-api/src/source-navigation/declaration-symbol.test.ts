@@ -78,7 +78,7 @@ test("declaration symbols preserve the included consumer query context for exclu
   let reads = 0;
   const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([consumer]),
     getSourceFileQueries(file) {
-      assert.equal(file === consumer, true, "excluded canonical native owners are not source-file query contexts");
+      assert.equal(file === consumer, true, "this declaration-type query retains its explicit checked consumer context");
       reads += 1;
       return checked.getSourceFileQueries(file);
     } });
@@ -103,6 +103,32 @@ test("declaration symbols refuse another program's same-spelled AST and an unche
     "a declaration from another checked program cannot supply a symbol");
   assert.equal(current.source.semantics.forFile(current.file).declarations.declaredValueType(foreign.external) === undefined, true,
     "foreign declaration types cannot leak through the semantic consumer");
-  assert.throws(() => current.source.navigation.declarationSymbol(current.external, foreign.file), /actual included checked consumer context/u,
+  assert.throws(() => current.source.navigation.declarationSymbol(current.external, foreign.file), /actual checked consumer context/u,
     "a populated cache never bypasses the checked consumer boundary");
+});
+
+test("declaration symbols admit exact checked owner contexts without publishing their files", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": 'import { Native } from "./native.js"; export function read(value: Native): number { return value.field; }',
+    "/src/native.ts": "export declare class Native { field: number; }",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the actual source program checks before filtering exposure");
+  const consumer = checked.getSourceFile("/src/index.ts")!;
+  const native = checked.getSourceFile("/src/native.ts")!;
+  const declaration = checked.ast.statements(native).find(node => node !== undefined && checked.ast.is.IsClassDeclaration(node))!;
+  const checker = checked.getSourceFileQueries(native).checker;
+  const expected = checker.getSymbolAtLocation(checked.ast.name(declaration));
+  assert.equal(expected !== undefined, true, "the actual native query context owns its checked declaration symbol");
+  const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([consumer]) });
+  assert.equal(source.navigation.declarationSymbol(declaration, native) === expected, true,
+    "a checked native owner is a legitimate semantic context, not a guessed consumer file");
+  assert.equal(source.navigation.declarationSymbol(declaration, native) === expected, true,
+    "the exact owner-context cache retains the same symbol identity");
+  assert.equal(source.semantics.forNode(declaration).declarations.declaredType(declaration) === checker.getDeclaredTypeOfSymbol(expected), true,
+    "the semantic view and navigation retain one exact checked type");
+  assert.equal(source.semantics.includes(native), false, "semantic queries do not broaden exposed source membership");
+  assert.equal(source.navigation.isProjectDeclaration(declaration), false, "a queried native declaration is not a project implementation");
+  assert.equal(source.sourceFiles.includes(native), false, "semantic queries do not publish the native owner file");
+  assert.throws(() => source.documents.forFile(native), /exact source file/u,
+    "semantic queries do not create an authored source document");
 });

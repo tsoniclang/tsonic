@@ -151,6 +151,15 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
 });
 test("CLI emits explicit C# target .NET references without host inference", async () => {
   const projectDirectory = resolve(tempRoot, "target-references");
+  const referenceProject = resolve(projectDirectory, "native/Example.Project.csproj");
+  const referenceAssembly = resolve(projectDirectory, "native/bin/Debug/net10.0/Example.Project.dll");
+  await writeProject(projectDirectory, {
+    "native/Example.Project.csproj": `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>`,
+    "native/Marker.cs": "namespace Example; public sealed class Marker { }",
+  });
+  const native = run("dotnet", ["build", referenceProject, "--nologo", "--v:minimal"]);
+  assert.equal(native.status, 0, native.stdout + native.stderr);
+  assert.equal(existsSync(referenceAssembly), true, "the explicit reference is a real native assembly, not a missing placeholder");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -162,10 +171,10 @@ test("CLI emits explicit C# target .NET references without host inference", asyn
           options: {
             assemblyName: "SmokeGeneratedReferences",
             references: {
-              projects: ["../csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj"],
-              packages: [{ include: "Tsonic.CSharp.Runtime", version: "0.0.1" }],
+              projects: [referenceProject],
+              packages: [{ include: "Humanizer.Core", version: "2.14.1" }],
               frameworks: ["Microsoft.AspNetCore.App"],
-              assemblies: [{ include: "Example.Assembly", hintPath: "../lib/Example.Assembly.dll" }],
+              assemblies: [{ include: "Example.Project", hintPath: referenceAssembly }],
             },
           },
         },
@@ -183,10 +192,11 @@ test("CLI emits explicit C# target .NET references without host inference", asyn
   assert.equal(build.status, 0, build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedReferences.csproj"), "utf8");
-  assert.match(generatedProject, /<ProjectReference Include="\.\.\/csharp-runtime\/src\/Tsonic\.CSharp\.Runtime\/Tsonic\.CSharp\.Runtime\.csproj" \/>/);
-  assert.match(generatedProject, /<PackageReference Include="Tsonic\.CSharp\.Runtime" Version="0\.0\.1" \/>/);
+  assert.equal(generatedProject.includes(`<ProjectReference Include="${referenceProject}" />`), true, "the exact explicit native project is retained");
+  assert.match(generatedProject, /<PackageReference Include="Humanizer\.Core" Version="2\.14\.1" \/>/);
   assert.match(generatedProject, /<FrameworkReference Include="Microsoft\.AspNetCore\.App" \/>/);
-  assert.match(generatedProject, /<Reference Include="Example\.Assembly" HintPath="\.\.\/lib\/Example\.Assembly\.dll" \/>/);
+  assert.equal(generatedProject.includes(`<Reference Include="Example.Project" HintPath="${referenceAssembly}" />`), true,
+    "the exact explicit native assembly path is retained without host inference");
 });
 test("CLI user-owned C# project mode emits generated sources without mutating or replacing the project file", async () => {
   const projectDirectory = resolve(tempRoot, "user-owned-csharp-project");
