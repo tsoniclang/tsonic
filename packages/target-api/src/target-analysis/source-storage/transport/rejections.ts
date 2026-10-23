@@ -3,7 +3,7 @@ import { Node_Expression } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -18,16 +18,11 @@ interface SourceStorageRejectionQueries {
   };
 }
 
-export interface SourceStorageRejections {
-  readonly origins: readonly SourceStorageSubject[];
-  readonly reason: string | undefined;
-}
-
 export function createSourceStorageRejections(source: TargetSourceProgram, budget: SourceStorageBudget,
   queries: SourceStorageRejectionQueries) {
   const { ast, navigation, semantics } = source;
-  const forOperand = (operand: Node): SourceStorageRejections => budget.withRows(rows => {
-    const origins = new Set<SourceStorageSubject>();
+  const forOperand = (operand: Node): ReadonlySet<SourceStorageSubject | SourceStorageUnresolved> => budget.withRows(rows => {
+    const origins = new Set<SourceStorageSubject | SourceStorageUnresolved>();
     let reason: string | undefined;
     const refuse = (message: string): void => { reason ??= message; };
     const add = (origin: SourceStorageSubject, candidate: Node, invocation: Node): void => {
@@ -115,7 +110,8 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
         thrown(candidate, invocation);
       }
     }
-    return Object.freeze({ origins: Object.freeze([...origins]), reason });
+    if (reason !== undefined) origins.add(Object.freeze({ kind: "unresolved", reason }));
+    return origins;
   });
   return Object.freeze({ forOperand });
 }

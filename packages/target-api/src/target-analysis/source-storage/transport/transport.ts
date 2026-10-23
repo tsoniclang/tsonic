@@ -419,11 +419,21 @@ export function createSourceStorageTransport(
       return { origins, reason };
     },
   });
+  const rejectionFor = graphQueries.query(rejections.forOperand);
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
     accessorTargets, invocation => unresolvedInvocations.has(invocation), (receiver, formal) => {
-      const selected = rejections.forOperand(receiver);
-      if (selected.reason !== undefined) unresolvedSubjects.set(formal, selected.reason);
-      return selected.reason === undefined ? selected.origins : undefined;
+      const selected = rejectionFor(receiver);
+      if (selected === undefined) return undefined;
+      const origins: SourceStorageSubject[] = [];
+      for (const value of selected) {
+        if (!step()) return undefined;
+        if (value.kind === "unresolved") {
+          if (!sealed) unresolvedSubjects.set(formal, value.reason);
+          return undefined;
+        }
+        origins.push(value);
+      }
+      return origins;
     });
   const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
     { invocationInputs, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
@@ -588,16 +598,18 @@ export function createSourceStorageTransport(
         if (!step()) return;
         const operand = Node_Expression(ast, awaited);
         if (operand === undefined) return;
-        const selected = rejections.forOperand(operand);
+        const selected = rejectionFor(operand);
+        if (selected === undefined) return;
         const caught = regions.catchDestination(awaited);
         const destination = caught === undefined ? undefined : subject(caught, "input");
         const enclosing = destination === undefined ? regions.enclosing(awaited) : undefined;
-        if (selected.reason !== undefined) {
-          if (destination !== undefined) unresolvedSubjects.set(destination, selected.reason);
-          else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, selected.reason);
-        }
-        for (const origin of selected.origins) {
+        for (const origin of selected) {
           if (!step()) return;
+          if (origin.kind === "unresolved") {
+            if (destination !== undefined) unresolvedSubjects.set(destination, origin.reason);
+            else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, origin.reason);
+            continue;
+          }
           if (destination !== undefined) connect(origin, destination);
           else if (enclosing !== undefined) recordThrow(enclosing, origin);
         }
@@ -705,7 +717,7 @@ export function createSourceStorageTransport(
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
-    callbackEntriesFor, callbackImplementationsFor,
+    callbackEntriesFor, callbackImplementationsFor, invocationInputs,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };

@@ -38,7 +38,7 @@ function fixture(body) {
       `${name}: original rejection object identity`);
     assert.equal(storage.failureReason() === undefined, true, "finite source graph remains valid");
   };
-  return { source, storage, query, expectOriginal };
+  return { source, storage, query, expectOriginal, initializer };
 }
 
 for (const nested of [false, true]) for (const stored of [false, true]) {
@@ -118,5 +118,21 @@ test("an unawaited async call does not throw its rejection into a synchronous ca
     try { void fail(); } catch (caught) { const result = caught; }
   `);
   const selected = current.query("result");
-  assert.equal(selected.kind !== "complete", true, "a Promise rejection is not a synchronous thrown input");
+  assert.equal(selected.kind === "complete" && !selected.origins.some(origin =>
+    origin.subject.node === current.initializer("original")), true, "a Promise rejection is not a synchronous thrown input");
+});
+
+test("a rejection handler escaping through another native entry keeps that entry's input open", () => {
+  const current = fixture(`
+    declare function retain(callback: (reason: unknown) => void): void;
+    const original = {};
+    const pending = new Promise<void>((resolve, reject) => { reject(original); });
+    const handler = (caught: unknown): void => { const result = caught; };
+    pending.catch(handler);
+    retain(handler);
+  `);
+  const selected = current.query("result");
+  assert.equal(selected.kind === "open", true, "a known reaction never erases an independently unknown native caller");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "the unknown callback entry retains its actual boundary witness");
 });
