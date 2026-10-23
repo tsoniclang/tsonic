@@ -22,8 +22,6 @@ import { createSourceStorageContextFootprints } from "../graph/context-footprint
 import { sourceStorageActivationOwner } from "./activation-keys.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 
-export type SourceStorageSubstitutions = SourceStorageScope;
-export type SourceStorageBoundSubject = SourceStorageScopedSubject;
 export const sourceStorageMissingProducerReason = "A demanded source storage relation has no completed correlated producer or absence proof.";
 
 interface SourceStorageRelation {
@@ -281,11 +279,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return complete;
   }, "storage-relations");
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
-  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => withQuery(() => {
+  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
     const root = selectRoot(origin, scope);
     const selected = root === undefined ? undefined : results(root);
     if (selected === undefined) return undefined;
-    const values = new Set<SourceStorageBoundSubject>();
+    const values = new Set<SourceStorageScopedSubject>();
     for (const value of selected) {
       if (!budget.step()) return undefined;
       if (value.kind === "unresolved") { if (value.exposure === undefined) budget.reject(value.reason); return undefined; }
@@ -330,7 +328,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const relation = intern(term);
         return relation === undefined ? undefined : results(relation);
       });
-      const subjects: SourceStorageBoundSubject[] = [];
+      const subjects: SourceStorageScopedSubject[] = [];
       const boundaries: Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[] = [];
       let reason: string | undefined;
       for (const value of selected) {
@@ -349,7 +347,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
+    stopAt?: (subject: SourceStorageScopedSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
@@ -495,14 +493,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return { subjects: Object.freeze(subjects), reason: undefined };
   }));
-  const selection = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageBoundSubject[] | undefined => withQuery(() => {
+  const selection = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageScopedSubject[] | undefined => withQuery(() => {
     const selected = scopes.lookup(origin, scope);
     if (selected === undefined) return undefined;
     if (selected.kind === "expand") {
       const inputs = values(origin, scope);
       return inputs === undefined ? undefined : Object.freeze([...inputs]);
     }
-    const inputs: SourceStorageBoundSubject[] = [];
+    const inputs: SourceStorageScopedSubject[] = [];
     for (const input of selected.terms) {
       if (!budget.step()) return undefined;
       if (input.kind !== "reference" && input.kind !== "leaf") return undefined;

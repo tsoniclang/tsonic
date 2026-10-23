@@ -3,22 +3,22 @@ import { sourceStorageInstanceCaptures } from "../model/construction.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import type { SourceStorageBoundSubject, SourceStorageSubstitutions } from "../scoped/substitutions.js";
+import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
 
 interface SourceStorageInvocationResultQueries {
   readonly subject: SourceStorageSubjectQuery;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
-  valuesFor(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined;
+  valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined;
   targetFor(invocation: Node): SourceStorageSubject | undefined;
-  bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions,
-    captured: SourceStorageSubstitutions, callee: SourceStorageSubject | undefined): SourceStorageSubstitutions | undefined;
+  bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageScope,
+    captured: SourceStorageScope, callee: SourceStorageSubject | undefined): SourceStorageScope | undefined;
   hasResultAlias(invocation: Node): boolean;
 }
 
 export interface SourceStorageInvocationResultQueriesContract {
-  forInvocation(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions,
-    capture?: SourceStorageBoundSubject): ReadonlySet<SourceStorageSubstitutions>;
+  forInvocation(candidate: Node, invocation: Node, bindings: SourceStorageScope,
+    capture?: SourceStorageScopedSubject): ReadonlySet<SourceStorageScope>;
   hasAllocation(subject: SourceStorageSubject): boolean;
 }
 
@@ -29,9 +29,9 @@ export function createSourceStorageInvocationResults(
 ): SourceStorageInvocationResultQueriesContract {
   const hasAllocation = (subject: SourceStorageSubject): boolean => source.ast.is.IsNewExpression(subject.node) &&
     !queries.hasResultAlias(subject.node);
-  const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions, capture?: SourceStorageBoundSubject) => {
+  const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageScope, capture?: SourceStorageScopedSubject) => {
     const target = queries.targetFor(invocation);
-    const states = new Set<SourceStorageSubstitutions>();
+    const states = new Set<SourceStorageScope>();
     const consumer = source.semantics.forNode(invocation);
     const selected = consumer.operations.call(invocation);
     const contract = selected?.sourceSelectedSignatureKind === "resolved"
@@ -50,7 +50,7 @@ export function createSourceStorageInvocationResults(
     const values = queries.valuesFor(target, bindings);
     if (values === undefined) return states;
     const owner = source.ast.is.IsConstructorDeclaration(candidate) ? source.ast.parent(candidate) : candidate;
-    const captures = new Set<SourceStorageBoundSubject>();
+    const captures = new Set<SourceStorageScopedSubject>();
     if (owner !== undefined && (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner))) {
       const selected = sourceStorageInstanceCaptures(source, budget, candidate, values, queries);
       if (selected === undefined) return states;

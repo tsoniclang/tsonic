@@ -8,7 +8,7 @@ import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
-import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
+import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
@@ -23,7 +23,7 @@ export function createSourceStorageQuery(
   const budget = createSourceStorageBudget(limits);
   const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
   const domains = createSourceStorageDomains(source, transport, budget);
-  const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageSubstitutions[]>();
+  const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>();
   const bindingViews = new Map<string, SourceStorageBindings>();
   const bindingRows = budget.createRows();
   const frontierBoundaries = new WeakMap<readonly SourceStorageSubject[], ReadonlySet<SourceStorageSubject>>();
@@ -74,7 +74,7 @@ export function createSourceStorageQuery(
       return unresolved(budget.failure() ?? "Source storage ancestry has no exact bounded selection.");
     return Object.freeze({ kind: "resolved", subjects: Object.freeze([...subjects]) });
   };
-  const bindingView = (states: Iterable<SourceStorageSubstitutions>): SourceStorageBindings | undefined => {
+  const bindingView = (states: Iterable<SourceStorageScope>): SourceStorageBindings | undefined => {
     const selected = [...new Set(states)].map(state => ({ state, identity: transport.substitutions.identityFor(state) }));
     if (selected.length === 0 || selected.some(value => value.identity === undefined)) return undefined;
     selected.sort((left, right) => left.identity! - right.identity!);
@@ -95,7 +95,7 @@ export function createSourceStorageQuery(
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     if (!checkedDeclaration(declaration))
       return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
-    const selected: SourceStorageSubstitutions[] = [];
+    const selected: SourceStorageScope[] = [];
     for (const state of states) {
       const binding = transport.substitutions.forDeclaration(declaration, state);
       if (binding === undefined) return unresolved(budget.failure() ?? "Declaration substitution has no bounded context.");
@@ -197,7 +197,7 @@ export function createSourceStorageQuery(
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     const boundaries: SourceStorageDomainBoundary[] = [];
-    const producerStates = new Map<SourceStorageSubject, Set<SourceStorageSubstitutions>>();
+    const producerStates = new Map<SourceStorageSubject, Set<SourceStorageScope>>();
     let absence = false;
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
@@ -207,7 +207,7 @@ export function createSourceStorageQuery(
       for (const origin of selected.subjects) { if (!budget.step()) return unresolved(budget.failure()!); subjects.add(origin); }
       if (purpose === "storage-producers") for (const origin of selected.boundSubjects) {
         if (!budget.step()) return unresolved(budget.failure()!);
-        const states = producerStates.get(origin.subject) ?? new Set<SourceStorageSubstitutions>();
+        const states = producerStates.get(origin.subject) ?? new Set<SourceStorageScope>();
         states.add(origin.bindings);
         producerStates.set(origin.subject, states);
       }
@@ -404,7 +404,7 @@ export function createSourceStorageQuery(
         if (reason !== undefined) return unresolved(reason);
         if (captureStates?.length !== 1) return unresolved("An exact invocation capture requires one owned producer activation.");
       }
-      const selected = new Set<SourceStorageSubstitutions>();
+      const selected = new Set<SourceStorageScope>();
       const captured = capture === undefined ? undefined : { subject: capture.subject, bindings: captureStates![0]! };
       for (const state of states) for (const binding of transport.invocationResults.forInvocation(candidate, invocation, state, captured)) {
         if (!budget.step()) return unresolved(budget.failure()!);
@@ -449,7 +449,7 @@ export function createSourceStorageQuery(
         if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
         if (!checkedDeclaration(declaration)) return unresolved(budget.failure() ?? "An activation requires its exact checked declaration.");
         const activations: SourceStorageBoundActivation[] = [];
-        const seen = new Set<SourceStorageSubstitutions>();
+        const seen = new Set<SourceStorageScope>();
         for (const state of states) {
           if (!budget.step()) return unresolved(budget.failure()!);
           const selected = transport.substitutions.boundActivation(state, declaration);
@@ -512,7 +512,7 @@ export function createSourceStorageQuery(
           states[0]!, callable ? "callable" : "generator-result");
         if (selected === undefined || selected.reason !== undefined)
           return unresolved(selected?.reason ?? budget.failure() ?? "Source callback execution has no completed correlated activation selection.");
-        const seen = new Set<SourceStorageSubstitutions>();
+        const seen = new Set<SourceStorageScope>();
         const producers: SourceStorageProducer[] = [];
         const type = sourceStorageSubjectType(source, subject, transport.sourceFileFor(subject));
         const sourceFile = transport.sourceFileFor(subject);
