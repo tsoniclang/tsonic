@@ -13,7 +13,7 @@ import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";
-import type { SourceStorageBoundSubject } from "./substitutions.js";
+import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { createSourceStoragePhysicalMembers } from "./member-selection.js";
 
 export interface SourceStorageChildContext {
@@ -45,7 +45,7 @@ export interface SourceStorageMemberSuccessorContext {
   creatorScope(node: Node, scope: SourceStorageScope): SourceStorageScope;
   passiveMember(declaration: Node): boolean;
   regionsFor(candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
-    construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageBoundSubject[] },
+    construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageScopedSubject[] },
     deferred?: boolean): readonly SourceStorageTerm[] | undefined;
   application(invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
     projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm;
@@ -204,7 +204,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       return { kind: "project", inputs, select: value => value.kind !== "empty" || value.absence === undefined ? [value]
         : [Object.freeze({ ...term, selection: Object.freeze({ ...selection, before: contribution.evaluation }) })] };
     }
-    const originals: SourceStorageBoundSubject[] = [];
+    const originals: SourceStorageScopedSubject[] = [];
     const terms: SourceStorageTerm[] = [];
     for (const { target, read } of selections ?? []) {
       if (!budget.step()) return undefined;
