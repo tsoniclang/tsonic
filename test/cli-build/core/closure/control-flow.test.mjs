@@ -61,7 +61,7 @@ test("CLI runs switch and loop statements through structured C# AST", async () =
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /switch \(value\)/);
-  assert.match(generatedSource, /goto case 1;/);
+  assert.match(generatedSource, /goto case 1D;/);
   assert.match(generatedSource, /\{\s*double index = 0;\s*for \(; index < 3; index = index \+ 1\)/);
   assert.match(generatedSource, /while \(global::Smoke\.Generated\.Index\.total < 5\)/);
   assert.match(generatedSource, /do\s+\{/);

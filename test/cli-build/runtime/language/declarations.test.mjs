@@ -1,4 +1,4 @@
-import { assert, cliPath, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI runs generated C# executable for module constants and variable declarations", async () => {
   const assemblyName = "SmokeGeneratedE2EVariables";
@@ -297,7 +297,7 @@ test("CLI runs generated C# executable for functions, switches, and nested scope
   ].join("\n"));
 });
 
-test("CLI runs generated C# executable preserving shadowed lexical bindings", async () => {
+test("CLI refuses native local-space collisions and preserves valid callable shadowing", async () => {
   const assemblyName = "SmokeGeneratedE2EShadowing";
   const projectDirectory = resolve(tempRoot, "e2e-shadowing");
   await writeProject(projectDirectory, {
@@ -334,9 +334,33 @@ test("CLI runs generated C# executable preserving shadowed lexical bindings", as
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
-    "Shadowed: 20",
+  assert.equal(build.status, 1, "the unchanged inner x declaration is not a native C# local declaration space");
+  assert.match(build.stderr, /CSHARP_INVALID_IDENTIFIER[\s\S]*Authored binding 'x' conflicts with an enclosing C# local declaration space \(CS0136\); its spelling cannot be changed\./u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false, "the collision is refused before source publication");
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false, "no invalid native project is published");
+
+  const validDirectory = resolve(tempRoot, "e2e-callable-shadowing");
+  const validAssembly = "SmokeGeneratedE2ECallableShadowing";
+  await writeProject(validDirectory, {
+    "tsonic.json": JSON.stringify({ entryPoint: "index.ts", rootDir: "src", outDir: "out",
+      targets: [{ id: "csharp", options: { namespace: "Smoke.Generated", assemblyName: validAssembly, outputType: "Exe" } }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "function shadowInFunction(): number {",
+      "  const value = 5;",
+      "  const inner = (): number => {",
+      "    const value = 10;",
+      "    return value;",
+      "  };",
+      "  return value + inner();",
+      "}",
+      "Console.WriteLine(`Shadow in function: ${shadowInFunction()}`);",
+    ].join("\n"),
+  });
+  const valid = runNode([cliPath, "build", "--project", resolve(validDirectory, "tsonic.json")]);
+  assert.equal(valid.status, 0, valid.stdout + valid.stderr);
+  assert.equal(runGeneratedProject(validDirectory, validAssembly), [
     "Shadow in function: 15",
     "",
   ].join("\n"));
