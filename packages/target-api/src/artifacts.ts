@@ -1,5 +1,5 @@
 import type { ExtensionDiagnostic, Node } from "@tsonic/tsts";
-import { formatDiagnosticEvidenceDetails } from "./diagnostic-evidence.js";
+import { formatDiagnosticEvidenceDetails } from "./target-artifacts/diagnostic-evidence.js";
 
 export type TargetArtifactKind =
   | "source"

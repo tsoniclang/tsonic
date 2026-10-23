@@ -1,4 +1,3 @@
-export { formatDiagnosticEvidenceDetails } from "../diagnostic-evidence.js";
 export type {
   TargetArtifact,
   TargetArtifactKind,
@@ -23,6 +22,7 @@ export {
 } from "../artifacts.js";
 export {
   createTargetArtifactContractGraph,
+  formatDiagnosticEvidenceDetails,
   reconstructTargetArtifacts,
 } from "../target-artifacts/index.js";
 export type {

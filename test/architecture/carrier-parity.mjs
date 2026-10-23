@@ -122,6 +122,8 @@ export const carrierParityDifferences = Object.freeze([
     register: "S11-03", reason: "The opposite native slice input is &'a [T] and must preserve its Rust borrow lifetime. System.Collections.Generic.IReadOnlyList<T> is a CLR interface reference with no Rust lifetime type parameter; this does not mandate selecting that interface for every source collection." },
   { responsibility: "vocabulary/read-only-sequence", target: "rust", symbol: "rustSliceRefTargetType",
     register: "S11-03", reason: "Rust &'a [T] is a shared borrow of an unsized slice, with a native lifetime and non-null reference. A CLR IReadOnlyList<T> interface reference does not carry that Rust borrow type or lifetime." },
+  { responsibility: "vocabulary/runtime-task-scope-target-type", target: "rust", symbol: "rustRuntimeTaskScopeTargetType",
+    register: "S11-06", reason: "Rust's aggregate Future retains its selected runtime TaskScope<E> because an unpolled native Future does not run. CLR Tasks execute under their native runtime and keep explicit discard without a fabricated aggregate drain scope; no CLR carrier is required for this Rust runtime owner." },
   { responsibility: "vocabulary/string", target: "rust", symbol: "rustBorrowedStrTargetType",
     register: "S11-03", reason: "Rust &'a str is a non-null borrow whose native type carries 'a; the opposite CLR string reference has no Rust borrow-lifetime parameter. The constructor must preserve the actual reference qualifier and lifetime." },
   { responsibility: "vocabulary/string", target: "rust", symbol: "rustStrTargetType",

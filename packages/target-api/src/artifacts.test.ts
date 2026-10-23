@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type ExtensionDiagnostic } from "@tsonic/tsts";
 import { targetDiagnosticFromExtension } from "./artifacts.js";
-import { formatDiagnosticEvidenceDetails } from "./diagnostic-evidence.js";
+import { formatDiagnosticEvidenceDetails } from "./target-artifacts/diagnostic-evidence.js";
 
 const selected: ExtensionDiagnostic = {
   extensionId: "native-owner", extensionCode: "EXACT", numericCode: 9101002,
