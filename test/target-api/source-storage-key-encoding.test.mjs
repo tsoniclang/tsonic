@@ -58,10 +58,21 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
       return identities.get(value);
     } };
   const owner = { parameters: [...parameters] };
+  const file = {};
+  const signature = { parameters: owner.parameters.map(declaration => ({ declaration })) };
+  const semantics = { declarations: {
+    declarationSignature: declaration => declaration === owner ? signature : undefined,
+    signatureParameters: selected => selected.parameters,
+    primarySymbolDeclaration: symbol => symbol.declaration,
+  } };
   const source = { ast: { parent: node => parameters.has(node) ? owner : undefined,
-    parameters: node => node === owner ? owner.parameters : [],
+    getSourceFile: node => node === owner || parameters.has(node) ? file : undefined,
     is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
-    as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } } };
+    as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } },
+    semantics: { includes: selected => selected === file, forFile: selected => {
+      assert.equal(selected === file, true, "the key DAG retains its exact checked callable file");
+      return semantics;
+    } } };
   const keys = createSourceStorageScopedKeys(source, current, {
     contextualInputs: () => new Set(),
     bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),

@@ -37,7 +37,6 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     if (!construction) {
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
-      const declarations = transport.memberFlow.declarationsFor(selectedView, target, receiverType);
       // The correspondence of a union receiver is the one of the union member that declares the target.
       const declaring = (): Type => {
         const { types, declarations: selected } = semantics.forNode(selectedView.node);
@@ -46,15 +45,17 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
             .some(symbol => selected.symbolDeclarations(symbol).includes(target)))) : [];
         return members.length === 1 ? members[0]! : receiverType;
       };
-      const correspondence = symbolic || declarations === undefined
-        ? transport.memberFlow.membersFor(selectedView, declaring()) : undefined;
-      if (declarations === undefined) {
-        if (correspondence?.some(member => member.kind === "absent" && member.destination.declarations.includes(target)) !== true)
-          return unresolved("Source storage members require exact checked correspondence.");
+      const declared = declaring();
+      if (transport.memberFlow.excludes(selectedView, declared)) return { kind: "known", members: Object.freeze([]), absent: false };
+      const correspondence = transport.memberFlow.memberFor(selectedView, target, declared);
+      if (correspondence === undefined) return unresolved("Source storage members require exact checked correspondence.");
+      if (correspondence.kind === "absent") {
+        if (!correspondence.destination.property.optional) return unresolved("Source storage members require exact checked correspondence.");
         const subject = sourceStorageMemberSubject(target, ast, transport.subject);
         const written = subject !== undefined && (transport.storedValuesFor(subject)?.length ?? 0) !== 0;
         return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []), absent: true };
       }
+      const declarations = correspondence.source.declarations;
       const members: SourceStorageScopedSubject[] = [];
       for (const declaration of declarations) {
         if (!budget.step()) return undefined;
@@ -65,10 +66,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       }
       if (declarations.length > 0 && members.length === 0)
         return unresolved("Source storage correspondence does not provide the actual checked member operation mode.");
-      if (symbolic && correspondence === undefined)
-        return unresolved("Source storage members require exact checked correspondence.");
-      const optional = correspondence?.some(member => member.kind === "present" &&
-        member.destination.declarations.includes(target) && member.source.property.optional) === true;
+      const optional = correspondence.source.property.optional;
       return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
     }
     const owner = sourceMemberOwner(ast, target);
@@ -97,46 +95,25 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
           reason ??= "Source storage members require exact checked correspondence.";
           continue;
         }
-        let found = false;
-        let knownAbsent = false;
-        let unknown = false;
-        let excluded = 0;
-        for (const captured of lineage.classes) {
-          if (!budget.step()) return undefined;
-          const instance = transport.subject(captured.subject.node, "receiver");
-          const declarations = instance === undefined ? undefined : transport.memberFlow.declarationsFor(instance, target, contract);
-          if (declarations === undefined && instance !== undefined && transport.memberFlow.excludes(instance, contract)) { excluded++; continue; }
-          if (declarations === undefined) { unknown = true; continue; }
-          knownAbsent ||= declarations.length === 0;
-          const physical = declarations.filter(member => !ast.hasModifierKind(member, "static") &&
-            sourceMemberOwner(ast, member) === captured.subject.node);
-          if (physical.length === 0) continue;
-          if (unknown) { reason ??= "Source storage members require exact checked correspondence."; break; }
-          if (!physical.some(admits)) {
-            reason ??= "A physical source member does not provide the actual checked member operation mode.";
-            unknown = true;
-            break;
-          }
-          for (const member of physical) {
-            if (!budget.step()) return undefined;
-            if (!admits(member)) continue;
-            const subject = sourceStorageMemberSubject(member, ast, transport.subject);
-            if (subject === undefined) return undefined;
-            if (!members.some(previous => previous.subject === subject && previous.bindings === captured.bindings))
-              members.push(Object.freeze({ subject, bindings: captured.bindings }));
-          }
-          found = true;
-          break;
-        }
-        // A complete class lineage that is no structural instance of the target's contract never reaches the target: the
-        // receiver's other union members select its own declarations.
-        if (!found && !unknown && excluded === lineage.classes.length) { completed = true; continue; }
-        if (!found && (unknown || !knownAbsent)) {
+        const selected = transport.memberFlow.membersInLineage(lineage, target, contract);
+        if (selected === undefined) {
           reason ??= "Source storage members require exact checked correspondence.";
           continue;
         }
+        if (selected.members.length !== 0 && !selected.members.some(member => admits(member.declaration))) {
+          reason ??= "A physical source member does not provide the actual checked member operation mode.";
+          continue;
+        }
+        for (const member of selected.members) {
+          if (!budget.step()) return undefined;
+          if (!admits(member.declaration)) continue;
+          const subject = sourceStorageMemberSubject(member.declaration, ast, transport.subject);
+          if (subject === undefined) return undefined;
+          if (!members.some(previous => previous.subject === subject && previous.bindings === member.bindings))
+            members.push(Object.freeze({ subject, bindings: member.bindings }));
+        }
         completed = true;
-        absent ||= !found;
+        absent ||= selected.absent;
       }
     }
     return completed || reason !== undefined ? { kind: "known", members: Object.freeze(members), absent, reason } : { kind: "pending" };

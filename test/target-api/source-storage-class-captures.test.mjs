@@ -35,8 +35,9 @@ test("an external class factory does not acquire a checked local class activatio
   `);
   const subject = current.storage.subjectFor(current.initializer("result"));
   assert.equal(subject.kind === "resolved", true, "checked external member subject");
-  assert.equal(current.storage.closedOriginsFor(subject.subject).kind === "unresolved", true,
-    "an external constructor never invents local capture or parameter correspondence");
+  const origins = current.storage.closedOriginsFor(subject.subject);
+  assert.equal(origins.kind === "unresolved", true,
+    `an external constructor never invents local capture or parameter correspondence (${origins.kind})`);
 });
 
 for (const indirect of [false, true]) for (const reverse of [false, true]) {

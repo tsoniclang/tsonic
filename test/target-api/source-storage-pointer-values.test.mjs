@@ -146,7 +146,8 @@ test("addressed external backing does not manufacture an original callable", () 
       const result = loadptr(addressof(backing.value));
     }
   `);
-  assert.equal(current.query("result").kind === "unresolved", true, "unknown backing values retain their external witness");
+  const selected = current.query("result");
+  assert.equal(selected.kind === "unresolved", true, `unknown backing values retain their external witness (${selected.kind})`);
 });
 
 test("a projected pointer with an opaque conversion stays open", () => {

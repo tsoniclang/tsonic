@@ -40,13 +40,24 @@ export type SourceStructuralMemberCorrespondence =
         | "disjoint-shape";
     };
 
-export function createSourceStructuralMemberQuery(
+export function createSourceStructuralMemberQueries(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
-): (source: Type, destination: Type) => SourceStructuralMemberCorrespondence {
-  const cache = new WeakMap<Type, WeakMap<Type, SourceStructuralMemberCorrespondence>>();
-  const unresolved = (type: Type): boolean => {
+): {
+  readonly structuralMembers: (source: Type, destination: Type) => SourceStructuralMemberCorrespondence;
+  readonly structuralMember: (source: Type, destination: Type, selectedDeclaration: Node) => SourceStructuralMemberPair | undefined;
+} {
+  type MemberIndex = {
+    readonly correspondence: SourceStructuralMemberCorrespondence;
+    readonly members: readonly SourceStructuralMemberPair[];
+  };
+  const cache = new WeakMap<Type, WeakMap<Type, MemberIndex>>();
+  const unresolved = (type: Type, allowUnion = false): boolean => {
+    if (allowUnion && types.isUnion(type)) {
+      const members = types.getUnionOrIntersectionTypes(type);
+      return members.length === 0 || members.some(member => member === undefined || unresolved(member, true));
+    }
     const shape = types.isUnion(type) ? types.getApparentType(type) : type;
     return shape === undefined || types.isAny(shape) || types.isUnknown(shape) || types.isNever(shape) ||
       types.isNullish(shape) || types.isVoidLike(shape) || types.isUnion(shape);
@@ -82,72 +93,77 @@ export function createSourceStructuralMemberQuery(
       components: Object.freeze([...info.components]),
     }))),
   });
-  const select = (source: Type, destination: Type): SourceStructuralMemberCorrespondence => {
-    if (types.isNullish(source) && !unresolved(destination) || types.isNullish(destination) && !unresolved(source)) {
-      return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
+  const matchMember = (source: Type, actual: ReadonlyMap<Symbol, TypePropertyInfo>, property: TypePropertyInfo):
+    SourceStructuralMemberPair | Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }> => {
+    const name = checker.getSymbolName(property.symbol);
+    const selected = checker.getPropertyOfType(source, name);
+    const destinationMember = describe(property);
+    if (selected === undefined) {
+      if (types.isUnion(source) && types.getUnionOrIntersectionTypes(source).some(member =>
+        member === undefined || checker.getPropertyOfType(member, name) !== undefined))
+        return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+      return Object.freeze({ kind: "absent", destination: destinationMember });
     }
-    if (unresolved(source) || unresolved(destination)) {
-      return Object.freeze({ kind: "unavailable", reason: "unresolved-shape" });
+    const sourceProperty = actual.get(selected);
+    if (sourceProperty === undefined) return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+    if (!property.optional && !sourceProperty.optional) {
+      const left = sourceProperty.type;
+      const right = property.type;
+      for (const literal of [types.getStringLiteralTypeValue, types.getNumericLiteralTypeValue, types.getBooleanLiteralTypeValue]) {
+        const from = literal(left);
+        const to = literal(right);
+        if (from !== undefined && to !== undefined && typeof from === typeof to && from !== to)
+          return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
+      }
     }
+    const sourceMember = describe(sourceProperty);
+    return sourceMember.read === "unavailable" ? Object.freeze({ kind: "unavailable", reason: "unreadable-member" })
+      : Object.freeze({ kind: "present", destination: destinationMember, source: sourceMember });
+  };
+  const select = (source: Type, destination: Type): MemberIndex => {
+    let refusal: Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }> | undefined;
+    if (types.isNullish(source) && !unresolved(destination) || types.isNullish(destination) && !unresolved(source))
+      refusal = Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
+    else if (unresolved(source) || unresolved(destination))
+      refusal = Object.freeze({ kind: "unavailable", reason: "unresolved-shape" });
+    if (unresolved(source, true) || unresolved(destination, true)) return Object.freeze({
+      correspondence: refusal ?? Object.freeze({ kind: "unavailable", reason: "unresolved-shape" }), members: Object.freeze([]),
+    });
     const actual = new Map<Symbol, TypePropertyInfo>();
     for (const property of types.getPropertyInfos(source)) {
-      if (actual.has(property.symbol)) {
-        return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
-      }
+      if (actual.has(property.symbol)) return Object.freeze({
+        correspondence: refusal ?? Object.freeze({ kind: "unavailable", reason: "inconsistent-member" }), members: Object.freeze([]),
+      });
       actual.set(property.symbol, property);
     }
     const members: SourceStructuralMemberPair[] = [];
     const seen = new Set<Symbol>();
     let missingRequired = false;
+    let ambiguous = false;
+    let disjoint = false;
     for (const property of types.getPropertyInfos(destination)) {
       if (seen.has(property.symbol)) {
-        return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
-      }
-      seen.add(property.symbol);
-      const selected = checker.getPropertyOfType(source, checker.getSymbolName(property.symbol));
-      const destinationMember = describe(property);
-      if (selected === undefined) {
-        if (!property.optional) {
-          missingRequired = true;
-          continue;
-        }
-        members.push(Object.freeze({ kind: "absent", destination: destinationMember }));
+        refusal ??= Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+        ambiguous = true;
         continue;
       }
-      const sourceProperty = actual.get(selected);
-      if (sourceProperty === undefined) {
-        return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+      seen.add(property.symbol);
+      const member = matchMember(source, actual, property);
+      if (member.kind === "unavailable") {
+        disjoint ||= member.reason === "disjoint-shape";
+        refusal ??= member;
+      } else {
+        if (member.kind === "absent" && !property.optional) missingRequired = true;
+        members.push(member);
       }
-      if (!property.optional && !sourceProperty.optional) {
-        const left = sourceProperty.type;
-        const right = property.type;
-        for (const literal of [types.getStringLiteralTypeValue, types.getNumericLiteralTypeValue, types.getBooleanLiteralTypeValue]) {
-          const from = literal(left);
-          const to = literal(right);
-          if (from !== undefined && to !== undefined && typeof from === typeof to && from !== to) {
-            return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
-          }
-        }
-      }
-      const sourceMember = describe(sourceProperty);
-      if (sourceMember.read === "unavailable") {
-        return Object.freeze({ kind: "unavailable", reason: "unreadable-member" });
-      }
-      members.push(Object.freeze({
-        kind: "present",
-        destination: destinationMember,
-        source: sourceMember,
-      }));
     }
-    if (missingRequired) return Object.freeze({ kind: "unavailable", reason: "missing-required-member" });
-    return Object.freeze({
-      kind: "available",
-      source: inventory(source),
-      destination: inventory(destination),
-      members: Object.freeze(members),
-    });
+    if (missingRequired) refusal ??= Object.freeze({ kind: "unavailable", reason: "missing-required-member" });
+    const selected = Object.freeze(members);
+    const correspondence: SourceStructuralMemberCorrespondence = refusal ?? Object.freeze({ kind: "available",
+      source: inventory(source), destination: inventory(destination), members: selected });
+    return Object.freeze({ correspondence, members: ambiguous || disjoint ? Object.freeze([]) : selected });
   };
-  return (source, destination) => {
+  const indexFor = (source: Type, destination: Type): MemberIndex => {
     let destinations = cache.get(source);
     if (destinations === undefined) {
       destinations = new WeakMap();
@@ -160,4 +176,17 @@ export function createSourceStructuralMemberQuery(
     }
     return result;
   };
+  return Object.freeze({
+    structuralMembers: (source: Type, destination: Type): SourceStructuralMemberCorrespondence => indexFor(source, destination).correspondence,
+    structuralMember(source: Type, destination: Type, selectedDeclaration: Node): SourceStructuralMemberPair | undefined {
+      let selected: SourceStructuralMemberPair | undefined;
+      for (const member of indexFor(source, destination).members) {
+        if (!member.destination.declarations.includes(selectedDeclaration)) continue;
+        if (member.kind === "present" && member.source.declarations.length === 0) return undefined;
+        if (selected !== undefined) return undefined;
+        selected = member;
+      }
+      return selected;
+    },
+  });
 }

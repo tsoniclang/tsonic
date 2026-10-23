@@ -297,7 +297,11 @@ test("deferred callback lifetime follows the receiving input rather than the par
     }
     start(pending);
   `);
-  const parameter = current.source.ast.parameters(current.declaration("later"))[1];
+  const owner = current.declaration("later");
+  const parameters = sourceCallableValueParameters(current.source.ast, owner, current.source.semantics.forNode(owner),
+    { kind: "declaration" });
+  assert.equal(parameters?.length === 2, true, "the checked receiving signature has its two actual value parameters");
+  const parameter = parameters[1];
   const binding = current.storage.subjectFor(parameter);
   const input = current.storage.subject(parameter, "input");
   assert.equal(binding.kind === "resolved" && binding.subject.kind === "value", true,
@@ -307,6 +311,17 @@ test("deferred callback lifetime follows the receiving input rather than the par
   const selected = current.retention("child");
   assert.equal(selected.kind === "resolved" && selected.retention === "retained", true,
     "a discarded receiving future cannot be hidden by looking for an input owner on the binding-value subject");
-  assert.equal(selected.witnesses.some(node => current.source.ast.is.IsCallExpression(node) &&
-    current.source.ast.text(node) === "later(ready, child)"), true, "the actual original receiving call owns the escape");
+  const { ast } = current.source;
+  const receiving = current.storage.nodes.filter(node => {
+    if (!ast.is.IsCallExpression(node)) return false;
+    const expression = ast.as.AsCallExpression(node).Expression;
+    if (!ast.is.IsIdentifier(expression) || ast.text(expression) !== "later") return false;
+    const call = current.source.semantics.forNode(node).operations.call(node);
+    return call !== undefined && call.sourceArguments.length === 2 &&
+      call.sourceArguments.every((argument, index) => ast.is.IsIdentifier(argument.expression) &&
+        ast.text(argument.expression) === ["ready", "child"][index]);
+  });
+  assert.equal(receiving.length, 1, "the fixture has one exact checked later(ready, child) invocation");
+  assert.equal(selected.witnesses.some(node => node === receiving[0]), true,
+    "the actual original receiving call owns the escape");
 });

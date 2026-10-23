@@ -913,7 +913,10 @@ test("abstract external receivers remain open while selected concrete overrides 
     "a genuinely unknown receiver does not certify any observed concrete override");
   const selectedAlias = unknown.storage.storageProducersFor(unknown.subject(unknown.variable("alias")));
   assert.equal(selectedAlias.kind === "open" && selectedAlias.boundaries.length === 1 &&
-    selectedAlias.boundaries[0].kind === "external-input", true, "unknown alias stays open for its exact external-input reason");
+    selectedAlias.boundaries[0].kind === "external-input", true,
+    "unknown alias stays open for its exact external-input reason; " + JSON.stringify({ kind: selectedAlias.kind,
+      reason: selectedAlias.reason, boundaryCount: selectedAlias.boundaries?.length,
+      boundaryKinds: selectedAlias.boundaries?.slice(0, 8).map(boundary => boundary.kind) }));
   assert.equal(unknown.storage.failureReason() === undefined, true,
     "an admitted open external input is not a transport refusal");
 });

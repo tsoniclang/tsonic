@@ -38,8 +38,10 @@ test("a native pending contract retains exact operation, instantiated operand an
 
 test("missing native pending facts do not become an empty or non-suspending answer", () => {
   for (const name of ["read", "unknownPending"]) {
-    const selected = query({ suspensionFor: () => undefined }).forAwait(fixture.awaitNode(fixture.declaration(name)),
-      fixture.storage.emptyBindings);
+    const operation = fixture.awaitNode(fixture.declaration(name));
+    const context = fixture.storage.bindingsForLexicalOwner(operation);
+    assert.equal(context.kind === "resolved", true, `${name}: the checked declaration context preserves its input`);
+    const selected = query({ suspensionFor: () => undefined }).forAwait(operation, context.bindings);
     assert.equal(selected.kind, "unresolved");
     assert.match(selected.reason, /possibly-pending|non-suspending/u);
   }

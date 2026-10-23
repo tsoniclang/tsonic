@@ -8,7 +8,8 @@ export function createSourceStorageStructuralFlow(
   source: TargetSourceProgram,
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
-  connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
+  connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,
+    types?: { readonly from: Type; readonly to: Type }) => void,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ): (origin: SourceStorageSubject, destination: SourceStorageSubject) => void {
@@ -61,10 +62,10 @@ export function createSourceStorageStructuralFlow(
           for (const target of member.destination.declarations) {
             if (!step() || !retainCheckedContext(target, semantics.sourceFile)) break;
             const destination = sourceStorageMemberSubject(target, source.ast, subject);
-            connect(origin, destination);
-            if (origin !== undefined && destination !== undefined && member.source.property.type !== undefined &&
-              member.destination.property.type !== undefined) pending.push({
-                from: member.source.property.type, to: member.destination.property.type, semantics });
+            const types = member.source.property.type === undefined || member.destination.property.type === undefined ? undefined
+              : { from: member.source.property.type, to: member.destination.property.type };
+            connect(origin, destination, types);
+            if (origin !== undefined && destination !== undefined && types !== undefined) pending.push({ ...types, semantics });
           }
         }
       }

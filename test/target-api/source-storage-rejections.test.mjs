@@ -33,7 +33,9 @@ function fixture(body) {
   };
   const expectOriginal = (name, original) => {
     const selected = query(name);
-    assert.equal(selected.kind === "complete", true, `${name}: ${selected.reason ?? selected.kind}`);
+    assert.equal(selected.kind === "complete", true,
+      `${name}: ${selected.reason ?? selected.kind}; boundaries=${selected.kind === "open"
+        ? selected.boundaries.slice(0, 8).map(boundary => boundary.kind).join(",") : "none"}`);
     assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === initializer(original), true,
       `${name}: original rejection object identity`);
     assert.equal(storage.failureReason() === undefined, true, "finite source graph remains valid");
@@ -126,7 +128,9 @@ test("one handler in fulfillment and rejection slots retains the unproved fulfil
     function handler(caught: unknown): void { const result = caught; }
     pending.then(handler, handler);
   `);
-  assert.equal(current.query("result").kind === "unresolved", true, "a mapped reaction never hides an unmapped sibling entry");
+  const selected = current.query("result");
+  assert.equal(selected.kind === "unresolved", true,
+    `a mapped reaction never hides an unmapped sibling entry (${selected.kind})`);
 });
 
 test("distinct Promise constructions retain distinct rejection channels", () => {
