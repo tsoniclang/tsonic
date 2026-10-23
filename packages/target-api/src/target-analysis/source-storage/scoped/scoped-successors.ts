@@ -148,8 +148,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const { member, symbolicProjection } = createSourceStorageMemberSuccessors({ source, budget, transport, scopes, reachability,
     birth, readRelation, readEffects, leaf, creatorScope, passiveMember, regionsFor, application, classLineages,
-    pointerWrites: (destination, store, projection, type, invocation, scope) =>
-      pointerValues.writes(destination, store, projection, type, invocation, scope),
+    pointerWrites: (destination, store, projection, invocation, scope) =>
+      pointerValues.writes(destination, store, projection, invocation, scope),
     materializeChild: (child, select, independentCallee) => materializeChild(child, select, independentCallee),
     replaceChild: (child, replace, childContext) => replaceChild(child, replace, childContext) });
   const materializeChild = (child: SourceStorageTerm,
@@ -166,10 +166,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return select(value);
     } });
   const pointerValues = createSourceStoragePointerValues(source, budget, transport, {
-    materializeChild, readEffects, read: readRelation, scopes, deferred: scopes.isDeferred, creatorScope,
+    readEffects, read: readRelation, deferred: scopes.isDeferred, creatorScope,
   });
   const rejections = createSourceStorageScopedRejections(source, budget, transport, scopes, reachability, {
-    application,
+    application, read: readRelation,
     pointerThrows: (invocation, scope) => pointerValues.execution(invocation, scope, invocation, scopes.isDeferred(scope), "throw"),
   });
   const replaceChild = (child: SourceStorageTerm,
@@ -349,10 +349,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
       return value === undefined ? undefined : { kind: "replace", terms: [value] };
     }
+    if (term.kind === "pointer") return pointerValues.operation(term);
     if (term.kind === "member") return member(term, correlated);
     if (term.kind === "application") {
       const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
-      const dependencies = resumes || term.activation.kind === "entered" ? [] : dispatchDependencies(term.invocation, term.scope);
+      const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
         const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), {
           independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
@@ -360,6 +361,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
       }
       const node = term.callee.subject.node;
+      if (term.activation.kind === "provided") {
+        const selected = navigation.callableImplementation(node);
+        if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined)
+          return { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject: term.callee.subject,
+            scope: term.callee.scope, reason: "A native pointer accessor requires its original checked source implementation." })] };
+        return scopes.enterApplication(term, selected.implementation.declaration, term.callee);
+      }
       if (resumes) {
         if (term.mode !== "execution") return undefined;
         const terms: SourceStorageTerm[] = [];
@@ -594,9 +602,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (!budget.step()) return undefined;
         if (store.reason !== undefined) continue;
         if (store.destination === "pointer") {
-          const type = sourceStorageSubjectType(source, term.subject);
-          const written = type === undefined ? undefined : pointerValues.writes(leaf(term.subject,
-            creatorScope(term.subject.node, term.scope)), store, [], type, term.subject.node, term.scope);
+          const written = pointerValues.writes(leaf(term.subject,
+            creatorScope(term.subject.node, term.scope)), store, [], term.subject.node, term.scope);
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }

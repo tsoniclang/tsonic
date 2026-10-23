@@ -211,6 +211,15 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
               selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
+      if (selected.kind === "pointer") {
+        const pointer = encodeTerm(selected.pointer);
+        const input = selected.input === undefined ? null : encodeTerm(selected.input);
+        const activation = activationKey(selected.scope);
+        return pointer === undefined || input === undefined || activation === undefined ? undefined
+          : [selected.kind, selected.mode, scopes.identity(selected.invocation), pointer, input, activation,
+            selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
+            encodeProjection(selected.projection)];
+      }
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;
         const callee = encodeBinding(selected.callee);
@@ -237,7 +246,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           arguments_.push(encoded);
         }
         const callback = selected.callback === undefined ? null : scopes.callbackKey(selected.callback);
-        const entered = selected.activation.kind === "invoke" ? null : scopes.identity(selected.activation.scope);
+        const provided = selected.activation.kind === "provided" ? selected.activation.argument === undefined ? null
+          : encodeTerm(selected.activation.argument) : null;
+        if (provided === undefined) return undefined;
+        const entered: Encoded = selected.activation.kind === "entered" ? ["entered", scopes.identity(selected.activation.scope)]
+          : selected.activation.kind === "provided" ? ["provided", provided] : ["invoke"];
         if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), callback, activation, callee, receiver, arguments_, entered];
         return [selected.kind, selected.mode, selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
           scopes.identity(selected.invocation), callback, activation, callee, receiver,

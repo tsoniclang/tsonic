@@ -12,7 +12,7 @@ import type { SourceStorageScopedTransport } from "../scoped/scoped-transport.js
 import type { SourceStorageScopes } from "../scoped/scoped-scopes.js";
 import type { SourceStorageOperation, SourceStorageReduction, SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import { sourceStorageExecutionDemands, type createSourceStorageExecutionReachability } from "../scoped/execution-reachability.js";
+import { sourceStorageExecutionDemands, walkSourceStorageExecution, type createSourceStorageExecutionReachability } from "../scoped/execution-reachability.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -259,6 +259,7 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
 export function createSourceStorageScopedRejections(source: TargetSourceProgram, budget: SourceStorageBudget, transport: SourceStorageScopedTransport,
   scopes: SourceStorageScopes, reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   queries: {
+    read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
     pointerThrows(invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
     application(invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
       projection: SourceStorageSubject["projection"], operation: SourceStorageOperation): SourceStorageTerm;
@@ -330,17 +331,21 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
     }
     const sites = caughtSites.get(reference.subject.node);
     if (sites === undefined) return undefined;
-    const demands: SourceStorageTerm[] = [];
+    const terms: SourceStorageTerm[] = [...transport.incomingFor(reference.subject)]
+      .map(subject => sourceStorageReference(subject, reference.scope));
     for (const invocation of sites) {
       const roots = sourceStorageExecutionDemands(transport, scopes, budget, invocation, reference.scope, scopes.isDeferred(reference.scope));
       if (roots === undefined) return undefined;
-      demands.push(...roots);
+      for (const value of walkSourceStorageExecution(budget, roots, queries.read)) {
+        if (!budget.step()) return undefined;
+        if (value.kind === "unresolved") terms.push(value);
+        if (value.kind !== "leaf" || value.subject.node !== invocation) continue;
+        const thrown = invocationThrows(invocation, value.scope);
+        if (thrown === undefined) return undefined;
+        terms.push(...thrown);
+      }
     }
-    const inputs = [...transport.incomingFor(reference.subject)].map(subject => sourceStorageReference(subject, reference.scope));
-    return { kind: "project", inputs: [...inputs, ...demands], select: value => {
-      if (value.kind === "empty") return [];
-      return sites.includes(value.subject.node) ? invocationThrows(value.subject.node, value.scope) : [value];
-    } };
+    return budget.failure() === undefined ? { kind: "replace", terms } : undefined;
   };
   return Object.freeze({ caught, callableThrows });
 }

@@ -85,9 +85,13 @@ export type SourceStorageTerm =
   | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
-      readonly activation: { readonly kind: "invoke" } | { readonly kind: "entered"; readonly scope: SourceStorageScope;
+      readonly activation: { readonly kind: "invoke" } | { readonly kind: "provided"; readonly argument: SourceStorageTerm | undefined }
+        | { readonly kind: "entered"; readonly scope: SourceStorageScope;
         readonly actualTypes: readonly (readonly Type[] | undefined)[] };
       readonly callback?: SourceStorageCallbackEntry } & SourceStorageOperation)
+  | ({ readonly kind: "pointer"; readonly invocation: Node; readonly pointer: SourceStorageTerm;
+      readonly input: SourceStorageTerm | undefined; readonly scope: SourceStorageScope;
+      readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | ({ readonly kind: "member"; readonly selection: SourceStorageMemberSelection; readonly receiver: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;

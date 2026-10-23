@@ -145,8 +145,19 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const receiver = normalize(term.receiver, witnesses, temporary, false);
       return receiver === undefined ? undefined : Object.freeze({ ...term, receiver });
     }
+    if (term.kind === "pointer") {
+      const pointer = normalize(term.pointer, witnesses, temporary, false);
+      const input = term.input === undefined ? undefined : normalize(term.input, witnesses, temporary, false);
+      return pointer === undefined || term.input !== undefined && input === undefined ? undefined
+        : Object.freeze({ ...term, pointer, input });
+    }
     if (term.kind === "application") {
       const callee = normalize(term.callee, witnesses, temporary, false);
+      if (term.activation.kind === "provided") {
+        const argument = term.activation.argument === undefined ? undefined : normalize(term.activation.argument, witnesses, temporary, false);
+        return callee === undefined || term.activation.argument !== undefined && argument === undefined ? undefined
+          : Object.freeze({ ...term, callee, activation: Object.freeze({ kind: "provided", argument }) });
+      }
       return callee === undefined ? undefined : Object.freeze({ ...term, callee });
     }
     return term;
@@ -235,7 +246,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         operation = operation.value;
       }
       const execution = operation.kind === "execution-root" || operation.kind === "region" ||
-        (operation.kind === "application" || operation.kind === "member") && operation.mode === "execution";
+        (operation.kind === "application" || operation.kind === "member" || operation.kind === "pointer") && operation.mode === "execution";
       for (const term of alternatives) {
         if (!budget.step()) return false;
         if (execution) {
@@ -414,7 +425,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (completed === undefined) return undefined;
         if (completed.size === 0) {
           const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
-            : current.kind === "application" ? transport.subject(current.invocation, "value", current.projection)
+            : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
             : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
               : transport.subject(current.selection.node) : undefined;
           const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);

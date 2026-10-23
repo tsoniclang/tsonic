@@ -287,3 +287,30 @@ test("a pointer exception preserves an opaque nested thrown-value witness", () =
   `);
   assert.equal(current.query("observed").kind !== "complete", true, "unproved external errors remain open rather than empty");
 });
+
+for (const projection of ["callback", "nested.callback", "items[0]"]) {
+  test(`addressed member aggregate writes project the backing ${projection} suffix exactly once`, () => {
+    const current = fixture(`
+      const original = () => 1; const replacement = () => 2; const separate = () => 3;
+      const box = { value: { callback: original, nested: { callback: original }, items: [original] } };
+      const other = { value: { callback: separate, nested: { callback: separate }, items: [separate] } };
+      const alias = box;
+      const pointer = addressof(alias.value);
+      storeptr(pointer, { callback: replacement, nested: { callback: replacement }, items: [replacement] });
+      const result = loadptr(pointer).${projection}; const direct = box.value.${projection};
+      const untouched = loadptr(addressof(other.value)).${projection};
+    `);
+    current.expect("result", ["original", "replacement"]);
+    current.expect("direct", ["original", "replacement"]);
+    current.expect("untouched", ["separate"]);
+  });
+}
+
+test("addressed external member aggregates retain their original open backing witness", () => {
+  const current = fixture(`
+    export function inspect(box: { value: { callback: () => number } }): void {
+      const result = loadptr(addressof(box.value)).callback;
+    }
+  `);
+  assert.equal(current.query("result").kind !== "complete", true, "an external aggregate never invents a callable stored producer");
+});

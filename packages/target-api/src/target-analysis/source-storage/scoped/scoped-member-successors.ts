@@ -1,5 +1,5 @@
 import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-navigation/index.js";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -37,7 +37,7 @@ export interface SourceStorageMemberSuccessorContext {
   birth(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageActivation | undefined;
   readRelation(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
   pointerWrites(destination: SourceStorageReference, store: SourceStorageStore,
-    projection: readonly SourceStorageProjection[], type: Type, invocation: Node,
+    projection: readonly SourceStorageProjection[], invocation: Node,
     scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
   readEffects(store: SourceStorageStore, selection: SourceStorageEffectSelection, deferred?: boolean,
     context?: SourceStorageScope): Iterable<SourceStorageTerm>;
@@ -325,11 +325,10 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (!budget.step()) return undefined;
         if (store.reason !== undefined) continue;
         if (store.destination === "pointer") {
-          const type = sourceStorageSubjectType(source, subject);
           const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
             [...term.receiver.subject.projection, { kind: "member", declaration: original }]);
-          const written = type === undefined || projected === undefined ? undefined : context.pointerWrites(
-            leaf(projected, term.receiver.scope), store, term.projection, type, original, term.scope);
+          const written = projected === undefined ? undefined : context.pointerWrites(
+            leaf(projected, term.receiver.scope), store, term.projection, original, term.scope);
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }
