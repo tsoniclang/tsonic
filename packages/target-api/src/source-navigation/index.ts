@@ -32,6 +32,7 @@ export type {
   SourceReferenceIndexStatistics,
   SourceValueEscapeKind,
 } from "./types.js";
+export { sourceCallableValueParameters } from "./callable-parameters.js";
 export {
   projectSourceNodeIdentity,
   sourceFileIdentity,
