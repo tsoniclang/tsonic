@@ -25,7 +25,7 @@ function fixture(body, limits = {}) {
     `${name}: exact producers ${expected.join(", ")}`);
     assert.equal(storage.failureReason() === undefined, true, "original finite guards remain enabled");
   };
-  return { expect, query, storage, initializer };
+  return { expect, query, storage, initializer, source, file };
 }
 
 test("generic nested array calls retain finite checked types and exact scoped origins", () => {
@@ -145,6 +145,27 @@ test("recursive structural record projections retain their exact fields without 
   current.expect("first", ["left"]);
   current.expect("second", ["right"]);
 });
+
+for (const readonly of [true, false]) {
+  test(`recursive optional ${readonly ? "readonly" : "writable"} collection publications remain finite and preserve input boundaries`, () => {
+    const current = fixture(`
+      type Tree = number | ${readonly ? "readonly " : ""}Tree[] | null | undefined;
+      export function inspect(tree: Tree): Tree { return tree; }
+      const original = {}; const result = original;
+    `);
+    current.expect("result", ["original"]);
+    let parameter;
+    current.source.ast.forEachChild(current.file, node => {
+      if (current.source.ast.is.IsFunctionDeclaration(node)) parameter = current.source.ast.parameters(node)[0];
+    });
+    const input = current.storage.subjectFor(parameter);
+    assert.equal(input.kind === "resolved", true, "the recursive external formal is retained");
+    const origins = current.storage.closedOriginsFor(input.subject);
+    assert.equal(origins.kind === "open" && origins.boundaries.some(boundary => boundary.kind === "external-input"),
+      true, "finite folding never certifies an external recursive input as closed");
+    assert.equal(current.storage.failureReason() === undefined, true, "finite projection and work budgets remain enabled");
+  });
+}
 
 test("an unrelated private query does not unfold an exported recursive field publication indefinitely", () => {
   const current = fixture(`
