@@ -69,7 +69,8 @@ for (const member of ["next", "throw", "return"]) {
       assert.equal(domain.producers.length, 1, `${name}: one original creation`);
       const entry = domain.producers[0];
       const selected = current.storage.contributingExecutionsFor(demand, owner, entry);
-      assert.equal(selected.kind === "complete", true, `${name}: may-resume has the retained original frame`);
+      assert.equal(selected.kind === "complete", true,
+        `${name}: may-resume has the retained original frame; ${selected.reason ?? selected.kind}`);
       const origins = selected.producers.flatMap(producer => {
         const values = current.storage.storageProducersFor(demand, producer.bindings);
         assert.equal(values.kind === "complete", true, `${name}: same-frame demanded payload`);
