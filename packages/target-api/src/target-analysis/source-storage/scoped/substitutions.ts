@@ -387,16 +387,17 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (!retained.has(input) && !temporary.add(1)) return false;
         const contributes = collect && (mode & 2) !== 0 && admitted(input, guards);
         let selected = (retained.get(input) ?? 0) | (contributes ? 2 : 1);
+        if (contributes && (mode & 16) !== 0) selected |= 16;
         if (contributes && stopAt !== undefined) {
           if ((selected & 4) === 0) selected |= 4 | (stopAt({ subject: input, bindings: scope }) ? 8 : 0);
-          if ((selected & 8) !== 0) { origins.add(input); stopped = true; }
+          if ((selected & 8) !== 0) { origins.add(input); selected |= 16; stopped = true; }
         }
         retained.set(input, selected); subjects.set(scope, retained);
         return true;
       };
       const term = current.term;
-      if ((term.kind === "reference" || term.kind === "leaf") &&
-        !retain(witnessScope(term.subject, term.scope), term.subject, 2)) return undefined;
+      if (term.kind === "reference" && !retain(witnessScope(term.subject, term.scope), term.subject, 2)) return undefined;
+      if (term.kind === "leaf" && !retain(term.scope, term.subject, 2 | 16)) return undefined;
       for (const [scope, inputs] of current.witnesses ?? []) for (const [input, mode] of inputs) {
         if (!retain(scope, input, mode)) return undefined;
       }
@@ -457,10 +458,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (child.term.kind !== "execution-root") pending.push({ relation: child, collect: entry.collect && (mode & 2) !== 0, guards: entry.guards });
       }
     }
-    const selected: SourceStorageRelationWitness[] = [];
+    const selected: (SourceStorageRelationWitness & { readonly original: boolean })[] = [];
     for (const [scope, inputs] of subjects) for (const [subject, mode] of inputs) {
       if (!budget.step()) return undefined;
-      selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0 }));
+      selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0, original: (mode & 16) !== 0 }));
     }
     return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, absence,
       emptyDemands: Object.freeze(emptyDemands) });
@@ -490,7 +491,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects: (SourceStorageScopedSubject & { readonly kind: "boundary" | "origin" })[] = [];
     for (const current of selected.subjects) {
       if (!budget.step()) return undefined;
-      if (current.contributes && selected.origins.has(current.subject)) {
+      if (current.original) {
         if (!temporary.add(1)) return undefined;
         subjects.push(Object.freeze({ subject: current.subject, bindings: current.bindings,
           kind: stopped.get(current.bindings)?.has(current.subject) === true ? "boundary" : "origin" }));

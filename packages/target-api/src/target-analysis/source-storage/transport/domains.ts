@@ -7,7 +7,7 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
-import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
+import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
@@ -475,7 +475,7 @@ export function createSourceStorageDomains(
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }
     }
-    const pending = [...selected.subjects];
+    const pending: SourceStorageRelationWitness[] = [...selected.subjects];
     const visited = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
       if (!budget.step()) break;
@@ -519,7 +519,7 @@ export function createSourceStorageDomains(
     const producing = new Set<SourceStorageSubject>();
     for (const candidate of selected.subjects) {
       if (!budget.step()) break;
-      if (!candidate.contributes || !selected.origins.has(candidate.subject)) continue;
+      if (!candidate.original) continue;
       if (purpose === "storage-producers" && bindings === transport.substitutions.empty && candidate.subject.kind === "input" &&
         entryActivation(candidate.bindings) &&
         isExternalInput(candidate)) continue;
