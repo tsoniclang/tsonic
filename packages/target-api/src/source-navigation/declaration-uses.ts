@@ -344,7 +344,8 @@ function sourceReferenceIsCaptured(
   declaration: Node,
   reference: Node,
 ): boolean {
-  if (reference === declaration || sourceMemberAccessForReference(ast, reference) !== undefined) return false;
+  if (reference === declaration || sourceNodesEqual(ast, ast.name(declaration), reference) ||
+    sourceMemberAccessForReference(ast, reference) !== undefined) return false;
   const useOwner = enclosingValueEvaluation(ast, reference);
   const functionBinding = ast.is.IsFunctionDeclaration(declaration);
   if (functionBinding && useOwner === declaration) return false;

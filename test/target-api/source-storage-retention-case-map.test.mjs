@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { sourceDeclarationUses } from "../../packages/target-api/dist/source-navigation/declaration-uses.js";
 import { createSourceCallableRetentionQuery, createSourceStorageBudget, createSourceStorageQuery,
   defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 
@@ -34,6 +35,12 @@ for (const [label, body] of [
   ["nested arrow", "function start(): void { const child = (): void => {}; child(); } start();"],
   ["module function expression", "const child = function named(): void {}; child();"],
   ["nested function expression", "function start(): void { const child = function named(): void {}; child(); } start();"],
+  ["capturing parameterized arrow", `function start(value: number): void {
+    const child = (argument: number): void => { void value; void argument; }; child(value);
+  } start(7);`],
+  ["capturing parameterized function expression", `function start(value: number): void {
+    const child = function named(argument: number): void { void value; void argument; }; child(value);
+  } start(7);`],
   ["const callable aliases", "function child(): void {} const first = child; const second = first; second();"],
   ["checked formal forwarding", "function child(): void {} function invoke(callback: () => void): void { callback(); } invoke(child);"],
   ["self recursive declaration", "function child(repeat: boolean): void { if (repeat) child(false); } child(true);"],
@@ -66,6 +73,8 @@ test("declaration capture facts distinguish an enclosing binding from its invoke
   assert.equal(moduleUses.filter(use => use.kind === "direct-call").length, 2, "two exact module references");
   assert.equal(moduleUses.every(use => !use.captured), true, "a nested use does not allocate module capture storage");
   const child = current.declaration("child");
+  const definitions = sourceDeclarationUses(ast, child, [child, ast.name(child)]);
+  assert.equal(definitions.every(use => !use.captured), true, "definition and its name are not runtime captures");
   const uses = current.source.navigation.declarationUses(child).filter(use => use.kind === "direct-call");
   assert.equal(uses.length, 3, "direct, recursive and sibling references retained");
   for (const use of uses) {

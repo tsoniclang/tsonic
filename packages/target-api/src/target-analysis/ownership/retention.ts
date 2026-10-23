@@ -28,10 +28,12 @@ export function createSourceCallableRetentionQuery(input: {
       if (selected.kind === "unresolved") return sourceOwnershipUnresolved(declaration, selected.reason);
       if (semantics.forNode(declaration).types.declarationSignatureInfo(declaration) === undefined || ast.body(declaration) === undefined)
         return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked source implementation.");
-      const initial = storage.bindingsForLexicalOwner(declaration);
-      if (initial.kind === "unresolved") return sourceOwnershipUnresolved(declaration, initial.reason);
       const originRegion = storage.enclosingRegionFor(declaration);
-      const originOwner = originRegion === undefined ? undefined : sourceStorageRegionOwner(ast, originRegion);
+      if (originRegion === undefined)
+        return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked creation region.");
+      const originOwner = sourceStorageRegionOwner(ast, originRegion);
+      const initial = storage.bindingsForLexicalOwner(originOwner ?? originRegion);
+      if (initial.kind === "unresolved") return sourceOwnershipUnresolved(declaration, initial.reason);
       const rows = budget.createRows();
       try {
         const pending = [{ node: declaration, bindings: initial.bindings }];
