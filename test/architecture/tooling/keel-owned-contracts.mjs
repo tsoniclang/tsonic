@@ -73,7 +73,7 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/analysis/project-types/receiver-captures.ts", symbol: "RustReceiverFieldCaptureQueries.storageDeclaration" },
       { file: "src/analysis/project-types/receiver-field-aliases.ts", symbol: "RustReceiverFieldAliasQueries.aliasFor" },
       { file: "src/analysis/project/binary-dispatch-demand.ts", symbol: "RustBinaryDispatchDemandPlan.forHook" },
-      { file: "src/analysis/project/dispatch-contexts.ts", symbol: "RustDispatchContextCatalog.declaration" },
+      { file: "src/analysis/project/dispatch-contexts.ts", symbol: "RustDispatchContextDeclarations.declaration" },
       { file: "src/analysis/project/dispatch-demand.ts", symbol: "RustDispatchContextDemandPlan.forComponent" },
       { file: "src/target-model/records/source-modules.ts", symbol: "RustSourceModuleConstructionIndex.construction" },
       { file: "src/target-model/records/source-modules.ts", symbol: "RustSourceModuleConstructionIndex.entries" },
