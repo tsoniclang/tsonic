@@ -537,7 +537,8 @@ export function createSourceStorageDomains(
   const writeBoundariesFor = (subject: SourceStorageSubject) => {
     initialize();
     const boundaries = boundariesFor(subject).filter(boundary => boundary.kind === "external-write" ||
-      boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure");
+      (boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
+      !closedSourceInvocation(boundary.exposure, transport.substitutions.empty));
     const reason = budget.failure() ?? transport.directlyUnresolvedFor(subject) ?? boundaries.map(boundary =>
       transport.unresolvedInvocations.get(boundary.exposure)).find(reason => reason !== undefined);
     return Object.freeze({ boundaries: Object.freeze(boundaries), reason });
