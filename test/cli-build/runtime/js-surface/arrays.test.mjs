@@ -184,7 +184,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int first\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\[0\];/);
+  assert.match(generatedSource, /return values\[0D\];/);
   assert.match(generatedSource, /public static int pick\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /return values\[index\];/);
   assert.match(generatedSource, /public static int assign\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index, int value\)/);
@@ -304,11 +304,11 @@ test("CLI emits Array construction only from selected JS surface carrier facts",
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int make\(int size\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(size\);/);
-  assert.match(generatedSource, /values\[0\] = 7;/);
+  assert.match(generatedSource, /values\[0D\] = 7;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.match(generatedSource, /public static int call\(int size\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = Tsonic\.CSharp\.Js\.JSArrayStatics\.withLength<int>\(size\);/);
-  assert.match(generatedSource, /values\[0\] = 9;/);
+  assert.match(generatedSource, /values\[0D\] = 9;/);
   assert.doesNotMatch(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double>/);
   assert.doesNotMatch(generatedSource, /new int\[/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.List<int>/);
@@ -505,7 +505,7 @@ test("CLI runs explicit optional elements through dense JSArray carrier facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.of\(\[default\(double\?\), 5, 6\]\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.of\(\[default\(double\?\), 5D, 6D\]\)/);
   assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
   assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
 
