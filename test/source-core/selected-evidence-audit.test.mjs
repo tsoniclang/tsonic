@@ -28,7 +28,6 @@ const riskRules = Object.freeze([
 ]);
 
 const auditRows = Object.freeze([
-  row("packages/host/src/diagnostics.ts", "bounded diagnostic serialization", "provider-declaration-production", "Allowed validation and bounded display of diagnostic payloads; raw shape reads are not semantic compiler input.", "Diagnostic contract tests plus this occurrence-level inventory."),
   row("packages/host/src/plugins/discovery.ts", "plugin manifest validation", "provider-declaration-production", "Allowed object-shape validation of installed plugin metadata.", "Plugin discovery contract tests plus this occurrence-level inventory."),
   row("packages/host/src/project-config.ts", "project config validation", "provider-declaration-production", "Allowed object-shape validation of user project config.", "Project-config negative tests plus this occurrence-level inventory."),
   row("packages/host/src/package-contract.ts", "package dependency validation", "provider-declaration-production", "Allowed object-shape validation of package dependency fields; it does not inspect compiler nodes or select semantic identity.", "Package/declaration policy tests plus this occurrence-level inventory."),
