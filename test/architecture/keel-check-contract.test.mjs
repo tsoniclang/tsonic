@@ -22,6 +22,16 @@ test("committed Keel contracts and public declaration inputs do not require priv
   assert.equal(JSON.stringify(manifest).includes(".analysis"), false);
   assert.equal(Object.keys(manifest.basePins).length, 15);
   assert.equal(manifest.runtimeFamilies.length > 0, true);
+  assert.equal(manifest.nativeUnsafeReviews.length, 1, "one exact reviewed native test helper");
+  const nativeReview = manifest.nativeUnsafeReviews[0];
+  assert.equal(nativeReview.repo, "rust-runtime", "reviewed native repository");
+  assert.equal(nativeReview.file, "tests/helpers/allocation_counts.rs", "reviewed test-only helper");
+  assert.equal(nativeReview.sourceSha256, "51b161241b9b6d49690154c9ab0506b671d1546075a7a81c5ee45335f9b48dc5",
+    "reviewed complete source digest");
+  assert.equal(nativeReview.sites.length, 9, "nine actual unsafe sites, not eight newly added operations");
+  assert.equal(new Set(nativeReview.sites.map(site => site.bodySha256)).size, 9, "distinct exact token contexts");
+  assert.equal(nativeReview.sites.every(site => site.count === 1 && site.reason.length > 0 && site.nativeEvidence.length > 0), true,
+    "every exact native boundary is reviewed once with its reason and native evidence");
   assert.equal(manifest.nodeModules["csharp-nodejs"].length, 24);
   assert.equal(manifest.nodeModules["rust-nodejs"].length, 25);
   assert.equal(manifest.determinismPrograms.length, 209);

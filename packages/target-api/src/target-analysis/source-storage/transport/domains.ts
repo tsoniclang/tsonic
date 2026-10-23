@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
@@ -82,7 +83,12 @@ export function createSourceStorageDomains(
       }
       publish(transport.subject(owner, "receiver"), exposure);
     } else {
-      for (const parameter of ast.parameters(owner)) {
+      const parameters = sourceCallableValueParameters(ast, owner, semantics.forNode(owner), { kind: "declaration" });
+      if (parameters === undefined) {
+        budget.reject("Source storage callable publication requires its exact checked value parameters.");
+        return;
+      }
+      for (const parameter of parameters) {
         if (!budget.step()) return;
         const formal = transport.subject(parameter, "input");
         const entries = transport.invocations.has(exposure) ? transport.callbackEntriesFor(exposure).filter(callback =>
@@ -131,19 +137,12 @@ export function createSourceStorageDomains(
     for (const boundary of transport.boundaries) {
       if (!budget.step()) return;
       const effect = transport.invocationEffects.get(boundary.invocation);
-      const preservedInputs = new Set<Node>();
-      for (const expression of effect?.preservedInputs ?? []) {
-        if (!budget.step()) return;
-        preservedInputs.add(expression);
-      }
       if (effect?.resultAlias === undefined && effect?.resultAllocation === undefined)
         add(transport.subject(boundary.invocation), "opaque-result", boundary.invocation);
       for (const expression of transport.invocationArguments.get(boundary.invocation) ?? []) {
         if (!budget.step()) return;
         const subject = transport.subjectFor(expression);
-        const preserved = preservedInputs.has(expression);
-        publish(subject, boundary.invocation, !preserved, "opaque-write");
-        if (preserved) continue;
+        publish(subject, boundary.invocation, true, "opaque-write");
         const passing = source.sourceFacts.getFact(expression, argumentPassingFactKey);
         const flow = source.sourceFacts.getFact(expression, flowStateFactKey);
         const pointer = source.sourceFacts.getFact(expression, pointerOperationFactKey);
@@ -207,7 +206,12 @@ export function createSourceStorageDomains(
             if (!accessible(declaration) || !transport.retainCheckedContext(declaration, file)) continue;
             const child = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
-            if (publication.writes && (!member.destination.property.readonly || !member.source.property.readonly) && member.destination.read !== "method" &&
+            const declaringOwner = ast.parent(declaration);
+            const objectSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
+              (ast.is.IsMethodDeclaration(declaration) || ast.is.IsPropertyAssignment(declaration) ||
+                ast.is.IsShorthandPropertyAssignment(declaration));
+            if (publication.writes && (objectSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
+              (member.destination.read !== "method" || objectSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
               add(child, publication.kind, publication.exposure, owner);
             if (publication.writes) for (const setter of member.source.setters) {
@@ -253,7 +257,8 @@ export function createSourceStorageDomains(
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
       for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner)) {
         if (!budget.step()) break;
-        if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write") selected.push(boundary);
+        if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
+          boundary.kind === "unclassified-exposure") selected.push(boundary);
       }
     }
     return selected;
@@ -529,5 +534,13 @@ export function createSourceStorageDomains(
     return Object.freeze({ subjects: Object.freeze(subjects), boundSubjects: Object.freeze(boundSubjects),
       boundaries: Object.freeze(boundaries), reason, absence: selected.absence });
   });
-  return Object.freeze({ select });
+  const writeBoundariesFor = (subject: SourceStorageSubject) => {
+    initialize();
+    const boundaries = boundariesFor(subject).filter(boundary => boundary.kind === "external-write" ||
+      boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure");
+    const reason = budget.failure() ?? transport.directlyUnresolvedFor(subject) ?? boundaries.map(boundary =>
+      transport.unresolvedInvocations.get(boundary.exposure)).find(reason => reason !== undefined);
+    return Object.freeze({ boundaries: Object.freeze(boundaries), reason });
+  };
+  return Object.freeze({ select, writeBoundariesFor });
 }

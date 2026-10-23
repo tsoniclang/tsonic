@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -281,7 +282,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   };
   const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageScopeBinding | undefined => {
-    const owner = sourceStorageFormalOwner(origin, source.ast);
+    const owner = sourceStorageFormalOwner(origin, source);
     if (owner === undefined || !variableIncludesOwner(variable, owner)) return undefined;
     const initial = entryInputFor(origin, variable);
     if (initial === undefined) return Object.freeze({ kind: "expand", variable });
@@ -324,7 +325,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScopeBinding | undefined => {
     if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
     if (origin.projection.length !== 0 && scope.kind === "frame" && scope.boundary === "declaration" &&
-      sourceStorageFormalOwner(origin, source.ast) === scope.owner) return undefined;
+      sourceStorageFormalOwner(origin, source) === scope.owner) return undefined;
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
     const frame = scope.kind === "substitution" ? scope.scope : scope;
@@ -362,7 +363,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const slots = sourceStorageCallableInputSlots(source, candidate, source.semantics.forNode(invocation),
       { kind: "source-implementation", signature: undefined }, budget.step);
     if (slots === undefined) return undefined;
-    for (const parameter of source.ast.parameters(candidate)) {
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+      { kind: "declaration" });
+    if (parameters === undefined) return undefined;
+    for (const parameter of parameters) {
       if (!budget.step()) return undefined;
       const formal = subject(parameter, "input");
       if (formal === undefined) return undefined;
@@ -410,7 +414,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const retained = declarations.get(owner);
     const cached = retained?.get(parent);
     if (cached !== undefined) return cached;
-    const parameters = source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ? [] : source.ast.parameters(owner);
+    const parameters = source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ? []
+      : sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner), { kind: "declaration" });
+    if (parameters === undefined) return undefined;
     if (!rows.add(3 + (parameters.length + 1) * 2 + (retained === undefined ? 1 : 0))) return undefined;
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner, boundary: "declaration", entries,
@@ -439,7 +445,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, callback, entries,
       parents: Object.freeze([captured]) });
-    const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? [] : source.ast.parameters(candidate);
+    const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? []
+      : sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate), { kind: "declaration" });
+    if (parameters === undefined) return undefined;
     const formals = new Set<SourceStorageSubject>();
     for (const parameter of [...parameters, candidate]) {
       if (parameter === undefined) continue;
@@ -552,7 +560,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       visited.add(current);
       if (current.kind === "variable") {
         const parameters = source.ast.is.IsClassDeclaration(current.owner) || source.ast.is.IsClassExpression(current.owner)
-          ? [] : source.ast.parameters(current.owner);
+          ? [] : sourceCallableValueParameters(source.ast, current.owner, source.semantics.forNode(current.owner),
+            { kind: "declaration" });
+        if (parameters === undefined) return undefined;
         for (const parameter of [...parameters, current.owner]) {
           if (parameter === undefined || !budget.step()) continue;
           const formal = subject(parameter, parameter === current.owner ? "receiver" : "input");
@@ -599,7 +609,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }),
     isSymbolic: (value: SourceStorageReference): boolean => {
       if (value.kind !== "leaf" || value.scope.kind !== "frame" ||
-        sourceStorageFormalOwner(value.subject, source.ast) !== value.scope.owner) return false;
+        sourceStorageFormalOwner(value.subject, source) !== value.scope.owner) return false;
       if (value.scope.boundary === "declaration") return true;
       if (value.scope.callback === undefined || value.subject.kind !== "input") return false;
       const root = subject(value.subject.node, value.subject.kind);

@@ -48,15 +48,9 @@ export function createSourceOwnershipQuery(input: {
       const completion = premises.completionFor(call, selected, bindings);
       const disposition = completion.kind !== "async" ? undefined
         : resolveSourceAsyncResultDisposition(source, storage, call, budget, bindings);
-      const continuation = completion.kind !== "async" ||
-        completion.resultPolicy === "must-observe" && disposition?.kind === "discarded"
-        ? sourceOwnershipUnresolved(call, "The native discarded-call rule is independent of continuation ownership.")
-        : continuationFor(call, bindings);
       const decision = completion.kind !== "async" ? completion : decideSourceAsyncResultUse({ source, storage, budget, call, completion,
-        disposition: disposition!, continuation,
-        retention: continuation.kind === "unresolved" &&
-          !(completion.resultPolicy === "must-observe" && disposition?.kind === "discarded") ? retention.forReference(call, bindings)
-          : sourceOwnershipUnresolved(call, "The completed source continuation supplies its exact retained dependencies.") });
+        disposition: disposition!, continuation: () => continuationFor(call, context.bindings),
+        retention: () => retention.forReference(call, context.bindings) });
       if (decision.kind === "unresolved") return decision;
       if (!rows.add(2)) return sourceOwnershipUnresolved(call, budget.failure()!);
       const byBinding = decisions.get(call) ?? new Map<SourceStorageBindings, SourceAsyncOwnershipSelection>();

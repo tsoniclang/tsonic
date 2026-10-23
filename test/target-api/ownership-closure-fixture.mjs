@@ -51,7 +51,7 @@ export function closureFixture(options = {}) {
     .map(name => declaration(name)));
   const pendingDeclarations = new Set(["pending", "anotherPending", "nativeFuture"].map(name => declaration(name)));
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits, {
-    call(node) { return nativeDeclarations.has(selectedDeclaration(node)) ? { resultAllocation: node, preservedInputs: [] } : undefined; },
+    call(node) { return nativeDeclarations.has(selectedDeclaration(node)) ? { resultAllocation: node } : undefined; },
   });
   const subject = node => {
     const result = storage.subjectFor(node);

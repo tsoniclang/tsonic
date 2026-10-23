@@ -84,7 +84,7 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
       return index;
     } finally { initializing = false; if (!complete) owned.release(); }
   };
-  const formalOwner = (subject: SourceStorageSubject): Node | undefined => sourceStorageFormalOwner(subject, source.ast);
+  const formalOwner = (subject: SourceStorageSubject): Node | undefined => sourceStorageFormalOwner(subject, source);
   const invariantPorts = (root: SourceStorageSubject, component: ReadonlySet<Node>): ReadonlyMap<Node, SourceStorageSubject> | undefined => {
     if (ports.has(root)) return ports.get(root) ?? undefined;
     const owned = budget.createRows();

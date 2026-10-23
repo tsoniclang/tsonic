@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, Type } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
@@ -35,7 +36,12 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
     const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
       { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, step);
-    for (const parameter of ast.parameters(declaration)) {
+    const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
+    if (parameters === undefined) {
+      budget.reject("Source storage callable regions require their exact checked value parameters.");
+      return [];
+    }
+    for (const parameter of parameters) {
       if (!step()) break;
       const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
       if (parameter === undefined || file === undefined || !semantics.includes(file) ||

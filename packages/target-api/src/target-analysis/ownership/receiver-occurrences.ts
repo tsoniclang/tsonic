@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceReceiverBoundary } from "../../source-navigation/receiver-owner.js";
@@ -47,7 +48,9 @@ export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
       bodies.set(body, { declaration: node, outer: arrow ? scope : undefined });
       occurrences.set(node, []);
       evaluated.add(body);
-      for (const parameter of ast.parameters(node)) {
+      const parameters = sourceCallableValueParameters(ast, node, storage.source.semantics.forNode(node), { kind: "declaration" });
+      if (parameters === undefined) return unresolved("Receiver scopes require their exact checked value parameters.");
+      for (const parameter of parameters) {
         if (!budget.step()) return exhausted();
         if (parameter !== undefined) boundaries.add(parameter);
       }

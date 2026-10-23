@@ -214,7 +214,7 @@ function selectedEquationFixture() {
   const expand = (invocation, mixed = false) => {
     const initial = equations.scopeFor(owner, invocation, scopes.empty, scopes.empty, {
       kind: "application", mode: "value", invocation, callee: { kind: "leaf", subject: transport.subject(owner), scope: scopes.empty },
-      scope: scopes.empty, projection: [],
+      scope: scopes.empty, projection: [], activation: { kind: "invoke" },
     });
     assert.equal(initial !== undefined && initial.equation !== undefined, true, "the checked recursive entry has one equation");
     const variable = scopes.variable(initial.equation, owner);

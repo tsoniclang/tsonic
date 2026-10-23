@@ -15,7 +15,7 @@ export interface SourceStorageCreationContext {
 
 export function sourceStorageActivationOwner(source: TargetSourceProgram,
   enclosing: (node: Node) => Node | undefined, subject: SourceStorageSubject): Node | undefined {
-  if (subject.kind === "input" && source.ast.is.IsParameterDeclaration(subject.node)) return sourceStorageFormalOwner(subject, source.ast);
+  if (subject.kind === "input" && source.ast.is.IsParameterDeclaration(subject.node)) return sourceStorageFormalOwner(subject, source);
   const region = enclosing(subject.node);
   return subject.kind === "return" || subject.kind === "receiver" ? subject.node
     : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);

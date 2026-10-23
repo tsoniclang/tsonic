@@ -50,7 +50,7 @@ export type SourceSuspensionSelection =
 export type SourceAsyncCompletionSelection =
   | { readonly kind: "not-async" }
   | (SourceOwnershipContractEvidence & { readonly kind: "async";
-      readonly resultPolicy: "must-observe" | "observe-rejection" })
+      readonly resultPolicy: "must-observe" | "native-discard" | "observe-rejection" })
   | SourceOwnershipUnresolved;
 
 export interface SourceOwnershipPremises {
@@ -89,7 +89,7 @@ export type SourceAsyncOwnershipSelection =
   | { readonly kind: "not-async" }
   | ({ readonly kind: "resolved"; readonly call: Node; readonly disposition: SourceAsyncResultDisposition;
       readonly dependencies: readonly SourceContinuationDependency[] } & (
-        | { readonly decision: "admitted" | "observe-discarded-rejection"; readonly diagnostic?: never }
+        | { readonly decision: "admitted" | "discard-native-result" | "observe-discarded-rejection"; readonly diagnostic?: never }
         | { readonly decision: "rejected"; readonly diagnostic: SourceAsyncOwnershipDiagnostic }
       ))
   | SourceOwnershipUnresolved;

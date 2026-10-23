@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, Signature, Type } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
@@ -81,9 +82,11 @@ export function sourceStorageCallableInputSlots(source: TargetSourceProgram, dec
     if (file === undefined || !source.semantics.includes(file) || ast.body(declaration) === undefined) return undefined;
   }
   const signature = evidence.kind === "source-implementation" && contract !== declaration
-    ? semantics.types.declarationSignatureInfo(declaration)?.signature : evidence.signature;
+    ? semantics.declarations.declarationSignature(declaration) : evidence.signature;
   if (signature === undefined || semantics.declarations.signatureDeclaration(signature) !== declaration) return undefined;
-  const parameters = ast.parameters(declaration);
+  const parameters = sourceCallableValueParameters(ast, declaration, semantics,
+    { kind: "selected-invocation", signature });
+  if (parameters === undefined) return undefined;
   const symbols = semantics.declarations.signatureParameters(signature);
   const effectiveParameters = semantics.types.signatureParameterInfos(signature);
   const slots: SourceStorageCallableInputSlot[] = [];
@@ -127,11 +130,12 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
   formal: SourceStorageSubject, contextualType: Type, semantics: SourceFileSemantics,
   step: () => boolean): readonly SourceStorageNativeInputSlot[] | undefined {
   const present = semantics.types.nonNullableType(contextualType);
-  const signatures = present === undefined ? [] : semantics.types.signatureInfos(present, "call");
+  const signatures = present === undefined ? [] : semantics.types.callSignatures(present);
   const signature = signatures.length === 1 ? signatures[0] : undefined;
   const inputs = sourceStorageCallableInputSlots(source, declaration, semantics,
     { kind: "source-implementation", signature: undefined }, step);
   if (signature === undefined || inputs === undefined) return undefined;
+  const parameters = semantics.types.signatureParameterInfos(signature);
   const matching = inputs.filter(input => input.parameter === formal.node);
   if (matching.length === 0) return undefined;
   const selected: SourceStorageNativeInputSlot[] = [];
@@ -146,12 +150,12 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
         component.kind !== "tuple-element" || wanted.index !== component.index)) continue;
       projection = projection.slice(1);
     }
-    const last = signature.parameters[signature.parameters.length - 1];
-    const restIndex = last?.parameterKind === "rest" ? signature.parameters.length - 1 : undefined;
-    const maximum = input.repeated ? Math.max(input.effectiveIndex + 1, signature.parameters.length) : input.effectiveIndex + 1;
+    const last = parameters[parameters.length - 1];
+    const restIndex = last?.parameterKind === "rest" ? parameters.length - 1 : undefined;
+    const maximum = input.repeated ? Math.max(input.effectiveIndex + 1, parameters.length) : input.effectiveIndex + 1;
     for (let parameterIndex = input.effectiveIndex; parameterIndex < maximum; parameterIndex += 1) {
       if (!step()) return undefined;
-      const native = signature.parameters[parameterIndex] ?? (restIndex !== undefined && parameterIndex >= restIndex ? last : undefined);
+      const native = parameters[parameterIndex] ?? (restIndex !== undefined && parameterIndex >= restIndex ? last : undefined);
       let type = native?.type;
       if (native?.parameterKind === "rest" && type !== undefined)
         type = sourceStorageComponentType(type, { kind: "array-element" }, semantics, source.ast);
@@ -293,6 +297,9 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
   return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
     if (queries.isUnresolved(invocation)) return undefined;
     const context = source.semantics.forNode(invocation);
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+      { kind: "declaration" });
+    if (parameters === undefined) return undefined;
     const slots = source.ast.body(candidate) === undefined ? undefined : sourceStorageCallableInputSlots(source, candidate, context,
       { kind: "source-implementation", signature: context.operations.call(invocation)?.selectedSignature }, budget.step);
     return budget.withRows(rows => {
@@ -306,14 +313,14 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
         if (!rows.add(1)) return undefined;
         visited.add(current);
         if (source.ast.body(candidate) === undefined && current.projection.length === 0 &&
-          source.ast.is.IsParameterDeclaration(current.node) && source.ast.parameters(candidate).includes(current.node) &&
+          source.ast.is.IsParameterDeclaration(current.node) && parameters.includes(current.node) &&
           source.ast.as.AsParameterDeclaration(current.node)?.DotDotDotToken !== undefined) {
           origins.add(current);
           continue;
         }
         if (current.kind === "receiver" || current.kind === "input") {
           if (current.kind === "input" && source.ast.body(candidate) !== undefined &&
-            sourceStorageFormalOwner(current, source.ast) === candidate) {
+            sourceStorageFormalOwner(current, source) === candidate) {
             const selected = slots?.filter(slot => slot.parameter === current.node);
             if (selected === undefined || selected.length === 0 || selected.some(slot => slot.repeated || slot.projection === undefined)) return undefined;
           }

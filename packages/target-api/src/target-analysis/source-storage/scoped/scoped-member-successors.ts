@@ -96,7 +96,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         witnesses: [{ subject, bindings: scope, contributes: false }] };
     }
     const terms: SourceStorageTerm[] = [leaf(subject, scope)];
-    const owner = sourceStorageFormalOwner(subject, ast);
+    const owner = sourceStorageFormalOwner(subject, source);
     const region = owner === undefined ? undefined : ast.body(owner);
     if (region === undefined || subject.projection.length === 0) return { kind: "replace", terms };
     const reachable = reachability.reachableFrom(region);

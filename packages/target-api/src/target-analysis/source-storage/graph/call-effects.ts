@@ -68,12 +68,11 @@ export function snapshotSourceStorageCallEffect(
   };
   if (!budget.row() || typeof value !== "object" || value === null) return reject();
   const keys = Reflect.ownKeys(value);
-  if (keys.some(key => key !== "resultAlias" && key !== "resultAllocation" && key !== "preservedInputs" && key !== "resumeReceiver")) return reject();
+  if (keys.some(key => key !== "resultAlias" && key !== "resultAllocation" && key !== "resumeReceiver")) return reject();
   const descriptors = Object.getOwnPropertyDescriptors(value);
   if (Object.values(descriptors).some(descriptor => !("value" in descriptor))) return reject();
   const alias: unknown = descriptors.resultAlias?.value;
   const allocation: unknown = descriptors.resultAllocation?.value;
-  const preserved: unknown = descriptors.preservedInputs?.value;
   const resumeReceiver: unknown = descriptors.resumeReceiver?.value;
   if (resumeReceiver !== undefined && (resumeReceiver !== true || selected.sourceReceiver === undefined ||
     selected.sourceSelectedSignatureKind !== "resolved")) return reject();
@@ -97,23 +96,9 @@ export function snapshotSourceStorageCallEffect(
   if (selected.sourceReceiver !== undefined) admit(selected.sourceReceiver.expression);
   const input = (node: unknown): node is Node => admitted.get(node as Node) === 1;
   if (alias !== undefined && !input(alias)) return reject();
-  if (preserved !== undefined && (!Array.isArray(preserved) || preserved.length > admitted.size)) return reject();
-  const inputs: Node[] = [];
-  const uniqueInputs = new Set<Node>();
-  if (Array.isArray(preserved)) {
-    for (let index = 0; index < preserved.length; index += 1) {
-      if (!budget.row()) return undefined;
-      const descriptor = Object.getOwnPropertyDescriptor(preserved, index);
-      const node: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
-      if (!input(node) || uniqueInputs.has(node)) return reject();
-      uniqueInputs.add(node);
-      inputs.push(node);
-    }
-  }
   return Object.freeze({
     ...(alias === undefined ? {} : { resultAlias: alias as Node }),
     ...(allocation === undefined ? {} : { resultAllocation: allocation as Node }),
-    ...(preserved === undefined ? {} : { preservedInputs: Object.freeze(inputs) }),
     ...(resumeReceiver === undefined ? {} : { resumeReceiver }),
   });
 }

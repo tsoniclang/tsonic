@@ -53,16 +53,14 @@ test("a selected storage alias adds one exact origin edge without altering defau
   assert.equal(aliased.boundaries.some(boundary => boundary.invocation === invocation), true);
 });
 
-test("input preservation alone does not invent a result alias", () => {
+test("removed preservation contributions are rejected rather than accepted or ignored", () => {
   const { source, invocation, selected } = fixture();
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, undefined, {
     call: () => ({ preservedInputs: [selected.sourceArguments[0].expression] }),
   });
   const subject = storage.subjectFor(invocation);
-  assert.equal(subject.kind, "resolved");
-  const origins = storage.originsFor(subject.subject);
-  assert.equal(origins.kind, "resolved");
-  assert.equal(origins.origins[0].subject.node === invocation, true);
+  assert.equal(subject.kind === "unresolved" && storage.failureReason() !== undefined, true,
+    "no partial alias or empty writer proof escapes a removed effect contract");
 });
 
 test("a certified native allocation is an exact owned result independent of argument preservation", () => {
@@ -89,19 +87,18 @@ test("a certified native allocation is an exact owned result independent of argu
   assert.equal(snapshotted !== undefined && Object.isFrozen(snapshotted) && snapshotted.resultAllocation === invocation, true);
 });
 
-test("effect snapshots retain exact nodes without keeping mutable selector containers", () => {
+test("effect snapshots retain exact aliases without keeping mutable selector containers", () => {
   const { selected } = fixture();
   const inputs = [selected.sourceArguments[0].expression];
-  const contributed = { resultAlias: inputs[0], preservedInputs: inputs };
+  const contributed = { resultAlias: inputs[0] };
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
   assert.equal(effect !== undefined, true);
   inputs.push(selected.sourceArguments[1].expression);
   contributed.resultAlias = selected.sourceArguments[1].expression;
   assert.equal(effect.resultAlias === selected.sourceArguments[0].expression, true);
-  assert.equal(effect.preservedInputs.length, 1);
+  assert.equal(Object.hasOwn(effect, "preservedInputs"), false, "no removed input list is published");
   assert.equal(Object.isFrozen(effect), true);
-  assert.equal(Object.isFrozen(effect.preservedInputs), true);
 });
 
 test("foreign duplicate sparse accessor and unknown effect selections fail closed", () => {
@@ -119,6 +116,7 @@ test("foreign duplicate sparse accessor and unknown effect selections fail close
     ["duplicate", { preservedInputs: [selected.sourceArguments[0].expression, selected.sourceArguments[0].expression] }],
     ["sparse", { preservedInputs: new Array(1) }],
     ["nonfinite", { preservedInputs: Infinity }],
+    ["removed empty field", { preservedInputs: [] }],
     ["unknown field", { preservedInputs: [], arbitrary: true }],
     ["accessor", { get resultAlias() { evaluated += 1; return selected.sourceArguments[0].expression; } }],
     ["allocation accessor", { get resultAllocation() { evaluated += 1; return selected.call; } }],
@@ -135,8 +133,13 @@ test("foreign duplicate sparse accessor and unknown effect selections fail close
 
 test("effect rows retain independent finite source-storage accounting", () => {
   const { selected } = fixture();
+  const fitting = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
+  const published = snapshotSourceStorageCallEffect({ resultAlias: selected.sourceArguments[0].expression }, selected, fitting);
+  assert.equal(published?.resultAlias === selected.sourceArguments[0].expression && fitting.failure() === undefined, true,
+    "one immutable current effect fits its exact single published row");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
-  const effect = snapshotSourceStorageCallEffect({ preservedInputs: [selected.sourceArguments[0].expression] }, selected, budget);
+  assert.equal(budget.row(), true, "the only available row is already owned");
+  const effect = snapshotSourceStorageCallEffect({ resultAlias: selected.sourceArguments[0].expression }, selected, budget);
   assert.equal(effect === undefined, true);
   assert.equal(budget.failure() !== undefined, true);
 });

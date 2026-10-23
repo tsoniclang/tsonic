@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
+import { sourceStorageRegionOwner } from "../source-storage/graph/lexical-regions.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceRetentionPremise, SourceRetentionQueries, SourceRetentionReadSelection, SourceRetentionSelection, SourceCallableRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
@@ -25,11 +26,14 @@ export function createSourceCallableRetentionQuery(input: {
       if (existing !== undefined) return existing;
       const selected = storage.subjectFor(declaration);
       if (selected.kind === "unresolved") return sourceOwnershipUnresolved(declaration, selected.reason);
-      if (semantics.forNode(declaration).types.declarationSignatureInfo(declaration) === undefined || ast.body(declaration) === undefined)
+      if (semantics.forNode(declaration).declarations.declarationSignature(declaration) === undefined || ast.body(declaration) === undefined)
         return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked source implementation.");
-      const initial = storage.bindingsForLexicalOwner(declaration);
+      const originRegion = storage.enclosingRegionFor(declaration);
+      if (originRegion === undefined)
+        return sourceOwnershipUnresolved(declaration, "Callable retention requires its original checked creation region.");
+      const originOwner = sourceStorageRegionOwner(ast, originRegion);
+      const initial = storage.bindingsForLexicalOwner(originOwner ?? originRegion);
       if (initial.kind === "unresolved") return sourceOwnershipUnresolved(declaration, initial.reason);
-      const originOwner = sourceEnclosingCallable(declaration, ast);
       const rows = budget.createRows();
       try {
         const pending = [{ node: declaration, bindings: initial.bindings }];
@@ -100,8 +104,9 @@ export function createSourceCallableRetentionQuery(input: {
           const uses = flow?.uses ?? summary?.uses;
           if (uses === undefined) { reason ??= "A retained callable use has no completed checked source-use summary."; continue; }
           if (ast.is.IsParameterDeclaration(current)) {
-            const formal = storage.subjectFor(current);
-            const owner = formal.kind === "resolved" ? sourceStorageFormalOwner(formal.subject, ast) : undefined;
+            const formal = storage.subject(current, "input");
+            if (formal.kind === "unresolved") reason ??= formal.reason;
+            const owner = formal.kind === "resolved" ? sourceStorageFormalOwner(formal.subject, source) : undefined;
             if (owner !== undefined && (ast.hasModifierKind(owner, "async") || semantics.forNode(owner).operations.generator(owner) !== undefined)) {
               const activations = storage.boundActivationsFor(owner, bindings);
               if (activations.kind === "unresolved" || activations.activations.length === 0)
@@ -151,7 +156,7 @@ export function createSourceCallableRetentionQuery(input: {
               for (const actual of actuals) {
                 if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
                 const formal = actual.formal;
-                const owner = sourceStorageFormalOwner(formal, ast);
+                const owner = sourceStorageFormalOwner(formal, source);
                 if (formal.kind !== "input" || formal.projection.length !== 0 || owner === undefined || ast.body(owner) === undefined)
                   reason ??= "Native or unchecked formal storage has no closed source non-retention proof.";
                 else {
@@ -255,7 +260,7 @@ export function createSourceRetentionQuery(input: {
             return sourceOwnershipUnresolved(actual.node, "A program-duration owner requires a retained module-owner premise, not a source-scoped lease.");
           }
         } else if (premise.kind === "formal-borrowed") {
-          if (sourceStorageFormalOwner(actual, source.ast) !== premise.executionOwner ||
+          if (sourceStorageFormalOwner(actual, source) !== premise.executionOwner ||
             source.ast.body(premise.executionOwner) === undefined) {
             return sourceOwnershipUnresolved(actual.node, "A formal lease requires its actual input or receiver execution owner.");
           }
@@ -265,8 +270,7 @@ export function createSourceRetentionQuery(input: {
             return sourceOwnershipUnresolved(actual.node, "A formal lease requires a closed checked execution activation.");
           }
           if (premise.region.kind === "input-duration") {
-            if (actual.kind !== "input" || premise.region.parameter !== actual.node ||
-              !source.ast.parameters(premise.executionOwner).includes(premise.region.parameter)) {
+            if (actual.kind !== "input" || premise.region.parameter !== actual.node) {
               return sourceOwnershipUnresolved(actual.node, "An input-duration lease must identify that exact native input.");
             }
           } else {

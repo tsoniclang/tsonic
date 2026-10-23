@@ -112,7 +112,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
 export function sourceStorageInputBinding(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
-  const owner = sourceStorageFormalOwner(term.subject, source.ast);
+  const owner = sourceStorageFormalOwner(term.subject, source);
   const bound = scopes.lookup(term.subject, term.scope);
   if (bound?.kind === "expand") return bound;
   const unresolved = (reason: string): Extract<SourceStorageReduction, { readonly kind: "replace" }> => ({ kind: "replace", terms: [Object.freeze({

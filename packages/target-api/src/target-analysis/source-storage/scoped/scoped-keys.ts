@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -79,7 +80,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
       if (scope === scopes.empty) return [];
-      if (scope.kind === "frame" && scope.boundary === "declaration" && sourceStorageFormalOwner(subject, source.ast) === scope.owner)
+      if (scope.kind === "frame" && scope.boundary === "declaration" && sourceStorageFormalOwner(subject, source) === scope.owner)
         return ["declaration", scopes.identity(scope)];
       if (!budget.step()) return undefined;
       const footprint = footprints.select(subject);
@@ -184,7 +185,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const callable = owner === undefined ? undefined : transport.subject(owner);
         const captures = owner === undefined ? null : callable === undefined ? undefined : encodeScope(callable, selected.scope);
         const parameters = owner === undefined || source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)
-          ? [] : source.ast.parameters(owner);
+          ? [] : sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner), { kind: "declaration" });
+        if (parameters === undefined) return undefined;
         if (owner !== undefined) for (const parameter of [...parameters, owner]) {
           if (parameter === undefined || !budget.step()) continue;
           const formal = transport.subject(parameter, parameter === owner ? "receiver" : "input");
@@ -280,7 +282,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       const frame = selected.scope.kind === "substitution" ? selected.scope.scope : selected.scope;
       const terminalInput = selected.kind === "leaf" && (selected.subject.kind === "input" || selected.subject.kind === "receiver") &&
         frame.kind === "frame" && frame.invocation !== undefined && frame.owner !== undefined &&
-        sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
+        sourceStorageFormalOwner(selected.subject, source) === frame.owner;
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;

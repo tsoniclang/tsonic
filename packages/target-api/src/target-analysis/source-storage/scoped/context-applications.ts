@@ -1,3 +1,4 @@
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -37,9 +38,17 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
   const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
   const projections = new Map<ContextSubject, Map<Node, (value: SourceStorageSubject) => readonly ContextSelection[] | undefined>>();
   const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "input" || subject.kind === "receiver";
-  const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean => subject.kind === "receiver"
-    ? subject.node === candidate : subject.kind === "input" && !source.ast.is.IsClassDeclaration(candidate) &&
-      !source.ast.is.IsClassExpression(candidate) && source.ast.parameters(candidate).includes(subject.node);
+  const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean | undefined => {
+    if (subject.kind === "receiver") return subject.node === candidate;
+    if (subject.kind !== "input" || source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) return false;
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+      { kind: "declaration" });
+    if (parameters === undefined) {
+      budget.reject("Source storage context ports require their exact checked value parameters.");
+      return undefined;
+    }
+    return parameters.includes(subject.node);
+  };
   const binding = (subject: SourceStorageSubject, candidate: Node, invocation: Node): ContextBinding | undefined => {
     const candidates = bindings.get(subject);
     const invocations = candidates?.get(candidate);
@@ -53,7 +62,9 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     return selected;
   };
   const instantiate = (port: SourceStorageSubject, candidate: Node, invocation: Node): readonly ContextSelection[] | undefined => {
-    if (!ownsPort(port, candidate)) return [];
+    const owned = ownsPort(port, candidate);
+    if (owned === undefined) return undefined;
+    if (!owned) return [];
     const result: ContextSelection[] = [];
     const inputs = queries.invocationInputs(port, candidate, invocation);
     for (const input of inputs.subjects) {
@@ -72,8 +83,10 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     if (cached !== undefined) return cached;
     if (!rows.add(candidates === undefined ? 2 : 1)) return undefined;
     const projection = current.kind === "binding"
-      ? (value: SourceStorageSubject): readonly ContextSelection[] | undefined => ownsPort(value, candidate)
-        ? instantiate(value, candidate, invocation) : [{ kind: "value", value }]
+      ? (value: SourceStorageSubject): readonly ContextSelection[] | undefined => {
+        const owned = ownsPort(value, candidate);
+        return owned === undefined ? undefined : owned ? instantiate(value, candidate, invocation) : [{ kind: "value", value }];
+      }
       : (value: SourceStorageSubject): readonly ContextSelection[] | undefined => isPort(value)
         ? instantiate(value, candidate, invocation)
         : queries.ownerFor(value.node) === candidate ? [{ kind: "value", value: current }] : [];

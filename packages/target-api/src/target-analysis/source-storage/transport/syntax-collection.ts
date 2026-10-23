@@ -272,8 +272,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
           const types = semantics.forNode(node).types;
           const parameterType = types.nonNullableType(argument.binding.selectedParameterType);
           const argumentType = types.nonNullableType(argument.binding.selectedArgumentType);
-          const callable = parameterType !== undefined && types.signatureInfos(parameterType, "call").length !== 0 ||
-            argumentType !== undefined && types.signatureInfos(argumentType, "call").length !== 0;
+          const callable = parameterType !== undefined && types.callSignatures(parameterType).length !== 0 ||
+            argumentType !== undefined && types.callSignatures(argumentType).length !== 0;
           if (known === undefined && !callable) continue;
           if (!budget.row()) break;
           nativeEntries.push(Object.freeze({ argument, timing: known?.timing ?? "unknown",
