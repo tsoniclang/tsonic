@@ -1,5 +1,5 @@
 import { formatDiagnostics } from "@tsonic/tsts";
-import { formatDiagnosticEvidenceDetails } from "@tsonic/target-api/artifacts";
+import { targetDiagnosticFromExtension } from "@tsonic/target-api/artifacts";
 import type { CheckedSourceProgram, SourceFile } from "@tsonic/tsts";
 import { createSourceDiagnosticSpanReader } from "@tsonic/target-api/source";
 import type {
@@ -24,13 +24,8 @@ export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDire
   return [
     ...tstsDiagnostics,
     ...source.extensionDiagnostics.map((diagnostic): TargetDiagnostic => ({
-      code: `TS${diagnostic.numericCode}`,
-      category: diagnostic.category,
-      message: diagnostic.message,
-      source: diagnostic.extensionId,
+      ...targetDiagnosticFromExtension(undefined, diagnostic),
       sourceSpan: getExtensionDiagnosticSourceSpan(source, diagnostic.nodeOrSpan, currentDirectory, spans),
-      evidence: diagnostic.evidence?.map((entry) =>
-        entry.details === undefined ? entry.message : `${entry.message}: ${formatDiagnosticEvidenceDetails(entry.details)}`),
     })),
   ];
 }
