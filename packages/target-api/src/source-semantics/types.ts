@@ -35,6 +35,7 @@ export interface SourceOperationEvidenceQueries {
 export interface SourceFinalTypeQueries {
   expressionType(node: Node): Type | undefined;
   awaitedType(type: Type): Type | undefined;
+  iterationElementType(expression: Node): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): Type | undefined;
   typeOfSymbol(symbol: Symbol | undefined): Type | undefined;

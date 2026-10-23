@@ -144,6 +144,7 @@ export function createTargetSourceProgram(
     const types: SourceFinalTypeQueries = Object.freeze({
       expressionType: queries.checker.getTypeAtLocation,
       awaitedType: queries.checker.getAwaitedType,
+      iterationElementType: queries.checker.getIterationElementType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType: queries.checker.getContextualType,
       typeOfSymbol: queries.checker.getTypeOfSymbol,
