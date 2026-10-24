@@ -136,6 +136,24 @@ for (const selection of [
   });
 }
 
+for (const absence of ["null", "undefined"]) {
+  test(`a returned ${absence} alternative retains completed receiver exclusion without inventing a value`, () => {
+    const current = fixture(`
+      class List {
+        constructor(readonly items: readonly {}[]) {}
+        read(): {} { return this.items[0]; }
+      }
+      const token = {};
+      function select(value: List, keep: boolean): List | null | undefined { return keep ? value : ${absence}; }
+      const selected = select(new List([token]), true);
+      const result = selected!.read();
+    `);
+    const origins = current.origins("result");
+    assert.equal(origins.length === 1 && origins[0].subject.node === current.initializer("token"), true,
+      "the exact receiver's element is retained without a nullish or fabricated method result");
+  });
+}
+
 for (const [name, recursion, helpers] of [
   ["rotated tuple", "select(other, value, depth - 1)", ""],
   ["mutual rotated tuple", "bridge(other, value, depth - 1)",

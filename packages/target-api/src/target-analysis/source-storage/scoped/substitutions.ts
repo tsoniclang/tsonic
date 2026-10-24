@@ -245,11 +245,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const execution = operation.kind === "execution-root" || operation.kind === "region" ||
         (operation.kind === "application" || operation.kind === "member" || operation.kind === "pointer") && operation.mode === "execution";
-      if (alternatives.length === 0 &&
-        (operation.kind === "application" || operation.kind === "member" || operation.kind === "pointer") && operation.mode !== "value") {
-        const successor = retain(emptyTerm);
-        return successor !== undefined && emit(successor, true);
-      }
       for (const term of alternatives) {
         if (!budget.step()) return false;
         if (execution) {
