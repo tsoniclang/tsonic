@@ -472,9 +472,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
       }
       const candidate = selected.implementation.declaration;
-      const scope = equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
-      if (scope === undefined) return undefined;
       const generator = semantics.forNode(candidate).operations.generator(candidate);
+      const asynchronous = ast.hasModifierKind(candidate, "async");
+      const scope = asynchronous && term.activation.kind !== "entered" &&
+        (term.mode === "throw" || term.mode === "value" && generator === undefined)
+        ? term.scope : equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
+      if (scope === undefined) return undefined;
       if (term.mode === "throw") {
         const terms = rejections.callableThrows(term.callee.subject, candidate, term.invocation, scope,
           term.activation.kind === "entered" ? term.activation.actualTypes : undefined);
@@ -489,10 +492,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const result = transport.subject(term.invocation, "value", term.projection);
         return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
       }
-      if (ast.hasModifierKind(candidate, "async")) {
+      if (asynchronous) {
         const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result,
-          term.activation.kind === "entered" ? scope : term.scope)], dependencies };
+        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
       }
       const result = transport.subject(candidate, "return", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
@@ -677,11 +679,16 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) })] };
       if (elements.length === 0) return absent;
     }
-    const receiver = term.subject.kind === "return" && ast.body(node) !== undefined
-      ? transport.subject(node, "receiver") : undefined;
-    const selectedBody = receiver !== undefined && scopes.lookup(receiver, term.scope) !== undefined;
-    const terms = [...parents].filter(parent => !selectedBody || parent.kind !== "return")
-      .map(parent => sourceStorageReference(parent, term.scope));
+    let selectedBody: boolean | undefined;
+    const terms = [...parents].filter(parent => {
+      if (parent.kind !== "return") return true;
+      if (selectedBody === undefined) {
+        const receiver = term.subject.kind === "return" && ast.body(node) !== undefined
+          ? transport.subject(node, "receiver") : undefined;
+        selectedBody = receiver !== undefined && scopes.lookup(receiver, term.scope) !== undefined;
+      }
+      return !selectedBody;
+    }).map(parent => sourceStorageReference(parent, term.scope));
     if (sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
       terms.unshift(leaf(term.subject, creatorScope(node, term.scope)));
     const qualified = term.subject.kind === "value" && ast.is.IsIdentifier(node) && parents.size !== 0 &&

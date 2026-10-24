@@ -37,6 +37,13 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
       parent: SourceStoragePublication | undefined): void {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return; }
       if (!budget.step()) return;
+      const types = admitted.get(subject);
+      const owners = types?.get(type);
+      const exposures = owners?.get(inputOwner);
+      const previous = exposures?.get(exposure);
+      const phase = kind === "opaque-write" ? 4 : kind === "unclassified-exposure" ? 8 : 0;
+      const flag = 1 << (phase + (externalEntry ? 2 : 0) + (writes ? 1 : 0));
+      if (((previous ?? 0) & flag) !== 0) return;
       const publication: SourceStoragePublication = Object.freeze({ subject, type, sourceFile, exposure, writes, kind, externalEntry,
         ...(inputOwner === undefined ? {} : { inputOwner }), parent });
       for (let ancestor = parent; ancestor !== undefined; ancestor = ancestor.parent) {
@@ -45,13 +52,6 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
           ancestor.writes === writes && ancestor.kind === kind && ancestor.externalEntry === externalEntry &&
           ancestor.inputOwner === inputOwner && coveredByPrefix(ancestor, publication)) return;
       }
-      const types = admitted.get(subject);
-      const owners = types?.get(type);
-      const exposures = owners?.get(inputOwner);
-      const previous = exposures?.get(exposure);
-      const phase = kind === "opaque-write" ? 4 : kind === "unclassified-exposure" ? 8 : 0;
-      const flag = 1 << (phase + (externalEntry ? 2 : 0) + (writes ? 1 : 0));
-      if (((previous ?? 0) & flag) !== 0) return;
       if (!rows.add(2 + (parent === undefined ? 0 : 1) + (types === undefined ? 1 : 0) +
         (owners === undefined ? 1 : 0) + (exposures === undefined ? 1 : 0) + (previous === undefined ? 1 : 0))) return;
       const selectedTypes = types ?? new Map<Type, Map<SourceStorageSubject | undefined, Map<Node, number>>>();

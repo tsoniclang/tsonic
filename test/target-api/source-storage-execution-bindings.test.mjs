@@ -33,17 +33,23 @@ function fixture() {
 test("execution regions use exact caller substitutions for forwarded supplied, omitted and maybe arguments", () => {
   const current = fixture();
   for (const [index, call] of current.calls.entries()) {
-    const bindings = current.storage.bindingsForInvocation(current.forward, call);
+    const caller = current.storage.bindingsForLexicalOwner(call);
+    assert.equal(caller.kind, "resolved", "the uncalled enclosing declaration retains its actual symbolic inputs");
+    const bindings = current.storage.bindingsForInvocation(current.forward, call, caller.bindings);
     assert.equal(bindings.kind === "resolved", true, "actual caller frame");
     const result = current.storage.executionRegionsFor(current.target, current.inner, bindings.bindings);
     assert.equal(result.kind === "resolved", true, result.kind === "unresolved" ? result.reason : "checked regions");
     assert.equal(result.nodes.includes(current.initializer), index !== 0, "only proven supplied actuals exclude defaults");
   }
-  const generic = current.storage.executionRegionsFor(current.target, current.inner);
+  const caller = current.storage.bindingsForLexicalOwner(current.inner);
+  assert.equal(caller.kind, "resolved", "the unspecialized forwarder has its original declaration context");
+  const generic = current.storage.executionRegionsFor(current.target, current.inner, caller.bindings);
   assert.equal(generic.kind === "resolved" && generic.nodes.includes(current.initializer), true, "unspecialized presence stays conservative");
   const spread = current.storage.invocations.find(node => current.callName(node) === "target" &&
     current.source.ast.is.IsSpreadElement(current.source.ast.arguments(node)[0]));
-  const result = current.storage.executionRegionsFor(current.target, spread);
+  const spreadCaller = current.storage.bindingsForLexicalOwner(spread);
+  assert.equal(spreadCaller.kind, "resolved", "an uncalled spread argument keeps its original enclosing declaration context");
+  const result = current.storage.executionRegionsFor(current.target, spread, spreadCaller.bindings);
   assert.equal(result.kind === "resolved" && result.nodes.includes(current.initializer), true, "spread remains conservative");
 });
 
