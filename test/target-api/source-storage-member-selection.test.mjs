@@ -35,6 +35,36 @@ function fixture(body, extraFiles = {}) {
   return { source, storage, variable, initializer, origins };
 }
 
+for (const [name, writes, expected] of [
+  ["uninitialized", "", ["fallback"]],
+  ["direct write", "missing.callback = replacement;", ["fallback", "replacement"]],
+  ["aliased write", "const alias = missing; alias.callback = replacement;", ["fallback", "replacement"]],
+]) test(`contextual optional physical slots retain ${name} absence without inventing a value`, () => {
+  const current = fixture(`
+    const fallback = () => 1; const replacement = () => 2;
+    const missing: { callback?: () => number } = {};
+    ${writes}
+    function select(value: (() => number) | undefined = fallback) { return value; }
+    const result = select(missing.callback);
+  `);
+  const origins = current.origins("result");
+  assert.equal(origins.length === expected.length && expected.every(name =>
+    origins.some(origin => origin.subject.node === current.initializer(name))), true,
+  `${name}: only the actual default and original written callables are possible`);
+});
+
+test("a physically present contextual optional initializer does not invent a default", () => {
+  const current = fixture(`
+    const fallback = () => 1; const original = () => 2;
+    const present: { callback?: () => number } = { callback: original };
+    function select(value: (() => number) | undefined = fallback) { return value; }
+    const result = select(present.callback);
+  `);
+  const origins = current.origins("result");
+  assert.equal(origins.length === 1 && origins[0].subject.node === current.initializer("original"), true,
+    "a checked present field supplies its original callable, never the unrelated fallback");
+});
+
 test("physical exclusion remains explicit when a completed alternative grows alongside a productive one", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);

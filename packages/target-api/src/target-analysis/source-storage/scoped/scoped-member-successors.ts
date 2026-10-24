@@ -232,12 +232,13 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     for (const captured of originals) {
       if (!budget.step()) return undefined;
       const original = captured.subject.node;
-      const copied = transport.memberFlow.isCopiedFor(term.receiver.subject, original, receiverType);
-      if (copied === undefined) {
+      const storageKind = transport.memberFlow.memberStorageKindFor(term.receiver.subject, original, receiverType);
+      if (storageKind === undefined) {
         terms.push(Object.freeze({ kind: "unresolved", subject: captured.subject, scope: captured.bindings,
           reason: budget.failure() ?? "Source members require exact checked physical copy correspondence." }));
         continue;
       }
+      const copied = storageKind === "copied";
       const subject = copied ? transport.subject(term.receiver.subject.node, term.receiver.subject.kind, [...term.receiver.subject.projection, {
         kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member", declaration: original,
       }, ...term.projection]) : sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
@@ -258,6 +259,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (absent === undefined) return undefined;
         terms.push(Object.freeze({ kind: "empty", absence: sourceStorageReference(absent, term.receiver.scope) }));
       }
+      if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty", absence: term.receiver }));
       if (scopes.isSymbolic(term.receiver)) {
         if (prototype) continue;
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
@@ -317,7 +319,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       if (unboundReceiver) terms.push(sourceStorageReference(subject, term.receiver.scope));
       if (unboundReceiver && stores === undefined) continue;
       if (stores === undefined) {
-        if (!copied && !prototype) terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
+        if (!copied && !prototype && storageKind !== "absent") terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
           ? leaf(subject, creatorScope(original, captured.bindings)) : sourceStorageReference(subject, term.receiver.scope));
         continue;
       }
