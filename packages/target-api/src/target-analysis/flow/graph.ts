@@ -59,9 +59,11 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
   options: SourceControlFlowOptions): SourceControlFlowSelection {
   try {
     const { ast } = source;
+    const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
     const file = ast.getSourceFile(declaration);
     if (file === undefined || !source.sourceFiles.includes(file) ||
-      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
+      !isSourceCallableBodyBoundary(ast, declaration) && !propertyRoot &&
+      !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
     if (options === null || typeof options !== "object" ||
@@ -87,10 +89,14 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const owner = createSourceFlowConstruction(declaration, selectedLimits);
     const selectedEntry = sourceFlowEntry(source, declaration, options.invocation, owner.step);
     const { body, parameterInitializers, superInitializers, bodyExecution } = selectedEntry;
-    const pending = [declaration, ...selectedEntry.syntaxRoots].map(node => ({ node, depth: 0 }));
+    const pending = (propertyRoot ? selectedEntry.syntaxRoots : [declaration, ...selectedEntry.syntaxRoots])
+      .map(node => ({ node, depth: 0 }));
     while (pending.length > 0) {
       const current = pending.pop()!;
-      if (!includes(current.node)) continue;
+      if (!includes(current.node)) {
+        if (propertyRoot) throw new SourceFlowFailure("Property initializer flow requires its complete initializer in the checked source domain.", current.node);
+        continue;
+      }
       owner.step(current.node);
       if (current.depth >= selectedLimits.maximumDepth) {
         throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node);
@@ -156,7 +162,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
       const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      const receiver = implicit || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+      const receiver = implicit || propertyRoot || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
         if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
