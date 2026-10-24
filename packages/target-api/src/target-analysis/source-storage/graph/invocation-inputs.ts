@@ -25,23 +25,39 @@ export function sourceStorageInvocationActual(
   binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
-): SourceStorageSubject | undefined {
+): { readonly subject: SourceStorageSubject; readonly sourceType: Type; readonly targetType: Type } | undefined {
   const argument = selected.sourceArguments[binding.sourceArgumentIndex];
   if (argument === undefined) return undefined;
   const { ast, semantics } = source;
-  if (binding.sourceForm === "value") return ast.is.IsSpreadElement(argument.expression)
-    ? undefined : subjectFor(argument.expression);
+  if (binding.sourceForm === "value") {
+    const actual = ast.is.IsSpreadElement(argument.expression) ? undefined : subjectFor(argument.expression);
+    return actual === undefined ? undefined : Object.freeze({ subject: actual,
+      sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
+  }
   const index = binding.spreadElementIndex;
   const file = ast.getSourceFile(argument.expression);
-  if (binding.sourceForm !== "spread-element" || index === undefined || !Number.isSafeInteger(index) || index < 0 ||
-    !ast.is.IsSpreadElement(argument.expression) || file === undefined || !semantics.includes(file)) return undefined;
-  const types = semantics.forFile(file).types;
+  if (!ast.is.IsSpreadElement(argument.expression) || file === undefined || !semantics.includes(file)) return undefined;
+  const context = semantics.forFile(file);
+  const { types } = context;
+  const actual = subjectFor(Node_Expression(ast, argument.expression));
+  if (actual === undefined) return undefined;
+  if (binding.sourceForm === "spread-sequence") {
+    if (binding.sourceParameterForm !== "rest-sequence" || index !== undefined) return undefined;
+    const component = Object.freeze({ kind: "array-element" as const });
+    const sourceType = sourceStorageComponentType(binding.selectedArgumentType, component, context, ast);
+    const targetType = sourceStorageComponentType(binding.selectedParameterType, component, context, ast);
+    const originalType = sourceStorageComponentType(argument.type, component, context, ast);
+    if (sourceType === undefined || targetType === undefined || originalType === undefined) return undefined;
+    const projected = subject(actual.node, actual.kind, [...actual.projection, component]);
+    return projected === undefined ? undefined : Object.freeze({ subject: projected, sourceType, targetType });
+  }
+  if (index === undefined || !Number.isSafeInteger(index) || index < 0) return undefined;
   if (!types.isTuple(argument.type)) return undefined;
   const element = types.tupleElementInfos(argument.type)[index];
   if (element?.elementKind !== "required" && element?.elementKind !== "optional") return undefined;
-  const actual = subjectFor(Node_Expression(ast, argument.expression));
-  return actual === undefined ? undefined : subject(actual.node, actual.kind,
-    [...actual.projection, { kind: "tuple-element", index }]);
+  const projected = subject(actual.node, actual.kind, [...actual.projection, { kind: "tuple-element", index }]);
+  return projected === undefined ? undefined : Object.freeze({ subject: projected,
+    sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
 }
 
 export function sourceStorageInvocationArgumentAbsence(
@@ -462,8 +478,8 @@ export function createSourceStorageInvocationInputs(
               (wanted.kind !== "tuple-element" || component.kind !== "tuple-element" || wanted.index !== component.index))) continue;
             matched = true;
             const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-            const origin = actual === undefined ? undefined : subject(actual.node, actual.kind,
-              [...actual.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
+            const origin = actual === undefined ? undefined : subject(actual.subject.node, actual.subject.kind,
+              [...actual.subject.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
             if (origin !== undefined) {
               bound = true;
               subjects.add(origin);

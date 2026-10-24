@@ -146,6 +146,54 @@ test("opaque spread consumers keep their actual object elements open", () => {
     selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, name);
 });
 
+for (const [label, declarations] of [
+  ["readonly array", `const values: readonly object[] = [first, second];
+    function take(...items: object[]): void {} take(...values);`],
+  ["generic forwarding", `const values = [first, second];
+    function take<T extends object>(...items: T[]): void {}
+    function forward<T extends object>(...items: T[]): void { take(...items); }
+    forward(...values);`],
+  ["surrounding scalar rest arguments", `const values = [first, second];
+    function take(...items: object[]): void {} take(first, ...values, second);`],
+]) {
+  test(`checked ${label} preserves its complete spread element domain`, () => {
+    const current = fixture(`const first = {}; const second = {}; ${declarations}`);
+    const projected = current.storage.storageSubjectFor(current.initializer("values"), [{ kind: "array-element" }]);
+    assert.equal(projected.kind === "resolved", true, `${label}: checked element projection`);
+    const selected = current.storage.closedOriginsFor(projected.subject);
+    const boundaries = selected.kind === "open" ? selected.boundaries.map(boundary => boundary.kind) : [];
+    assert.equal(selected.kind === "complete", true, `${label}: ${selected.reason ?? ""}; ${boundaries.join(",")}`);
+    for (const name of ["first", "second"]) assert.equal(
+      selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, `${label}: ${name}`);
+    assert.equal(selected.origins.length, 2, "an argument sequence neither fabricates nor drops element producers");
+  });
+}
+
+test("a checked spread return reads elements rather than aliasing the fresh rest container", () => {
+  const current = fixture(`const first = {}; const second = {}; const values = [first, second];
+    function take(...items: object[]): object { return items[0]; }
+    const selected = take(...values);`);
+  const selected = current.storage.closedOriginsFor(current.subject("selected"));
+  assert.equal(selected.kind === "complete", true, `returned spread element: ${selected.reason ?? ""}`);
+  for (const name of ["first", "second"]) assert.equal(
+    selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, name);
+  assert.equal(selected.origins.length, 2, "rest construction is not an element's original allocation");
+});
+
+test("a checked spread callee's real element writes remain in the source producer domain", () => {
+  const current = fixture(`const first = {}; const second = {}; const replacement = {};
+    const original = { entry: first }; const other = { entry: second }; const values = [original, other];
+    function write(...items: { entry: object }[]): void { items[0].entry = replacement; }
+    write(...values); const selected = original.entry;`);
+  const selected = current.storage.closedOriginsFor(current.subject("selected"));
+  assert.equal(selected.kind === "complete", true, `actual spread element write: ${selected.reason ?? ""}`);
+  for (const name of ["first", "replacement"]) assert.equal(
+    selected.origins.some(origin => origin.subject.node === current.initializer(name)), true,
+    `the source body's actual ${name} producer is retained`);
+  assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("second")), false,
+    "correspondence does not make another object's original field an actual store into this object");
+});
+
 test("all-array union projections retain the exact checked union of element types", async context => {
   for (const [label, annotation] of [
     ["distinct mutable arrays", "number[] | string[]"],

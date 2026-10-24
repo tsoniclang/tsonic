@@ -590,7 +590,6 @@ export function createSourceStorageTransport(
         if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!step()) break;
-          if (binding.sourceForm === "spread-sequence" || binding.sourceParameterForm === "rest-sequence") continue;
           const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
           for (const slot of slots ?? []) {
             if (!step()) return;
@@ -599,8 +598,9 @@ export function createSourceStorageTransport(
             const destination = subject(slot.parameter, "input", slot.projection);
             const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
             const initialized = Node_Initializer(ast, slot.parameter) !== undefined;
-            if (!initialized || selected !== undefined && sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
-              connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+            if (actual !== undefined && (!initialized || selected !== undefined &&
+              sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent"))
+              connect(actual.subject, destination, { from: actual.sourceType, to: actual.targetType });
             if (!initialized && slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
           }
         }
