@@ -499,8 +499,9 @@ for (const [label, body, access] of [
 ]) test(`canonical deletion retains a valueless mutation for ${label}`, () => {
   const current = formalFixture(body);
   const { ast } = current.source;
-  const reference = current.nodes.find(node => (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) &&
-    ast.text(node) === access);
+  const references = current.nodes.filter(node => ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
+  assert.equal(references.length, 1, `${label}: the complete program has one exact ${access} operand`);
+  const reference = references[0];
   const operation = current.nodes.find(ast.is.IsDeleteExpression);
   assert.equal(reference !== undefined && operation !== undefined, true, `${label}: original checked access and operation`);
   const classified = sourceBindingWriteAtReference(ast, reference);
@@ -529,8 +530,9 @@ for (const [label, body, access, kind] of [
 ]) test(`valueless deletion never erases the original producer of ${label}`, () => {
   const current = formalFixture(body);
   const { ast } = current.source;
-  const reference = current.nodes.find(node => (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) &&
-    ast.text(node) === access);
+  const references = current.nodes.filter(node => ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
+  assert.equal(references.length, 1, `${label}: the complete program has one exact ${access} operand`);
+  const reference = references[0];
   assert.equal(reference !== undefined, true, `${label}: original checked access`);
   const classified = sourceBindingWriteAtReference(ast, reference);
   assert.equal(classified?.kind, kind, `${label}: unchanged source-write classification`);

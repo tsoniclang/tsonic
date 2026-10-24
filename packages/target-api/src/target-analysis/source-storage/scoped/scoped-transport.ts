@@ -167,3 +167,11 @@ export function sourceStorageInitializedValue(source: TargetSourceProgram, budge
   return !types.isAny(type) && !types.isUnknown(type) && present !== undefined && types.isIdentical(type, present)
     ? [value] : unresolved("An initialized input has unresolved actual absence correspondence.");
 }
+
+export function sourceStorageStoredValue(ast: AstReader, store: SourceStorageStore,
+  value: SourceStorageSubject | undefined, scope: import("../graph/scoped-model.js").SourceStorageScope):
+    import("../graph/scoped-model.js").SourceStorageTerm | undefined {
+  if (value !== undefined) return sourceStorageReference(value, scope);
+  return store.kind === "mutation" && store.values.length === 0 && store.reason === undefined && ast.is.IsDeleteExpression(store.operation)
+    ? Object.freeze({ kind: "empty", absence: sourceStorageReference(store.storage, scope) }) : undefined;
+}
