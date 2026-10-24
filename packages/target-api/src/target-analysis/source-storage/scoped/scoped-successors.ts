@@ -474,7 +474,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const candidate = selected.implementation.declaration;
       const generator = semantics.forNode(candidate).operations.generator(candidate);
       const asynchronous = ast.hasModifierKind(candidate, "async");
-      const scope = term.mode === "value" && generator === undefined && term.activation.kind !== "entered" && asynchronous
+      const scope = asynchronous && term.activation.kind !== "entered" &&
+        (term.mode === "throw" || term.mode === "value" && generator === undefined)
         ? term.scope : equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
       if (scope === undefined) return undefined;
       if (term.mode === "throw") {
