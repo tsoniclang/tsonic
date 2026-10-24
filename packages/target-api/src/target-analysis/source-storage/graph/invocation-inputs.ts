@@ -140,7 +140,8 @@ export function sourceStorageSelectedInputSlots(selection: SourceStorageInvocati
 }
 
 export function sourceStorageInvocationInputSelection(source: TargetSourceProgram, key: SourceStorageInvocationSelectionKey,
-  nodes: ReadonlySet<Node>, exact: boolean, step: () => boolean, retain: (cost: number) => boolean): SourceStorageInvocationInputSlots | undefined {
+  nodes: ReadonlySet<Node>, exact: boolean, step: () => boolean, retain: (cost: number) => boolean,
+  read: (declaration: Node) => SourceStorageInvocationInputSlots | undefined): SourceStorageInvocationInputSlots | undefined {
   const { ast, semantics } = source;
   const entry = "kind" in key && (key.kind === "source-storage-callback-entry" || key.kind === "source-storage-accessor-entry") ? key : undefined;
   const node = "invocation" in key ? key.invocation : key;
@@ -163,22 +164,34 @@ export function sourceStorageInvocationInputSelection(source: TargetSourceProgra
   declaration ??= signature === undefined ? undefined : consumer.declarations.signatureDeclaration(signature);
   const unresolved: SourceStorageInputSlotsSelection = Object.freeze({ kind: "unresolved",
     reason: "Source storage invocation inputs require their exact checked selected signature and implementation parameters." });
-  const selectedSlots = declaration === undefined || signature === undefined ? undefined
+  const declarationFile = declaration === undefined ? undefined : ast.getSourceFile(declaration);
+  const canonical = declaration === undefined || declaration === key || declarationFile === undefined || !semantics.includes(declarationFile)
+    ? undefined : read(declaration);
+  if (declaration !== undefined && declaration !== key && declarationFile !== undefined && semantics.includes(declarationFile) && canonical === undefined)
+    return undefined;
+  const shared = canonical !== undefined && canonical.signature === signature;
+  const selectedSlots = shared || declaration === undefined || signature === undefined ? undefined
     : sourceStorageCallableInputSlots(source, declaration, consumer, { kind: "selected-signature", signature }, step);
-  const selected: SourceStorageInputSlotsSelection = selectedSlots === undefined ? unresolved
+  const selected: SourceStorageInputSlotsSelection = shared ? canonical.selected : selectedSlots === undefined ? unresolved
     : Object.freeze({ kind: "resolved", slots: selectedSlots });
   const implementations: { readonly declaration: Node; readonly selected: SourceStorageInputSlotsSelection }[] = [];
   for (const candidate of nodes) {
     if (!step()) return undefined;
-    const implementation = source.navigation.callableImplementation(candidate);
-    const exact = implementation.kind === "resolved" && implementation.implementation.declaration === candidate && ast.body(candidate) !== undefined;
-    const slots = !exact ? undefined : candidate === declaration && selected.kind === "resolved" ? selected.slots
-      : sourceStorageCallableInputSlots(source, candidate, consumer, { kind: "source-implementation", signature }, step);
-    const body: SourceStorageInputSlotsSelection = slots === undefined ? unresolved : Object.freeze({ kind: "resolved", slots });
-    if (!retain(1 + (body.kind === "resolved" && body.slots !== selectedSlots ? body.slots.length : 0))) return undefined;
+    let body: SourceStorageInputSlotsSelection = unresolved;
+    const candidateFile = ast.getSourceFile(candidate);
+    if (ast.body(candidate) !== undefined && candidateFile !== undefined && semantics.includes(candidateFile)) {
+      if (candidate === key) body = exact && candidate === declaration ? selected : unresolved;
+      else {
+        const implementation = candidate === declaration ? canonical : read(candidate);
+        if (implementation === undefined) return undefined;
+        const published = implementation.implementations.find(input => input.declaration === candidate)?.selected;
+        if (published?.kind === "resolved") body = candidate === declaration ? selected : published;
+      }
+    }
+    if (!retain(1)) return undefined;
     implementations.push(Object.freeze({ declaration: candidate, selected: body }));
   }
-  if (!retain(1 + (selected.kind === "resolved" ? selected.slots.length : 0))) return undefined;
+  if (!retain(1 + (selectedSlots?.length ?? 0))) return undefined;
   const implementation = exact && implementations.length !== 0 && implementations.every(input => input.selected.kind === "resolved")
     ? Object.freeze({ kind: "resolved" as const }) : unresolved;
   const data = { signature, selectedDeclaration: declaration, selected, implementation, implementations: Object.freeze(implementations) };

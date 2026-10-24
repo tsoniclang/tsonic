@@ -408,7 +408,7 @@ export function createSourceStorageTransport(
       const implementation = navigation.callableImplementation(entry.declaration);
       selected = { nodes: new Set([entry.declaration]), exact: implementation.kind === "resolved" &&
         implementation.implementation.declaration === entry.declaration && ast.body(entry.declaration) !== undefined };
-    } else if (ast.body(invocation) !== undefined) {
+    } else if (!invocations.has(invocation) && !accessorTargets.has(invocation)) {
       const implementation = navigation.callableImplementation(invocation);
       selected = { nodes: new Set(implementation.kind === "resolved" ? [implementation.implementation.declaration] : []),
         exact: implementation.kind === "resolved" };
@@ -424,7 +424,8 @@ export function createSourceStorageTransport(
       }
       if (!retain(inputs.length)) return undefined;
     } else {
-      const input = sourceStorageInvocationInputSelection(source, key, selected.nodes, selected.exact, step, retain);
+      const input = sourceStorageInvocationInputSelection(source, key, selected.nodes, selected.exact, step, retain,
+        declaration => selectedInvocationImplementations(declaration)?.values().next().value?.inputs[0]);
       if (input === undefined) return undefined;
       inputs.push(input);
     }
@@ -529,6 +530,8 @@ export function createSourceStorageTransport(
     return destinations;
   };
   const operations = function* (): Generator<SourceStorageReconciliation> {
+    for (const invocation of invocations)
+      yield once => { if (once(invocation)) syntax.publishInvocationInputs(invocation); };
     for (const invocation of pointerInvocations) {
       const pointer = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
       if (pointer?.operation !== "store") continue;
@@ -602,7 +605,6 @@ export function createSourceStorageTransport(
       }
     };
     for (const invocation of invocations) {
-      yield once => { if (once(invocation)) syntax.publishInvocationInputs(invocation); };
       yield () => {
         for (const callback of callbackEntriesFor(invocation)) {
           if (!step()) return;

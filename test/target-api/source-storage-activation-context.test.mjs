@@ -79,7 +79,9 @@ test("selected invocation inputs publish one current call and construction mappi
   }
   for (const [ownerKind, kind, count] of [["set", "setter", 1], ["get", "getter", 0]]) {
     const owner = nodes.find(node => ownerKind === "set" ? ast.is.IsSetAccessorDeclaration(node) : ast.is.IsGetAccessorDeclaration(node));
-    const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node) && ast.text(node) === "box.value" &&
+    const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node) &&
+      ast.text(ast.as.AsPropertyAccessExpression(node).Expression) === "box" &&
+      ast.text(ast.as.AsPropertyAccessExpression(node).Name) === "value" &&
       (ownerKind === "set" ? ast.is.IsBinaryExpression(ast.parent(node)) : ast.is.IsReturnStatement(ast.parent(node))));
     const selected = resolved(storage.invocationImplementationsFor(access));
     const input = selected.inputs.find(input => input.kind === kind);
@@ -125,6 +127,29 @@ test("native callback input records use their exact entry rather than the ordina
   }
   assert.equal(storage.invocationImplementationsFor(invocation, undefined, { ...entries[0] }).kind, "unresolved",
     "a copied callback record is not the exact selected entry");
+});
+
+test("identical checked signatures share slot facts while distinct instantiations retain their selection", async () => {
+  const { ast, nodes, storage } = await fixture("source-selected-input-identical-facts", `
+    function stable(value: object): object { return value; }
+    function generic<Value>(value: Value): Value { return value; }
+    export const left = stable({}); export const right = stable({});
+    export const numeric = generic(1); export const textual = generic("value");
+  `);
+  const selected = name => nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === name)
+    .map(node => resolved(storage.invocationImplementationsFor(node)).inputs[0]);
+  const stable = selected("stable");
+  assert.equal(stable.length, 2, "both independently checked calls are retained");
+  assert.equal(stable[0].signature === stable[1].signature, true, "the two non-generic calls have the identical selected signature");
+  assert.equal(stable[0].selected === stable[1].selected, true, "one canonical signature construction serves both invocation records");
+  assert.equal(stable[0].implementations[0].selected === stable[1].implementations[0].selected, true,
+    "the same resolved body facts are read rather than rebuilt or double-retained");
+  const generic = selected("generic");
+  assert.equal(generic.length, 2, "both instantiation contexts remain selected");
+  assert.equal(generic[0].signature !== generic[1].signature && generic[0].selected !== generic[1].selected, true,
+    "different checked generic instantiations never inherit another invocation's slot record");
+  assert.equal(generic[0].selected.slots[0].parameter === generic[1].selected.slots[0].parameter, true,
+    "separate instantiations retain the same exact original declaration parameter");
 });
 
 test("a selected signature without a source implementation keeps an unresolved body half", async () => {
