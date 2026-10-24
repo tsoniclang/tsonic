@@ -13,22 +13,48 @@ import { sourceStorageActivationOwner } from "../../packages/target-api/dist/tar
 function fixture(limits = {}, length = 50) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const file = {};
+  const signatures = new Map();
+  const parameterOwners = new Map();
+  const callable = (parameters = []) => {
+    const owner = {};
+    signatures.set(owner, Object.freeze({ parameters: Object.freeze(parameters.map(declaration => Object.freeze({ declaration }))) }));
+    for (const parameter of parameters) parameterOwners.set(parameter, owner);
+    return owner;
+  };
   const parameter = {};
-  const outer = { parameters: [parameter] };
+  const outer = callable([parameter]);
   const input = subject({});
   const formal = subject(parameter, "input");
   const innerParameter = {};
-  const inner = { parameters: [innerParameter] };
+  const inner = callable([innerParameter]);
   const nodes = Array.from({ length }, () => subject({}));
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
+  const semantics = Object.freeze({ declarations: Object.freeze({
+    declarationSignature: owner => signatures.get(owner),
+    signatureParameters: signature => signature.parameters,
+    primarySymbolDeclaration: symbol => symbol.declaration,
+    declaredValueType: () => undefined,
+  }), types: Object.freeze({ expressionType: () => undefined, signatureThisParameterInfo: () => undefined }) });
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
+    IsArrowFunction: () => false, IsInterfaceDeclaration: () => false,
     IsCallExpression: () => false, IsNewExpression: () => false, IsIdentifier: () => false,
     IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
     IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
-    IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
+    IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameterOwners.has(node) },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
-    parameters: node => node.parameters, body: () => undefined, kindName: () => "test-node",
-    parent: node => node === parameter ? outer : node === innerParameter ? inner : node === inner ? outer : undefined } };
+    getSourceFile: node => signatures.has(node) || parameterOwners.has(node) ? file : undefined,
+    name: () => undefined, body: () => undefined, kindName: () => "test-node",
+    parent: node => parameterOwners.get(node) ?? (node === inner ? outer : undefined) },
+  semantics: { includes: candidate => candidate === file,
+    forNode(node) {
+      if (!signatures.has(node) && !parameterOwners.has(node)) throw new Error("The substitution fixture requires its exact checked callable or parameter.");
+      return semantics;
+    },
+    forFile(candidate) {
+      if (candidate !== file) throw new Error("The substitution fixture requires its exact checked source file.");
+      return semantics;
+    } } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const invocationInputs = origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(),
@@ -44,7 +70,7 @@ function fixture(limits = {}, length = 50) {
     ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
   const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
-  return { budget, subject, scopes, keys, source, transport, creation, outer, inner, innerParameter, formal, input, nodes, inputs };
+  return { budget, subject, scopes, keys, source, transport, creation, callable, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 
 test("substitution into the canonical empty scope preserves identity with one bounded operation", () => {
@@ -132,18 +158,18 @@ test("an individually oversized context and exhausted work fail closed without c
   assert.equal(current.keys.encode(sourceStorageReference(current.nodes[0], parent)) === undefined, true,
     "the actual live frontier still exceeds the same finite row ceiling");
   assert.match(current.budget.failure(), /transport-row/u);
-  assert.equal(current.scopes.frameFor({ parameters: [] }, {}, current.scopes.empty, current.scopes.empty) === undefined, true,
+  assert.equal(current.scopes.frameFor(current.callable(), {}, current.scopes.empty, current.scopes.empty) === undefined, true,
     "failed zero-argument work cannot publish invented empty evidence");
   const work = fixture({ maximumSteps: 1 });
   assert.equal(work.scopes.frameFor(work.outer, {}, work.scopes.empty, work.scopes.empty) === undefined, true);
   assert.match(work.budget.failure(), /analysis-work/u);
-  assert.equal(work.scopes.frameFor({ parameters: [] }, {}, work.scopes.empty, work.scopes.empty) === undefined, true);
+  assert.equal(work.scopes.frameFor(work.callable(), {}, work.scopes.empty, work.scopes.empty) === undefined, true);
 });
 
 test("one key encoding shares exact scoped references instead of retraversing a binding DAG as a tree", () => {
   const current = fixture({ maximumSteps: 512, maximumTransportRows: 1024 }, 1);
   let scope = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
-  const unrelated = { parameters: [] };
+  const unrelated = current.callable();
   for (let depth = 0; depth < 20; depth += 1) scope = current.scopes.frameFor(unrelated, {}, scope, scope);
   assert.equal(scope !== undefined, true);
   const reference = () => sourceStorageReference(current.formal, scope);
@@ -294,7 +320,7 @@ test("context scheduling reserves the complete live fanout before traversing ano
 test("deep activation identities use bounded explicit traversal rather than recursive history strings", () => {
   const current = fixture();
   let scope = current.scopes.empty;
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   for (let index = 0; index < 20_000; index += 1) {
     scope = current.scopes.frameFor(candidate, {}, scope, current.scopes.empty);
     assert.equal(scope !== undefined, true, "finite checked call-chain frame");
@@ -308,7 +334,7 @@ test("deep activation identities use bounded explicit traversal rather than recu
 
 test("activation identity retains the actual caller and does not depend on a redundant capture frame", () => {
   const current = fixture();
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   const invocation = {};
   const left = current.scopes.frameFor(candidate, {}, current.scopes.empty, current.scopes.empty);
   const right = current.scopes.frameFor(candidate, {}, current.scopes.empty, current.scopes.empty);
@@ -322,7 +348,7 @@ test("activation identity retains the actual caller and does not depend on a red
 
 test("substituting only a lexical capture cannot manufacture another physical call activation", () => {
   const current = fixture();
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
   const capture = current.scopes.variable(equation, current.outer);
   const frame = current.scopes.frameFor(candidate, {}, current.scopes.empty, capture);
@@ -342,7 +368,7 @@ test("distinct lexical substitutions reuse the exact completed physical caller i
   const current = fixture({ maximumSteps: 4096, maximumTransportRows: 8192 }, 1);
   const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
   const variable = current.scopes.variable(equation, current.outer);
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   let caller = current.scopes.empty;
   for (let depth = 0; depth < 40; depth += 1) caller = current.scopes.frameFor(candidate, {}, caller, caller);
   const frame = current.scopes.frameFor(candidate, {}, caller, variable);
@@ -382,7 +408,7 @@ test("activation indexing preserves independent finite work and live row rejecti
 
 test("deep cyclic capture discovery reuses the bounded completed relation owner", () => {
   const current = fixture();
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   const equation = { identity: 0, entry: candidate, component: new Set([candidate]), initial: current.scopes.empty };
   const variable = current.scopes.variable(equation, candidate);
   let scope = variable;
@@ -469,10 +495,10 @@ test("replacement selection intersects exact free variables on the smaller side 
   graph.seal();
   const scopes = createSourceStorageScopes(current.source, budget, current.subject,
     () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined, current.creation);
-  const owners = Array.from({ length: 64 }, () => ({ parameters: [] }));
+  const owners = Array.from({ length: 64 }, () => current.callable());
   const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
   const variables = owners.map(owner => scopes.variable(equation, owner));
-  const candidate = { parameters: [] };
+  const candidate = current.callable();
   let wide = scopes.empty;
   for (const variable of variables) wide = scopes.frameFor(candidate, {}, wide, variable);
   const narrow = scopes.frameFor(candidate, {}, scopes.empty, variables[0]);

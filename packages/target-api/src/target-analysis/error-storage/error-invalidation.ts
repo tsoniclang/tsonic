@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/index.js";
+import { forEachSourceImmediateEvaluationChild, Node_Expression } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
@@ -95,20 +95,47 @@ export function createSourceErrorInvalidationQuery(
         const native = nativeSubjects.has(subject.subject) ? storage.closedOriginsFor(subject.subject, bindings) : undefined;
         if (native?.kind === "unresolved") return native;
         if (native?.kind === "open") unproven = "Native Error allocation requires complete checked constructor value provenance.";
-        const implementations = storage.invocationImplementationsFor(node, bindings);
-        if (implementations.kind === "unresolved") return implementations;
-        let resolved = false;
-        for (const candidate of implementations.nodes) resolved = appendCallableRegions(candidate, node, bindings) || resolved;
+        let opaque = false;
         if (ast.is.IsNewExpression(node)) {
-          const regions = storage.instanceRegionsFor(node);
-          if (regions.kind === "unresolved") return regions;
-          for (const region of regions.regions) {
-            const selected = storage.bindingsForInvocation(region.owner, node, bindings);
-            if (selected.kind === "unresolved") return selected;
-            pending.push({ node: region.node, bindings: selected.bindings });
+          const constructor = Node_Expression(ast, node);
+          if (constructor === undefined) return Object.freeze({ kind: "unresolved",
+            reason: "Error invalidation requires the exact checked constructor expression." });
+          const subject = storage.subjectFor(constructor);
+          if (subject.kind === "unresolved") return subject;
+          const origins = storage.closedOriginsFor(subject.subject, bindings);
+          if (origins.kind === "unresolved") return origins;
+          if (origins.kind === "open") {
+            const arguments_ = storage.argumentTransportsFor(node);
+            if (arguments_.kind === "unresolved") return arguments_;
+            opaque = true;
+            unproven = "Constructor mutation requires a closed actual class-value domain in the exact invocation context.";
+          } else {
+            const construction = storage.constructionFor(node, bindings);
+            if (construction.kind === "unresolved") return construction;
+            for (const alternative of construction.alternatives) {
+              if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+              if (alternative.implementation !== undefined) for (const region of alternative.implementation.regions) {
+                if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+                pending.push({ node: region, bindings: alternative.implementation.selection.bindings });
+              }
+              for (const entry of alternative.classes) for (const region of entry.regions) {
+                if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+                pending.push({ node: region.node, bindings: region.selection.bindings });
+              }
+            }
           }
+        } else {
+          const implementations = storage.invocationImplementationsFor(node, bindings);
+          if (implementations.kind === "unresolved") return implementations;
+          let resolved = false;
+          for (const candidate of implementations.nodes) {
+            resolved = appendCallableRegions(candidate, node, bindings) || resolved;
+            const reason = failureReason() ?? unresolved;
+            if (reason !== undefined) return Object.freeze({ kind: "unresolved", reason });
+          }
+          opaque = !implementations.exact || !resolved;
         }
-        if ((!implementations.exact || !resolved) && native?.kind !== "complete") {
+        if (opaque && (ast.is.IsNewExpression(node) || native?.kind !== "complete")) {
           const arguments_ = storage.invocationArgumentsFor(node);
           if (arguments_.kind === "unresolved") return arguments_;
           for (const argument of arguments_.nodes) {

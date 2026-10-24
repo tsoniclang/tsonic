@@ -282,16 +282,26 @@ test("callable parameter transport rejects missing, foreign and unrelated checke
   const current = await fixture("source-parameter-owned", text);
   const foreign = await fixture("source-parameter-foreign", text);
   const read = current.declaration("read");
+  const declarations = current.source.semantics.forNode(read).declarations;
+  const signature = declarations.declarationSignature(read);
+  const symbol = declarations.signatureParameters(signature)[0];
+  assert.equal(symbol !== undefined, true, "the actual declaration signature owns one checked value parameter");
   for (const [label, parameter] of [
     ["missing", undefined],
     ["foreign", foreign.ast.parameters(foreign.declaration("read"))[0]],
     ["unrelated checked owner", current.ast.parameters(current.declaration("other"))[0]],
   ]) {
-    const source = { ...current.source, ast: { ...current.ast,
-      parameters: declaration => declaration === read ? [parameter] : current.ast.parameters(declaration),
+    const selected = semantics => ({ ...semantics, declarations: { ...semantics.declarations,
+      primarySymbolDeclaration: candidate => candidate === symbol ? parameter : semantics.declarations.primarySymbolDeclaration(candidate),
+    } });
+    const source = { ...current.source, semantics: { ...current.source.semantics,
+      forNode: node => selected(current.source.semantics.forNode(node)),
+      forFile: file => selected(current.source.semantics.forFile(file)),
     } };
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
-    assert.equal(storage.failureReason(), "Source storage callable inputs require exact checked parameter declaration ownership.", label);
+    assert.equal(storage.failureReason(), parameter === undefined
+      ? "Source storage callable regions require their exact checked value parameters."
+      : "Source storage callable inputs require exact checked parameter declaration ownership.", label);
     assert.equal(storage.subject(read).kind, "unresolved", `${label}: invalid input evidence is never complete-empty`);
   }
 });
@@ -334,8 +344,8 @@ for (const [name, declarationText, sourceText, projections] of [
     assert.equal(externalFile !== undefined, true, "the selected external declaration has its original source-file identity");
     assert.equal(source.semantics.includes(externalFile), false,
       "the selected external declaration is not an included authored source file");
-    assert.throws(() => source.semantics.forNode(declaration), /exact source file from the checked program/u,
-      "the strict facade membership boundary remains unchanged");
+    assert.equal(source.semantics.forNode(declaration) === source.semantics.forFile(externalFile), true,
+      "exact checked-program membership permits the real external declaration independently of authored-source exposure");
     const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
       { kind: "selected-signature", signature: selected.selectedSignature }, () => true);
     assert.equal(slots?.length, projections.length, "the actual instantiated effective slot count is preserved");
@@ -353,6 +363,8 @@ for (const [name, declarationText, sourceText, projections] of [
       { kind: "selected-signature", signature: undefined }, () => true), undefined,
       "missing selected signature is unresolved, never reconstructed from the declaration");
     const foreign = await fixture("foreign-slot-context-" + name, "export function other(value: number): number { return value; }");
+    assert.throws(() => source.semantics.forNode(foreign.declaration("other")), /exact source file from the checked program/u,
+      "an actual foreign-program declaration still fails the strict facade membership boundary");
     assert.equal(sourceStorageCallableInputSlots(source, declaration,
       foreign.source.semantics.forNode(foreign.declaration("other")),
       { kind: "selected-signature", signature: selected.selectedSignature }, () => true), undefined,

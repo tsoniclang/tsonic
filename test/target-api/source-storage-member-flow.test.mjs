@@ -11,27 +11,48 @@ const member = (declarations, optional = false) => ({
 const present = (destination, originals) => ({ kind: "present",
   destination: member(destination), source: member(originals) });
 
-function fixture(relation, limits = {}, context = () => true) {
+function fixture(relation, limits = {}, context = () => true, selectMember) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const file = {};
   const calls = [];
   const retained = [];
+  const relationships = new Map();
+  const checkedRelation = (file, from, to) => {
+    const sources = relationships.get(file) ?? new Map();
+    const destinations = sources.get(from) ?? new Map();
+    if (destinations.has(to)) return destinations.get(to);
+    calls.push({ file, from, to });
+    const raw = relation(file, from, to);
+    const selected = new Map();
+    if (raw.kind === "available") for (const member of raw.members) {
+      const checked = member.kind === "absent" ? member : { ...member,
+        source: { ...member.source, declarations: Object.freeze([...member.source.declarations]) } };
+      for (const declaration of member.destination.declarations)
+        selected.set(declaration, selected.has(declaration) ? undefined : checked);
+    }
+    const value = { correspondence: raw.kind !== "available" ? raw : { ...raw, members: Object.freeze([...raw.members]),
+      source: { type: from, calls: [], constructs: [], indexes: [] },
+      destination: { type: to, calls: [], constructs: [], indexes: [] } }, selected };
+    destinations.set(to, value);
+    sources.set(from, destinations);
+    relationships.set(file, sources);
+    return value;
+  };
   const source = {
     ast: { name: () => undefined, getSourceFile: () => undefined, kindName: () => "test-node",
-      is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
+      is: { IsObjectLiteralExpression: node => node.kind === "object", IsArrayLiteralExpression: () => false,
         IsIdentifier: node => node.kind === "identifier" } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to) => {
-        calls.push({ file, from, to });
-        const selected = relation(file, from, to);
-        return selected.kind !== "available" ? selected : { ...selected,
-          source: { type: from, calls: [], constructs: [], indexes: [] },
-          destination: { type: to, calls: [], constructs: [], indexes: [] } };
-      } },
+      types: { expressionType: node => node.expressionType, contextualType: node => node.contextualType, isUnion: () => false,
+        structuralMember(from, to, declaration) {
+          return selectMember === undefined ? checkedRelation(file, from, to).selected.get(declaration)
+            : selectMember(file, from, to, declaration);
+        }, structuralMembers: (from, to) => checkedRelation(file, from, to).correspondence },
     }) },
   };
-  const flow = createSourceStorageMemberFlow(source, budget, owner => owner.file ?? file,
+  const flow = createSourceStorageMemberFlow(source, budget, (node, kind = "value", projection = []) => ({ node, kind, projection }),
+    owner => owner.file ?? file,
     (node, file) => { retained.push({ node, file }); return context(node, file); });
   return { flow, budget, file, calls, retained };
 }
@@ -93,9 +114,9 @@ test("member indexes preserve exact order, optional absence, duplicates and decl
   const another = {};
   const absent = {};
   const input = fixture(() => ({ kind: "available", members: [
-    present([first, second], [original, original]),
+    present([first], [original, original, another, original]),
+    present([second], [original, original]),
     { kind: "absent", destination: member([absent], true) },
-    present([first], [another, original]),
   ] }));
   const owner = subject({});
   const target = {};
@@ -196,6 +217,36 @@ test("direct member selection and recursive domain traversal consume one immutab
   assert.equal(input.flow.membersFor(owner, destination) === selected && selected.length === 2 && input.calls.length === 1, true,
     "the owning completed index isolates its sequence and serves both consumers without duplicate correspondence reads");
   assert.equal(input.budget.failure() === undefined, true);
+});
+
+test("selected contextual slots do not depend on unrelated whole-shape availability or aggregate query order", () => {
+  for (const available of [false, true]) for (const aggregateFirst of [false, true]) {
+    const from = {}; const contextual = {}; const destination = {};
+    const declaration = {}; const original = {};
+    const absent = { kind: "absent", destination: member([declaration], true) };
+    const contract = { kind: "present", destination: absent.destination,
+      source: { ...member([original], true), property: { ...member([original], true).property, readonly: true } } };
+    const input = fixture((_file, selected) => selected === from && available
+      ? { kind: "available", members: [absent] }
+      : { kind: "unavailable", reason: "missing-required-member" }, {}, () => true,
+    (_file, selected, target, requested) => target !== destination || requested !== declaration ? undefined
+      : selected === from ? absent : selected === contextual ? contract : undefined);
+    const owner = { kind: "value", projection: [], node: { kind: "object", expressionType: from, contextualType: contextual } };
+    const aggregate = () => input.flow.membersFor(owner, destination);
+    if (aggregateFirst) assert.equal(aggregate() !== undefined, available, "whole-shape refusal remains independent");
+    const selected = input.flow.memberFor(owner, declaration, destination);
+    assert.equal(selected?.kind === "present" && selected.source.property.optional && selected.source.property.readonly, true,
+      "the exact contextual optional readonly slot is physical even when unrelated whole fields are unavailable");
+    const originals = input.flow.declarationsFor(owner, declaration, destination);
+    assert.equal(originals?.length === 1 && originals[0] === original, true, "one actual checked contextual declaration");
+    if (!aggregateFirst) assert.equal(aggregate() !== undefined, available, "selected evidence never certifies the whole shape");
+    assert.equal(input.flow.declarationsFor(owner, declaration, destination) === originals, true,
+      "aggregate availability and call order cannot replace the selected physical declaration sequence");
+    const repeated = input.flow.memberFor(owner, declaration, destination);
+    assert.equal(repeated?.kind === "present" && repeated.source.property.readonly, true,
+      "readonly contextual evidence never depends on an unrelated aggregate field");
+    assert.equal(input.budget.failure() === undefined, true, "both questions retain bounded independent evidence");
+  }
 });
 
 test("optional-only member inventories reserve every retained relationship before copying or publishing their index", () => {

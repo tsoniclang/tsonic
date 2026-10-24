@@ -297,8 +297,8 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
   return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
     if (queries.isUnresolved(invocation)) return undefined;
     const context = source.semantics.forNode(invocation);
-    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
-      { kind: "declaration" });
+    const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? []
+      : sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate), { kind: "declaration" });
     if (parameters === undefined) return undefined;
     const slots = source.ast.body(candidate) === undefined ? undefined : sourceStorageCallableInputSlots(source, candidate, context,
       { kind: "source-implementation", signature: context.operations.call(invocation)?.selectedSignature }, budget.step);

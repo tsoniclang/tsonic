@@ -96,8 +96,11 @@ test("flow invocation entry omits only checked excluded parameter defaults", asy
   const ordered = invocations.sort((left, right) => current.ast.pos(left) - current.ast.pos(right));
   const initializer = current.ast.as.AsParameterDeclaration(current.ast.parameters(current.declaration)[0]).Initializer;
   for (const [index, invocation] of ordered.entries()) {
-    const selected = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" }, invocation: { storage, call: invocation } });
-    assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked entry");
+    const caller = storage.bindingsForLexicalOwner(invocation);
+    assert.equal(caller.kind === "resolved", true, caller.kind === "unresolved" ? caller.reason : "exact declaration caller");
+    const selected = createSourceControlFlow(current.source, current.declaration, { domain: { kind: "source" },
+      invocation: { storage, call: invocation, callerBindings: caller.bindings } });
+    assert.equal(selected.kind === "resolved", true, `checked call ${index}: ${selected.kind === "unresolved" ? selected.reason : "checked entry"}`);
     const entries = selected.graph.points.filter(point => point.source === initializer && point.operation.kind === "evaluate");
     assert.equal(entries.length > 0, index !== 0, `default region for checked call ${index}`);
     assert.equal(selected.graph.points.filter(point => point.operation.kind === "branch").length, index === 0 ? 0 : 1);

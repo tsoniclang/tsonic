@@ -2,7 +2,7 @@ import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
-import { Node_Initializer, sourceEnclosingCallable } from "../../../source-navigation/index.js";
+import { ForInOrOfStatement_Initializer, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable } from "../../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
 
 export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
@@ -79,16 +79,13 @@ export function sourceStorageOriginalComponents(
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
-    const correspondence = semantics.types.structuralMembers(from, to);
-    if (correspondence.kind !== "available") return [];
-    return correspondence.members.flatMap(member => member.kind === "present" &&
-      (component.kind === "method-value" ? member.destination.read === "method"
-        : member.destination.read === "property" || member.destination.read === "accessor") &&
-      member.source.read !== "unavailable" &&
-      member.destination.declarations.includes(component.declaration)
-      ? (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
-          kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
-        })) : []);
+    const member = semantics.types.structuralMember(from, to, component.declaration);
+    if (member?.kind !== "present" || member.source.read === "unavailable" ||
+      (component.kind === "method-value" ? member.destination.read !== "method"
+        : member.destination.read !== "property" && member.destination.read !== "accessor")) return [];
+    return (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
+      kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
+    }));
   }
   return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
     : [sourceStorageIsTupleType(from, semantics) ? component : { kind: "array-element" }];
@@ -132,9 +129,17 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
       (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
     const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
     const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
+    const declarationList = bindingContainer && source.ast.is.IsVariableDeclaration(value.node) ? source.ast.parent(value.node) : undefined;
+    const declarations = declarationList !== undefined && source.ast.is.IsVariableDeclarationList(declarationList)
+      ? VariableDeclarationList_Declarations(source.ast, declarationList) : undefined;
+    const loop = declarationList === undefined ? undefined : source.ast.parent(declarationList);
+    const iteration = loop !== undefined && declarations?.length === 1 && declarations[0] === value.node &&
+      (source.ast.is.IsForOfStatement(loop) || source.ast.is.IsForInStatement(loop)) &&
+      ForInOrOfStatement_Initializer(source.ast, loop) === declarationList ? loop : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
       value.kind === "value" && (source.ast.is.IsIdentifier(value.node) || source.ast.kindName(value.node) === "KindThisKeyword");
-    selected = bindingContainer ? containerType !== undefined ? semantics.types.authoredType(containerType)
+    selected = bindingContainer ? iteration !== undefined ? semantics.operations.iteration(iteration)?.sourceElementType
+        : containerType !== undefined ? semantics.types.authoredType(containerType)
         : initializer !== undefined ? semantics.types.expressionType(initializer)
           : source.ast.is.IsParameterDeclaration(value.node) ? semantics.types.expressionType(value.node) : undefined
       : expressionValue ? semantics.types.expressionType(value.node)

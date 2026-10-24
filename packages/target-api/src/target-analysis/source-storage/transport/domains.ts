@@ -7,7 +7,7 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
-import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
+import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
@@ -207,11 +207,10 @@ export function createSourceStorageDomains(
             const child = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             const declaringOwner = ast.parent(declaration);
-            const objectSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
-              (ast.is.IsMethodDeclaration(declaration) || ast.is.IsPropertyAssignment(declaration) ||
-                ast.is.IsShorthandPropertyAssignment(declaration));
-            if (publication.writes && (objectSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
-              (member.destination.read !== "method" || objectSlot) &&
+            const objectMethodSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
+              ast.is.IsMethodDeclaration(declaration);
+            if (publication.writes && (objectMethodSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
+              (member.destination.read !== "method" || objectMethodSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
               add(child, publication.kind, publication.exposure, owner);
             if (publication.writes) for (const setter of member.source.setters) {
@@ -476,7 +475,7 @@ export function createSourceStorageDomains(
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }
     }
-    const pending = [...selected.subjects];
+    const pending: SourceStorageRelationWitness[] = [...selected.subjects];
     const visited = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
       if (!budget.step()) break;
@@ -520,7 +519,7 @@ export function createSourceStorageDomains(
     const producing = new Set<SourceStorageSubject>();
     for (const candidate of selected.subjects) {
       if (!budget.step()) break;
-      if (!candidate.contributes || !selected.origins.has(candidate.subject)) continue;
+      if (!candidate.original) continue;
       if (purpose === "storage-producers" && bindings === transport.substitutions.empty && candidate.subject.kind === "input" &&
         entryActivation(candidate.bindings) &&
         isExternalInput(candidate)) continue;
@@ -537,7 +536,8 @@ export function createSourceStorageDomains(
   const writeBoundariesFor = (subject: SourceStorageSubject) => {
     initialize();
     const boundaries = boundariesFor(subject).filter(boundary => boundary.kind === "external-write" ||
-      boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure");
+      (boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
+      !closedSourceInvocation(boundary.exposure, transport.substitutions.empty));
     const reason = budget.failure() ?? transport.directlyUnresolvedFor(subject) ?? boundaries.map(boundary =>
       transport.unresolvedInvocations.get(boundary.exposure)).find(reason => reason !== undefined);
     return Object.freeze({ boundaries: Object.freeze(boundaries), reason });

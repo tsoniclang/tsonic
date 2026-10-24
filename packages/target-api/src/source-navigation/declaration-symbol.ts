@@ -2,13 +2,12 @@ import type { CheckedSourceProgram, Node, SourceFile, Symbol } from "@tsonic/tst
 import type { SourceProgramNavigation } from "./types.js";
 
 export function createSourceDeclarationSymbolQuery(
-  source: Pick<CheckedSourceProgram, "ast" | "sourceFiles" | "containsSourceFile" | "getSourceFileQueries">,
+  source: Pick<CheckedSourceProgram, "ast" | "containsSourceFile" | "getSourceFileQueries">,
   navigation: Pick<SourceProgramNavigation, "referencesToDeclaration" | "sourceReferenceFor">,
 ): (declaration: Node, sourceFile: SourceFile) => Symbol | undefined {
-  const includedFiles = new Set(source.sourceFiles);
   const selections = new WeakMap<SourceFile, WeakMap<Node, Symbol | null>>();
   return (declaration, sourceFile) => {
-    if (!includedFiles.has(sourceFile)) throw new Error("A declaration-symbol query requires its actual included checked consumer context.");
+    if (!source.containsSourceFile(sourceFile)) throw new Error("A declaration-symbol query requires its actual checked consumer context.");
     let byDeclaration = selections.get(sourceFile);
     const retained = byDeclaration?.get(declaration);
     if (retained !== undefined) return retained ?? undefined;

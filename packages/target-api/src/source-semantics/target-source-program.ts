@@ -15,7 +15,7 @@ import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { resolveSourceFlowConditions } from "../target-analysis/flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
-import { createSourceStructuralMemberQuery } from "./structural-members.js";
+import { createSourceStructuralMemberQueries } from "./structural-members.js";
 import { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
 import { analyzeSourceEnumConstants } from "../target-analysis/enum-constants.js";
 import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
@@ -46,7 +46,7 @@ export function createTargetSourceProgram(
   };
 
   const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
-    if (!sourceFileSet.has(sourceFile)) {
+    if (!source.containsSourceFile(sourceFile)) {
       throw new Error("Source semantics require an exact source file from the checked program.");
     }
     const existing = cache.get(sourceFile);
@@ -172,7 +172,7 @@ export function createTargetSourceProgram(
         return definedValues(queries.typeShape.getUnionOrIntersectionTypes(type));
       },
       propertyInfos: queries.typeShape.getPropertyInfos,
-      structuralMembers: createSourceStructuralMemberQuery(source.ast, queries.checker, queries.typeShape),
+      ...createSourceStructuralMemberQueries(source.ast, queries.checker, queries.typeShape),
       indexInfos: queries.typeShape.getIndexInfos,
       indexedAccessComponents: queries.typeShape.getIndexedAccessComponents,
       selectIndexedAccess: queries.typeShape.selectIndexedAccess,
