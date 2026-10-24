@@ -87,6 +87,45 @@ test("owned source storage rows release only their retained cells without resett
   assert.equal(closedBudget.failure() !== undefined, true);
 });
 
+test("positive owned reservations use the shared transport-row ceiling without becoming malformed requests", () => {
+  const reason = "Source storage transport exceeds its finite transport-row budget.";
+  for (const [maximum, retained, requested] of [[1, 0, 2], [3, 2, 2], [1, 0, Number.MAX_SAFE_INTEGER]]) {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: maximum });
+    const owner = budget.createRows();
+    if (retained !== 0) assert.equal(owner.add(retained), true, "the original live rows are admitted");
+    assert.equal(owner.add(requested), false, "the complete positive reservation exceeds the same finite ceiling");
+    assert.equal(budget.failure(), reason, "capacity exhaustion is not an invalid live-owner reservation");
+    assert.equal(budget.usage().rows, retained, "a refused reservation never publishes partial rows");
+    assert.equal(budget.usage().peakRows, retained, "a refused reservation does not invent admitted peak rows");
+    owner.release();
+    assert.equal(budget.usage().rows, 0, "only the original live reservation is released");
+    assert.equal(budget.failure(), reason, "release preserves the original finite refusal");
+    assert.equal(budget.createRows().add(1), false, "another owner cannot recover a failed budget");
+    assert.equal(budget.step(), false, "another accounting family cannot bypass the refusal");
+  }
+  const exact = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
+  const owner = exact.createRows();
+  assert.equal(owner.add(2), true, "the identical bulk reservation succeeds at its exact original ceiling");
+  assert.equal(exact.failure() === undefined, true, "adequate finite capacity remains available");
+  assert.equal(owner.add(1), false, "the first additional row still exceeds the unchanged limit");
+  assert.equal(exact.failure(), reason, "single and bulk reservations share the ordinary budget refusal");
+  owner.release();
+  assert.equal(exact.usage().rows, 0, "successful live rows are released after failure");
+  assert.equal(exact.usage().peakRows, 2, "release never discounts the actual construction peak");
+  for (const cost of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalid = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
+    assert.equal(invalid.createRows().add(cost), false, "malformed reservations remain invalid");
+    assert.equal(invalid.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+      "the malformed-request reason remains distinct from capacity exhaustion");
+  }
+  const closed = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
+  const released = closed.createRows();
+  released.release();
+  assert.equal(released.add(2), false, "a released owner remains invalid even when its cost also exceeds capacity");
+  assert.equal(closed.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+    "owner validity is checked before ordinary row admission");
+});
+
 test("source storage rejects invalid, nonfinite, imprecise and increased budget selections", () => {
   for (const field of Object.keys(defaultSourceStorageLimits)) {
     for (const value of [0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, defaultSourceStorageLimits[field] + 1, undefined]) {
