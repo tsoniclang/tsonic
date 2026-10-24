@@ -472,9 +472,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
       }
       const candidate = selected.implementation.declaration;
-      const scope = equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
-      if (scope === undefined) return undefined;
       const generator = semantics.forNode(candidate).operations.generator(candidate);
+      const asynchronous = ast.hasModifierKind(candidate, "async");
+      const scope = term.mode === "value" && generator === undefined && term.activation.kind !== "entered" && asynchronous
+        ? term.scope : equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
+      if (scope === undefined) return undefined;
       if (term.mode === "throw") {
         const terms = rejections.callableThrows(term.callee.subject, candidate, term.invocation, scope,
           term.activation.kind === "entered" ? term.activation.actualTypes : undefined);
@@ -489,10 +491,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const result = transport.subject(term.invocation, "value", term.projection);
         return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
       }
-      if (ast.hasModifierKind(candidate, "async")) {
+      if (asynchronous) {
         const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result,
-          term.activation.kind === "entered" ? scope : term.scope)], dependencies };
+        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
       }
       const result = transport.subject(candidate, "return", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
