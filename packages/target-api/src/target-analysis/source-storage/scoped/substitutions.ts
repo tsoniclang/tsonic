@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import type { SourceStorageForwardSelection } from "../graph/graph-queries.js";
@@ -106,7 +106,18 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (term.kind === "transition") {
         const condition = normalize(term.condition, witnesses, temporary, false);
         if (condition === undefined) return undefined;
-        return Object.freeze({ ...term, condition });
+        const transition = Object.freeze({ ...term, condition });
+        if (condition.kind === "leaf" && sourceStorageHasOriginalCallableValue(condition.subject, source.ast)) {
+          const selected = successors.reduce(transition);
+          if (selected === undefined) return undefined;
+          if (selected.kind !== "replace" || selected.terms.length !== 1) {
+            budget.reject("A selected callable transition requires its exact canonical replacement.");
+            return undefined;
+          }
+          term = selected.terms[0]!;
+          continue;
+        }
+        return transition;
       }
       break;
     }

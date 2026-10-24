@@ -424,6 +424,31 @@ for (const access of [".value", '["value"]']) {
   });
 }
 
+for (const reverse of [false, true]) {
+  test(`recursive field callables retain their exact instance creator${reverse ? " in reverse query order" : ""}`, () => {
+    const current = fixture(`
+      declare const choose: boolean;
+      class Holder {
+        constructor(readonly token: object) {}
+        readonly left = (): object => choose ? this.right() : this.token;
+        readonly right = (): object => choose ? this.left() : this.token;
+      }
+      const firstToken = {}; const secondToken = {};
+      const firstHolder = new Holder(firstToken); const secondHolder = new Holder(secondToken);
+      const first = firstHolder.left(); const second = secondHolder.right();
+    `);
+    const entries = [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]];
+    if (reverse) entries.reverse();
+    for (const [name, own, foreign] of entries) {
+      const selected = current.result(name);
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+        "a proven selected callable transition retains the actual instance's constructor input");
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+        "recursive capture substitutions never join independent instance creators");
+    }
+  });
+}
+
 test("identical factory arguments do not merge separately created captured writable locations", () => {
   const current = fixture(`
     function make(seed: object) {
