@@ -1,9 +1,20 @@
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { AstReader, Node, Type } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import { Node_Expression, Node_Initializer } from "../../../source-navigation/ast.js";
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
+import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageWriteOccurrence, SourceStorageWrittenValue } from "../model/types.js";
+import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import { sourceStorageFormalOwner } from "../model/subjects.js";
+import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
+  sourceStorageSubjectType } from "../model/components.js";
+import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
+import type { createSourceStorageGraphQueries } from "./graph-queries.js";
+import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
+  SourceStorageWriteOccurrence, SourceStorageWrittenValue } from "../model/types.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 import type { SourceStorageWriteProjection } from "../model/projections.js";
 
@@ -16,6 +27,344 @@ export interface SourceStorageWrite {
   readonly reason?: string;
   readonly birth?: NonNullable<SourceStorageWriteProjection["birth"]>;
   readonly destination?: "binding" | "member" | "element" | "pointer";
+}
+
+export function createSourceStorageFormalMemberWrites(
+  source: TargetSourceProgram,
+  budget: SourceStorageBudget,
+  graph: ReturnType<typeof createSourceStorageGraphQueries>,
+  queries: {
+    readonly nodes: readonly Node[];
+    readonly invocations: Iterable<Node>;
+    readonly invocationInputs: SourceStorageInvocationInputQuery;
+    readonly subject: SourceStorageSubjectQuery;
+    subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+    inputsFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined;
+    implementationsFor(invocation: Node): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean } | undefined;
+    unresolvedFor(invocation: Node): string | undefined;
+  },
+) {
+  const { ast, navigation, semantics } = source;
+  const rows = budget.createRows();
+  const formals = new Map<SourceStorageSubject, { readonly declaration: Node; readonly parameter: Node; readonly type: Type }>();
+  const owners = new Map<Node, readonly SourceStorageSubject[]>();
+  const seeds = new Map<SourceStorageSubject, Set<Node | string>>();
+  const forwards = new Map<SourceStorageSubject, Map<SourceStorageSubject, string | undefined>>();
+  const published = new Map<SourceStorageSubject, SourceStorageFormalMemberWriteDemandSelection>();
+  let complete = false;
+  const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
+  const add = (formal: SourceStorageSubject, value: Node | string): void => {
+    const values = seeds.get(formal);
+    if (values?.has(value) || !rows.add(values === undefined ? 2 : 1)) return;
+    const selected = values ?? new Set<Node | string>();
+    selected.add(value);
+    seeds.set(formal, selected);
+  };
+  const forward = (input: SourceStorageSubject, formal: SourceStorageSubject, reason: string | undefined): void => {
+    const relations = forwards.get(input);
+    if (relations?.has(formal) === true) {
+      if (relations.get(formal) === undefined && reason !== undefined) relations.set(formal, reason);
+      return;
+    }
+    if (!rows.add(relations === undefined ? 2 : 1)) return;
+    const selected = relations ?? new Map<SourceStorageSubject, string | undefined>();
+    selected.set(formal, reason);
+    forwards.set(input, selected);
+  };
+  for (const declaration of queries.nodes) {
+    if (!budget.step()) break;
+    if (ast.body(declaration) === undefined || !ast.is.IsFunctionDeclaration(declaration) &&
+      !ast.is.IsFunctionExpression(declaration) && !ast.is.IsArrowFunction(declaration) &&
+      !ast.is.IsMethodDeclaration(declaration) && !ast.is.IsConstructorDeclaration(declaration) &&
+      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) continue;
+    const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
+    if (parameters === undefined || !rows.add(1)) continue;
+    const selected: SourceStorageSubject[] = [];
+    for (const parameter of parameters) {
+      if (!budget.step()) break;
+      const subject = queries.subject(parameter, "input");
+      const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
+      if (subject === undefined || type === undefined || !rows.add(2)) continue;
+      formals.set(subject, { declaration, parameter, type });
+      selected.push(subject);
+    }
+    if (selected.length === parameters.length) owners.set(declaration, Object.freeze(selected));
+  }
+  const stable = (reference: Node): boolean => {
+    const binding = navigation.referenceFor(reference);
+    if (binding === undefined) return false;
+    const summary = navigation.declarationUseSummary(binding.declaration);
+    if (summary.exported && ast.is.IsVariableDeclaration(binding.declaration) &&
+      ast.variableDeclarationKind(binding.declaration) !== "const" ||
+      sourceBindingHasMutableExposure(source, summary, budget.step)) return false;
+    if (!summary.bindingWritten) return true;
+    if (summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember)) return false;
+    const preserved = (node: Node): boolean => budget.step() && navigation.bindingWritesWithin(binding.symbol, node).length === 0;
+    const contains = (node: Node, child: Node): boolean => {
+      for (let current: Node | undefined = child; current !== undefined && budget.step(); current = ast.parent(current))
+        if (current === node) return true;
+      return false;
+    };
+    const parameter = ast.is.IsParameterDeclaration(binding.declaration);
+    const owner = parameter ? ast.parent(binding.declaration) : undefined;
+    if (owner !== undefined) for (const input of owners.get(owner) ?? []) {
+      const initializer = Node_Initializer(ast, input.node);
+      if (initializer !== undefined && !preserved(initializer)) return false;
+    }
+    let current = reference;
+    while (budget.step()) {
+      const parent = ast.parent(current);
+      if (parent === undefined || ast.is.IsWhileStatement(parent) || ast.is.IsDoStatement(parent) ||
+        ast.is.IsForStatement(parent) || ast.is.IsForInStatement(parent) || ast.is.IsForOfStatement(parent)) return false;
+      if (ast.is.IsBlock(parent)) {
+        let initialized = parameter && owner !== undefined && ast.body(owner) === parent;
+        for (const statement of ast.statements(parent)) {
+          if (!budget.step() || statement === undefined) return false;
+          if (statement === current) {
+            if (initialized || !parameter && contains(statement, binding.declaration)) return true;
+            break;
+          }
+          if (!parameter && contains(statement, binding.declaration)) initialized = true;
+          if (initialized && !preserved(statement)) return false;
+        }
+      }
+      if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) || ast.is.IsArrowFunction(parent) ||
+        ast.is.IsMethodDeclaration(parent) || ast.is.IsConstructorDeclaration(parent) ||
+        ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent)) return false;
+      let reached = false;
+      let unchanged = true;
+      forEachSourceImmediateEvaluationChild(ast, parent, child => {
+        if (child === current) reached = true;
+        else if (!reached && unchanged) unchanged = preserved(child);
+      });
+      if (!reached || !unchanged) return false;
+      current = parent;
+    }
+    return false;
+  };
+  const parameterFor = (expression: Node): SourceStorageSubject | SourceStorageUnresolved | undefined => budget.withRows(temporary => {
+    const visited = new Set<Node>();
+    let current = expression;
+    while (budget.step()) {
+      const file = ast.getSourceFile(current);
+      if (file === undefined || !semantics.includes(file)) return unresolved("Member-write receivers require their original checked source binding.");
+      if (visited.has(current) || !temporary.add(1)) return unresolved(budget.failure() ?? "Member-write aliases require an acyclic checked initializer chain.");
+      visited.add(current);
+      if (ast.is.IsParenthesizedExpression(current) || ast.is.IsAsExpression(current) || ast.is.IsSatisfiesExpression(current) ||
+        ast.is.IsNonNullExpression(current) || ast.is.IsTypeAssertion(current)) {
+        const inner = Node_Expression(ast, current);
+        if (inner === undefined) return unresolved("Member-write aliases require their exact source operand.");
+        current = inner;
+        continue;
+      }
+      if (ast.is.IsObjectLiteralExpression(current) || ast.is.IsArrayLiteralExpression(current) || ast.is.IsNewExpression(current) ||
+        ast.is.IsFunctionExpression(current) || ast.is.IsArrowFunction(current)) return undefined;
+      if (!ast.is.IsIdentifier(current)) {
+        const type = semantics.forFile(file).types.expressionType(current);
+        if (type !== undefined && (sourceStorageIsScalarType(type, semantics.forFile(file)) ||
+          semantics.forFile(file).types.isNullish(type) || semantics.forFile(file).types.isVoidLike(type))) return undefined;
+        return unresolved("Member-write demand requires a parameter binding or a qualified local alias, not an element, property or call result.");
+      }
+      const reference = navigation.referenceFor(current);
+      if (reference === undefined || !stable(current)) return unresolved("Member-write demand has no parameter/local-alias proof without intervening reassignment or mutable exposure.");
+      const declaration = reference.declaration;
+      if (ast.is.IsParameterDeclaration(declaration)) {
+        const formal = queries.subject(declaration, "input");
+        return formal !== undefined && formals.has(formal) && sourceStorageFormalOwner(formal, source) === ast.parent(declaration)
+          ? formal : unresolved("Member-write demand requires the actual implementation's checked value parameter.");
+      }
+      if (!ast.is.IsVariableDeclaration(declaration) ||
+        ast.variableDeclarationKind(declaration) !== "const" && ast.variableDeclarationKind(declaration) !== "let")
+        return unresolved("Member-write demand requires an original parameter or local const/let declaration.");
+      const initializer = Node_Initializer(ast, declaration);
+      if (initializer === undefined) return unresolved("Member-write aliases require an original checked initializer.");
+      current = initializer;
+    }
+    return unresolved(budget.failure() ?? "Member-write alias proof did not complete.");
+  });
+  const affected = (expression: Node): readonly SourceStorageSubject[] | undefined => budget.withRows(temporary => {
+    const subject = queries.subjectFor(expression);
+    if (subject === undefined || !temporary.add(1)) return undefined;
+    const pending = [subject];
+    const visited = new Set<SourceStorageSubject>();
+    const selected = new Set<SourceStorageSubject>();
+    while (pending.length !== 0) {
+      if (!budget.step()) return undefined;
+      const current = pending.pop()!;
+      if (visited.has(current)) continue;
+      if (!temporary.add(1)) return undefined;
+      visited.add(current);
+      if (current.kind === "input" || current.kind === "receiver") {
+        const root = queries.subject(current.node, current.kind);
+        if (root !== undefined && formals.has(root) && !selected.has(root)) {
+          if (!temporary.add(1)) return undefined;
+          selected.add(root);
+        }
+        continue;
+      }
+      const inputs = queries.inputsFor(current);
+      if (inputs === undefined) return undefined;
+      for (const input of inputs) {
+        if (!budget.step() || !temporary.add(1)) return undefined;
+        pending.push(input);
+      }
+    }
+    return Object.freeze([...selected]);
+  });
+  const inputsFor = (expression: Node): {
+    readonly inputs: readonly SourceStorageSubject[];
+    readonly reason?: string;
+  } => {
+    const selected = parameterFor(expression);
+    const consumer = semantics.forNode(expression);
+    const type = selected?.kind === "input" ? formals.get(selected)?.type : consumer.types.expressionType(expression);
+    if (type !== undefined && (sourceStorageIsScalarType(type, consumer) ||
+      consumer.types.isNullish(type) || consumer.types.isVoidLike(type))) return { inputs: [] };
+    if (selected?.kind === "input") return { inputs: [selected] };
+    if (selected !== undefined && selected.kind !== "unresolved") {
+      budget.reject("Formal member-write aliases require the exact checked input subject.");
+      return { inputs: [] };
+    }
+    const inputs = affected(expression);
+    if (inputs === undefined) budget.reject("Formal member-write uncertainty requires its complete checked input correlation.");
+    return { inputs: inputs ?? [], reason: selected?.reason ?? (inputs?.length === 0 ? undefined
+      : "Member-write demand cannot treat an aggregate or captured value as an unqualified parameter binding.") };
+  };
+  const membersFor = (formal: SourceStorageSubject, from: Type, member: Node): readonly Node[] | undefined => {
+    const selected = formals.get(formal);
+    if (selected === undefined || !budget.step()) return undefined;
+    const consumer = semantics.forNode(selected.parameter);
+    const presentFormal = sourcePresentStorageType(selected.type, consumer);
+    const presentFrom = sourcePresentStorageType(from, consumer);
+    if (presentFormal === undefined || presentFrom === undefined) return undefined;
+    const relation = consumer.types.structuralMember(presentFormal, presentFrom, member);
+    return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
+  };
+  const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {
+    if (write.kind !== "mutation" || write.destination !== "member" && write.destination !== "element" || !budget.step()) return write;
+    const selected = ast.is.IsPropertyAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.propertyAccess(write.reference)
+      : ast.is.IsElementAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.elementAccess(write.reference) : undefined;
+    const members = sourceStorageAccessDeclarations(source, write.reference, "write");
+    if (write.destination === "element" && (members === undefined || members.length === 0) ||
+      members !== undefined && members.length !== 0 && members.every(ast.is.IsSetAccessorDeclaration)) return write;
+    if (selected === undefined) {
+      budget.reject("Formal member-write demand requires its exact checked selected receiver.");
+      return write;
+    }
+    const formal = parameterFor(selected.receiver.expression);
+    let reason = write.reason ?? (formal?.kind === "unresolved" ? formal.reason : undefined);
+    if (formal?.kind === "input") {
+      if (members === undefined || members.length === 0) reason = "Member-write demand requires its exact selected source member declaration.";
+      for (const member of members ?? []) {
+        const mapped = membersFor(formal, selected.receiver.type, member);
+        if (mapped === undefined) { reason ??= "Member-write demand has no exact checked formal/member correspondence."; continue; }
+        for (const declaration of mapped) add(formal, declaration);
+      }
+      if (reason !== undefined) add(formal, reason);
+    } else if (reason !== undefined) {
+      const shared = members?.some(member => ast.is.IsPropertySignatureDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) === true;
+      if (!shared) return write;
+      const inputs = affected(selected.receiver.expression);
+      if (inputs === undefined) budget.reject("Formal member-write uncertainty requires its complete checked receiver correlation.");
+      for (const input of inputs ?? []) add(input, reason);
+    }
+    return reason === undefined || formal === undefined ? write : Object.freeze({ ...write, reason: write.reason ?? reason });
+  };
+  const publish = (): void => {
+    if (complete) throw new Error("Formal member-write demands publish exactly once.");
+    for (const formal of formals.keys()) {
+      if (!budget.step()) break;
+      const initializer = Node_Initializer(ast, formal.node);
+      if (initializer === undefined) continue;
+      const actual = inputsFor(initializer);
+      for (const input of actual.inputs) forward(input, formal, actual.reason);
+    }
+    for (const invocation of queries.invocations) {
+      if (!budget.step()) break;
+      const call = semantics.forNode(invocation).operations.call(invocation);
+      const implementations = queries.implementationsFor(invocation);
+      const assignment = ast.parent(invocation);
+      const setter = assignment !== undefined && ast.is.IsBinaryExpression(assignment) &&
+        ast.operatorKindName(assignment) === "KindEqualsToken" ? ast.as.AsBinaryExpression(assignment) : undefined;
+      const supplied = call?.sourceArguments.map(argument => argument.expression)
+        ?? (ast.is.IsCallExpression(invocation) ? ast.as.AsCallExpression(invocation)?.Arguments?.Nodes
+          : ast.is.IsNewExpression(invocation) ? ast.as.AsNewExpression(invocation)?.Arguments?.Nodes
+            : setter?.Left === invocation && setter.Right !== undefined ? [setter.Right] : []);
+      const markUnresolved = (reason: string): void => {
+        for (const expression of supplied ?? []) {
+          if (!budget.step()) break;
+          if (expression === undefined) continue;
+          const actual = ast.is.IsSpreadElement(expression) ? Node_Expression(ast, expression) : expression;
+          if (actual !== undefined) for (const input of inputsFor(actual).inputs) add(input, reason);
+        }
+      };
+      const reason = queries.unresolvedFor(invocation);
+      if (reason !== undefined || implementations?.exact !== true || implementations.nodes.size === 0 ||
+        [...implementations.nodes].some(declaration => !budget.step() || ast.body(declaration) === undefined)) {
+        markUnresolved(reason ?? "Member-write demand cannot prove an unknown or bodyless callee's effects.");
+        continue;
+      }
+      for (const declaration of implementations.nodes) {
+        if (!budget.step()) break;
+        const parameters = owners.get(declaration);
+        if (parameters === undefined) {
+          markUnresolved("Member-write demand requires the actual implementation's complete checked value-parameter vector.");
+          continue;
+        }
+        for (const formal of parameters) {
+          if (!budget.step()) break;
+          const bound = queries.invocationInputs(formal, declaration, invocation);
+          for (const supplied of [...bound.subjects, ...(bound.calleeSubjects ?? [])]) {
+            if (!budget.step()) break;
+            if (supplied === formal) {
+              if (!bound.omitted) markUnresolved("Member-write demand has no exact selected signature-to-implementation input correspondence.");
+              continue;
+            }
+            const actual = inputsFor(supplied.node);
+            for (const input of actual.inputs) forward(input, formal, actual.reason ?? (supplied.projection.length !== 0
+              ? "Member-write demand cannot turn a projected or rest input into an unqualified parameter binding." : undefined));
+          }
+        }
+      }
+    }
+    const demands = graph.fixedPoint<SourceStorageSubject, Node | string>((formal, _read, emit, forward) => {
+      for (const value of seeds.get(formal) ?? []) if (!budget.step() || !emit(value)) return false;
+      for (const [input, reason] of forwards.get(formal) ?? []) {
+        const selected = formals.get(input);
+        if (selected === undefined || !forward(input, value => {
+          if (typeof value === "string") return [{ kind: "value", value }];
+          if (reason !== undefined) return [{ kind: "value", value: reason }];
+          const members = membersFor(formal, selected.type, value);
+          return members === undefined ? [{ kind: "value", value: "Member-write demand has no exact checked forwarded member correspondence." }]
+            : members.map(member => ({ kind: "value", value: member }));
+        })) return false;
+      }
+      return budget.failure() === undefined;
+    }, "formal-member-write-demands");
+    for (const formal of formals.keys()) {
+      if (!budget.step()) break;
+      const values = demands(formal);
+      let reason = budget.failure();
+      const members: Node[] = [];
+      for (const value of values ?? []) {
+        if (!budget.step()) break;
+        if (typeof value === "string") reason ??= value;
+        else members.push(value);
+      }
+      if (values === undefined) reason ??= "Member-write demand has no completed finite source relation.";
+      if (!rows.add(1 + members.length)) break;
+      published.set(formal, reason === undefined ? Object.freeze({ kind: "complete", members: Object.freeze(members) }) : unresolved(reason));
+    }
+    complete = true;
+  };
+  return Object.freeze({ recordWrite, publish,
+    get(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection {
+      if (!complete || budget.failure() !== undefined) return unresolved(budget.failure() ?? "Formal member-write demand is not published.");
+      const formal = owners.get(declaration)?.find(subject => subject.node === parameter);
+      return formal === undefined ? unresolved("Formal member-write demand requires the identical checked implementation and value parameter.")
+        : published.get(formal) ?? unresolved("Formal member-write demand has no completed checked parameter evidence.");
+    },
+  });
 }
 
 export interface SourceStorageStore extends SourceStorageWrite {
@@ -192,7 +541,8 @@ export function createSourceStorageStoredValues(
       locations.set(storage, retained);
       selectedOccurrence.destinations.add(storage);
     },
-    publish(): void {
+    publish(select: (write: SourceStorageWriteOccurrence) => SourceStorageWriteOccurrence): void {
+      if (typeof select !== "function") throw new Error("Source store publication requires its original write selector.");
       if (published) throw new Error("Source store occurrences publish exactly once.");
       let cost = 0;
       for (const [reference, occurrence] of occurrences) {
@@ -204,9 +554,9 @@ export function createSourceStorageStoredValues(
       for (const [reference, occurrence] of occurrences) {
         if (reference !== occurrence.store.reference) continue;
         const store = occurrence.store;
-        occurrence.published = Object.freeze({ reference: store.reference, operation: store.operation, region: store.region,
+        occurrence.published = select(Object.freeze({ reference: store.reference, operation: store.operation, region: store.region,
           kind: store.kind, destination: store.destination, receiver: store.receiver, value: store.value, values: store.values, reason: store.reason,
-          destinations: Object.freeze([...occurrence.destinations]) });
+          destinations: Object.freeze([...occurrence.destinations]) }));
       }
       published = true;
     },

@@ -25,7 +25,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry } from "../model/types.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
-import { createSourceStorageStoredValues, type SourceStorageWrite } from "../graph/stored-values.js";
+import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites, type SourceStorageWrite } from "../graph/stored-values.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
@@ -318,7 +318,7 @@ export function createSourceStorageTransport(
   const memberFlow = createSourceStorageMemberFlow(source, budget, subject, sourceFileFor, retainCheckedContext);
   const implementationsFor = createSourceStorageMemberImplementations(source, budget, {
     subject, subjectFor, incomingFor, originsFor: originSubjects, declarationsFor: memberFlow.declarationsFor,
-    membersInLineage: memberFlow.membersInLineage, excludes: memberFlow.excludes, isCopiedFor: memberFlow.isCopiedFor,
+    membersInLineage: memberFlow.membersInLineage, excludes: memberFlow.excludes, memberStorageKindFor: memberFlow.memberStorageKindFor,
     storesFor: storedValues.storesFor, constructionLineagesFor, contracts: memberImplementations, accessorTargets,
   });
   const collectInvocationImplementations = (invocation: Node,
@@ -527,11 +527,12 @@ export function createSourceStorageTransport(
         }
         for (const member of matching) {
           if (!step()) break;
-          const copied = memberFlow.isCopiedFor(origin, member, selected.receiver.type);
-          if (copied === undefined) {
+          const storageKind = memberFlow.memberStorageKindFor(origin, member, selected.receiver.type);
+          if (storageKind === undefined) {
             unresolvedSubjects.set(origin, budget.failure() ?? "Source member writes require exact checked physical copy correspondence.");
             continue;
           }
+          const copied = storageKind === "copied";
           if (ast.is.IsSetAccessorDeclaration(member) || !copied && ast.is.IsGetAccessorDeclaration(member)) continue;
           const location = copied ? subject(origin.node, origin.kind, [...origin.projection, {
             kind: sourceStorageIsMethodMember(member, ast) ? "method-value" : "member", declaration: member,
@@ -702,7 +703,15 @@ export function createSourceStorageTransport(
   const opaqueInvocations = new Set(boundaries.map(boundary => boundary.invocation));
   regions.seal();
   graphQueries.seal();
-  storedValues.publish();
+  const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, graphQueries, {
+    nodes: visitedNodes, invocations: { *[Symbol.iterator]() { yield* invocations; yield* accessorTargets.keys(); } },
+    invocationInputs, subject, subjectFor,
+    inputsFor: current => invocations.has(current.node) || accessorTargets.has(current.node)
+      ? contextualInputs.applicationFor(current)?.ports : contextualInputs(current),
+    implementationsFor: invocationImplementationSelection, unresolvedFor: invocation => unresolvedInvocations.get(invocation),
+  });
+  storedValues.publish(formalMemberWrites.recordWrite);
+  formalMemberWrites.publish();
   sealed = true;
   return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
@@ -710,6 +719,7 @@ export function createSourceStorageTransport(
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
     writeAt: storedValues.writeAt,
+    formalMemberWriteDemand: formalMemberWrites.get,
     invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,

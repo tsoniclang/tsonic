@@ -343,8 +343,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return { kind: "replace", terms };
       } else {
         const selected = navigation.callableImplementation(node);
-        if (selected.kind !== "resolved" || selected.implementation.declaration !== term.capture.owner)
-          return { kind: "replace", terms: [] };
+        if (selected.kind !== "resolved") return { kind: "replace", terms: [] };
+        if (selected.implementation.declaration !== term.capture.owner) return absent;
       }
       const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
       return value === undefined ? undefined : { kind: "replace", terms: [value] };

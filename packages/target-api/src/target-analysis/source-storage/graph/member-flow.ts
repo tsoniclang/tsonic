@@ -315,12 +315,14 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze({ kind: "absent" });
   };
-  const isCopiedFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): boolean | undefined => {
-    if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return true;
-    if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return false;
-    if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return true;
+  const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type):
+    "direct" | "copied" | "absent" | undefined => {
+    if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
+    if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return "direct";
+    if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return "copied";
     const contribution = copyContributionFor(owner, declaration, destinationType, owner.node);
-    return contribution === undefined ? undefined : contribution.kind === "spread";
+    return contribution === undefined ? undefined : contribution.kind === "spread" ? "copied"
+      : contribution.kind === "absent" ? "absent" : "direct";
   };
   const componentsFor = (owner: SourceStorageSubject): readonly SourceStorageProjection[] | undefined => {
     const file = sourceFileFor(owner);
@@ -352,7 +354,7 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze(components);
   };
-  return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, isCopiedFor, spreadMembersFor, componentsFor,
+  return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, memberStorageKindFor, spreadMembersFor, componentsFor,
     membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
       aggregateIndex(owner, destinationType)?.members });
 }
@@ -366,7 +368,7 @@ interface SourceStorageMemberImplementationInputs {
   readonly declarationsFor: ReturnType<typeof createSourceStorageMemberFlow>["declarationsFor"];
   readonly excludes: ReturnType<typeof createSourceStorageMemberFlow>["excludes"];
   readonly membersInLineage: ReturnType<typeof createSourceStorageMemberFlow>["membersInLineage"];
-  readonly isCopiedFor: ReturnType<typeof createSourceStorageMemberFlow>["isCopiedFor"];
+  readonly memberStorageKindFor: ReturnType<typeof createSourceStorageMemberFlow>["memberStorageKindFor"];
   constructionLineagesFor(invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined, mode?: "heritage"): readonly {
       readonly classes: readonly SourceStorageClassValue<undefined>[]; readonly complete: boolean;
@@ -453,9 +455,9 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
         unknown ||= members === undefined;
         for (const member of members ?? []) {
           if (!step()) return { nodes: selected, exact: false };
-          const copied = receiverType === undefined ? undefined : inputs.isCopiedFor(origin, member, receiverType);
-          if (copied === undefined) { unknown = true; continue; }
-          if (copied) {
+          const storageKind = receiverType === undefined ? undefined : inputs.memberStorageKindFor(origin, member, receiverType);
+          if (storageKind === undefined) { unknown = true; continue; }
+          if (storageKind === "copied") {
             const slot = inputs.subject(origin.node, origin.kind, [...origin.projection, {
               kind: ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member) ? "method-value" : "member", declaration: member,
             }]);
@@ -464,7 +466,7 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
               else selectSlot(slot);
             }
           }
-          if (copied) continue;
+          if (storageKind === "copied") continue;
           selectMember(member);
         }
       } else unknown = true;

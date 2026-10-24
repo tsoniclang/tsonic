@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createSourceControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
@@ -423,3 +423,166 @@ for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
     assert.equal(storage.failureReason() === undefined, true, "The finite activation model needs no increased budget.");
   });
 }
+
+function propertyField(current, className, fieldName) {
+  const owner = current.storage.nodes.find(node => (current.ast.is.IsClassDeclaration(node) || current.ast.is.IsClassExpression(node)) &&
+    current.ast.text(current.ast.name(node)) === className);
+  const declaration = owner === undefined ? undefined : current.ast.members(owner).find(node => current.ast.is.IsPropertyDeclaration(node) &&
+    current.ast.text(current.ast.name(node)) === fieldName);
+  assert.equal(declaration !== undefined, true, `${className}.${fieldName}: original checked property`);
+  return declaration;
+}
+
+for (const [label, expression, reads, writes] of [
+  ["read", "this.value", true, false],
+  ["overwrite", "(this.value = 2)", false, true],
+  ["conditional", "flag ? this.value : (this.value = 2)", true, true],
+]) test(`symbolic property initializer flow retains ${label} without a fabricated callable`, () => {
+  const current = fixture(`declare const flag: boolean;
+    class Base { value = 1; } class Derived extends Base { observed = ${expression}; }`);
+  const declaration = propertyField(current, "Derived", "observed");
+  const selected = createSourceControlFlow(current.source, declaration, { domain: { kind: "source" } });
+  assert.equal(selected.kind, "resolved", selected.reason ?? "the actual property initializer defines its source flow");
+  const graph = selected.graph;
+  assert.equal(graph.declaration === declaration, true, "the graph retains the original property identity");
+  assert.equal(graph.executionRegions.size, 0, "a symbolic graph is not evidence of a constructor activation");
+  assert.equal(graph.points.some(point => point.operation.kind === "return" || point.operation.kind === "declare"), false,
+    "an initializer is neither a function return nor a synthetic parameter declaration");
+  assert.equal(graph.points.some(point => point.operation.kind === "evaluate" && point.source !== undefined &&
+    current.ast.is.IsPropertyAccessExpression(point.source) &&
+    current.source.semantics.forNode(point.source).operations.propertyAccess(point.source)?.accessMode === "read"), reads,
+  "only actual initializer reads observe the inherited value");
+  assert.equal(graph.points.some(point => point.operation.kind === "write-location"), writes,
+    "only the explicit RHS assignment writes storage; the native owner applies the field's own store");
+  if (label === "conditional") assert.equal(graph.points.some(point => point.operation.kind === "branch"), true,
+    "both checked conditional paths remain in the same solver graph");
+});
+
+test("property initializer closure captures are retained without executing the delayed body", () => {
+  const current = fixture(`function build(token: number) {
+    return class Derived { observed = () => { mark("delayed-body"); return token; }; };
+  } const Copy = build(1); const instance = new Copy();`);
+  const selected = createSourceControlFlow(current.source, propertyField(current, "Derived", "observed"), { domain: { kind: "source" } });
+  assert.equal(selected.kind, "resolved", selected.reason ?? "the exact initializer closure is admitted");
+  assert.equal(selected.graph.points.some(point => point.operation.kind === "capture" &&
+    current.ast.text(current.ast.name(point.operation.binding)) === "token"), true, "the original outer binding is captured");
+  assert.equal(selected.graph.points.some(point => point.source !== undefined && current.ast.is.IsCallExpression(point.source) &&
+    current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
+      current.ast.text(argument).includes("delayed-body"))), false, "a captured closure's body is not an eager initializer effect");
+});
+
+test("actual implicit property flow carries its class-entry binding and exception edge, not neighboring fields", () => {
+  const current = fixture(`class Base { value = 1; }
+    class Derived extends Base { observed = mark("selected-field") + this.value; other = mark("other-field"); }
+    const instance = new Derived();`);
+  const declaration = propertyField(current, "Derived", "observed");
+  const call = current.construct("Derived");
+  const selected = current.storage.constructionFor(call);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true, "one exact actual construction");
+  const construction = selected.alternatives[0];
+  const owner = current.ast.parent(declaration);
+  const classEntry = construction.classes.find(entry => entry.owner === owner);
+  assert.equal(classEntry !== undefined, true, "the actual construction contains the field's exact class entry");
+  const region = classEntry.regions.find(entry => entry.node === current.ast.as.AsPropertyDeclaration(declaration).Initializer);
+  assert.equal(region !== undefined, true, "the original initializer belongs to that actual class region");
+  const result = createSourceControlFlow(current.source, declaration, {
+    domain: { kind: "source" }, invocation: { storage: current.storage, call, construction },
+  });
+  assert.equal(result.kind, "resolved", result.reason ?? "the property uses its actual cached construction region");
+  const point = marked(current, result.graph, "selected-field");
+  const context = result.graph.executionRegions.get(point.id);
+  assert.equal(context?.owner === owner && context.selection === region.selection, true, "the actual class-region selection is not copied or rebound");
+  assert.equal(point.successors.some(edge => edge.kind === "exception" && edge.to === result.graph.exceptionExit), true,
+    "the same expression visitor retains the possible exceptional completion");
+  assert.equal(reachable(result.graph, result.graph.entry, point.id) && reachable(result.graph, point.id, result.graph.exit), true,
+    "normal evaluation reaches the real initializer and normal exit");
+  assert.equal(result.graph.points.some(point => point.source !== undefined && current.ast.is.IsCallExpression(point.source) &&
+    current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
+      current.ast.text(argument).includes("other-field"))), false, "a property root is not a whole-class initializer replay");
+});
+
+test("property flow retains each repeated original class initializer with its distinct actual bindings", () => {
+  const current = fixture(`type Factory = new () => { root: number }; class Root { root = 0; }
+    function layer(Parent: Factory, value: number) { return class Layer extends Parent { field = value; }; }
+    const Layer0 = layer(Root, 1); const Layer1 = layer(Layer0, 2); const Layer2 = layer(Layer1, 3);
+    const instance = new Layer2();`);
+  const declaration = propertyField(current, "Layer", "field");
+  const call = current.construct("Layer2");
+  const selected = current.storage.constructionFor(call);
+  assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true, "one finite original construction alternative");
+  const result = createSourceControlFlow(current.source, declaration, {
+    domain: { kind: "source" }, invocation: { storage: current.storage, call, construction: selected.alternatives[0] },
+  });
+  assert.equal(result.kind, "resolved", result.reason ?? "all actual occurrences survive the property-root selection");
+  const reads = result.graph.points.filter(point => point.operation.kind === "read" &&
+    current.ast.text(current.ast.name(point.operation.binding)) === "value");
+  assert.equal(reads.length, 3, "each actual factory layer evaluates its one original initializer");
+  assert.equal(reads.every(point => point.source === reads[0].source), true, "repetition never clones the source AST");
+  const actual = new Map();
+  for (const point of reads) {
+    const context = result.graph.executionRegions.get(point.id);
+    assert.equal(context?.owner === current.ast.parent(declaration) && context.selection.kind === "resolved", true, "each occurrence keeps its actual context");
+    const subject = current.storage.subjectFor(point.source);
+    assert.equal(subject.kind, "resolved", "the read has original checked storage identity");
+    const producers = current.storage.storageProducersFor(subject.subject, context.selection.bindings);
+    assert.equal(producers.kind === "complete" && producers.producers.length === 1, true, "one source value per actual class region");
+    const value = Number(current.ast.text(producers.producers[0].subject.node));
+    assert.equal([1, 2, 3].includes(value) && !actual.has(value), true, "no class-entry bindings are collapsed");
+    actual.set(value, point);
+  }
+  for (const [before, after] of [[1, 2], [2, 3]]) assert.equal(
+    reachable(result.graph, actual.get(before).id, actual.get(after).id), true, "base initializers precede the actual derived initializer");
+});
+
+test("property flow rejects static, missing, foreign and forged actual initializer evidence", () => {
+  const text = "class Value { field = 1; static shared = 2; missing!: number; } const instance = new Value();";
+  const current = fixture(text);
+  const foreign = fixture(text);
+  const declaration = propertyField(current, "Value", "field");
+  const call = current.construct("Value");
+  const selected = current.storage.constructionFor(call);
+  assert.equal(selected.kind, "resolved", "the genuine construction exists for the inverse controls");
+  for (const [label, source, root, invocation] of [
+    ["static", current.source, propertyField(current, "Value", "shared"), undefined],
+    ["missing initializer", current.source, propertyField(current, "Value", "missing"), undefined],
+    ["foreign property", current.source, propertyField(foreign, "Value", "field"), undefined],
+    ["foreign storage", current.source, declaration, { storage: foreign.storage, call }],
+    ["foreign call", current.source, declaration, { storage: current.storage, call: foreign.construct("Value") }],
+    ["copied construction", current.source, declaration, { storage: current.storage, call, construction: { ...selected.alternatives[0] } }],
+  ]) {
+    const result = createSourceControlFlow(source, root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
+    assert.equal(result.kind, "unresolved", `${label}: incomplete identity cannot publish an empty initializer graph`);
+    assert.equal("graph" in result, false, `${label}: no partial graph escapes`);
+  }
+});
+
+for (const part of ["whole initializer", "nested read"]) test(`property flow refuses an excluded ${part} instead of skipping its effects`, () => {
+  const current = fixture("class Value { value = 1; observed = this.value + mark('selected'); }");
+  const declaration = propertyField(current, "Value", "observed");
+  const initializer = current.ast.as.AsPropertyDeclaration(declaration).Initializer;
+  const excluded = part === "whole initializer" ? initializer : current.ast.as.AsBinaryExpression(initializer).Left;
+  const nodes = [];
+  const pending = [...current.source.sourceFiles];
+  while (pending.length !== 0) {
+    const node = pending.pop();
+    if (node === excluded) continue;
+    nodes.push(node);
+    for (const child of current.ast.children(node)) if (child !== undefined) pending.push(child);
+  }
+  const domain = createSourceControlFlowDomain(current.source, nodes);
+  assert.equal(domain.kind, "resolved", "the selected subset is a genuine parent-closed checked inventory");
+  const result = createSourceControlFlow(current.source, declaration, { domain: domain.domain });
+  assert.equal(result.kind, "unresolved", "the requested initializer requires its complete demanded domain");
+  assert.equal(result.source === excluded, true, "the precise missing checked initializer node is reported");
+  assert.match(result.reason, /complete initializer/u);
+  assert.equal("graph" in result, false, "no missing effect becomes a completed empty graph");
+});
+
+for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }])
+  test(`property initializer flow retains finite refusal ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
+    const current = fixture("class Value { value = 1; observed = mark('budget') + this.value; }");
+    const selected = createSourceControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
+    assert.equal(selected.kind, "unresolved", "no property-entry path raises or bypasses a finite limit");
+    assert.match(selected.reason, /finite/u);
+    assert.equal("graph" in selected, false, "finite failure never publishes a partial initializer");
+  });

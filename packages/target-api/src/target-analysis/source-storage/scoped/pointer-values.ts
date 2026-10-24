@@ -136,7 +136,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
     const selected = original.subject.kind === "value" && original.subject.projection.length === 0
       ? source.sourceFacts.getFact(original.subject.node, pointerOperationFactKey) : undefined;
     if (selected?.operation === "allocate" || selected?.operation === "address-of") {
-      if (term.mode !== "value") return { kind: "replace", terms: [] };
+      if (term.mode !== "value") return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: undefined })] };
       const subject = transport.subjectFor(selected.operation === "allocate" ? selected.initialExpression : selected.storageExpression);
       const type = selected.pointeeType;
       if (subject === undefined) return undefined;

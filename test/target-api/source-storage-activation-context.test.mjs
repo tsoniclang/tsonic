@@ -529,7 +529,8 @@ for (const reversed of [false, true]) for (const timing of ["synchronous", "defe
     const views = [];
     for (let pass = 0; pass < 2; pass += 1) {
       const selected = storage.contributingExecutionsFor(demanded, callback, entry);
-      assert.equal(selected.kind, timing === undefined ? "open" : "complete", "demand-local native execution status");
+      assert.equal(selected.kind, timing === undefined ? "open" : "complete",
+        `demand-local native execution status (${selected.kind}; ${selected.reason ?? ""}; ${storage.failureReason() ?? ""})`);
       assert.equal(selected.producers.length, 2, "one correlated execution for each selected native callback port");
       const observed = new Set();
       const bindings = new Set();
@@ -936,7 +937,8 @@ for (const nativeForward of [false, true]) for (const reversed of [false, true])
     assert.equal(domain.producers.length, 1, "one original executor producer");
     const demand = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
     const selected = storage.contributingExecutionsFor(demand, owner, domain.producers[0]);
-    assert.equal(selected.kind, "open", "possible helper execution stays open");
+    assert.equal(selected.kind, "open",
+      `possible helper execution stays open (${selected.kind}; ${selected.reason ?? ""}; ${storage.failureReason() ?? ""})`);
     assert.equal(selected.producers.length, 1, "only the separate real source helper call is certified as executed");
     assert.equal(selected.boundaries.length, 2, "each original callback creation owns a distinct possible helper invocation");
     const actuals = new Set();

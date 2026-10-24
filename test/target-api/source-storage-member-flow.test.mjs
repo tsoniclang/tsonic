@@ -66,6 +66,8 @@ test("checked value occurrences index their selected expression type instead of 
   const input = fixture((_file, from) => from === expression
     ? { kind: "available", members: [present([target], [original])] }
     : { kind: "unavailable", reason: "missing-required-member" });
+  assert.equal(Object.hasOwn(input.flow, "isCopiedFor"), false,
+    "the superseded Boolean slot API is absent rather than retained as a shim");
   const owner = { ...subject(declared), node: { kind: "identifier", type: declared, expressionType: expression } };
   const selected = input.flow.declarationsFor(owner, target, destination);
   assert.equal(selected?.length === 1 && selected[0] === original, true);

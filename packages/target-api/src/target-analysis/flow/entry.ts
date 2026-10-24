@@ -30,6 +30,20 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
     return { body: declaration, parameters: [], parameterInitializers: undefined, bodyExecution: undefined,
       entryInitializers: [], superInitializers: [], completionInitializers: [], syntaxRoots: [] };
   }
+  const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
+  const propertyOwner = propertyRoot ? ast.parent(declaration) : undefined;
+  const propertyInitializer = propertyRoot ? Node_Initializer(ast, declaration) : undefined;
+  if (propertyRoot) {
+    step(declaration);
+    if (propertyOwner === undefined ||
+      !ast.is.IsClassDeclaration(propertyOwner) && !ast.is.IsClassExpression(propertyOwner) ||
+      !ast.members(propertyOwner).includes(declaration) || ast.hasModifierKind(declaration, "static") || propertyInitializer === undefined)
+      throw new SourceFlowFailure("Property initializer flow requires its original checked nonstatic class field and actual initializer.", declaration);
+    if (invocation === undefined)
+      return { body: undefined, parameters: [], parameterInitializers: undefined, bodyExecution: undefined,
+        entryInitializers: [Object.freeze({ node: propertyInitializer, execution: undefined })],
+        superInitializers: [], completionInitializers: [], syntaxRoots: [propertyInitializer] };
+  }
   const body = ast.body(declaration);
   const classRoot = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
   let bodyExecution: SourceFlowExecutionRegion | undefined;
@@ -43,10 +57,16 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
     if (storage === undefined || storage.source !== source) {
       throw new SourceFlowFailure("Source flow invocation entry requires storage from the identical checked source program.", call);
     }
-    if (classRoot || ast.is.IsConstructorDeclaration(declaration)) {
+    if (propertyRoot || classRoot || ast.is.IsConstructorDeclaration(declaration)) {
       const selected = storage.constructionFor(call, invocation.callerBindings);
       if (selected.kind === "unresolved") throw new SourceFlowFailure(selected.reason, call);
-      const matches = selected.alternatives.filter(entry => declaration === entry.implementation?.declaration ||
+      const matches = selected.alternatives.filter(entry => propertyRoot ? entry.classes.some(selected => {
+        step(selected.owner);
+        return selected.owner === propertyOwner && selected.regions.some(region => {
+          step(region.node);
+          return region.node === propertyInitializer;
+        });
+      }) : declaration === entry.implementation?.declaration ||
         declaration === entry.root && (entry.implementation === undefined || invocation.construction !== undefined));
       const construction = invocation.construction ?? (matches.length === 1 ? matches[0] : undefined);
       if (construction === undefined || !matches.includes(construction))
@@ -58,6 +78,21 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
           return Object.freeze({ node: region.node,
             execution: Object.freeze({ owner: selected.owner, selection: region.selection }) });
         });
+      if (propertyRoot) {
+        const initializers: SourceFlowInitializer[] = [];
+        for (let index = construction.classes.length - 1; index >= 0; index -= 1) {
+          const selected = construction.classes[index]!;
+          step(selected.owner);
+          if (selected.owner !== propertyOwner) continue;
+          for (const region of regionsFor(selected)) {
+            if (region.node === propertyInitializer) initializers.push(region);
+          }
+        }
+        if (initializers.length === 0 || propertyInitializer === undefined)
+          throw new SourceFlowFailure("Property initializer flow requires its actual checked class-entry region and execution bindings.", declaration);
+        return { body: undefined, parameters: [], parameterInitializers: undefined, bodyExecution: undefined,
+          entryInitializers: initializers, superInitializers: [], completionInitializers: [], syntaxRoots: [propertyInitializer] };
+      }
       if (implementation !== undefined) for (const region of implementation.regions) {
         step(region);
       }
