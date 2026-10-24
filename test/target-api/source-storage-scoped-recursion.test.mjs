@@ -209,7 +209,7 @@ function selectedEquationFixture() {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 65536 });
   const original = createSourceStorageTransport(source, [file], budget);
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, original.subject, original.subjectFor,
-    original.accessorTargets, invocation => original.unresolvedInvocations.has(invocation), () => undefined);
+    original.accessorTargets, invocation => original.unresolvedInvocations.has(invocation), () => undefined, original.inputSlotsFor);
   const transport = { ...original, invocationInputs,
     bindingInputFor: createSourceStorageBindingInputs(source.ast, original, budget) };
   const graph = createSourceStorageGraphQueries(budget);
@@ -221,7 +221,7 @@ function selectedEquationFixture() {
   };
   const recursion = createSourceStorageScopedRecursion(source, budget, transport, transport.invocationInputs);
   const base = createSourceStorageScopes(source, budget, transport.subject, transport.invocationInputs, graph,
-    recursion.entryInputFor, creation);
+    recursion.entryInputFor, creation, transport.inputSlotsFor);
   const frames = [];
   const scopes = { ...base, frameFor(...args) {
     const selected = base.frameFor(...args);

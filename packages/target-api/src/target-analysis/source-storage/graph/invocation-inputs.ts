@@ -143,7 +143,7 @@ export function sourceStorageInvocationInputSelection(source: TargetSourceProgra
   nodes: ReadonlySet<Node>, exact: boolean, step: () => boolean, retain: (cost: number) => boolean): SourceStorageInvocationInputSlots | undefined {
   const { ast, semantics } = source;
   const entry = "kind" in key && (key.kind === "source-storage-callback-entry" || key.kind === "source-storage-accessor-entry") ? key : undefined;
-  const node = entry?.invocation ?? key as Node;
+  const node = "invocation" in key ? key.invocation : key;
   const consumer = semantics.forNode(node);
   const selectedCall = entry === undefined && (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))
     ? consumer.operations.call(node) : undefined;

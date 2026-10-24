@@ -32,13 +32,13 @@ function fixture() {
     ast.text(ast.name(node)) === name);
   const initializer = name => ast.as.AsVariableDeclaration(named(name)).Initializer;
   const inputs = createSourceStorageInvocationInputs(source, budget, transport.subject, transport.subjectFor,
-    transport.accessorTargets, call => transport.unresolvedInvocations.has(call), () => undefined);
+    transport.accessorTargets, call => transport.unresolvedInvocations.has(call), () => undefined, transport.inputSlotsFor);
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
     transport.contextLocation, transport.contextualInputs.applicationFor),
     ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined, creation);
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, inputs, graph, () => undefined, creation, transport.inputSlotsFor);
   const keys = createSourceStorageScopedKeys(source, budget, { ...transport,
     bindingInputFor: createSourceStorageBindingInputs(ast, transport, budget) }, scopes, creation);
   const pick = named("pick");

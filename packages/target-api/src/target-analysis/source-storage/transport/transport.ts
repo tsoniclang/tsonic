@@ -390,7 +390,7 @@ export function createSourceStorageTransport(
   }> | undefined => {
     if (invocationSelectionsSealed) throw new Error("Source storage invocation inputs were not published before their consumers.");
     const entry = "kind" in key && (key.kind === "source-storage-callback-entry" || key.kind === "source-storage-accessor-entry") ? key : undefined;
-    const invocation = entry?.invocation ?? key as Node;
+    const invocation = "invocation" in key ? key.invocation : key;
     let selected: { readonly nodes: ReadonlySet<Node>; readonly exact: boolean };
     if (entry?.kind === "source-storage-callback-entry") {
       const nodes = new Set<Node>();
