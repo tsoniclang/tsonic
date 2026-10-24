@@ -114,3 +114,62 @@ test("foreign declarations and accessor execution cannot be invented by a passiv
   const accessor = namedVariable(current.source.ast, current.file, "accessor");
   assert.equal(current.storage.subject(accessor, "value", [{ kind: "method-value", declaration: getter }]).kind, "unresolved");
 });
+
+for (const [label, declarations, inspected, opaque] of [
+  ["prefix index remap", "const original = make(7); const copied = { aaa: 3, ...original };", "original", false],
+  ["immutable aliases", "const original = make(7); const first = original; const alias = first; const copied = { aaa: 3, ...alias };", "alias", false],
+  ["repeated spreads", "const original = make(7); const first = { aaa: 3, ...original }; const copied = { bbb: 5, ...first };", "first", false],
+  ["opaque mutation before copying", "const original = make(7); opaque(original); const copied = { aaa: 3, ...original };", "original", true],
+  ["opaque mutation through an alias", "const original = make(7); const alias = original; opaque(alias); const copied = { aaa: 3, ...alias };", "alias", true],
+]) {
+  test(`checked method spreads consume exact original slots without inventing external exposure for ${label}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+      compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+      files: { "/src/index.ts": `interface Reader { read(): number; }
+        declare function opaque(value: Reader): void;
+        function make(value: number): Reader { return { read(): number { return value; } }; }
+        export function run(): number { ${declarations} return copied.aaa + copied.read(); }` },
+    }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "the exact original copied-method source checks");
+    const source = createTargetSourceProgram(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    const storage = createSourceStorageQuery(source, [file]);
+    const declaration = namedVariable(source.ast, file, inspected);
+    const summary = source.navigation.declarationUseSummary(declaration);
+    const observed = summary.uses.map(use => ({ role: use.role,
+      parent: source.ast.kindName(source.ast.parent(use.reference)), throughMember: use.throughMember }));
+    assert.equal(summary.hasUnclassifiedValueUse, false, `${label}: actual checked use roles ${JSON.stringify(observed)}`);
+    const method = namedMember(source.ast, namedDeclaration(source.ast, file, "Reader"), "read");
+    const selected = storage.subject(namedVariable(source.ast, file, "copied"), "value",
+      [{ kind: "method-value", declaration: method }]);
+    assert.equal(selected.kind === "resolved", true, selected.reason ?? "the checked copied method resolves");
+    const producers = storage.storageProducersFor(selected.subject, storage.emptyBindings);
+    if (opaque) {
+      assert.equal(producers.kind === "open" && producers.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+        `${label}: an actual opaque write boundary remains open (${producers.kind}; ${producers.reason ?? ""})`);
+      return;
+    }
+    assert.equal(producers.kind === "complete", true,
+      `${label}: ${producers.kind}; ${producers.reason ?? producers.boundaries?.map(boundary => boundary.kind).join(",") ?? ""}`);
+    const implementation = requiredNode(source.ast, file, node => source.ast.is.IsMethodDeclaration(node));
+    assert.equal(producers.producers.length === 1 && producers.producers[0].subject.node === implementation, true,
+      "the actual factory method identity is preserved, not a same-signature alternative");
+  });
+}
+
+test("checked spread inputs are receiver uses without erasing unclassified value operations", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": `export {}; function take(...values: number[]): void {}
+      const source = [1, 2]; const copied = [...source]; take(...source);
+      const unknownUse = {}; void unknownUse;` },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the actual spread and unclassified inputs check");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const summary = source.navigation.declarationUseSummary(namedVariable(source.ast, file, "source"));
+  assert.equal(summary.uses.length === 2 && summary.uses.every(use => use.role === "receiver") &&
+    !summary.hasUnclassifiedValueUse, true, "only the original array is consumed by both exact spread occurrences");
+  assert.equal(source.navigation.declarationUseSummary(namedVariable(source.ast, file, "unknownUse")).hasUnclassifiedValueUse,
+    true, "an unrelated unclassified operation is not erased by the spread consumption rule");
+});

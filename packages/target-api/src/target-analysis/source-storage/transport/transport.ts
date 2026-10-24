@@ -105,8 +105,14 @@ export function createSourceStorageTransport(
     const owner = sourceReceiverOwner(node, ast, "storage", step);
     return owner === undefined ? undefined : subject(owner, "receiver");
   };
-  const valueWrapper = (node: Node): boolean => ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) ||
-    ast.is.IsSatisfiesExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node);
+  const valueWrapper = (node: Node): boolean => {
+    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) ||
+      ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node)) return true;
+    if (!ast.is.IsSpreadElement(node)) return false;
+    const parent = ast.parent(node);
+    return parent !== undefined && (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
+      ast.arguments(parent).includes(node);
+  };
   const valueSubjectFor = (node: Node): SourceStorageSubject | undefined => {
     if (!step()) return undefined;
     const cached = subjects.get(node);

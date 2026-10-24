@@ -368,14 +368,14 @@ export const value = forwarded(1) + Library.read(2);
 });
 
 for (const [label, parameterType, body, role, escapes] of [
-  ["returned array spread", "uint8[]", "return [...values];", "value", false],
-  ["local array spread", "uint8[]", "const copied = [...values]; return copied;", "value", false],
-  ["returned object spread", "{ readonly item: number }", "return { ...values };", "value", false],
+  ["returned array spread", "uint8[]", "return [...values];", "receiver", false],
+  ["local array spread", "uint8[]", "const copied = [...values]; return copied;", "receiver", false],
+  ["returned object spread", "{ readonly item: number }", "return { ...values };", "receiver", false],
   ["returned container identity", "uint8[]", "return values;", "return", true],
   ["stored container identity", "uint8[]", "return [values];", "storage", true],
-  ["call spread", "uint8[]", "forward(...values);", "value", false],
-  ["construction spread", "uint8[]", "new Container(...values);", "value", false],
-  ["wrapped array spread", "uint8[]", "return [...(values as uint8[])];", "value", false],
+  ["call spread", "uint8[]", "forward(...values);", "receiver", false],
+  ["construction spread", "uint8[]", "new Container(...values);", "receiver", false],
+  ["wrapped array spread", "uint8[]", "return [...(values as uint8[])];", "receiver", false],
 ] as const) {
   test(`spread operand container identity: ${label}`, () => {
     const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -401,6 +401,7 @@ export function inspect(values: ${parameterType}) { ${body} }
     assert.equal(summary.uses.length, 1, label);
     const use = summary.uses[0]!;
     assert.equal(use.role, role, label);
+    assert.equal(summary.hasUnclassifiedValueUse, false, `${label}: the exact consuming role is not unknown exposure`);
     assert.equal(use.throughMember, false, label);
     assert.equal(use.captured, false, label);
     const flow = source.navigation.expressionValueFlow(use.reference);
