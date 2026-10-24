@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import type { SourceStorageForwardSelection } from "../graph/graph-queries.js";
@@ -106,7 +106,18 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (term.kind === "transition") {
         const condition = normalize(term.condition, witnesses, temporary, false);
         if (condition === undefined) return undefined;
-        return Object.freeze({ ...term, condition });
+        const transition = Object.freeze({ ...term, condition });
+        if (condition.kind === "leaf" && sourceStorageHasOriginalCallableValue(condition.subject, source.ast)) {
+          const selected = successors.reduce(transition);
+          if (selected === undefined) return undefined;
+          if (selected.kind !== "replace" || selected.terms.length !== 1) {
+            budget.reject("A selected callable transition requires its exact canonical replacement.");
+            return undefined;
+          }
+          term = selected.terms[0]!;
+          continue;
+        }
+        return transition;
       }
       break;
     }
@@ -347,7 +358,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    stopAt?: (subject: SourceStorageScopedSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
+    stopAt?: (subject: SourceStorageScopedSubject) => boolean, preserveValuePath = false) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
@@ -377,11 +388,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       guards: SourceStorageValueGuards | undefined): boolean | undefined => {
       let stopped = false;
       const retain = (scope: SourceStorageScope, input: SourceStorageSubject, mode: number): boolean => {
-        const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
         if (!budget.step()) return false;
+        const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
+        const previous = retained.get(input) ?? 0;
+        const required = collect && (mode & 2) !== 0 ? 2 | (mode & 16) : 1;
+        if (stopAt === undefined && guards === undefined && (previous & required) === required) return true;
         if (!retained.has(input) && !temporary.add(1)) return false;
         const contributes = collect && (mode & 2) !== 0 && admitted(input, guards);
-        let selected = (retained.get(input) ?? 0) | (contributes ? 2 : 1);
+        let selected = previous | (contributes ? 2 : 1);
         if (contributes && (mode & 16) !== 0) selected |= 16;
         if (contributes && stopAt !== undefined) {
           if ((selected & 4) === 0) selected |= 4 | (stopAt({ subject: input, bindings: scope }) ? 8 : 0);
@@ -460,7 +474,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, absence,
       emptyDemands: Object.freeze(emptyDemands) });
-  }));
+  })));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined => {
     const selected = walk(origin, scope);
     return selected?.reason === undefined && selected?.fatalReason === undefined && selected?.emptyDemands.length === 0

@@ -83,6 +83,30 @@ for (const [name, declarations] of [
   });
 }
 
+test("repeated unguarded recursive witnesses retain every exact caller and original producer", () => {
+  const current = fixture(`
+    function repeat(value: object, count: number): object {
+      if (count <= 0) return value;
+      const first = value;
+      const second = first;
+      if (count === 1) return repeat(first, count - 1);
+      return repeat(second, count - 1);
+    }
+    const left = {};
+    const right = {};
+    const leftResult = repeat(left, 3);
+    const rightResult = repeat(right, 3);
+  `);
+  for (const [result, own, other] of [["leftResult", "left", "right"], ["rightResult", "right", "left"],
+    ["rightResult", "right", "left"], ["leftResult", "left", "right"]]) {
+    const selected = current.result(result);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      `${result}: repeated normalized witnesses preserve the original allocation, not a sibling caller`);
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(other)), false,
+      `${result}: no independently bound caller is merged`);
+  }
+});
+
 test("a cross-file generic recursive entry retains its actual input without requiring an invariant recursive argument", () => {
   const current = fixture(`
     import { descend } from "./descend.js";
@@ -397,6 +421,31 @@ for (const access of [".value", '["value"]']) {
       "a globally possible creator is not an alternative of this read");
     const separate = current.result("separate");
     assert.equal(separate.origins.length === 1 && separate.origins[0].subject === current.subject("unrelated"), true);
+  });
+}
+
+for (const reverse of [false, true]) {
+  test(`recursive field callables retain their exact instance creator${reverse ? " in reverse query order" : ""}`, () => {
+    const current = fixture(`
+      declare const choose: boolean;
+      class Holder {
+        constructor(readonly token: object) {}
+        readonly left = (): object => choose ? this.right() : this.token;
+        readonly right = (): object => choose ? this.left() : this.token;
+      }
+      const firstToken = {}; const secondToken = {};
+      const firstHolder = new Holder(firstToken); const secondHolder = new Holder(secondToken);
+      const first = firstHolder.left(); const second = secondHolder.right();
+    `);
+    const entries = [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]];
+    if (reverse) entries.reverse();
+    for (const [name, own, foreign] of entries) {
+      const selected = current.result(name);
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+        "a proven selected callable transition retains the actual instance's constructor input");
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+        "recursive capture substitutions never join independent instance creators");
+    }
   });
 }
 

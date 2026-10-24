@@ -72,6 +72,39 @@ test("a locally invoked capturing source callback stays within the same activati
   assert.equal(selected.retention, "scoped", "a capture is followed to its actual non-retaining uses");
 });
 
+for (const [label, declarations, entry, expected] of [
+  ["sibling order", `function left(value: number): void { if (value > 0) right(value - 1); }
+    function right(value: number): void { if (value > 0) left(value - 1); }`, "left(2);", "scoped"],
+  ["reverse sibling order", `function right(value: number): void { if (value > 0) left(value - 1); }
+    function left(value: number): void { if (value > 0) right(value - 1); }`, "right(2);", "scoped"],
+  ["self recursion", `function left(value: number): void { if (value > 0) left(value - 1); }`, "left(2);", "scoped"],
+  ["function-valued alias", `function left(value: number): void { if (value > 0) right(value - 1); }
+    function right(value: number): void { if (value > 0) left(value - 1); }
+    const original = left; const alias = original;`, "alias(2);", "scoped"],
+  ["returned cyclic closure", `function left(value: number): void { if (value > 0) right(value - 1); }
+    function right(value: number): void { if (value > 0) left(value - 1); }`, "return left;", "retained"],
+]) {
+  test(`recursive callable retention preserves the actual lexical creator for ${label}`, () => {
+    const current = fixture(`function outer() { function inner() { ${declarations} ${entry} } return inner(); }
+      const first = outer(); const second = outer();`);
+    const selected = current.select("left");
+    assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? ""}`);
+    assert.equal(selected.retention, expected, `${label}: sibling capture does not create another nested execution`);
+    assert.equal(selected.witnesses.length > 0, true, "the original checked uses remain nonempty evidence");
+    assert.equal(current.select("left") === selected, true, "one complete immutable owner selection is published");
+  });
+}
+
+test("an opaque use in a sibling capture never becomes a scoped recursion proof", () => {
+  const current = fixture(`declare function opaque(callback: () => void): void;
+    function outer(): void {
+      function left(): void { right(); }
+      function right(): void { opaque(left); }
+      left();
+    } outer();`);
+  assert.equal(current.select("left").kind, "unresolved", "a finite lexical context does not prove an opaque lifetime");
+});
+
 test("an unused declaration is not a vacuous closed lifetime proof", () => {
   const current = fixture(`function child(): void {}`);
   assert.equal(current.select("child").kind, "unresolved", "no actual use cannot prove a scoped activation");

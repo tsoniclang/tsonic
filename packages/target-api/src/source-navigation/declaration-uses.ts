@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
-import { Node_Expression, sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Expression, sourceTransparentExpressionOperand, SpreadAssignment_Expression } from "./ast.js";
 import { isTypeSyntaxNode, sourceReferenceMeaning } from "./syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 import { sourceClassFieldIsTypeOnly } from "./class-members.js";
@@ -129,6 +129,16 @@ function sourceDeclarationUseRole(
     if (sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
       current = parent;
       continue;
+    }
+    if ((ast.is.IsSpreadAssignment(parent) || ast.is.IsSpreadElement(parent)) &&
+      sourceNodesEqual(ast, ast.is.IsSpreadAssignment(parent) ? SpreadAssignment_Expression(ast, parent)
+        : Node_Expression(ast, parent), current)) {
+      const owner = ast.parent(parent);
+      const consumed = owner !== undefined && (ast.is.IsSpreadAssignment(parent)
+        ? ast.is.IsObjectLiteralExpression(owner) && ast.properties(owner).includes(parent)
+        : ast.is.IsArrayLiteralExpression(owner) && ast.elements(owner).includes(parent) ||
+          (ast.is.IsCallExpression(owner) || ast.is.IsNewExpression(owner)) && ast.arguments(owner).includes(parent));
+      if (consumed) return { role: "receiver", throughMember: receiverPath };
     }
     if (ast.is.IsPropertyAccessExpression(parent)) {
       const access = ast.as.AsPropertyAccessExpression(parent);
