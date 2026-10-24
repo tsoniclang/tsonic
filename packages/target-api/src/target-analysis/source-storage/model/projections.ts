@@ -53,7 +53,8 @@ export function createSourceStorageProjectionFlow(
     if (ast.is.IsObjectBindingPattern(pattern) && binding?.DotDotDotToken !== undefined) {
       const value = subject(reference);
       const resultType = value === undefined ? undefined : sourceStorageSubjectType(source, value, sourceFileFor(value));
-      const members = ownerType === undefined || resultType === undefined ? undefined : queries.types.structuralMembers(ownerType, resultType);
+      const members = ownerType === undefined || resultType === undefined ? undefined
+        : queries.types.structuralMembers(ownerType, resultType, "read");
       if (value === undefined || members?.kind !== "available") return undefined;
       const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
       for (const member of members.members) {

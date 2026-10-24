@@ -423,7 +423,7 @@ test("the identical eleven-row store refuses an individually oversized capacity 
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 10 });
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
-  assert.equal(budget.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+  assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
     "the exact original individually-oversized reservation refusal remains authoritative");
   assert.equal(inventory.storesFor(storage) === undefined &&
     inventory.storesIn(current.transport.regions.enclosing(occurrence)) === undefined, true,

@@ -3,6 +3,9 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
+import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(body, extraFiles = {}, domain = "complete") {
   const files = { "/project/index.ts": body, ...extraFiles };
@@ -148,6 +151,58 @@ function formalFixture(body, extraFiles = {}, limits = {}) {
   };
   return { source, storage, nodes, callable, parameter, query, member, complete };
 }
+
+test("empty formal demand relations publish proven empty data without retaining a construction solver", () => {
+  const current = formalFixture(`
+    function read(owner: Reader, another: Reader) {}
+    function empty() {}
+  `);
+  for (const name of ["read", "empty"]) {
+    const declaration = current.callable(name);
+    for (const limits of [{}, { maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
+      const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
+      const graph = createSourceStorageGraphQueries(budget);
+      graph.seal();
+      let solvers = 0;
+      const subject = (node, kind = "value") => {
+        if (node === undefined) return undefined;
+        const selected = current.storage.subject(node, kind);
+        assert.equal(selected.kind, "resolved", "the query uses the original checked source subject");
+        return selected.subject;
+      };
+      const summary = createSourceStorageFormalMemberWrites(current.source, budget, {
+        ...graph,
+        fixedPoint(...arguments_) {
+          solvers += 1;
+          return graph.fixedPoint(...arguments_);
+        },
+      }, {
+        nodes: [declaration], invocations: [], subject, subjectFor: subject,
+        invocationInputs: () => assert.fail("these complete source bodies have no invocation"),
+        inputsFor: () => assert.fail("these parameters have no initializer or forwarding expression"),
+        implementationsFor: () => assert.fail("these complete source bodies have no invocation"),
+        unresolvedFor: () => assert.fail("these complete source bodies have no invocation"),
+      });
+      summary.publish();
+      assert.equal(solvers, 0, "a fully admitted empty equation retains no unreachable fixed-point cells");
+      const parameters = sourceCallableValueParameters(current.source.ast, declaration,
+        current.source.semantics.forNode(declaration), { kind: "declaration" });
+      assert.equal(parameters !== undefined, true, "the input vector is the actual checked implementation");
+      for (const parameter of parameters) {
+        const selected = summary.get(declaration, parameter);
+        if (budget.failure() === undefined) {
+          assert.equal(selected.kind, "complete", "a completed empty relation is actual proof");
+          assert.equal(selected.members.length, 0, "the exact admitted write set is empty");
+          assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.members), true, "publication stays immutable");
+          assert.equal(summary.get(declaration, parameter) === selected, true, "reads use the identical sealed result");
+        } else {
+          assert.equal(selected.kind, "unresolved", "finite failure never becomes an empty proof");
+          assert.equal(selected.reason, budget.failure(), "the original finite refusal dominates the empty equation");
+        }
+      }
+    }
+  }
+});
 
 test("formal member demands separate readonly consumers from the actual writer and physical producers", () => {
   const current = formalFixture(`

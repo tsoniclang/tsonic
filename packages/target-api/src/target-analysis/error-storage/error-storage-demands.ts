@@ -96,8 +96,6 @@ export function createSourceErrorStorageDemandQuery(
     if (selected.has(write) || !reserveRow("selected-write")) return;
     selected.add(write);
     writes.set(subject, selected);
-    if (subject.projection.length === 0 && (ast.is.IsElementAccessExpression(subject.node) || ast.is.IsBindingElement(subject.node)))
-      unresolvedWrites.set(subject, "An admitted Error write has no exact selected scalar storage transport.");
     const reason = storage.unresolvedFor(subject);
     if (reason !== undefined) {
       if (storage.failureReason() !== undefined) reject(storage.failureReason()!);

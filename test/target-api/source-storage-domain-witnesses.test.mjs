@@ -69,7 +69,7 @@ test("witness admission reserves every retained index cell atomically and never 
     const selected = subject();
     witnesses.add(selected, "external-write", {});
     assert.equal(witnesses.forSubject(selected).length, 0, "no partially indexed boundary");
-    assert.equal(budget.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+    assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
       "the existing reservation owner rejects a cost larger than the complete ceiling");
     witnesses.add(selected, "external-input", {});
     assert.equal(witnesses.forSubject(selected).length, 0, "failed owner stays failed");

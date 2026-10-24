@@ -59,11 +59,11 @@ export function createSourceStorageMemberFlow(
     try {
       const queries = source.semantics.forFile(file);
       const contextualMember = (declaration: Node): SourceStructuralMemberPair | undefined => contextual === undefined
-        ? undefined : queries.types.structuralMember(contextual, to, declaration);
+        ? undefined : queries.types.structuralMember(contextual, to, declaration, "correspondence");
       let aggregate: readonly SourceStructuralMemberPair[] | undefined;
       let selectedMember: { readonly member: SourceStructuralMemberPair; readonly originals: readonly Node[] } | undefined;
       if (selection === "aggregate") {
-        const selected = queries.types.structuralMembers(from, to);
+        const selected = queries.types.structuralMembers(from, to, "correspondence");
         if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") aggregate = noMembers;
         if (selected.kind === "available") {
           if (!rows.add(1 + selected.members.length)) return undefined;
@@ -77,7 +77,7 @@ export function createSourceStorageMemberFlow(
         }
       } else {
         if (!budget.step()) return undefined;
-        const selected = queries.types.structuralMember(from, to, selection);
+        const selected = queries.types.structuralMember(from, to, selection, "correspondence");
         if (selected !== undefined) {
           if (!rows.add(2)) return undefined;
           const member = physicalMember(selected, contextualMember(selection));
@@ -257,7 +257,8 @@ export function createSourceStorageMemberFlow(
         : source.ast.is.IsTypeLiteralNode(declarationOwner) ? queries.types.authoredType(declarationOwner)
           : source.ast.is.IsObjectLiteralExpression(declarationOwner) ? queries.types.expressionType(declarationOwner)
             : queries.declarations.declaredType(declarationOwner);
-      const correspondence = ownerType === undefined ? undefined : queries.types.structuralMember(destinationType, ownerType, declaration);
+      const correspondence = ownerType === undefined ? undefined
+        : queries.types.structuralMember(destinationType, ownerType, declaration, "correspondence");
       if (correspondence?.kind === "present") selected = [correspondence.source.property];
     }
     if (selected.length !== 1) return undefined;

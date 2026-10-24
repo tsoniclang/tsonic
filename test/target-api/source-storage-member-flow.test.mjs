@@ -45,10 +45,14 @@ function fixture(relation, limits = {}, context = () => true, selectMember) {
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
       types: { expressionType: node => node.expressionType, contextualType: node => node.contextualType, isUnion: () => false,
-        structuralMember(from, to, declaration) {
+        structuralMember(from, to, declaration, purpose) {
+          assert.equal(purpose, "correspondence", "physical slot identity does not grant a read or write operation");
           return selectMember === undefined ? checkedRelation(file, from, to).selected.get(declaration)
             : selectMember(file, from, to, declaration);
-        }, structuralMembers: (from, to) => checkedRelation(file, from, to).correspondence },
+        }, structuralMembers(from, to, purpose) {
+          assert.equal(purpose, "correspondence", "the physical inventory preserves all actual operation modes");
+          return checkedRelation(file, from, to).correspondence;
+        } },
     }) },
   };
   const flow = createSourceStorageMemberFlow(source, budget, (node, kind = "value", projection = []) => ({ node, kind, projection }),
@@ -256,7 +260,7 @@ test("optional-only member inventories reserve every retained relationship befor
     ({ kind: "absent", destination: member([{}], true) })) }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.equal(input.flow.membersFor(owner, destination) === undefined, true);
-  assert.equal(input.budget.failure() === "Source storage rows require a live owner and a finite positive reservation.", true,
+  assert.equal(input.budget.failure() === "Source storage transport exceeds its finite transport-row budget.", true,
     "the complete copied row family is individually larger than the selected finite ceiling");
   assert.equal(input.flow.membersFor(owner, destination) === undefined && input.calls.length === 1, true,
     "neither an empty declaration index nor a cache hit can bypass an oversized exact relationship family");

@@ -79,7 +79,7 @@ export function sourceStorageOriginalComponents(
 ): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
-    const member = semantics.types.structuralMember(from, to, component.declaration);
+    const member = semantics.types.structuralMember(from, to, component.declaration, "read");
     if (member?.kind !== "present" || member.source.read === "unavailable" ||
       (component.kind === "method-value" ? member.destination.read !== "method"
         : member.destination.read !== "property" && member.destination.read !== "accessor")) return [];

@@ -45,11 +45,14 @@ export function createSourceStructuralMemberQueries(
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,
 ): {
-  readonly structuralMembers: (source: Type, destination: Type) => SourceStructuralMemberCorrespondence;
-  readonly structuralMember: (source: Type, destination: Type, selectedDeclaration: Node) => SourceStructuralMemberPair | undefined;
+  readonly structuralMembers: (source: Type, destination: Type,
+    purpose: "correspondence" | "read") => SourceStructuralMemberCorrespondence;
+  readonly structuralMember: (source: Type, destination: Type, selectedDeclaration: Node,
+    purpose: "correspondence" | "read") => SourceStructuralMemberPair | undefined;
 } {
   type MemberIndex = {
     readonly correspondence: SourceStructuralMemberCorrespondence;
+    readonly readable: SourceStructuralMemberCorrespondence;
     readonly members: readonly SourceStructuralMemberPair[];
   };
   const cache = new WeakMap<Type, WeakMap<Type, MemberIndex>>();
@@ -117,8 +120,7 @@ export function createSourceStructuralMemberQueries(
       }
     }
     const sourceMember = describe(sourceProperty);
-    return sourceMember.read === "unavailable" ? Object.freeze({ kind: "unavailable", reason: "unreadable-member" })
-      : Object.freeze({ kind: "present", destination: destinationMember, source: sourceMember });
+    return Object.freeze({ kind: "present", destination: destinationMember, source: sourceMember });
   };
   const select = (source: Type, destination: Type): MemberIndex => {
     let refusal: Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }> | undefined;
@@ -126,14 +128,16 @@ export function createSourceStructuralMemberQueries(
       refusal = Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
     else if (unresolved(source) || unresolved(destination))
       refusal = Object.freeze({ kind: "unavailable", reason: "unresolved-shape" });
-    if (unresolved(source, true) || unresolved(destination, true)) return Object.freeze({
-      correspondence: refusal ?? Object.freeze({ kind: "unavailable", reason: "unresolved-shape" }), members: Object.freeze([]),
-    });
+    if (unresolved(source, true) || unresolved(destination, true)) {
+      const correspondence = refusal ?? Object.freeze({ kind: "unavailable", reason: "unresolved-shape" } as const);
+      return Object.freeze({ correspondence, readable: correspondence, members: Object.freeze([]) });
+    }
     const actual = new Map<Symbol, TypePropertyInfo>();
     for (const property of types.getPropertyInfos(source)) {
-      if (actual.has(property.symbol)) return Object.freeze({
-        correspondence: refusal ?? Object.freeze({ kind: "unavailable", reason: "inconsistent-member" }), members: Object.freeze([]),
-      });
+      if (actual.has(property.symbol)) {
+        const correspondence = refusal ?? Object.freeze({ kind: "unavailable", reason: "inconsistent-member" } as const);
+        return Object.freeze({ correspondence, readable: correspondence, members: Object.freeze([]) });
+      }
       actual.set(property.symbol, property);
     }
     const members: SourceStructuralMemberPair[] = [];
@@ -141,9 +145,12 @@ export function createSourceStructuralMemberQueries(
     let missingRequired = false;
     let ambiguous = false;
     let disjoint = false;
+    let readRefusal = refusal;
     for (const property of types.getPropertyInfos(destination)) {
       if (seen.has(property.symbol)) {
-        refusal ??= Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+        const duplicate = Object.freeze({ kind: "unavailable", reason: "inconsistent-member" } as const);
+        refusal ??= duplicate;
+        readRefusal ??= duplicate;
         ambiguous = true;
         continue;
       }
@@ -152,18 +159,28 @@ export function createSourceStructuralMemberQueries(
       if (member.kind === "unavailable") {
         disjoint ||= member.reason === "disjoint-shape";
         refusal ??= member;
+        readRefusal ??= member;
       } else {
         if (member.kind === "absent" && !property.optional) missingRequired = true;
+        if (member.kind === "present" && member.source.read === "unavailable")
+          readRefusal ??= Object.freeze({ kind: "unavailable", reason: "unreadable-member" });
         members.push(member);
       }
     }
-    if (missingRequired) refusal ??= Object.freeze({ kind: "unavailable", reason: "missing-required-member" });
+    if (missingRequired) {
+      const missing = Object.freeze({ kind: "unavailable", reason: "missing-required-member" } as const);
+      refusal ??= missing;
+      readRefusal ??= missing;
+    }
     const selected = Object.freeze(members);
     const correspondence: SourceStructuralMemberCorrespondence = refusal ?? Object.freeze({ kind: "available",
       source: inventory(source), destination: inventory(destination), members: selected });
-    return Object.freeze({ correspondence, members: ambiguous || disjoint ? Object.freeze([]) : selected });
+    return Object.freeze({ correspondence, readable: readRefusal ?? correspondence,
+      members: ambiguous || disjoint ? Object.freeze([]) : selected });
   };
-  const indexFor = (source: Type, destination: Type): MemberIndex => {
+  const indexFor = (source: Type, destination: Type, purpose: "correspondence" | "read"): MemberIndex => {
+    if (purpose !== "correspondence" && purpose !== "read")
+      throw new TypeError("Source structural member queries require an explicit correspondence or read purpose.");
     let destinations = cache.get(source);
     if (destinations === undefined) {
       destinations = new WeakMap();
@@ -177,12 +194,17 @@ export function createSourceStructuralMemberQueries(
     return result;
   };
   return Object.freeze({
-    structuralMembers: (source: Type, destination: Type): SourceStructuralMemberCorrespondence => indexFor(source, destination).correspondence,
-    structuralMember(source: Type, destination: Type, selectedDeclaration: Node): SourceStructuralMemberPair | undefined {
+    structuralMembers(source: Type, destination: Type, purpose: "correspondence" | "read"): SourceStructuralMemberCorrespondence {
+      const index = indexFor(source, destination, purpose);
+      return purpose === "read" ? index.readable : index.correspondence;
+    },
+    structuralMember(source: Type, destination: Type, selectedDeclaration: Node,
+      purpose: "correspondence" | "read"): SourceStructuralMemberPair | undefined {
       let selected: SourceStructuralMemberPair | undefined;
-      for (const member of indexFor(source, destination).members) {
+      for (const member of indexFor(source, destination, purpose).members) {
         if (!member.destination.declarations.includes(selectedDeclaration)) continue;
         if (member.kind === "present" && member.source.declarations.length === 0) return undefined;
+        if (purpose === "read" && member.kind === "present" && member.source.read === "unavailable") return undefined;
         if (selected !== undefined) return undefined;
         selected = member;
       }
