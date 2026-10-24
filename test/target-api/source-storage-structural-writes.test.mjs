@@ -319,6 +319,20 @@ test("ordinary concrete literal writes and closed read-only forwarding do not re
   assert.equal(current.storage.failureReason() === undefined, true, "concrete slots and genuine closed empty summaries stay supported");
 });
 
+test("exporting a constant concrete binding does not turn its field write into a formal alias refusal", () => {
+  const current = formalFixture(`
+    export const concrete: Reader = { read() { return 1; } };
+    function forward(owner: Reader) { concrete.read = () => 2; return owner.read(); }
+  `);
+  current.complete("forward", []);
+  const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node) &&
+    current.source.semantics.forNode(node).operations.propertyAccess(node)?.accessMode === "write");
+  assert.equal(access !== undefined, true, "the concrete field retains its original write access");
+  const selected = current.storage.writeAt(access, current.storage.emptyBindings);
+  assert.equal(selected.kind, "resolved", "the exact original write remains published");
+  assert.equal(selected.write.reason === undefined, true, "exporting const storage cannot rebind its object identity");
+});
+
 test("missing formal/member correspondence remains unresolved after a narrowed receiver write", () => {
   const current = formalFixture(`
     interface Other { value: number; }

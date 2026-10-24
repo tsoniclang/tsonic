@@ -93,7 +93,9 @@ export function createSourceStorageFormalMemberWrites(
     const binding = navigation.referenceFor(reference);
     if (binding === undefined) return false;
     const summary = navigation.declarationUseSummary(binding.declaration);
-    if (summary.exported || sourceBindingHasMutableExposure(source, summary, budget.step)) return false;
+    if (summary.exported && ast.is.IsVariableDeclaration(binding.declaration) &&
+      ast.variableDeclarationKind(binding.declaration) !== "const" ||
+      sourceBindingHasMutableExposure(source, summary, budget.step)) return false;
     if (!summary.bindingWritten) return true;
     if (summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember)) return false;
     const preserved = (node: Node): boolean => budget.step() && navigation.bindingWritesWithin(binding.symbol, node).length === 0;
