@@ -234,7 +234,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             continue;
           }
           const actual = sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-          const rest = binding.sourceParameterForm !== "rest-element" || signature === undefined ? undefined
+          const rest = binding.sourceParameterForm === "parameter" || signature === undefined ? undefined
             : sourceStorageCallableInputSlots(source, signature, consumer,
               { kind: "selected-signature", signature: selected.selectedSignature }, step)?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
@@ -255,10 +255,10 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             }
             if (!retainCheckedContext(formal, checkedFile)) break;
           }
-          arguments_.push(Object.freeze({ actual, formal: destination, selectedParameterDeclaration: formal,
+          arguments_.push(Object.freeze({ actual: actual.subject, formal: destination, selectedParameterDeclaration: formal,
             binding: Object.freeze({ ...binding }) }));
           if (Node_Initializer(ast, formal) === undefined || sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
-            connect(actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+            connect(actual.subject, destination, { from: actual.sourceType, to: actual.targetType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
         const supplied = pointerEffect === undefined ? effects.callbackEntries?.(node, selected) : [];

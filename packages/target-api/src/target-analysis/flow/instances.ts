@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
 import { solveSourceFlow } from "./solver.js";
+import { SourceFlowFailure } from "./resources.js";
 
 export type SourceFlowWriteCount = 0 | 1 | 2;
 
@@ -21,15 +22,38 @@ export type SourceFlowWritesSelection = SourceFlowUnresolved |
   });
 
 export function analyzeSourceLiveness(graph: SourceControlFlowGraph,
+  additionalReads: ReadonlyMap<number, readonly Node[]>,
   limits: Partial<SourceFlowLimits> = {}): SourceFlowLivenessSelection {
+  if (additionalReads === undefined || additionalReads === null || typeof additionalReads.get !== "function" ||
+    typeof additionalReads[Symbol.iterator] !== "function") return Object.freeze({ kind: "unresolved",
+    reason: "Source liveness requires an explicit graph-point read inventory.", source: graph.declaration });
+  let readsChecked = false;
   const solution = solveSourceFlow<ReadonlySet<Node>>(graph, {
     direction: "backward", lattice: sourceFlowSetLattice("union", new Set()),
     transfer(point, input, work) {
+      if (!readsChecked) {
+        for (const [id, bindings] of additionalReads) {
+          work.step();
+          if (!Number.isSafeInteger(id) || id < 0 || graph.points[id]?.id !== id || !Array.isArray(bindings))
+            throw new SourceFlowFailure("Source liveness additional reads require exact graph points and dense binding data.", graph.declaration);
+          for (let index = 0; index < bindings.length; index += 1) {
+            work.step();
+            const descriptor = Object.getOwnPropertyDescriptor(bindings, index);
+            if (descriptor === undefined || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === null)
+              throw new SourceFlowFailure("Source liveness additional reads require dense binding data.", graph.declaration);
+          }
+        }
+        readsChecked = true;
+      }
       const operation = point.operation;
-      if (!("binding" in operation)) return input;
+      const additional = additionalReads.get(point.id);
+      if (!("binding" in operation) && (additional === undefined || additional.length === 0)) return input;
       const live = copySet(input, work);
-      if (operation.kind === "read" || operation.kind === "capture") live.add(operation.binding);
-      else live.delete(operation.binding);
+      if ("binding" in operation) {
+        if (operation.kind === "read" || operation.kind === "capture") live.add(operation.binding);
+        else live.delete(operation.binding);
+      }
+      for (const binding of additional ?? []) { work.step(); live.add(binding); }
       return live;
     },
   }, limits);

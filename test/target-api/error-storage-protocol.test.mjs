@@ -68,6 +68,7 @@ test("physical Error storage protocol rejects malformed, foreign, duplicate and 
     assert.equal(storage.kind, "unresolved", "invalid selected mutation cannot manufacture writable evidence");
     assert.equal(Object.isFrozen(storage), true);
     assert.equal(demand.storageOriginsFor(original).kind, "unresolved");
+    assert.equal(demand.closedStorageOriginsFor(original).kind, "unresolved", "malformed protocol never publishes a closed origin proof");
     assert.equal(demand.receivesWritableNative(original), false);
   }
 });

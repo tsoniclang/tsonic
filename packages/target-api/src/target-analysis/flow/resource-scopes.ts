@@ -25,9 +25,17 @@ export function analyzeSourceResourceScopes(
     if (ast.is.IsVariableDeclaration(node)) variables.set(node, Object.freeze([node]));
     else if (list !== undefined && ast.is.IsVariableDeclarationList(list)) {
       const declarations = ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes;
-      if (declarations === undefined || declarations.some(declaration => declaration === undefined)) continue;
-      variables.set(node, Object.freeze(declarations.filter((declaration): declaration is Node =>
-        declaration !== undefined && !erased(declaration))));
+      if (!Array.isArray(declarations)) continue;
+      const selected: Node[] = [];
+      let valid = true;
+      for (let index = 0; index < declarations.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(declarations, index);
+        const declaration: Node | undefined = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+        if (declaration === undefined || declaration === null || !ast.is.IsVariableDeclaration(declaration) ||
+          ast.parent(declaration) !== list) { valid = false; break; }
+        if (!erased(declaration)) selected.push(declaration);
+      }
+      if (valid) variables.set(node, Object.freeze(selected));
     }
   }
   const publish = (owner: Node, declarations: readonly Node[], remainder: (declaration: Node) => readonly Node[]): void => {

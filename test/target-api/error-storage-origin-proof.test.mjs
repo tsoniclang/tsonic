@@ -106,8 +106,18 @@ test("opaque native construction cannot invent fresh disjoint Error owners from 
     other.message = "changed";
   `);
   for (const name of ["owner", "other"]) {
-    const selected = current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, current.variable(name)));
+    const subject = requiredStorageSubject(current.storage, current.variable(name));
+    const shared = current.storage.closedOriginsFor(subject);
+    const selected = current.demand.closedStorageOriginsFor(subject);
+    assert.equal(selected.kind === shared.kind, true,
+      `${name}: the actual shared origin proof is not replaced by a different mutation-demand question`);
     assert.equal(selected.kind === "open", true, `${name}: opaque native result lacks an allocation contract`);
+    assert.equal(shared.kind === "open" && selected.origins.length === shared.origins.length &&
+      selected.origins.every((origin, index) => origin.subject === shared.origins[index].subject) &&
+      selected.boundaries.length === shared.boundaries.length && selected.boundaries.every((boundary, index) =>
+        boundary.kind === shared.boundaries[index].kind && boundary.subject === shared.boundaries[index].subject &&
+        boundary.exposure === shared.boundaries[index].exposure), true,
+    `${name}: exact canonical producer and external boundary identities remain unchanged`);
     assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true);
   }
   assert.equal(current.demand.invalidationFor(current.variable("owner"), current.write("other"), new Set()).kind === "unproven", true,

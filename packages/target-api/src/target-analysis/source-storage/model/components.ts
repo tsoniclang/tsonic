@@ -2,7 +2,7 @@ import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
-import { ForInOrOfStatement_Initializer, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable } from "../../../source-navigation/index.js";
+import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable } from "../../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
 
 export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
@@ -122,6 +122,9 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
       : undefined;
   } else if (value.kind === "receiver") {
     selected = sourceStorageReceiverType(source, value.node, semantics);
+  } else if (value.kind === "value" && source.ast.is.IsSpreadElement(value.node)) {
+    const operand = Node_Expression(source.ast, value.node);
+    selected = operand === undefined ? undefined : semantics.types.expressionType(operand);
   } else {
     const name = source.ast.name(value.node);
     const bindingContainer = name !== undefined && (source.ast.is.IsVariableDeclaration(value.node) ||

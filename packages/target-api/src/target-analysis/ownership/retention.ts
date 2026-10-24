@@ -132,9 +132,26 @@ export function createSourceCallableRetentionQuery(input: {
               const capture = sourceEnclosingCallable(use.reference, ast);
               if (capture === undefined) reason ??= "A captured callable requires its original checked retaining callable.";
               else {
-                const selected = storage.bindingsForDeclaration(capture, bindings);
-                if (selected.kind === "unresolved") reason ??= selected.reason;
-                else enqueue(capture, selected.bindings);
+                const region = storage.enclosingRegionFor(capture);
+                const creator = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+                if (region === undefined || creator === undefined && !ast.is.IsSourceFile(region)) {
+                  reason ??= "A captured callable requires its exact checked creation owner.";
+                } else if (creator === undefined) {
+                  const selected = storage.bindingsForDeclaration(capture, storage.emptyBindings);
+                  if (selected.kind === "unresolved") reason ??= selected.reason;
+                  else enqueue(capture, selected.bindings);
+                } else {
+                  const creation = storage.boundActivationsFor(creator, bindings);
+                  if (creation.kind === "unresolved" || creation.activations.length === 0) {
+                    reason ??= creation.kind === "unresolved" ? creation.reason
+                      : "A captured callable requires its original bound creator activation.";
+                  } else for (const activation of creation.activations) {
+                    if (!budget.step()) return sourceOwnershipUnresolved(declaration, budget.failure()!);
+                    const selected = storage.bindingsForDeclaration(capture, activation.bindings);
+                    if (selected.kind === "unresolved") reason ??= selected.reason;
+                    else enqueue(capture, selected.bindings);
+                  }
+                }
               }
             }
             if (use.role === "return" || use.role === "yield") { escaped(use.reference); continue; }

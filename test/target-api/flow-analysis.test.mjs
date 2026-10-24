@@ -34,14 +34,20 @@ function reads(current, name) {
     .sort((left, right) => current.ast.pos(left.source) - current.ast.pos(right.source));
 }
 
+function callPoints(current, name) {
+  return current.graph.points.filter(point => point.operation.kind === "evaluate" && point.source !== undefined &&
+    current.ast.is.IsCallExpression(point.source) &&
+    current.ast.text(current.ast.as.AsCallExpression(point.source)?.Expression) === name);
+}
+
 test("flow liveness identifies last reads rather than last syntactic positions", async () => {
   const current = await fixture("function use(value: number) {} function run(value: number, flag: boolean) { if (flag) use(value); else use(value); }");
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const uses = reads(current, "value");
   assert.equal(uses.length, 2);
   for (const use of uses) assert.equal(live.lastUses.has(use.source), true);
   const sequential = await fixture("function run(value: number) { return value + value; }");
-  const sequentialLive = resolved(analyzeSourceLiveness(sequential.graph));
+  const sequentialLive = resolved(analyzeSourceLiveness(sequential.graph, new Map()));
   const both = reads(sequential, "value");
   assert.equal(sequentialLive.lastUses.has(both[0].source), false);
   assert.equal(sequentialLive.lastUses.has(both[1].source), true);
@@ -49,18 +55,124 @@ test("flow liveness identifies last reads rather than last syntactic positions",
 
 test("flow liveness includes captures and kills prior values at binding writes", async () => {
   const current = await fixture("function use(value: number) {} function run(value: number) { use(value); value = 2; const read = () => value; return read; }");
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const first = reads(current, "value")[0];
   assert.equal(live.lastUses.has(first.source), true, "the later closure observes the replacement value, not this read's value");
   const capture = current.graph.points.find(point => point.operation.kind === "capture");
   assert.equal(live.before.get(capture.id).has(capture.operation.binding), true);
 });
 
+test("flow additional point reads preserve initialized places without inventing source reads", async () => {
+  const current = await fixture("function use(value: object) {} function replace() {} function run(value: object) { use(value); replace(); }");
+  const calls = callPoints(current, "replace");
+  assert.equal(calls.length, 1, "the read inventory selects the identical actual call point");
+  const use = reads(current, "value")[0];
+  const original = resolved(analyzeSourceLiveness(current.graph, new Map()));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map([[calls[0].id, [use.operation.binding]]])));
+  assert.equal(original.lastUses.has(use.source), true, "the unaugmented source read is otherwise last");
+  assert.equal(live.lastUses.has(use.source), false, "the later actual point still requires the initialized place");
+  assert.equal(live.before.get(calls[0].id).has(use.operation.binding), true, "the place is live at the actual additional read");
+  assert.equal(live.after.get(calls[0].id).has(use.operation.binding), false, "no later read is invented");
+  assert.equal(live.lastUsePoints.has(calls[0].id), false, "additional reads do not masquerade as source read nodes");
+  assert.equal(current.graph.points.some(point => point.source === calls[0].source && point.operation.kind === "read" &&
+    point.operation.binding === use.operation.binding), false, "the canonical source graph is unchanged");
+});
+
+test("flow additional reads admit a checked external binding absent from the source operation inventory", async () => {
+  const current = await fixture("const value = {}; function replace() {} function run() { replace(); }");
+  const binding = namedVariable(current.ast, current.file, "value");
+  const calls = callPoints(current, "replace");
+  assert.equal(calls.length, 1, "one actual call owns the extra binding use");
+  assert.equal(current.graph.bindings.has(binding), false, "the source CFG has no operation for this hidden input");
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map([[calls[0].id, [binding]]])));
+  assert.equal(live.before.get(calls[0].id).has(binding), true, "the caller's identical checked binding participates");
+  assert.equal(live.before.get(current.graph.entry).has(binding), true, "the existing solver propagates that input");
+  assert.equal(current.graph.bindings.has(binding), false, "augmentation does not mutate source graph ownership");
+});
+
+test("flow additional reads preserve exact binding kills rather than retaining replaced prior values", async () => {
+  const current = await fixture("function use(value: object) {} function replace() {} function run(value: object) { use(value); value = {}; replace(); }");
+  const use = reads(current, "value")[0];
+  const calls = callPoints(current, "replace");
+  assert.equal(calls.length, 1, "the use is attached after the actual binding replacement");
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map([[calls[0].id, [use.operation.binding]]])));
+  assert.equal(live.lastUses.has(use.source), true, "the later point reads the replacement rather than the old value");
+  assert.equal(live.before.get(calls[0].id).has(use.operation.binding), true, "the replacement is live at its actual use");
+});
+
+test("flow additional reads use the existing branch, loop and finally fixed point", async context => {
+  for (const [label, body] of [
+    ["branch", "use(value); if (flag) replace();"],
+    ["loop", "use(value); while (flag) replace();"],
+    ["finally", "try { use(value); } finally { replace(); }"],
+  ]) await context.test(label, async () => {
+    const current = await fixture(`function use(value: object) {} function replace() {} function run(value: object, flag: boolean) { ${body} }`);
+    const use = reads(current, "value")[0];
+    const calls = callPoints(current, "replace");
+    assert.equal(calls.length > 0, true, `${label}: the exact graph contains the actual call points`);
+    const live = resolved(analyzeSourceLiveness(current.graph,
+      new Map(calls.map(point => [point.id, [use.operation.binding]]))));
+    assert.equal(live.lastUses.has(use.source), false, `${label}: a reachable additional use keeps the earlier value live`);
+    for (const point of calls) assert.equal(live.before.get(point.id).has(use.operation.binding), true,
+      `${label}: each actual invocation requires its initialized binding`);
+  });
+});
+
+test("flow additional reads leave a final source read eligible for its exact last use", async () => {
+  const current = await fixture("function use(value: object) {} function replace() {} function run(value: object) { use(value); replace(); replace(); use(value); }");
+  const uses = reads(current, "value");
+  const calls = callPoints(current, "replace");
+  assert.equal(uses.length, 2, "both original source reads remain present");
+  assert.equal(calls.length, 2, "both actual invocation sites participate");
+  const live = resolved(analyzeSourceLiveness(current.graph,
+    new Map(calls.map(point => [point.id, [uses[0].operation.binding]]))));
+  assert.equal(live.lastUses.has(uses[0].source), false, "the earlier source read must not consume the value");
+  assert.equal(live.lastUses.has(uses[1].source), true, "the final source read retains its move opportunity");
+});
+
+test("flow additional read inventories reject missing, foreign-point, sparse and accessor data", async () => {
+  const current = await fixture("function use(value: object) {} function run(value: object) { use(value); }");
+  const use = reads(current, "value")[0];
+  let getterReads = 0;
+  const accessor = [];
+  Object.defineProperty(accessor, 0, { get() { getterReads += 1; return use.operation.binding; } });
+  for (const [label, additional] of [
+    ["missing inventory", undefined],
+    ["removed limits-only signature", { maximumSteps: 1 }],
+    ["foreign point", new Map([[current.graph.points.length, [use.operation.binding]]])],
+    ["negative point", new Map([[-1, [use.operation.binding]]])],
+    ["sparse data", new Map([[use.id, new Array(1)]])],
+    ["accessor data", new Map([[use.id, accessor]])],
+    ["missing binding", new Map([[use.id, [undefined]]])],
+  ]) {
+    const selected = analyzeSourceLiveness(current.graph, additional);
+    assert.equal(selected.kind === "unresolved", true, label);
+    assert.match(selected.reason, /read inventory|graph points|binding data/u, label);
+  }
+  assert.equal(getterReads, 0, "malformed read data is refused without evaluating accessors");
+});
+
+test("flow additional read work shares the original finite solver budget", async () => {
+  const current = await fixture("function use(value: object) {} function run(value: object) { use(value); }");
+  const use = reads(current, "value")[0];
+  const original = resolved(analyzeSourceLiveness(current.graph, new Map()));
+  const equivalent = resolved(analyzeSourceLiveness(current.graph, new Map()));
+  assert.equal(equivalent.steps, original.steps, "genuine empty input leaves original work accounting unchanged");
+  for (const point of current.graph.points) for (const binding of current.graph.bindings) {
+    assert.equal(equivalent.before.get(point.id)?.has(binding), original.before.get(point.id)?.has(binding), "empty input preserves every before fact");
+    assert.equal(equivalent.after.get(point.id)?.has(binding), original.after.get(point.id)?.has(binding), "empty input preserves every after fact");
+  }
+  const selected = analyzeSourceLiveness(current.graph,
+    new Map([[use.id, new Array(original.steps + 1).fill(use.operation.binding)]]), { maximumSteps: original.steps });
+  assert.equal(selected.kind === "unresolved", true, "additional uses cannot evade the existing work owner");
+  assert.match(selected.reason, /finite work budget/u);
+});
+
 test("flow liveness reaches a fixed point through nested loops including labelled continue", async () => {
   const current = await fixture(`function use(value: number) {} function run(value: number, outer: boolean, inner: boolean) {
     loop: while (outer) { while (inner) { use(value); if (outer) continue loop; } use(value); } use(value);
   }`);
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const uses = reads(current, "value");
   assert.equal(uses.length, 3);
   assert.equal(live.lastUses.has(uses[0].source), false);
@@ -71,7 +183,7 @@ test("flow liveness reaches a fixed point through nested loops including labelle
 
 test("flow backward solver visits nonterminating loops that cannot reach an exit", async () => {
   const current = await fixture("function run(value: number) { for (;;) { const observed = value; } }");
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const use = reads(current, "value")[0];
   assert.equal(live.reachable.has(current.graph.exit), false);
   assert.equal(live.reachable.has(current.graph.exceptionExit), false);
@@ -161,7 +273,7 @@ test("flow solver accepts the suspension witness lattice without a second contro
 
 test("flow solver excludes unreachable reads and write counts", async () => {
   const current = await fixture("function use(value: number) {} function run(value: number) { return value; value++; use(value); }");
-  const liveness = resolved(analyzeSourceLiveness(current.graph));
+  const liveness = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const uses = reads(current, "value");
   assert.equal(uses.length, 3);
   assert.equal(liveness.lastUses.has(uses[0].source), true);
@@ -188,7 +300,7 @@ test("flow solver returns unresolved for exhausted work and missing lattice prem
 test("flow definite assignment and last use preserve conditional pattern defaults", async () => {
   const current = await fixture("function fallback() { return 1; } function run(input: { count?: number }) { const { count = fallback() } = input; return count; }");
   assert.equal(resolved(analyzeSourceDefiniteAssignment(current.graph)).unassignedReads.size, 0);
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const count = reads(current, "count");
   assert.equal(count.length, 1);
   assert.equal(live.lastUses.has(count[0].source), true);
@@ -211,7 +323,7 @@ test("flow solver charges instance lattice work and honors explicit finite edge 
 
 test("flow finally read is last only when every completion-specific occurrence is last", async () => {
   const current = await fixture("function use(value: number) {} function run(value: number, flag: boolean) { try { if (flag) return; } finally { use(value); } use(value); }");
-  const live = resolved(analyzeSourceLiveness(current.graph));
+  const live = resolved(analyzeSourceLiveness(current.graph, new Map()));
   const uses = reads(current, "value");
   const sourceReads = [...new Set(uses.map(point => point.source))].sort((left, right) => current.ast.pos(left) - current.ast.pos(right));
   assert.equal(sourceReads.length, 2);
@@ -264,7 +376,7 @@ test("flow published fact collections reject mutation through the checked TypeSc
     import { analyzeSourceLiveness, analyzeSourceDefiniteAssignment, analyzeSourceWrites } from ${JSON.stringify(owner)};
     import type { SourceControlFlowGraph } from ${JSON.stringify(owner)};
     export function consumer(graph: SourceControlFlowGraph): void {
-      const live = analyzeSourceLiveness(graph);
+      const live = analyzeSourceLiveness(graph, new Map());
       const assigned = analyzeSourceDefiniteAssignment(graph);
       const writes = analyzeSourceWrites(graph);
       if (live.kind === "resolved") {
@@ -275,6 +387,8 @@ test("flow published fact collections reject mutation through the checked TypeSc
       if (writes.kind === "resolved") writes.maximum.set(graph.declaration, 2);
       graph.bindings.add(graph.declaration);
       graph.points[0]?.successors.push({ from: 0, to: 0, kind: "normal" });
+      analyzeSourceLiveness(graph);
+      analyzeSourceLiveness(graph, { maximumSteps: 1 });
     }
   `);
   const configuration = resolve(directory, "tsconfig.json");
@@ -285,6 +399,8 @@ test("flow published fact collections reject mutation through the checked TypeSc
   assert.equal(result.error === undefined, true, "the real compiler finishes under the inherited process-group guard");
   assert.equal(result.status, 1, result.stdout.slice(0, 8192) || result.stderr.slice(0, 8192));
   const diagnostics = result.stdout.split("\n").filter(line => line.includes("error TS"));
-  assert.equal(diagnostics.length, 6, result.stdout.slice(0, 8192));
-  assert.equal(diagnostics.every(line => line.includes("error TS2339:")), true, diagnostics.join("\n"));
+  assert.equal(diagnostics.length, 8, result.stdout.slice(0, 8192));
+  assert.equal(diagnostics.filter(line => line.includes("error TS2339:")).length, 6, "all six readonly API mutations remain rejected");
+  assert.equal(diagnostics.filter(line => line.includes("error TS2554:")).length, 1, "the removed one-argument signature remains rejected");
+  assert.equal(diagnostics.filter(line => line.includes("error TS2353:")).length, 1, "the removed limits-as-second-input signature remains rejected");
 });
