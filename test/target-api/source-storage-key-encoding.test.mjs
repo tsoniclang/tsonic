@@ -127,7 +127,7 @@ test("key cycles reject without mistaking a completed shared child for a cycle",
 test("key work, nodes, broad child lists and text retain independent finite guards", () => {
   for (const [limits, value, reason] of [
     [{ maximumSteps: 1 }, ["value"], /analysis-work/u],
-    [{ maximumTransportRows: 1 }, ["value"], /finite positive reservation/u],
+    [{ maximumTransportRows: 1 }, ["value"], /transport-row budget/u],
     [{ maximumSteps: 8 }, Array(1024).fill(0), /analysis-work/u],
     [{ maximumTransportRows: 8 }, ["x".repeat(8192)], /reservation|transport-row/u],
     [{ maximumTransportRows: 8 }, "x".repeat(8192), /reservation|transport-row/u],

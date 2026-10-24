@@ -46,7 +46,7 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
     let released = false;
     return Object.freeze({
       add(cost: number): boolean {
-        if (released || !Number.isSafeInteger(cost) || cost <= 0 || cost > limits.maximumTransportRows) {
+        if (released || !Number.isSafeInteger(cost) || cost <= 0) {
           reject("Source storage rows require a live owner and a finite positive reservation.");
           return false;
         }

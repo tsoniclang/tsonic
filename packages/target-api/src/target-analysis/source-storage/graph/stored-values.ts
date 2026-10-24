@@ -237,7 +237,7 @@ export function createSourceStorageFormalMemberWrites(
     const presentFormal = sourcePresentStorageType(selected.type, consumer);
     const presentFrom = sourcePresentStorageType(from, consumer);
     if (presentFormal === undefined || presentFrom === undefined) return undefined;
-    const relation = consumer.types.structuralMember(presentFormal, presentFrom, member);
+    const relation = consumer.types.structuralMember(presentFormal, presentFrom, member, "correspondence");
     return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
   };
   const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {
@@ -327,7 +327,9 @@ export function createSourceStorageFormalMemberWrites(
         }
       }
     }
-    const demands = graph.fixedPoint<SourceStorageSubject, Node | string>((formal, _read, emit, forward) => {
+    const emptyDemands: readonly (Node | string)[] = Object.freeze([]);
+    const demands = seeds.size === 0 ? () => emptyDemands
+      : graph.fixedPoint<SourceStorageSubject, Node | string>((formal, _read, emit, forward) => {
       for (const value of seeds.get(formal) ?? []) if (!budget.step() || !emit(value)) return false;
       for (const [input, reason] of forwards.get(formal) ?? []) {
         const selected = formals.get(input);

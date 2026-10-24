@@ -65,6 +65,53 @@ test("a physically present contextual optional initializer does not invent a def
     "a checked present field supplies its original callable, never the unrelated fallback");
 });
 
+test("checked setter metadata admits its exact physical write while retaining the read refusal", () => {
+  const current = fixture(`
+    interface Destination { value: () => number; }
+    const actual = { set value(next: () => number) {} };
+    const destination: Destination = actual;
+  `);
+  const { source } = current;
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
+  const allocation = current.initializer("actual");
+  const subject = transport.subjectFor(allocation);
+  assert.equal(subject !== undefined, true, "the receiver is the original checked allocation");
+  const semantics = source.semantics.forNode(current.variable("destination"));
+  const type = semantics.declarations.declaredValueType(current.variable("destination"));
+  const properties = semantics.types.propertyInfos(type);
+  assert.equal(properties.length, 1, "the actual interface has one exact selected member");
+  const declarations = semantics.declarations.symbolDeclarations(properties[0].symbol);
+  assert.equal(declarations.length, 1, "the selected declaration belongs to the checked destination");
+  const setter = source.ast.properties(allocation)[0];
+  assert.equal(source.ast.is.IsSetAccessorDeclaration(setter), true, "the physical original is setter-only");
+  const scope = Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze([]) });
+  const receiver = Object.freeze({ kind: "leaf", subject, scope });
+  const physicalMembers = createSourceStoragePhysicalMembers(source, budget, transport, {
+    symbolic: () => false,
+    read: () => assert.fail("a checked literal receiver does not require constructor supplier evidence"),
+    lineages: () => assert.fail("a checked literal receiver does not invent construction lineages"),
+  });
+  let write;
+  for (const mode of ["read", "write", "read", "write"]) {
+    const selected = physicalMembers(receiver, declarations[0], type, mode, subject);
+    assert.equal(selected?.kind, "known", `${mode}: physical correspondence completes`);
+    assert.equal(selected.absent || selected.excluded, false, `${mode}: a setter is not an absent or excluded field`);
+    if (mode === "read") {
+      assert.equal(selected.members.length, 0, "a setter cannot supply a physical read");
+      assert.equal(selected.reason, "Source storage correspondence does not provide the actual checked member operation mode.");
+    } else {
+      assert.equal(selected.reason === undefined && selected.members.length === 1 &&
+        selected.members[0].subject.node === setter && selected.members[0].bindings === scope, true,
+      "the original setter and exact receiver scope own the write");
+      if (write !== undefined) assert.equal(selected.members[0].subject === write, true,
+        "alternating read refusal never changes the canonical physical write subject");
+      write = selected.members[0].subject;
+    }
+  }
+  assert.equal(budget.failure() === undefined, true, "metadata and mode admission retain the existing finite guards");
+});
+
 test("physical exclusion remains explicit when a completed alternative grows alongside a productive one", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);

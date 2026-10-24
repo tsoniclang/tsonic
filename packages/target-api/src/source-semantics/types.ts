@@ -102,8 +102,10 @@ export interface SourceFinalTypeQueries {
   ): SourceContextualTupleLiteralSelection;
   refinement(declaredType: Type, selectedType: Type): SourceTypeRefinement;
   relationship(left: Type, right: Type): SourceTypeRelationship;
-  structuralMembers(source: Type, destination: Type): import("./structural-members.js").SourceStructuralMemberCorrespondence;
-  structuralMember(source: Type, destination: Type, selectedDeclaration: Node): import("./structural-members.js").SourceStructuralMemberPair | undefined;
+  structuralMembers(source: Type, destination: Type,
+    purpose: "correspondence" | "read"): import("./structural-members.js").SourceStructuralMemberCorrespondence;
+  structuralMember(source: Type, destination: Type, selectedDeclaration: Node,
+    purpose: "correspondence" | "read"): import("./structural-members.js").SourceStructuralMemberPair | undefined;
   standardTransformation(
     authoredTypeNode: Node,
     selectedType: Type,

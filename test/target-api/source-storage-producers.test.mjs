@@ -201,24 +201,57 @@ test("numeric updates and compound writes retain the operation result while logi
   assert.equal(members.length === 2 && members.some(producer => current.source.ast.is.IsBinaryExpression(producer.subject.node)), true);
 });
 
-test("unsupported delete and iteration-key producer evidence rejects rather than inventing a value", async () => {
+test("valueless deletion retains absence and original producers while unsupported iteration keys reject", async () => {
   const current = await fixture("storage-producer-unresolved-writes", `
     const box: { amount?: number } = { amount: 1 };
     delete box.amount;
+    const fallback = 5;
+    const { amount: observed = fallback } = box;
     let value = "";
     for (value in { item: 1 }) {}
   `);
   const property = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsPropertyAssignment(node) &&
     current.source.ast.text(current.source.ast.name(node)) === "amount");
-  for (const declaration of [property, current.variable("value")]) {
-    const selected = current.storage.storageProducersFor(current.subject(declaration));
-    assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial producer claim");
-  }
-  assert.equal(current.storage.storageProducersFor(current.subject(property)).reason,
-    "Source storage mutation requires its exact selected value producer.", "deletion keeps its precise unresolved producer");
+  const original = current.source.ast.as.AsPropertyAssignment(property).Initializer;
+  const values = producers(current.storage.storageProducersFor(current.subject(property)));
+  assert.equal(values.length === 1 && values[0].subject.node === original, true, "deletion never invents an RHS or Boolean producer");
+  const observed = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "observed");
+  const readings = producers(current.storage.storageProducersFor(current.subject(observed)));
+  assert.equal(readings.length === 2 && readings.some(value => value.subject.node === original) &&
+    readings.some(value => value.subject.node === current.initializer("fallback")), true,
+    "the same exact producer domain also retains deletion's absence and real default");
+  const selected = current.storage.storageProducersFor(current.subject(current.variable("value")));
+  assert.equal(selected.kind === "unresolved" && selected.reason.includes("producer"), true, "no partial iteration-key producer claim");
   assert.equal(current.storage.storageProducersFor(current.subject(current.variable("value"))).reason,
     "Source storage writes require their exact checked original value producer, iteration element and component projection.",
     "iteration keys keep their precise unresolved producer");
+});
+
+for (const [label, erase] of [
+  ["direct member", "delete first.amount;"],
+  ["aliased member", "const alias = first; delete alias.amount;"],
+  ["forwarded input", "function erase(owner: Box) { delete owner.amount; } erase(first);"],
+  ["stable input alias", "function erase(owner: Box) { const alias = owner; delete alias.amount; } erase(first);"],
+]) test(`deletion absence preserves the actual instance and original default through ${label}`, async () => {
+  const current = await fixture(`storage-delete-${label.replaceAll(" ", "-")}`, `
+    class Box { amount?: object; constructor(value: object) { this.amount = value; } }
+    const original = {}; const independent = {}; const fallback = {};
+    const first = new Box(original); const second = new Box(independent);
+    ${erase}
+    const { amount: observed = fallback } = first;
+    const { amount: unchanged = fallback } = second;
+  `);
+  const binding = name => requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === name);
+  const changed = producers(current.storage.storageProducersFor(current.subject(binding("observed"))));
+  assert.equal(changed.length === 2 && changed.some(value => value.subject.node === current.initializer("original")) &&
+    changed.some(value => value.subject.node === current.initializer("fallback")), true,
+    `${label}: an executed deletion adds the single absence/default, not a synthesized stored value`);
+  const unchanged = producers(current.storage.storageProducersFor(current.subject(binding("unchanged"))));
+  assert.equal(unchanged.length === 1 && unchanged[0].subject.node === current.initializer("independent"), true,
+    `${label}: matching a source member declaration never imports a different receiver's deletion`);
+  assert.equal(current.storage.failureReason(), undefined, `${label}: exact finite instance/effect correlation`);
 });
 
 test("array iteration producers retain actual elements rather than the collection or a synthetic value", async () => {

@@ -1,4 +1,5 @@
 import type { AstReader, Node, Symbol } from "@tsonic/tsts";
+import { Node_Expression } from "./ast.js";
 import type { SourceBindingWrite, SourceBindingWriteValue } from "./types.js";
 
 const assignmentOperatorKinds = new Set([
@@ -71,6 +72,10 @@ export function sourceBindingWriteAtReference(
   for (;;) {
     const parent = ast.parent(current);
     if (parent === undefined) return selected;
+    if (ast.is.IsDeleteExpression(parent)) {
+      return Node_Expression(ast, parent) === current
+        ? bindingWrite(reference, parent, "deletion", []) : selected;
+    }
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
       const operator = ast.operatorKindName(parent) ?? "";

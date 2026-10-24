@@ -50,7 +50,7 @@ export function createSourceStorageStructuralFlow(
           pending.push({ from: fromComponent, to: toComponent, semantics });
         }
       }
-      const relation = semantics.types.structuralMembers(from, to);
+      const relation = semantics.types.structuralMembers(from, to, "read");
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
         if (!step()) break;

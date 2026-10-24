@@ -376,6 +376,7 @@ test("bound source members preserve exact record and callable declarations witho
   }
   const changed = { ...semantics, types: { ...semantics.types,
     structuralMembers: (...arguments_: Parameters<typeof semantics.types.structuralMembers>) => {
+      assert.equal(arguments_[2], "correspondence", "bound type identity requests declaration correspondence");
       const relation = semantics.types.structuralMembers(...arguments_);
       return relation.kind !== "available" ? relation : { ...relation, members: relation.members.map(member =>
         member.kind !== "present" ? member : { ...member, source: { ...member.source,

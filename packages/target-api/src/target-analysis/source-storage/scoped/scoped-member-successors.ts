@@ -8,6 +8,7 @@ import type { createSourceStorageExecutionReachability } from "./execution-reach
 import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
+import { sourceStorageStoredValue } from "./scoped-transport.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
@@ -123,22 +124,29 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           }
           const selectedType = sourceStorageComponentType(receiverType, component, context, ast);
           const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value);
-          if (selectedType === undefined || valueType === undefined || store.reason !== undefined) {
+          const absent = store.value === undefined ? sourceStorageStoredValue(ast, store, undefined, scope) : undefined;
+          if (selectedType === undefined || valueType === undefined && absent === undefined || store.reason !== undefined) {
             terms.push(Object.freeze({ kind: "unresolved", subject, scope,
               reason: store.reason ?? "A symbolic storage mutation requires its exact checked producer and component type." }));
             continue;
           }
           const values: SourceStorageSubject[] = [];
-          sourceStorageProjectComponents(store.value!.projection, valueType, selectedType, subject.projection.slice(index + 1),
-            semantics.forNode(store.value!.node), ast, budget, projection => {
-              const value = transport.subject(store.value!.node, store.value!.kind, projection);
-              if (value !== undefined) values.push(value);
-            });
+          if (store.value !== undefined && valueType !== undefined)
+            sourceStorageProjectComponents(store.value.projection, valueType, selectedType, subject.projection.slice(index + 1),
+              semantics.forNode(store.value.node), ast, budget, projection => {
+                const value = transport.subject(store.value!.node, store.value!.kind, projection);
+                if (value !== undefined) values.push(value);
+              });
           const execution: SourceStorageTerm = Object.freeze({ kind: "region", region, scope, demand: store.region, deferred: scopes.isDeferred(scope) });
           for (const effect of readEffects(store, { kind: "general", execution })) {
             if (!budget.step()) return undefined;
             if (effect.kind === "unresolved") { terms.push(effect); continue; }
             if (effect.kind !== "effect" || effect.store !== store) continue;
+            if (absent !== undefined) {
+              const written = sourceStorageStoredValue(ast, store, undefined, effect.scope);
+              if (written !== undefined) terms.push(Object.freeze({ kind: "store", destination: leaf(receiver, scope),
+                receiver: sourceStorageReference(store.receiver, effect.scope), value: written }));
+            }
             for (const value of values) terms.push(Object.freeze({ kind: "store", destination: leaf(receiver, scope),
               receiver: sourceStorageReference(store.receiver, effect.scope), value: sourceStorageReference(value, effect.scope) }));
           }
@@ -336,11 +344,11 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }
-        if (value === undefined) continue;
+        if (value === undefined && sourceStorageStoredValue(ast, store, undefined, term.scope) === undefined) continue;
         const receiver = receiverFor(store);
         if (receiver === undefined) { budget.reject("Source storage physical members require exact initialized or mutated receivers."); return undefined; }
-        const initialized = initializationScope(store, receiver, term.receiver);
-        if (initialized !== undefined) {
+        const initialized = value === undefined ? undefined : initializationScope(store, receiver, term.receiver);
+        if (initialized !== undefined && value !== undefined) {
           terms.push(sourceStorageReference(value, initialized));
           continue;
         }
@@ -361,14 +369,16 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           if (!budget.step()) return undefined;
           if (effect.kind === "unresolved") { terms.push(effect); continue; }
           if (effect.kind !== "effect" || effect.store !== store) continue;
+          const written = sourceStorageStoredValue(ast, store, value, effect.scope);
+          if (written === undefined) continue;
           if (selection.kind === "own-construction") {
-            terms.push(sourceStorageReference(value, effect.scope));
+            terms.push(written);
             continue;
           }
           const destination: SourceStorageTerm = store.destination === "element"
             ? Object.freeze({ ...term, projection: term.projection.slice(0, store.storage.projection.length - 1) }) : term.receiver;
           terms.push(Object.freeze({ kind: "store", destination,
-            receiver: sourceStorageReference(receiver, effect.scope), value: sourceStorageReference(value, effect.scope) }));
+            receiver: sourceStorageReference(receiver, effect.scope), value: written }));
         }
       }
     }

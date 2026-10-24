@@ -12,7 +12,7 @@ import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageOperation, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageInitializedValue, sourceStorageInputBinding } from "./scoped-transport.js";
+import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
@@ -621,8 +621,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }
-        if (value === undefined) continue;
+        if (value === undefined && sourceStorageStoredValue(ast, store, undefined, term.scope) === undefined) continue;
         if (store.kind === "initialization") {
+          if (value === undefined) continue;
           const creator = creatorScope(store.storage.node, term.scope);
           terms.push(store.birth !== undefined && value === store.storage ? leaf(value, creator)
             : sourceStorageReference(value, creator));
@@ -633,13 +634,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const local = (store.destination === "binding" || store.destination === "element") && store.region === region
           ? owner === undefined || term.scope === scopes.empty ? scopes.empty : scopes.owningScope(term.scope, owner) : undefined;
         if (local !== undefined) {
+          const written = sourceStorageStoredValue(ast, store, value, local);
+          if (written === undefined) continue;
           if (store.destination === "element") {
             const container = transport.subject(term.subject.node, term.subject.kind,
               term.subject.projection.slice(0, store.storage.projection.length - 1));
             if (container === undefined || store.receiver === undefined) return undefined;
             terms.push(Object.freeze({ kind: "store", destination: sourceStorageReference(container, term.scope),
-              receiver: sourceStorageReference(store.receiver, local), value: sourceStorageReference(value, local) }));
-          } else terms.push(sourceStorageReference(value, local));
+              receiver: sourceStorageReference(store.receiver, local), value: written }));
+          } else terms.push(written);
           continue;
         }
         const effects = readEffects(store, { kind: "general" }, scopes.isDeferred(term.scope), term.scope);
@@ -647,8 +650,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           if (!budget.step()) return undefined;
           if (effect.kind === "unresolved") { terms.push(effect); continue; }
           if (effect.kind !== "effect" || effect.store !== store) continue;
+          const written = sourceStorageStoredValue(ast, store, value, effect.scope);
+          if (written === undefined) continue;
           if (store.destination === "member") {
-            terms.push(sourceStorageReference(value, effect.scope));
+            terms.push(written);
             continue;
           }
           if (store.destination === "element") {
@@ -658,13 +663,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
               budget.reject("Source storage element writes require their exact physical container."); return undefined;
             }
             terms.push(Object.freeze({ kind: "store", destination: sourceStorageReference(container, term.scope),
-              receiver: sourceStorageReference(store.receiver, effect.scope), value: sourceStorageReference(value, effect.scope) }));
+              receiver: sourceStorageReference(store.receiver, effect.scope), value: written }));
             continue;
           }
           const creator = owner === undefined ? scopes.empty : scopes.owningScope(effect.scope, owner);
           const original = creator === undefined ? undefined : birth(term.subject, creator);
           if (original !== undefined && original.key === birth(term.subject, term.scope)?.key)
-            terms.push(sourceStorageReference(value, effect.scope));
+            terms.push(written);
         }
       }
       return { kind: "replace", terms };

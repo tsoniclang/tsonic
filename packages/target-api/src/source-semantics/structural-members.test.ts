@@ -26,8 +26,8 @@ function inspect(text: string, files: Record<string, string> = {}) {
     const selected = call.sourceSelectedSignatureParameters[0]?.selectedType;
     assert.ok(actual && selected);
     argumentTypes.push(actual);
-    const result = semantics.types.structuralMembers(actual, selected);
-    assert.equal(semantics.types.structuralMembers(actual, selected), result);
+    const result = semantics.types.structuralMembers(actual, selected, "read");
+    assert.equal(semantics.types.structuralMembers(actual, selected, "read"), result);
     assert.ok(Object.isFrozen(result));
     results.push(result);
   }
@@ -69,7 +69,7 @@ test("checked primitive member correspondence retains native carriers and exact 
     `);
     const actual = argumentTypes[0]!;
     const destination = argumentTypes[1]!;
-    const relation = semantics.types.structuralMembers(actual, destination);
+    const relation = semantics.types.structuralMembers(actual, destination, "read");
     assert.equal(results.every(result => result.kind === "available") && relation.kind === "available", true, name);
     if (relation.kind !== "available") continue;
     assert.equal(relation.source.type === actual && relation.destination.type === destination, true,
@@ -79,7 +79,7 @@ test("checked primitive member correspondence retains native carriers and exact 
     assert.equal(selected?.kind === "present" && selected.source.declarations.length === 1 &&
       selected.source.declarations[0] === selected.destination.declarations[0], true,
       `${name}: exact checker declaration identity, not a name-only or invented match`);
-    assert.equal(semantics.types.structuralMembers(actual, destination) === relation && Object.isFrozen(relation.members), true,
+    assert.equal(semantics.types.structuralMembers(actual, destination, "read") === relation && Object.isFrozen(relation.members), true,
       `${name}: one immutable checked correspondence`);
   }
 });
@@ -221,9 +221,9 @@ test("missing required members, setter-only reads and changed type pairs do not 
   const required = results[0];
   const optional = results[1];
   assert.ok(required?.kind === "available" && optional?.kind === "available");
-  const changed = semantics.types.structuralMembers(optional.source.type, required.destination.type);
+  const changed = semantics.types.structuralMembers(optional.source.type, required.destination.type, "read");
   assert.deepEqual(changed, { kind: "unavailable", reason: "missing-required-member" });
-  assert.equal(semantics.types.structuralMembers(required.source.type, required.destination.type), required);
+  assert.equal(semantics.types.structuralMembers(required.source.type, required.destination.type, "read"), required);
   assert.deepEqual(results[2], { kind: "unavailable", reason: "unreadable-member" });
 });
 
@@ -262,9 +262,9 @@ test("disjoint required literal members prove impossible record alternatives wit
     const selected = results[1];
     assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
     if (actual?.kind !== "available" || selected?.kind !== "available") continue;
-    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type, "read"),
       { kind: "unavailable", reason: "disjoint-shape" }, name);
-    assert.deepEqual(semantics.types.structuralMembers(selected.source.type, actual.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(selected.source.type, actual.source.type, "read"),
       { kind: "unavailable", reason: "disjoint-shape" }, `${name} reverse`);
   }
 });
@@ -285,7 +285,7 @@ test("optional, widened and equal discriminants never hide missing required memb
     const selected = results[1];
     assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
     if (actual?.kind !== "available" || selected?.kind !== "available") continue;
-    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type, "read"),
       { kind: "unavailable", reason: "missing-required-member" }, name);
   }
 });
@@ -301,7 +301,7 @@ test("native absence is disjoint only from a proven present record, not an unres
       const from = argumentTypes[0]!;
       const to = argumentTypes[1]!;
       for (const [source, destination] of [[from, to], [to, from]]) {
-        assert.deepEqual(semantics.types.structuralMembers(source!, destination!),
+        assert.deepEqual(semantics.types.structuralMembers(source!, destination!, "read"),
           { kind: "unavailable", reason: "disjoint-shape" }, `${absent} / ${present}`);
       }
     }
@@ -311,7 +311,7 @@ test("native absence is disjoint only from a proven present record, not an unres
         declare const absent: ${absent}; declare const unresolved: ${unresolved};
         observe(absent); observe(unresolved);
       `);
-      assert.deepEqual(semantics.types.structuralMembers(argumentTypes[0]!, argumentTypes[1]!),
+      assert.deepEqual(semantics.types.structuralMembers(argumentTypes[0]!, argumentTypes[1]!, "read"),
         { kind: "unavailable", reason: "unresolved-shape" }, `${absent} / ${unresolved}`);
     }
   }
@@ -328,20 +328,20 @@ test("selected physical members do not certify unrelated required fields or conv
   assert.ok(actual && physical);
   const fromBase = memberDeclaration(current, physical, "fromBase");
   const fromBody = memberDeclaration(current, physical, "fromBody");
-  const whole = current.semantics.types.structuralMembers(actual, physical);
+  const whole = current.semantics.types.structuralMembers(actual, physical, "read");
   assert.equal(whole.kind === "unavailable" && whole.reason === "missing-required-member", true,
     "the Holder-facing type cannot prove the whole physical Base shape");
-  const selected = current.semantics.types.structuralMember(actual, physical, fromBase);
+  const selected = current.semantics.types.structuralMember(actual, physical, fromBase, "read");
   assert.equal(selected?.kind === "present" && selected.source.property.readonly &&
     current.semantics.types.isNumberLike(selected.source.property.type), true,
     "the independently selected physical member retains its exact native type and permissions");
   assert.equal(selected?.kind === "present" && selected.source.declarations[0] === memberDeclaration(current, actual, "fromBase"), true,
     "the correspondence retains actual checked declarations");
-  const absent = current.semantics.types.structuralMember(actual, physical, fromBody);
+  const absent = current.semantics.types.structuralMember(actual, physical, fromBody, "read");
   assert.equal(absent?.kind === "absent" && !absent.destination.property.optional, true,
     "absence of a checked member is metadata, never an available required source value");
-  assert.equal(current.semantics.types.structuralMembers(actual, physical) === whole &&
-    current.semantics.types.structuralMember(actual, physical, fromBase) === selected, true,
+  assert.equal(current.semantics.types.structuralMembers(actual, physical, "read") === whole &&
+    current.semantics.types.structuralMember(actual, physical, fromBase, "read") === selected, true,
     "full and partial reads reuse one immutable type-pair index");
   const foreign = inspect(`
     declare function observe<T>(value: T): void;
@@ -350,7 +350,7 @@ test("selected physical members do not certify unrelated required fields or conv
   const foreignType = foreign.argumentTypes[0];
   assert.ok(foreignType);
   assert.equal(current.semantics.types.structuralMember(actual, physical,
-    memberDeclaration(foreign, foreignType, "fromBase")) === undefined, true,
+    memberDeclaration(foreign, foreignType, "fromBase"), "read") === undefined, true,
     "a same-named foreign declaration is not the selected checked member");
 });
 
@@ -365,13 +365,13 @@ test("selected union members retain instantiated payloads without asserting comp
   const [actual, selected] = current.argumentTypes;
   assert.ok(actual && selected);
   const declaration = memberDeclaration(current, selected, "value");
-  const member = current.semantics.types.structuralMember(actual, selected, declaration);
+  const member = current.semantics.types.structuralMember(actual, selected, declaration, "read");
   assert.equal(member?.kind === "present" && member.source.property.readonly && member.destination.property.readonly, true,
     "every constituent has the selected checked Box member");
   assert.equal(member?.kind === "present" && current.semantics.types.isUnion(member.source.property.type) &&
     current.semantics.types.unionOrIntersectionTypes(member.source.property.type).length === 2, true,
     "generic alternatives retain both exact payload types");
-  const whole = current.semantics.types.structuralMembers(actual, selected);
+  const whole = current.semantics.types.structuralMembers(actual, selected, "read");
   assert.equal(whole.kind === "unavailable" && whole.reason === "unresolved-shape", true,
     "a selected common member does not prove the whole union");
 });
@@ -390,13 +390,59 @@ test("selected-member queries distinguish optional absence, partial union member
   assert.ok(empty && optional && required && partial && setter);
   const optionalDeclaration = memberDeclaration(current, optional, "value");
   const requiredDeclaration = memberDeclaration(current, required, "value");
-  const absent = current.semantics.types.structuralMember(empty, optional, optionalDeclaration);
+  const absent = current.semantics.types.structuralMember(empty, optional, optionalDeclaration, "read");
   assert.equal(absent?.kind === "absent" && absent.destination.property.optional, true,
     "only a genuinely missing optional member supplies optional-absence evidence");
-  assert.equal(current.semantics.types.structuralMember(partial, required, requiredDeclaration) === undefined, true,
+  assert.equal(current.semantics.types.structuralMember(partial, required, requiredDeclaration, "read") === undefined, true,
     "a missing common union member is not proof that every constituent lacks it");
-  assert.equal(current.semantics.types.structuralMember(setter, required, requiredDeclaration) === undefined, true,
+  assert.equal(current.semantics.types.structuralMember(setter, required, requiredDeclaration, "read") === undefined, true,
     "setter-only metadata is never readable physical storage");
+});
+
+test("setter correspondence retains one exact pair across alternating read and metadata questions", () => {
+  for (const readFirst of [false, true]) {
+    const current = inspect(`
+      declare function observe<T>(value: T): void;
+      class Base<T> { set value(next: T) {} }
+      class Derived extends Base<number> {}
+      declare const actual: Derived;
+      declare const destination: { value: number };
+      observe(actual); observe(destination);
+    `);
+    const [actual, destination] = current.argumentTypes;
+    assert.ok(actual && destination);
+    const declaration = memberDeclaration(current, destination, "value");
+    const { types } = current.semantics;
+    if (readFirst) {
+      assert.equal(types.structuralMember(actual, destination, declaration, "read") === undefined, true,
+        "a first read refusal does not remove the checked setter");
+    }
+    const correspondence = types.structuralMembers(actual, destination, "correspondence");
+    const pair = types.structuralMember(actual, destination, declaration, "correspondence");
+    assert.equal(correspondence.kind === "available" && correspondence.members.length === 1 &&
+      correspondence.members[0] === pair, true, "whole and selected geometry share the exact pair");
+    assert.equal(pair?.kind === "present" && pair.source.read === "unavailable" && pair.source.getters.length === 0 &&
+      pair.source.setters.length === 1 && pair.source.declarations[0] === pair.source.setters[0] &&
+      types.isNumberLike(pair.source.property.type), true, "inherited generic setter metadata is never a readable value");
+    const read = types.structuralMembers(actual, destination, "read");
+    assert.deepEqual(read, { kind: "unavailable", reason: "unreadable-member" });
+    for (let index = 0; index < 4; index += 1) {
+      assert.equal(types.structuralMember(actual, destination, declaration, "read") === undefined, true,
+        "every actual setter-only read remains refused");
+      assert.equal(types.structuralMembers(actual, destination, "read") === read &&
+        types.structuralMembers(actual, destination, "correspondence") === correspondence &&
+        types.structuralMember(actual, destination, declaration, "correspondence") === pair, true,
+      "neither purpose creates a second pair or poisons the other question");
+    }
+    assert.equal(Object.isFrozen(correspondence) && Object.isFrozen(pair), true,
+      "both views retain immutable checked evidence");
+    for (const purpose of [undefined, null, "write"]) {
+      assert.throws(() => Reflect.apply(types.structuralMembers, types, [actual, destination, purpose]),
+        { name: "TypeError", message: "Source structural member queries require an explicit correspondence or read purpose." });
+      assert.throws(() => Reflect.apply(types.structuralMember, types, [actual, destination, declaration, purpose]),
+        { name: "TypeError", message: "Source structural member queries require an explicit correspondence or read purpose." });
+    }
+  }
 });
 
 test("selected members preserve inherited generic accessor evidence and exact literal incompatibility", () => {
@@ -414,7 +460,7 @@ test("selected members preserve inherited generic accessor evidence and exact li
   `);
   const [actual, selected] = current.argumentTypes;
   assert.ok(actual && selected);
-  const member = current.semantics.types.structuralMember(actual, selected, memberDeclaration(current, selected, "value"));
+  const member = current.semantics.types.structuralMember(actual, selected, memberDeclaration(current, selected, "value"), "read");
   assert.equal(member?.kind === "present" && member.source.read === "accessor" &&
     member.source.getters.length === 1 && member.source.setters.length === 1 &&
     current.semantics.types.isNumberLike(member.source.property.type), true,
@@ -428,9 +474,9 @@ test("selected members preserve inherited generic accessor evidence and exact li
     `);
     const [from, to] = literal.argumentTypes;
     assert.ok(from && to);
-    assert.equal(literal.semantics.types.structuralMember(from, to, memberDeclaration(literal, to, "kind")) === undefined,
+    assert.equal(literal.semantics.types.structuralMember(from, to, memberDeclaration(literal, to, "kind"), "read") === undefined,
       true, `${left}/${right}: incompatible exact native literals never acquire a selected correspondence`);
-    assert.equal(literal.semantics.types.structuralMember(from, to, memberDeclaration(literal, to, "value")) === undefined,
+    assert.equal(literal.semantics.types.structuralMember(from, to, memberDeclaration(literal, to, "value"), "read") === undefined,
       true, `${left}/${right}: an impossible whole alternative never contributes an otherwise common member`);
   }
 });
@@ -449,26 +495,26 @@ test("selected-member admission refuses unresolved roots and malformed or ambigu
   const properties = queries.typeShape.getPropertyInfos(actual);
   const duplicated = createSourceStructuralMemberQueries(queries.ast, queries.checker, { ...queries.typeShape,
     getPropertyInfos: type => type === actual ? [...properties, ...properties] : queries.typeShape.getPropertyInfos(type) });
-  assert.equal(duplicated.structuralMember(actual, selected, declaration) === undefined, true,
+  assert.equal(duplicated.structuralMember(actual, selected, declaration, "read") === undefined, true,
     "duplicate source symbols cannot publish partial evidence");
   const sourceSymbols = new Set(properties.flatMap(property => [property.symbol, ...property.rootSymbols]));
   const missing = createSourceStructuralMemberQueries(queries.ast, { ...queries.checker,
     getSymbolDeclarations: symbol => symbol !== undefined && sourceSymbols.has(symbol)
       ? [] : queries.checker.getSymbolDeclarations(symbol),
   }, queries.typeShape);
-  assert.equal(missing.structuralMember(actual, selected, declaration) === undefined, true,
+  assert.equal(missing.structuralMember(actual, selected, declaration, "read") === undefined, true,
     "a physical member requires its actual checked source declarations, not an invented empty value");
   const destinationSymbols = new Set(queries.typeShape.getPropertyInfos(selected).map(property => property.symbol));
   const ambiguous = createSourceStructuralMemberQueries(queries.ast, { ...queries.checker,
     getSymbolDeclarations: symbol => symbol !== undefined && destinationSymbols.has(symbol)
       ? [declaration] : queries.checker.getSymbolDeclarations(symbol),
   }, queries.typeShape);
-  assert.equal(ambiguous.structuralMember(actual, selected, declaration) === undefined, true,
+  assert.equal(ambiguous.structuralMember(actual, selected, declaration, "read") === undefined, true,
     "one declaration selecting two properties is ambiguous, not a name-based choice");
   const foreign = createSourceStructuralMemberQueries(queries.ast, { ...queries.checker,
     getPropertyOfType: type => type === actual ? queries.typeShape.getPropertyInfos(selected)[0]?.symbol : undefined,
   }, queries.typeShape);
-  assert.equal(foreign.structuralMember(actual, selected, declaration) === undefined, true,
+  assert.equal(foreign.structuralMember(actual, selected, declaration, "read") === undefined, true,
     "a checked lookup must select an actual property symbol of the source type");
   for (const root of ["any", "unknown", "never", "void", "null", "undefined", "{ value: number } | null"]) {
     const unresolved = inspect(`
@@ -478,7 +524,7 @@ test("selected-member admission refuses unresolved roots and malformed or ambigu
     `);
     const [from, to] = unresolved.argumentTypes;
     assert.ok(from && to);
-    assert.equal(unresolved.semantics.types.structuralMember(from, to, memberDeclaration(unresolved, to, "value")) === undefined,
+    assert.equal(unresolved.semantics.types.structuralMember(from, to, memberDeclaration(unresolved, to, "value"), "read") === undefined,
       true, `${root}: missing root evidence never proves a selected member or its absence`);
   }
 });
