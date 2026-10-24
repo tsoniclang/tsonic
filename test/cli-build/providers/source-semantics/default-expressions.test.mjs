@@ -131,7 +131,7 @@ test("CLI rejects defaultvalue without explicit source type evidence before C# o
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /tsonic\.source-core:TS9901106/);
+  assert.match(build.stderr, /tsonic\.source-core:TSONIC_SOURCE_CORE_9901106/);
   assert.match(build.stderr, /index\.ts:4:10/);
   assert.match(build.stderr, /defaultvalue<T>\(\) requires explicit type evidence/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -197,7 +197,7 @@ test("CLI rejects byref source markers without finalized storage facts", async (
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.equal(
-    (build.stderr.match(/tsts\.source-semantics:TS9901101/g) ?? []).length,
+    (build.stderr.match(/tsts\.source-semantics:TSTS_SOURCE_SEMANTICS_0001/g) ?? []).length,
     3,
   );
   assert.match(build.stderr, /requires a storage expression/);
