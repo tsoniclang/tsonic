@@ -65,6 +65,8 @@ export function createSourceStorageTransport(
   const unresolvedThrows = new Map<Node, string>();
   const unresolvedSubjects = new Map<SourceStorageSubject, string>();
   const visitedNodes: Node[] = [];
+  const callableDeclarations: Node[] = [];
+  const callableDeclarationRows = budget.createRows();
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
@@ -267,7 +269,8 @@ export function createSourceStorageTransport(
   };
   const visit = createSourceStorageSyntaxCollection({ source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects,
     invocationTargets, invocationArguments, invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations,
-    memberImplementations, visitedNodes, subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
+    memberImplementations, visitedNodes, callableDeclarations, callableDeclarationRows,
+    subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow });
   const pendingNodes: Node[] = [];
   const visited = new Set<Node>();
@@ -710,12 +713,14 @@ export function createSourceStorageTransport(
   regions.seal();
   graphQueries.seal();
   const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, graphQueries, {
-    nodes: visitedNodes, invocations: { *[Symbol.iterator]() { yield* invocations; yield* accessorTargets.keys(); } },
+    declarations: callableDeclarations, invocations: { *[Symbol.iterator]() { yield* invocations; yield* accessorTargets.keys(); } },
     invocationInputs, subject, subjectFor,
     inputsFor: current => invocations.has(current.node) || accessorTargets.has(current.node)
       ? contextualInputs.applicationFor(current)?.ports : contextualInputs(current),
     implementationsFor: invocationImplementationSelection, unresolvedFor: invocation => unresolvedInvocations.get(invocation),
   });
+  callableDeclarationRows.release();
+  callableDeclarations.length = 0;
   storedValues.publish(formalMemberWrites.recordWrite);
   formalMemberWrites.publish();
   sealed = true;

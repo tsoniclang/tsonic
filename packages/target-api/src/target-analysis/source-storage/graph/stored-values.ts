@@ -34,7 +34,7 @@ export function createSourceStorageFormalMemberWrites(
   budget: SourceStorageBudget,
   graph: ReturnType<typeof createSourceStorageGraphQueries>,
   queries: {
-    readonly nodes: readonly Node[];
+    readonly declarations: readonly Node[];
     readonly invocations: Iterable<Node>;
     readonly invocationInputs: SourceStorageInvocationInputQuery;
     readonly subject: SourceStorageSubjectQuery;
@@ -71,12 +71,8 @@ export function createSourceStorageFormalMemberWrites(
     selected.set(formal, reason);
     forwards.set(input, selected);
   };
-  for (const declaration of queries.nodes) {
+  for (const declaration of queries.declarations) {
     if (!budget.step()) break;
-    if (ast.body(declaration) === undefined || !ast.is.IsFunctionDeclaration(declaration) &&
-      !ast.is.IsFunctionExpression(declaration) && !ast.is.IsArrowFunction(declaration) &&
-      !ast.is.IsMethodDeclaration(declaration) && !ast.is.IsConstructorDeclaration(declaration) &&
-      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) continue;
     const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
     if (parameters === undefined || !rows.add(1)) continue;
     const selected: SourceStorageSubject[] = [];
