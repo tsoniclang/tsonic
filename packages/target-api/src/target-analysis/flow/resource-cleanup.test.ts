@@ -70,7 +70,7 @@ test("cleanup keeps implicit resource reads live and disposes in reverse acquisi
   assert.equal(normalSecond !== undefined, true, "normal completion enters second cleanup");
   assert.equal(first.some(point => reachable(current.graph, normalSecond.id, point.id)), true, "second cleanup precedes first cleanup");
   assert.equal(second.some(point => first.some(previous => reachable(current.graph, previous.id, point.id))), false, "first cleanup never precedes second cleanup");
-  const liveness = analyzeSourceLiveness(current.graph);
+  const liveness = analyzeSourceLiveness(current.graph, new Map());
   assert.equal(liveness.kind, "resolved", "resource liveness resolves");
   if (liveness.kind !== "resolved") throw new Error("Expected resource liveness.");
   const observed = current.points(point => point.operation.kind === "read" && point.source !== undefined &&
