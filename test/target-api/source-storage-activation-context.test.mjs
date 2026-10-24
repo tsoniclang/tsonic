@@ -80,8 +80,9 @@ test("selected invocation inputs publish one current call and construction mappi
   for (const [ownerKind, kind, count] of [["set", "setter", 1], ["get", "getter", 0]]) {
     const owner = nodes.find(node => ownerKind === "set" ? ast.is.IsSetAccessorDeclaration(node) : ast.is.IsGetAccessorDeclaration(node));
     const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsPropertyAccessExpression(node).Expression) &&
       ast.text(ast.as.AsPropertyAccessExpression(node).Expression) === "box" &&
-      ast.text(ast.as.AsPropertyAccessExpression(node).Name) === "value" &&
+      ast.text(ast.name(node)) === "value" &&
       (ownerKind === "set" ? ast.is.IsBinaryExpression(ast.parent(node)) : ast.is.IsReturnStatement(ast.parent(node))));
     const selected = resolved(storage.invocationImplementationsFor(access));
     const input = selected.inputs.find(input => input.kind === kind);
