@@ -229,7 +229,7 @@ test("CLI rejects class field markers without finalized field facts", async () =
   assert.equal(build.status, 1);
   assert.equal(
     build.stderr,
-    "ERROR tsonic.source-core:TS9901102 index.ts:4:9: field<T>() requires explicit field type evidence.\n",
+    "ERROR tsonic.source-core:TSONIC_SOURCE_CORE_9901102 index.ts:4:9: field<T>() requires explicit field type evidence.\n",
   );
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -255,7 +255,7 @@ test("CLI rejects value-type members without finalized field facts", async () =>
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /tsonic\.source-core:TS9901109/);
+  assert.match(build.stderr, /tsonic\.source-core:TSONIC_SOURCE_CORE_9901109/);
   assert.match(build.stderr, /struct\(\.\.\.\) field shape members require finalized field<T>\(\) facts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });

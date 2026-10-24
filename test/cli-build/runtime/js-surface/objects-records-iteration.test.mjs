@@ -216,13 +216,13 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS9101002 index\.ts:2:10: Object\.create requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:2:10: Object\.create requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
   assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.create\.member/);
-  assert.match(build.stderr, /TS9101002 index\.ts:6:10: Object\.defineProperty requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:6:10: Object\.defineProperty requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
   assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.defineProperty\.member/);
-  assert.match(build.stderr, /TS9101002 index\.ts:10:10: Object\.setPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:10:10: Object\.setPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
   assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.setPrototypeOf\.member/);
-  assert.match(build.stderr, /TS9101002 index\.ts:14:10: Object\.getPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:14:10: Object\.getPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
   assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.getPrototypeOf\.member/);
   assert.match(build.stderr, /No target fallback, name recovery, or dynamic invocation is permitted/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);

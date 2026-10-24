@@ -377,15 +377,15 @@ test("CLI hard-rejects dynamic eval, Function, and Proxy APIs", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS9101002 index\.ts:2:10: eval requires runtime source evaluation with lexical-scope access, which has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:2:10: eval requires runtime source evaluation with lexical-scope access, which has no closed C# source-to-source representation/);
   assert.match(build.stderr, /Selected source identity: js\.Global\.eval\.call/);
-  assert.match(build.stderr, /TS9101002 index\.ts:6:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:6:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
   assert.match(build.stderr, /Selected source identity: js\.FunctionConstructor\.call/);
-  assert.match(build.stderr, /TS9101002 index\.ts:10:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:10:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
   assert.match(build.stderr, /Selected source identity: js\.FunctionConstructor\.construct/);
-  assert.match(build.stderr, /TS9101002 index\.ts:14:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:14:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
   assert.match(build.stderr, /Selected source identity: js\.ProxyConstructor\.construct/);
-  assert.match(build.stderr, /TS9101002 index\.ts:18:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
+  assert.match(build.stderr, /CSHARP_JS_SOURCE_PROFILE_OPERATION_UNSUPPORTED index\.ts:18:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
   assert.match(build.stderr, /Selected source identity: js\.ProxyConstructor\.revocable\.member/);
   assert.match(build.stderr, /No target fallback, name recovery, or dynamic invocation is permitted/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicCodeProxyRejections.csproj")), false);
