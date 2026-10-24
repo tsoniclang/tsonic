@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 
 function fixture(body, extraFiles = {}, domain = "complete") {
@@ -483,4 +483,78 @@ for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }])
     const selected = current.query("replace");
     assert.equal(selected.kind, "unresolved", "present-type normalization never turns finite failure into completed empty proof");
     assert.match(selected.reason, /budget/u);
+  });
+
+for (const [label, body, access] of [
+  ["named optional property", "const values: { entry?: number } = { entry: 1 }; delete values.entry;", "values.entry"],
+  ["string property key", "const values: { entry?: number } = { entry: 1 }; delete values['entry'];", "values['entry']"],
+  ["constant property key", "const key = 'entry'; const values: { entry?: number } = { entry: 1 }; delete values[key];", "values[key]"],
+  ["numeric array element", "const values = [1, 2]; delete values[0];", "values[0]"],
+  ["string array element", "const values = [1, 2]; delete values['0'];", "values['0']"],
+  ["dictionary element", "const values: { [key: string]: number } = { entry: 1 }; delete values['entry'];", "values['entry']"],
+  ["transparent property operand", "const values: { entry?: number } = { entry: 1 }; delete ((values.entry));", "values.entry"],
+  ["transparent element operand", "const values = [1, 2]; delete ((values[0]));", "values[0]"],
+  ["nullish optional storage", "const values: { entry?: number | null } = { entry: null }; delete values.entry;", "values.entry"],
+  ["optional callable slot", "const values: { read?: () => number } = { read() { return 1; } }; delete values.read;", "values.read"],
+]) test(`canonical deletion retains a valueless mutation for ${label}`, () => {
+  const current = formalFixture(body);
+  const { ast } = current.source;
+  const reference = current.nodes.find(node => (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) &&
+    ast.text(node) === access);
+  const operation = current.nodes.find(ast.is.IsDeleteExpression);
+  assert.equal(reference !== undefined && operation !== undefined, true, `${label}: original checked access and operation`);
+  const classified = sourceBindingWriteAtReference(ast, reference);
+  assert.equal(classified?.kind, "deletion", `${label}: canonical source-write kind`);
+  assert.equal(classified.reference === reference && classified.operation === operation, true, `${label}: exact original identities`);
+  assert.equal(classified.values.length, 0, `${label}: deletion has no stored RHS`);
+  assert.equal(Object.isFrozen(classified) && Object.isFrozen(classified.values), true, `${label}: immutable source evidence`);
+  assert.equal(sourceBindingWriteAtReference(ast, operation), undefined, `${label}: the Boolean result is not a stored value`);
+  const selected = current.storage.writeAt(reference, current.storage.emptyBindings);
+  assert.equal(selected.kind, "resolved", `${label}: actual mutation occurrence (${selected.reason ?? ""})`);
+  assert.equal(selected.write.reference === reference && selected.write.operation === operation, true, `${label}: published original identities`);
+  assert.equal(selected.write.kind, "mutation", `${label}: deleting is not initialization`);
+  assert.equal(selected.write.value, undefined, `${label}: no invented Boolean or absence producer`);
+  assert.equal(selected.write.values.length, 0, `${label}: no manufactured null/undefined tag or value edge`);
+  assert.equal(selected.write.reason, undefined, `${label}: no missing-RHS refusal on a genuine valueless operation`);
+  assert.equal(selected.write.receiver !== undefined && selected.write.destinations.length > 0, true,
+    `${label}: the actual receiver and writable destination survive`);
+  assert.equal(current.storage.failureReason(), undefined, `${label}: all actual source relations stay finite`);
+});
+
+for (const [label, body, access, kind] of [
+  ["assignment", "const values = { entry: 1 }; values.entry = 2;", "values.entry", "assignment"],
+  ["compound assignment", "const values = { entry: 1 }; values.entry += 2;", "values.entry", "assignment"],
+  ["prefix update", "const values = { entry: 1 }; ++values.entry;", "values.entry", "update"],
+  ["postfix update", "const values = [1]; values[0]++;", "values[0]", "update"],
+]) test(`valueless deletion never erases the original producer of ${label}`, () => {
+  const current = formalFixture(body);
+  const { ast } = current.source;
+  const reference = current.nodes.find(node => (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) &&
+    ast.text(node) === access);
+  assert.equal(reference !== undefined, true, `${label}: original checked access`);
+  const classified = sourceBindingWriteAtReference(ast, reference);
+  assert.equal(classified?.kind, kind, `${label}: unchanged source-write classification`);
+  assert.equal(classified.reference === reference && classified.values.length === 1, true, `${label}: exact nonempty value producer`);
+  const selected = current.storage.writeAt(reference, current.storage.emptyBindings);
+  assert.equal(selected.kind, "resolved", `${label}: original occurrence remains selected`);
+  assert.equal(selected.write.reason, undefined, `${label}: original producer remains proved`);
+  assert.equal(selected.write.values.length, 1, `${label}: ordinary writes never become deletions`);
+});
+
+test("a read operand beside a deletion is not itself a mutation", () => {
+  const current = formalFixture("const values: { entry?: number } = { entry: 1 }; const observed = values.entry; delete values.entry;");
+  const { ast } = current.source;
+  const read = current.nodes.find(node => ast.is.IsPropertyAccessExpression(node) && ast.is.IsVariableDeclaration(ast.parent(node)));
+  assert.equal(read !== undefined, true, "the checked initializer contains the independent read operand");
+  assert.equal(sourceBindingWriteAtReference(ast, read), undefined, "only the exact delete operand is a deletion");
+});
+
+for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }])
+  test(`valueless deletion preserves finite refusal ${Object.keys(limits)[0]}`, () => {
+    const current = formalFixture("const values: { entry?: number } = { entry: 1 }; delete values.entry;", {}, limits);
+    const reference = current.nodes.find(current.source.ast.is.IsPropertyAccessExpression);
+    const selected = current.storage.writeAt(reference, current.storage.emptyBindings);
+    assert.equal(selected.kind, "unresolved", "finite failure is never published as a completed empty write");
+    assert.equal(typeof selected.reason === "string" && selected.reason.length > 0, true, "the real finite failure reason is retained");
+    assert.equal(typeof current.storage.failureReason() === "string", true, "the original rejected budget remains authoritative");
   });
