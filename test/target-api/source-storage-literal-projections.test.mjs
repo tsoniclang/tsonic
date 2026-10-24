@@ -24,6 +24,20 @@ function fixture(body) {
   return { source, file, storage, variable, initializer, subject };
 }
 
+function invocationEvidence(current, spread) {
+  const { ast, semantics } = current.source;
+  const call = ast.parent(spread);
+  if (call === undefined) return { kind: "missing-call" };
+  const checked = semantics.forNode(call).operations.call(call);
+  const selected = current.storage.invocationImplementationsFor(call);
+  return { kind: selected.kind, reason: selected.reason, exact: selected.exact,
+    implementations: selected.kind === "resolved" ? selected.nodes.map(node => ({ kind: ast.kindName(node),
+      name: ast.text(ast.name(node)), body: ast.body(node) !== undefined })) : [],
+    arguments: checked?.sourceArgumentBindings.map(binding => ({ form: binding.sourceForm,
+      effectiveIndex: binding.effectiveArgumentIndex, sourceIndex: binding.sourceArgumentIndex,
+      parameterIndex: binding.sourceParameterIndex, parameterForm: binding.sourceParameterForm })) };
+}
+
 test("checked tuple and array spread storage retains the original complete producer type", async context => {
   const current = fixture(`function pair(): [number, number] { return [2, 3]; }
     function total(...values: number[]): number { return values[0]; }
@@ -87,10 +101,49 @@ test("source spread arguments transport their actual backing element producers",
   const projected = current.storage.storageSubjectFor(spread, [{ kind: "array-element" }]);
   assert.equal(projected.kind === "resolved", true, `backing projection: ${projected.reason ?? ""}`);
   const selected = current.storage.closedOriginsFor(projected.subject);
-  assert.equal(selected.kind === "complete", true, `backing producers: ${selected.reason ?? ""}`);
+  const boundaries = selected.kind === "open" ? selected.boundaries.map(boundary => ({ kind: boundary.kind,
+    subject: boundary.subject.kind, node: ast.kindName(boundary.subject.node),
+    exposure: ast.kindName(boundary.exposure), projection: boundary.subject.projection.map(component => component.kind),
+  })) : [];
+  assert.equal(selected.kind === "complete", true,
+    `backing producers: ${selected.reason ?? ""}; ${JSON.stringify({ boundaries, invocation: invocationEvidence(current, spread) })}`);
   for (const name of ["first", "second"]) assert.equal(
     selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, name);
   assert.equal(selected.origins.length, 2, "spread syntax is not an extra allocation or element producer");
+});
+
+test("checked tuple spread arguments retain the same exact backing producers", () => {
+  const current = fixture(`const first = {}; const second = {}; const values: [{}, {}] = [first, second];
+    function take(...items: {}[]): void {} take(...values);`);
+  const { ast } = current.source;
+  const spread = requiredNode(ast, current.file, node => ast.is.IsSpreadElement(node));
+  for (const [index, name] of [[0, "first"], [1, "second"]]) {
+    const projected = current.storage.storageSubjectFor(spread, [{ kind: "tuple-element", index }]);
+    assert.equal(projected.kind === "resolved", true, `tuple backing projection${index}: ${projected.reason ?? ""}`);
+    const selected = current.storage.closedOriginsFor(projected.subject);
+    const boundaries = selected.kind === "open" ? selected.boundaries.map(boundary => ({ kind: boundary.kind,
+      subject: boundary.subject.kind, node: ast.kindName(boundary.subject.node), exposure: ast.kindName(boundary.exposure),
+    })) : [];
+    assert.equal(selected.kind === "complete", true,
+      `tuple backing producers${index}: ${selected.reason ?? ""}; ${JSON.stringify({ boundaries, invocation: invocationEvidence(current, spread) })}`);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer(name), true,
+      `tuple position${index} retains only its exact original actual producer`);
+  }
+});
+
+test("opaque spread consumers keep their actual object elements open", () => {
+  const current = fixture(`const first = {}; const second = {}; const values = [first, second];
+    declare function take(...items: {}[]): void; take(...values);`);
+  const { ast } = current.source;
+  const spread = requiredNode(ast, current.file, node => ast.is.IsSpreadElement(node));
+  const projected = current.storage.storageSubjectFor(spread, [{ kind: "array-element" }]);
+  assert.equal(projected.kind === "resolved", true, `opaque backing projection: ${projected.reason ?? ""}`);
+  const selected = current.storage.closedOriginsFor(projected.subject);
+  assert.equal(selected.kind === "open", true, "an opaque consumer is not a source nonmutation proof");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+    "the actual opaque call keeps its write boundary rather than an invented empty source domain");
+  for (const name of ["first", "second"]) assert.equal(
+    selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, name);
 });
 
 test("all-array union projections retain the exact checked union of element types", async context => {
