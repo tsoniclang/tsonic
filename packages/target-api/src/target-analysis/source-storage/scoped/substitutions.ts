@@ -377,11 +377,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       guards: SourceStorageValueGuards | undefined): boolean | undefined => {
       let stopped = false;
       const retain = (scope: SourceStorageScope, input: SourceStorageSubject, mode: number): boolean => {
-        const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
         if (!budget.step()) return false;
+        const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
+        const previous = retained.get(input) ?? 0;
+        const required = collect && (mode & 2) !== 0 ? 2 | (mode & 16) : 1;
+        if (stopAt === undefined && guards === undefined && (previous & required) === required) return true;
         if (!retained.has(input) && !temporary.add(1)) return false;
         const contributes = collect && (mode & 2) !== 0 && admitted(input, guards);
-        let selected = (retained.get(input) ?? 0) | (contributes ? 2 : 1);
+        let selected = previous | (contributes ? 2 : 1);
         if (contributes && (mode & 16) !== 0) selected |= 16;
         if (contributes && stopAt !== undefined) {
           if ((selected & 4) === 0) selected |= 4 | (stopAt({ subject: input, bindings: scope }) ? 8 : 0);

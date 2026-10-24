@@ -192,15 +192,15 @@ export function createSourceErrorStorageDemandQuery(
       storageFor(subject).kind === "writable");
   };
   const storageOriginsFor: SourceErrorStorageDemandQueries["storageOriginsFor"] = subject => {
-    const demand = storageFor(subject);
-    if (demand.kind === "unresolved") return demand;
+    const failure = failureReason();
+    if (failure !== undefined) return Object.freeze({ kind: "unresolved", reason: failure });
     const origins = storage.originsFor(subject);
     return origins.kind === "unresolved" ? origins : Object.freeze({ kind: "resolved", origins: Object.freeze(origins.origins
       .map(origin => Object.freeze({ node: origin.subject.node, type: origin.type }))) });
   };
   const closedStorageOriginsFor: SourceErrorStorageDemandQueries["closedStorageOriginsFor"] = subject => {
-    const demand = storageFor(subject);
-    if (demand.kind === "unresolved") return demand;
+    const failure = failureReason();
+    if (failure !== undefined) return Object.freeze({ kind: "unresolved", reason: failure });
     return storage.closedOriginsFor(subject);
   };
   const invalidationFor = createSourceErrorInvalidationQuery(source, storage, storageFor, nativeSubjects, capturedStackTargets,
