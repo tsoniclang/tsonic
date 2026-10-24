@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
-import { sourceStorageHasOriginalCallableValue } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageEquation, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -67,6 +67,9 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
     }
     const callers = recursion.incomingFor(owner);
     if (callers === undefined) return undefined;
+    let supplierTarget: SourceStorageSubject | undefined;
+    let supplierScope: SourceStorageScope | undefined;
+    let supplierValues: ReadonlySet<SourceStorageTerm> | undefined;
     for (const site of callers) {
       if (!budget.step()) return undefined;
       const caller = site.caller;
@@ -74,22 +77,28 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       const previous = scopes.variable(equation, caller);
       const target = site.callback?.argument.actual ?? transport.invocationTargets.get(site.invocation);
       if (previous === undefined || target === undefined) return undefined;
-      if (site.callback !== undefined) {
-        const host = transport.invocationTargets.get(site.invocation);
-        const suppliers = host === undefined ? undefined : read(sourceStorageReference(host, previous));
-        if (suppliers === undefined) return undefined;
-        if (suppliers.size === 0) continue;
-        let sourceOnly = true;
-        for (const supplier of suppliers) {
+      if (site.callback !== undefined || transport.bindingInputFor(target) !== undefined) {
+        const host = site.callback === undefined ? target : transport.invocationTargets.get(site.invocation);
+        if (host === undefined) return undefined;
+        if (host !== supplierTarget || previous !== supplierScope) {
+          supplierTarget = host;
+          supplierScope = previous;
+          supplierValues = read(sourceStorageReference(host, previous));
+        }
+        if (supplierValues === undefined) return undefined;
+        if (site.callback !== undefined && supplierValues.size === 0) continue;
+        let excluded = supplierValues.size !== 0;
+        for (const supplier of supplierValues) {
           if (!budget.step()) return undefined;
           const selected = supplier.kind === "leaf" && sourceStorageHasOriginalCallableValue(supplier.subject, source.ast)
             ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
-          if (selected?.kind !== "resolved" || source.ast.body(selected.implementation.declaration) === undefined) {
-            sourceOnly = false;
+          if (selected?.kind !== "resolved" || (site.callback === undefined
+            ? selected.implementation.declaration === owner : source.ast.body(selected.implementation.declaration) === undefined)) {
+            excluded = false;
             break;
           }
         }
-        if (sourceOnly) continue;
+        if (excluded) continue;
       }
       const capture = scopes.variable(equation, owner, site.invocation, site.callback);
       const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation, site.callback);
