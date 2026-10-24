@@ -293,6 +293,9 @@ export function createSourceStorageQuery(
       if (write === undefined) return unresolved(budget.failure() ?? "A source write has no original published store occurrence.");
       return Object.freeze({ kind: "resolved", write, bindings });
     },
+    formalMemberWriteDemand(declaration, parameter) {
+      return transport.formalMemberWriteDemand(declaration, parameter);
+    },
     memberWritesFor(subject) {
       return budget.withRows(rows => {
         const reason = subjectReason(subject) ?? budget.failure();

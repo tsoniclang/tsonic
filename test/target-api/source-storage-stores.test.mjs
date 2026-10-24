@@ -527,8 +527,11 @@ test("write selections reject forged contexts, foreign nodes, and post-publicati
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
   inventory.initialize(mutation.storage, mutation.reference, mutation.value);
-  inventory.publish();
-  assert.throws(() => inventory.publish(), /publish exactly once/u);
+  inventory.publish(write => write);
+  assert.throws(() => inventory.publish(write => write), /publish exactly once/u);
+  const unpublished = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  assert.throws(() => unpublished.publish(), /requires its original write selector/u,
+    "the removed publication signature is rejected even when no stores exist");
   assert.throws(() => inventory.initialize(mutation.storage, mutation.reference, mutation.value), /cannot change/u);
 });
 

@@ -81,6 +81,9 @@ export type SourceStorageMemberWritesSelection = SourceStorageUnresolved
   | { readonly kind: "open"; readonly writes: readonly SourceStorageWriteOccurrence[];
       readonly boundaries: readonly Omit<SourceStorageDomainBoundary, "bindings">[] };
 
+export type SourceStorageFormalMemberWriteDemandSelection = SourceStorageUnresolved
+  | { readonly kind: "complete"; readonly members: readonly Node[] };
+
 export interface SourceStorageProducer extends SourceStorageTypedSubject {
   readonly bindings: SourceStorageBindings;
 }
@@ -224,6 +227,7 @@ export interface SourceStorageQueries {
   storageSubjectFor(node: Node, projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
   writeAt(reference: Node, bindings: SourceStorageBindings): SourceStorageWriteSelection;
   memberWritesFor(subject: SourceStorageSubject): SourceStorageMemberWritesSelection;
+  formalMemberWriteDemand(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection;
   typeFor(subject: SourceStorageSubject): SourceStorageTypeSelection;
   incomingFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   ancestorsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
