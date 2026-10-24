@@ -6,6 +6,8 @@ import { createSourceStorageQuery } from "../../packages/target-api/dist/public/
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { createSourceStoragePhysicalMembers } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/member-selection.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, extraFiles = {}) {
@@ -32,6 +34,62 @@ function fixture(body, extraFiles = {}) {
   };
   return { source, storage, variable, initializer, origins };
 }
+
+test("physical exclusion remains explicit when a completed alternative grows alongside a productive one", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const allocation = {}, operand = {}, included = {}, excluded = {}, declaration = {}, contract = {};
+  const scope = Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze([]) });
+  const receiver = Object.freeze({ kind: "leaf", subject: subject(allocation), scope });
+  const selected = Object.freeze({ kind: "leaf", subject: subject(included), scope });
+  const rejected = Object.freeze({ kind: "leaf", subject: subject(excluded), scope });
+  const suppliers = new Set();
+  let available = true;
+  let complete = true;
+  const source = {
+    ast: { is: { IsNewExpression: node => node === allocation,
+      IsClassDeclaration: node => node === included || node === excluded, IsClassExpression: () => false,
+      IsTypeLiteralNode: () => false, IsObjectLiteralExpression: () => false,
+      IsPropertyDeclaration: () => false, IsPropertySignatureDeclaration: () => false,
+      IsPropertyAssignment: () => false, IsShorthandPropertyAssignment: () => false,
+      IsSetAccessorDeclaration: () => false, IsGetAccessorDeclaration: () => false },
+      parent: node => node === declaration ? included : undefined, kindName: () => "test-member" },
+    navigation: { isProjectDeclaration: () => true },
+    semantics: { forNode: () => ({ declarations: { declaredType: () => contract } }) },
+  };
+  const transport = { subject, invocationImplementations: () => new Set([included]),
+    invocationTargets: new Map([[allocation, subject(operand)]]), memberFlow: {
+      membersInLineage(lineage) {
+        return { members: lineage.classes[0].subject.node === included ? [{ declaration, bindings: scope }] : [], absent: false };
+      },
+    } };
+  const physicalMembers = createSourceStoragePhysicalMembers(source, budget, transport, {
+    symbolic: () => false,
+    read: request => {
+      assert.equal(request.subject === subject(operand) && request.scope === scope, true, "the exact constructor supplier is selected");
+      return available ? suppliers : undefined;
+    },
+    lineages: value => [{ classes: [{ subject: value.subject, bindings: value.scope }], complete }],
+  });
+  const select = () => physicalMembers(receiver, declaration, contract, "read", receiver.subject);
+  assert.equal(select()?.kind === "pending", true, "an unfinished empty supplier set has no exclusion proof");
+  suppliers.add(rejected);
+  const onlyExcluded = select();
+  assert.equal(onlyExcluded?.kind === "known" && onlyExcluded.excluded && !onlyExcluded.absent &&
+    onlyExcluded.members.length === 0 && onlyExcluded.reason === undefined, true, "one completed excluded alternative is explicit");
+  suppliers.add(selected);
+  const mixed = select();
+  assert.equal(mixed?.kind === "known" && mixed.excluded && mixed.members.length === 1 &&
+    mixed.members[0].subject.node === declaration && mixed.members[0].bindings === scope, true,
+  "the excluded branch survives alongside the exact productive branch, without retracting its proof");
+  complete = false;
+  const incomplete = select();
+  assert.equal(incomplete?.kind === "known" && !incomplete.excluded && incomplete.reason !== undefined, true,
+    "incomplete lineages never become excluded alternatives");
+  available = false;
+  assert.equal(select() === undefined, true, "missing supplier evidence is not empty proof");
+  assert.equal(budget.failure() === undefined, true, "ordinary finite guards remain enabled");
+});
 
 for (const computed of [false, true]) {
   test(`contextual optional native slots retain independent physical writers (${computed ? "computed" : "named"})`, () => {

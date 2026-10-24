@@ -12,7 +12,7 @@ import { sourceStorageReference } from "../graph/scoped-model.js";
 
 type SourceStoragePhysicalMembers =
   | { readonly kind: "known"; readonly members: readonly SourceStorageScopedSubject[]; readonly absent: boolean;
-      readonly reason?: string }
+      readonly excluded: boolean; readonly reason?: string }
   | { readonly kind: "pending" };
 
 export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -29,7 +29,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
       : !ast.is.IsGetAccessorDeclaration(declaration);
     const unresolved = (reason: string): SourceStoragePhysicalMembers =>
-      ({ kind: "known", members: Object.freeze([]), absent: false, reason });
+      ({ kind: "known", members: Object.freeze([]), absent: false, excluded: false, reason });
     const allocation = receiver.subject.node;
     const construction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
       navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
@@ -46,14 +46,16 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         return members.length === 1 ? members[0]! : receiverType;
       };
       const declared = declaring();
-      if (transport.memberFlow.excludes(selectedView, declared)) return { kind: "known", members: Object.freeze([]), absent: false };
+      if (transport.memberFlow.excludes(selectedView, declared))
+        return { kind: "known", members: Object.freeze([]), absent: false, excluded: true };
       const correspondence = transport.memberFlow.memberFor(selectedView, target, declared);
       if (correspondence === undefined) return unresolved("Source storage members require exact checked correspondence.");
       if (correspondence.kind === "absent") {
         if (!correspondence.destination.property.optional) return unresolved("Source storage members require exact checked correspondence.");
         const subject = sourceStorageMemberSubject(target, ast, transport.subject);
         const written = subject !== undefined && (transport.storedValuesFor(subject)?.length ?? 0) !== 0;
-        return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []), absent: true };
+        return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []),
+          absent: true, excluded: false };
       }
       const declarations = correspondence.source.declarations;
       const members: SourceStorageScopedSubject[] = [];
@@ -67,7 +69,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       if (declarations.length > 0 && members.length === 0)
         return unresolved("Source storage correspondence does not provide the actual checked member operation mode.");
       const optional = correspondence.source.property.optional;
-      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional };
+      return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional, excluded: false };
     }
     const owner = sourceMemberOwner(ast, target);
     const selected = semantics.forNode(allocation);
@@ -80,6 +82,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     if (values === undefined) return undefined;
     const members: SourceStorageScopedSubject[] = [];
     let absent = false;
+    let excluded = false;
     let completed = false;
     let reason: string | undefined;
     for (const value of values) {
@@ -114,9 +117,10 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
         }
         completed = true;
         absent ||= selected.absent;
+        excluded ||= selected.members.length === 0 && !selected.absent;
       }
     }
-    return completed || reason !== undefined ? { kind: "known", members: Object.freeze(members), absent, reason } : { kind: "pending" };
+    return completed || reason !== undefined ? { kind: "known", members: Object.freeze(members), absent, excluded, reason } : { kind: "pending" };
   };
 }
 

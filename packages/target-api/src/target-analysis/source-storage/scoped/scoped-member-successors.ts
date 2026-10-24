@@ -219,8 +219,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
       }
       if (members.absent) terms.push(Object.freeze({ kind: "empty", absence: term.receiver }));
-      else if (members.members.length === 0 && members.reason === undefined)
-        terms.push(Object.freeze({ kind: "empty", absence: undefined }));
+      if (members.excluded) terms.push(Object.freeze({ kind: "empty", absence: undefined }));
       for (const member of members.members) {
         if (!budget.step()) return undefined;
         const getter = ast.is.IsGetAccessorDeclaration(member.subject.node);
