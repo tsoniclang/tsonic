@@ -28,14 +28,30 @@ function invocationEvidence(current, spread) {
   const { ast, semantics } = current.source;
   const call = ast.parent(spread);
   if (call === undefined) return { kind: "missing-call" };
-  const checked = semantics.forNode(call).operations.call(call);
+  const context = semantics.forNode(call);
+  const { types } = context;
+  const checked = context.operations.call(call);
   const selected = current.storage.invocationImplementationsFor(call);
-  return { kind: selected.kind, reason: selected.reason, exact: selected.exact,
+  const transport = current.storage.argumentTransportsFor(call);
+  const describeType = type => type === undefined ? { missing: true } : {
+    array: types.isArrayLike(type), tuple: types.isTuple(type), union: types.isUnion(type),
+    indexes: types.indexInfos(type).map(info => ({ numeric: info.keyType !== undefined && types.isNumberLike(info.keyType) })),
+  };
+  const evidence = { kind: selected.kind, reason: selected.reason, exact: selected.exact,
+    transport: transport.kind, transportReason: transport.reason,
     implementations: selected.kind === "resolved" ? selected.nodes.map(node => ({ kind: ast.kindName(node),
       name: ast.text(ast.name(node)), body: ast.body(node) !== undefined })) : [],
     arguments: checked?.sourceArgumentBindings.map(binding => ({ form: binding.sourceForm,
       effectiveIndex: binding.effectiveArgumentIndex, sourceIndex: binding.sourceArgumentIndex,
-      parameterIndex: binding.sourceParameterIndex, parameterForm: binding.sourceParameterForm })) };
+      parameterIndex: binding.sourceParameterIndex, parameterForm: binding.sourceParameterForm,
+      originalType: describeType(checked.sourceArguments[binding.sourceArgumentIndex]?.type),
+      sourceType: describeType(binding.selectedArgumentType), targetType: describeType(binding.selectedParameterType) })),
+    parameters: checked === undefined ? [] : types.signatureParameterInfos(checked.selectedSignature).map(parameter => ({
+      kind: parameter.parameterKind, type: describeType(parameter.type),
+      originalType: describeType(types.typeOfSymbol(parameter.sourceSymbol)),
+      declarations: context.declarations.symbolDeclarations(parameter.sourceSymbol).map(node => ast.kindName(node)),
+    })) };
+  return evidence;
 }
 
 test("checked tuple and array spread storage retains the original complete producer type", async context => {
@@ -162,7 +178,9 @@ for (const [label, declarations] of [
     assert.equal(projected.kind === "resolved", true, `${label}: checked element projection`);
     const selected = current.storage.closedOriginsFor(projected.subject);
     const boundaries = selected.kind === "open" ? selected.boundaries.map(boundary => boundary.kind) : [];
-    assert.equal(selected.kind === "complete", true, `${label}: ${selected.reason ?? ""}; ${boundaries.join(",")}`);
+    const spread = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsSpreadElement(node));
+    assert.equal(selected.kind === "complete", true,
+      `${label}: ${selected.reason ?? ""}; ${boundaries.join(",")}; ${JSON.stringify(invocationEvidence(current, spread))}`);
     for (const name of ["first", "second"]) assert.equal(
       selected.origins.some(origin => origin.subject.node === current.initializer(name)), true, `${label}: ${name}`);
     assert.equal(selected.origins.length, 2, "an argument sequence neither fabricates nor drops element producers");

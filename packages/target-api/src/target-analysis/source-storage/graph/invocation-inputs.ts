@@ -44,12 +44,11 @@ export function sourceStorageInvocationActual(
   if (binding.sourceForm === "spread-sequence") {
     if (binding.sourceParameterForm !== "rest-sequence" || index !== undefined) return undefined;
     const component = Object.freeze({ kind: "array-element" as const });
-    const sourceType = sourceStorageComponentType(binding.selectedArgumentType, component, context, ast);
-    const targetType = sourceStorageComponentType(binding.selectedParameterType, component, context, ast);
     const originalType = sourceStorageComponentType(argument.type, component, context, ast);
-    if (sourceType === undefined || targetType === undefined || originalType === undefined) return undefined;
+    if (originalType === undefined) return undefined;
     const projected = subject(actual.node, actual.kind, [...actual.projection, component]);
-    return projected === undefined ? undefined : Object.freeze({ subject: projected, sourceType, targetType });
+    return projected === undefined ? undefined : Object.freeze({ subject: projected,
+      sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
   }
   if (index === undefined || !Number.isSafeInteger(index) || index < 0) return undefined;
   if (!types.isTuple(argument.type)) return undefined;
