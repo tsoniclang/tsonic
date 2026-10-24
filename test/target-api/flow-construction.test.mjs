@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
@@ -48,6 +48,35 @@ function marked(current, graph, name) {
   assert.equal(found.length, 1, `${name}: one original evaluation`);
   return found[0];
 }
+
+test("resource declaration admission preserves exact dense data-only original list membership", () => {
+  const current = fixture(`const first = 1, second = 2; const other = 3;`);
+  const { ast } = current;
+  const first = current.named("first");
+  const second = current.named("second");
+  const list = ast.parent(first);
+  const valid = analyzeSourceResourceScopes(ast, [list], () => false);
+  const original = ast.as.AsVariableDeclarationList(list);
+  const declarations = valid.variables.get(list);
+  assert.equal(declarations?.length === 2 && declarations[0] === first && declarations[1] === second, true,
+    "the original direct checked declaration identities remain ordered");
+  let evaluated = 0;
+  const accessor = [];
+  Object.defineProperty(accessor, "0", { get() { evaluated += 1; return first; } });
+  for (const [label, supplied] of [
+    ["missing", undefined], ["undefined slot", [undefined]], ["sparse", Array(1)],
+    ["non-declaration", [ast.name(first)]], ["accessor", accessor],
+    ["foreign list", [current.named("other")]], ["null slot", [null]],
+  ]) {
+    const selectedAst = { ...ast, as: { ...ast.as,
+      AsVariableDeclarationList: node => node === list
+        ? { ...original, Declarations: { ...original.Declarations, Nodes: supplied } }
+        : ast.as.AsVariableDeclarationList(node) } };
+    const selected = analyzeSourceResourceScopes(selectedAst, [list], () => false);
+    assert.equal(selected.variables.has(list), false, `${label}: malformed syntax publishes no declaration sequence`);
+  }
+  assert.equal(evaluated, 0, "source admission does not execute an accessor to classify a malformed slot");
+});
 
 function reachable(graph, from, to, exceptions = false) {
   const pending = [from];
