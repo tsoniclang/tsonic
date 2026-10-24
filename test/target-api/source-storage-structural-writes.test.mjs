@@ -374,3 +374,113 @@ for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) test(`f
   assert.equal(selected.kind, "unresolved", "incomplete finite source work never becomes an empty summary");
   assert.match(selected.reason, /budget/u);
 });
+
+function optionalDemand(current, name, expected, input = "owner") {
+  const declaration = current.callable(name);
+  const parameter = current.parameter(declaration, input);
+  const subject = current.storage.subject(parameter, "input");
+  assert.equal(subject.kind, "resolved", `${name}.${input}: identical declared input`);
+  const before = current.storage.typeFor(subject.subject);
+  assert.equal(before.kind, "resolved", `${name}.${input}: original declared carrier`);
+  const types = current.source.semantics.forNode(parameter).types;
+  assert.equal(types.isUnion(before.type) && types.unionOrIntersectionTypes(before.type).some(type => types.isNullish(type)), true,
+    `${name}.${input}: declared absence remains present in the raw carrier`);
+  const result = current.complete(name, expected, input);
+  const after = current.storage.typeFor(subject.subject);
+  assert.equal(after.kind === "resolved" && after.type === before.type, true,
+    `${name}.${input}: present-member selection never replaces the original optional type`);
+  return result;
+}
+
+for (const [label, parameter, aliases, receiver] of [
+  ["undefined union", "owner: Reader | undefined", "", "owner"],
+  ["optional parameter", "owner?: Reader", "", "owner"],
+  ["null union", "owner: Reader | null", "", "owner"],
+  ["null and undefined union", "owner: Reader | null | undefined", "", "owner"],
+  ["undefined default", "owner: Reader | undefined = undefined", "", "owner"],
+  ["null default", "owner: Reader | null = null", "", "owner"],
+  ["optional const alias", "owner?: Reader", "const alias = owner;", "alias"],
+  ["optional stable let alias", "owner?: Reader", "let alias = owner;", "alias"],
+]) test(`formal present-member demand preserves ${label} absence`, () => {
+  const current = formalFixture(`function replace(${parameter}) { ${aliases} if (${receiver}) ${receiver}.read = () => 3; }`);
+  optionalDemand(current, "replace", [current.member()]);
+});
+
+test("cross-file generic optional aliases retain the exact present member and raw generic binding", () => {
+  const current = formalFixture(`
+    import type { Maybe } from "./maybe.js";
+    function replace(owner: Maybe<Reader>) { if (owner) owner.read = () => 3; }
+  `, { "/project/maybe.ts": "export type Maybe<Value> = Value | null | undefined;" });
+  optionalDemand(current, "replace", [current.member()]);
+});
+
+for (const [label, callerType, calleeType, invocation, optional] of [
+  ["both operands", "Reader | undefined", "Reader | undefined", "sink(owner);", ["forward", "sink"]],
+  ["upstream operand", "Reader | undefined", "Reader", "if (owner) sink(owner);", ["forward"]],
+  ["downstream operand", "Reader", "Reader | undefined", "sink(owner);", ["sink"]],
+]) test(`forwarded present-member demand normalizes ${label} without changing declared carriers`, () => {
+  const current = formalFixture(`
+    function sink(owner: ${calleeType}) { if (owner) owner.read = () => 3; }
+    function forward(owner: ${callerType}) { ${invocation} }
+  `);
+  for (const name of ["sink", "forward"]) {
+    if (optional.includes(name)) optionalDemand(current, name, [current.member()]);
+    else current.complete(name, [current.member()]);
+  }
+});
+
+test("an optional default alias forwards the present-member requirement without erasing either absence", () => {
+  const current = formalFixture(`
+    function replace(owner?: Reader, fallback: Reader | undefined = owner) { if (fallback) fallback.read = () => 3; }
+  `);
+  optionalDemand(current, "replace", [current.member()]);
+  optionalDemand(current, "replace", [current.member()], "fallback");
+});
+
+test("readonly optional consumers and omitted/nullish defaults retain genuinely empty demands", () => {
+  const current = formalFixture(`
+    function inspect(owner: Reader | null | undefined = undefined) { return owner?.read(); }
+    function forward(owner?: Reader) { inspect(); inspect(undefined); inspect(null); return inspect(owner); }
+  `);
+  optionalDemand(current, "inspect", []);
+  optionalDemand(current, "forward", []);
+});
+
+for (const type of ["Reader | Other | undefined", "Reader | Other | null | undefined"])
+  test(`present-member selection cannot erase non-nullish alternatives from ${type}`, () => {
+    const current = formalFixture(`
+      interface Other { value: number; }
+      function replace(owner: ${type}) { if (owner && "read" in owner) owner.read = () => 3; }
+    `);
+    const selected = current.query("replace");
+    assert.equal(selected.kind, "unresolved", "removing absence never removes the distinct Other carrier");
+    assert.match(selected.reason, /correspondence/u);
+  });
+
+for (const type of ["unknown", "any", "null", "undefined", "null | undefined"])
+  test(`present-member selection never fabricates a Reader from ${type}`, () => {
+    const current = formalFixture(`function replace(owner: ${type}) { (owner as unknown as Reader).read = () => 3; }`);
+    const selected = current.query("replace");
+    assert.equal(selected.kind, "unresolved", "a checked cast does not invent a present formal/member correspondence");
+    assert.match(selected.reason, /correspondence/u);
+  });
+
+test("optional present-member summaries still reject foreign, missing and wrong-owner parameter identities", () => {
+  const current = formalFixture("function replace(owner?: Reader) { if (owner) owner.read = () => 3; } function other(owner?: Reader) { }");
+  const foreign = formalFixture("function replace(owner?: Reader) { if (owner) owner.read = () => 3; }");
+  const declaration = current.callable("replace");
+  for (const parameter of [current.parameter(current.callable("other"), "owner"),
+    foreign.parameter(foreign.callable("replace"), "owner"), Object.freeze({})]) {
+    const selected = current.storage.formalMemberWriteDemand(declaration, parameter);
+    assert.equal(selected.kind, "unresolved", "normalizing types never normalizes foreign source identity");
+    assert.match(selected.reason, /identical checked implementation/u);
+  }
+});
+
+for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }])
+  test(`optional member demands retain exact finite refusal ${Object.keys(limits)[0]}`, () => {
+    const current = formalFixture("function replace(owner?: Reader) { if (owner) owner.read = () => 3; }", {}, limits);
+    const selected = current.query("replace");
+    assert.equal(selected.kind, "unresolved", "present-type normalization never turns finite failure into completed empty proof");
+    assert.match(selected.reason, /budget/u);
+  });

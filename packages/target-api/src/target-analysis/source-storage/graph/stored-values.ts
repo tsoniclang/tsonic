@@ -9,7 +9,8 @@ import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import { sourceStorageAccessDeclarations, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
+import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
+  sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
@@ -232,7 +233,11 @@ export function createSourceStorageFormalMemberWrites(
   const membersFor = (formal: SourceStorageSubject, from: Type, member: Node): readonly Node[] | undefined => {
     const selected = formals.get(formal);
     if (selected === undefined || !budget.step()) return undefined;
-    const relation = semantics.forNode(selected.parameter).types.structuralMember(selected.type, from, member);
+    const consumer = semantics.forNode(selected.parameter);
+    const presentFormal = sourcePresentStorageType(selected.type, consumer);
+    const presentFrom = sourcePresentStorageType(from, consumer);
+    if (presentFormal === undefined || presentFrom === undefined) return undefined;
+    const relation = consumer.types.structuralMember(presentFormal, presentFrom, member);
     return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
   };
   const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {
