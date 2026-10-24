@@ -387,11 +387,20 @@ export function createSourceStorageQuery(
       return Object.freeze({ kind: "resolved", nodes: Object.freeze(nodes) });
     },
     unresolvedFor: ancestryReason,
-    invocationImplementationsFor(invocation, bindings) {
+    invocationImplementationsFor(invocation, bindings, callback) {
       if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "An invocation has no checked source transport.");
       const states = bindings === undefined ? undefined : bindingStates.get(bindings);
       if (bindings !== undefined && states === undefined)
         return unresolved("Invocation substitutions belong to a different source storage query.");
+      if (callback !== undefined) {
+        const entry = transport.callbackEntriesFor(invocation).find(entry => entry.argument === callback);
+        if (entry === undefined) return unresolved("A native callback requires its exact selected invocation entry identity.");
+        const selected = transport.callbackImplementationSelection(entry);
+        return selected === undefined ? unresolved(budget.failure() ?? "A native callback has no completed invocation selection.")
+          : Object.freeze({ kind: "resolved", nodes: Object.freeze([...selected.nodes]), exact: selected.exact, inputs: selected.inputs });
+      }
+      const published = transport.invocationImplementationSelection(invocation);
+      if (published === undefined) return unresolved(budget.failure() ?? "Invocation dispatch has no completed selection.");
       const expression = source.ast.is.IsCallExpression(invocation) ? source.ast.as.AsCallExpression(invocation)?.Expression : undefined;
       if (expression !== undefined && source.ast.kindName(expression) !== "KindSuperKeyword") {
         const target = transport.invocationTargets.get(invocation);
@@ -407,7 +416,7 @@ export function createSourceStorageQuery(
           if (implementation.kind !== "resolved") { exact = false; continue; }
           nodes.add(implementation.implementation.declaration);
         }
-        return Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact });
+        return Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact, inputs: published.inputs });
       }
       const nodes = new Set<Node>();
       let exact = true;
@@ -422,7 +431,7 @@ export function createSourceStorageQuery(
         }
       }
       return budget.failure() !== undefined ? unresolved(budget.failure()!)
-        : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact });
+        : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact, inputs: published.inputs });
     },
     invocationOriginsFor(subject, candidate, invocation) {
       const reason = ancestryReason(subject);

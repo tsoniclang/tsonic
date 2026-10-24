@@ -7,12 +7,13 @@ import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
-import { sourceStorageCallableInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
+import { sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
+import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-inputs.js";
 
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
-  }[] | undefined) {
+  }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery) {
   const { ast, semantics } = source;
   const step = budget.step;
   const lexical = createSourceStorageLexicalSelections(ast, budget);
@@ -34,8 +35,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const regions = phase === "active" || semantics.forNode(declaration).operations.generator(declaration) === undefined ? [body] : [];
     const consumer = semantics.forNode(invocation ?? declaration);
     const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
-    const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
-      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, step);
+    const inputs = inputSlotsFor(declaration, invocation, callback);
+    const slots = sourceStorageSelectedInputSlots(inputs, declaration);
     const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
     if (parameters === undefined) {
       budget.reject("Source storage callable regions require their exact checked value parameters.");
@@ -61,7 +62,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       }
       if (callback !== undefined && invocation !== undefined) {
         const inputs = sourceStorageNativeInputSlots(source, declaration,
-          { node: parameter, kind: "input", projection: [] }, callback.argument.binding.selectedParameterType, consumer, step);
+          { node: parameter, kind: "input", projection: [] }, inputSlotsFor(declaration, invocation, callback), consumer, step);
         if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
           typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
         continue;

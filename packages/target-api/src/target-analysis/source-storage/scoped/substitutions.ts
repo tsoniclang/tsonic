@@ -41,7 +41,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const creation = Object.freeze({ footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
     transport.contextLocation, transport.contextualInputs.applicationFor),
     ownerFor: (subject: SourceStorageSubject) => sourceStorageActivationOwner(source, transport.regions.enclosing, subject) });
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation);
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation, transport.inputSlotsFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();

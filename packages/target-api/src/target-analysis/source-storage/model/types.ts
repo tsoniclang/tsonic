@@ -1,4 +1,4 @@
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { Node, Signature, SourceFile, Type } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
@@ -121,8 +121,37 @@ export type SourceStorageNodesSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageImplementationsSelection =
-  | { readonly kind: "resolved"; readonly nodes: readonly Node[]; readonly exact: boolean }
+  | { readonly kind: "resolved"; readonly nodes: readonly Node[]; readonly exact: boolean;
+      readonly inputs: readonly SourceStorageInvocationInputSlots[] }
   | SourceStorageUnresolved;
+
+export interface SourceStorageCallableInputSlot {
+  readonly parameter: Node;
+  readonly sourceParameterIndex: number;
+  readonly effectiveIndex: number;
+  readonly repeated: boolean;
+  readonly projection: readonly SourceStorageProjection[] | undefined;
+}
+
+export type SourceStorageInputSlotsSelection =
+  | { readonly kind: "resolved"; readonly slots: readonly SourceStorageCallableInputSlot[] }
+  | SourceStorageUnresolved;
+
+export type SourceStorageInvocationInputSlots = {
+  readonly signature: Signature | undefined;
+  readonly selectedDeclaration: Node | undefined;
+  readonly selected: SourceStorageInputSlotsSelection;
+  readonly implementation: { readonly kind: "resolved" } | SourceStorageUnresolved;
+  readonly implementations: readonly {
+    readonly declaration: Node;
+    readonly selected: SourceStorageInputSlotsSelection;
+  }[];
+} & (
+  | { readonly kind: "call" | "construct"; readonly invocation: Node }
+  | { readonly kind: "getter" | "setter"; readonly invocation: Node; readonly accessor: Node; readonly value: Node | undefined }
+  | { readonly kind: "native-callback"; readonly entry: SourceStorageCallbackEntry }
+  | { readonly kind: "signature"; readonly declaration: Node }
+);
 
 export interface SourceStorageArgumentTransport {
   readonly actual: SourceStorageSubject;
@@ -132,6 +161,8 @@ export interface SourceStorageArgumentTransport {
 }
 
 export interface SourceStorageCallbackEntry {
+  readonly kind: "source-storage-callback-entry";
+  readonly invocation: Node;
   readonly argument: SourceStorageArgumentTransport;
   readonly timing: "synchronous" | "deferred" | "unknown";
   readonly rejection?: number;
@@ -237,7 +268,8 @@ export interface SourceStorageQueries {
   storageProducersFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
   localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
-  invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageImplementationsSelection;
+  invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings,
+    callback?: SourceStorageArgumentTransport): SourceStorageImplementationsSelection;
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
   bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   bindingsForLexicalOwner(node: Node): SourceStorageBindingsSelection;
