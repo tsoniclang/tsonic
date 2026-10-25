@@ -266,3 +266,58 @@ test("whole-family finalization failure preserves earlier evidence and never pub
   assert.equal(exhausted.stable.size === 1 && exhausted.stable.has("stable"), true);
   assert.equal(exhausted.select("right") === undefined && exhausted.select("stable") === undefined, true);
 });
+
+test("private acyclic retirement rolls back the whole unpublished wave after a later collector throws", () => {
+  const original = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096 });
+  let lastReservation;
+  const budget = { ...original, createRows() {
+    const actual = original.createRows();
+    const observed = { released: false };
+    lastReservation = observed;
+    return { ...actual, release() { observed.released = true; actual.release(); } };
+  } };
+  const graph = createSourceStorageGraphQueries(budget);
+  const failure = new Error("unpublished later collector");
+  let reject = true; let transfer; let retiredBeforeFailure = false;
+  const calls = new Map();
+  const select = graph.fixedPoint((key, read, add, forward) => {
+    calls.set(key, (calls.get(key) ?? 0) + 1);
+    if (key === "stable" || key === "leaf") return add(key);
+    if (key === "root") {
+      if (!forward("leaf")) return false;
+      transfer = lastReservation;
+      return forward("cycle");
+    }
+    const previous = read("cycle");
+    if (previous === undefined) return false;
+    if (previous.size !== 0 && reject) {
+      retiredBeforeFailure = transfer.released;
+      throw failure;
+    }
+    return copy(previous, add) && add("cycle");
+  }, "acyclic-retirement-rollback");
+  graph.seal();
+  const stable = select("stable");
+  assert.throws(() => select("root"), error => error === failure);
+  assert.equal(retiredBeforeFailure, true, "the failure occurs after the independent supplier's private transfer retires");
+  assert.equal(budget.usage().rows === 3 && budget.failure() === undefined, true, "only the earlier published cell and value remain retained");
+  reject = false;
+  const selected = select("root");
+  assert.equal(selected?.size === 2 && selected.has("leaf") && selected.has("cycle"), true, "the discarded wave is recomputed, not replayed empty");
+  assert.equal(calls.get("leaf") === 2 && select("stable") === stable && stable.has("stable"), true, "the private supplier is rebuilt and the earlier public evidence is unchanged");
+  assert.equal(budget.failure() === undefined, true);
+});
+
+test("equal result cardinality and duplicate additions cannot disguise a retracted exact value", () => {
+  const { budget, graph } = fixture();
+  const first = {}; const second = {}; const replacement = {};
+  const select = graph.fixedPoint((key, read, add) => {
+    const previous = read(key);
+    if (previous === undefined) return false;
+    return add(first) && add(first) && add(previous.size === 0 ? second : replacement);
+  }, "exact-monotonic-membership");
+  graph.seal();
+  assert.equal(select("original") === undefined, true, "an equally sized replacement is not preservation of the original identities");
+  assert.match(budget.failure(), /retract a proved result/u);
+  assert.equal(select("original") === undefined, true, "duplicate additions never let failed evidence enter the completed cache");
+});
