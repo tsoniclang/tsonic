@@ -182,7 +182,7 @@ export function createSourceStorageQuery(
     return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
   const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings,
-    purpose: "values" | "storage-producers") => {
+    purpose: "values" | "storage-producers") => transport.substitutions.withQuery(() => {
     const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
     if (reason !== undefined) return unresolved(reason);
     const states = bindingStates.get(bindings);
@@ -219,7 +219,7 @@ export function createSourceStorageQuery(
     if (origins.kind === "unresolved") return origins;
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
       : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
-  };
+  });
   const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
     const selected = selectDomain(subject, bindings, "values");
     return selected.kind === "unresolved" ? selected : selected.kind === "complete"
