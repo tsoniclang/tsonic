@@ -264,7 +264,8 @@ export function createSourceStorageMemberFlow(
   };
   const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type, before: Node):
     | { readonly kind: "own"; readonly declaration: Node }
-    | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[]; readonly evaluation: Node }
+    | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[];
+        readonly evaluation: Node; readonly definite: boolean }
     | { readonly kind: "absent" }
     | undefined => {
     const file = sourceFileFor(owner);
@@ -295,7 +296,7 @@ export function createSourceStorageMemberFlow(
       if (excluded.has(property.name)) return Object.freeze({ kind: "absent" });
       return Object.freeze({ kind: "spread", expression: Node_Initializer(source.ast, rest) ?? rest,
         components: Object.freeze([Object.freeze({ kind: sourceStorageIsMethodMember(declaration, source.ast)
-          ? "method-value" : "member", declaration })]), evaluation: owner.node });
+          ? "method-value" : "member", declaration })]), evaluation: owner.node, definite: !property.optional });
     }
     const properties = source.ast.properties(owner.node);
     const limit = before === owner.node ? properties.length : properties.indexOf(before);
@@ -337,7 +338,8 @@ export function createSourceStorageMemberFlow(
         }
       }
       return components.length === 0 ? undefined : Object.freeze({ kind: "spread", expression,
-        components: Object.freeze(components), evaluation: element });
+        components: Object.freeze(components), evaluation: element,
+        definite: matches.length === alternatives.length && matches.every(member => !member.optional) });
     }
     return Object.freeze({ kind: "absent" });
   };

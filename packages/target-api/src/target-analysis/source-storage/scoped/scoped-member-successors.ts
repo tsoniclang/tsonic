@@ -65,6 +65,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
   const { ast, semantics } = source;
   const receiverFor = (store: SourceStorageStore): SourceStorageSubject | undefined => {
     if (store.kind !== "initialization") return store.receiver;
+    if (store.birth !== undefined) return store.storage;
     const parent = ast.parent(store.storage.node);
     if (ast.is.IsParameterDeclaration(store.storage.node) || ast.is.IsPropertyDeclaration(store.storage.node)) return transport.subject(parent, "receiver");
     return parent !== undefined && ast.is.IsObjectLiteralExpression(parent) ? transport.subject(parent) : undefined;

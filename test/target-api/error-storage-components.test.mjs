@@ -172,6 +172,10 @@ for (const [name, statements] of [
   ["shorthand property", `const container = { original }; const { original: selected } = container;`],
   ["nested properties", `const container = { outer: { value: original } }; const { outer: { value: selected } } = container;`],
   ["spread outer container", `const source = { value: original }; const container = { ...source }; const { value: selected } = container;`],
+  ["spread replaced by authored property", `const source = { value: untouched }; const container = { ...source, value: original }; const { value: selected } = container;`],
+  ["authored property replaced by spread", `const source = { value: original }; const container = { value: untouched, ...source }; const { value: selected } = container;`],
+  ["optional spread retains authored fallback", `const source: { value?: Stored } = {}; const container = { value: original, ...source }; const { value: selected } = container;`],
+  ["optional spread supplies its present value", `const source: { value?: Stored } = { value: original }; const container = { value: untouched, ...source }; const { value: selected } = container;`],
   ["rest outer container", `const source = { omitted: 0, value: original }; const { omitted, ...container } = source; const { value: selected } = container;`],
   ["separate factory activations", `function box(value: Stored) { return { value }; } const independent = box(untouched); const container = box(original); const { value: selected } = container;`],
 ]) {
