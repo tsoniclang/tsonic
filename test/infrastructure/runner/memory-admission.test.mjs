@@ -76,9 +76,22 @@ test("an explicit group reserve changes admission once, never per test", () => {
     "the explicit table reserve permits its exact aggregate capacity");
   assert.equal(planTestMemoryAdmission({ ...explicitReserve, reserveMiB: 24_576 }, [scope("reserved", 16_384)], [], 24_576).admitted, false,
     "a larger explicit table reserve refuses the same aggregate claim");
-  for (const reserveMiB of [0, -1, 6144, 8192, 16_383, NaN, Infinity]) {
+  for (const reserveMiB of [0, -1, 6144, 8191, NaN, Infinity]) {
     assert.throws(() => planTestMemoryAdmission({ ...explicitReserve, reserveMiB }, [], [], 24_576), /reserve/u);
   }
+});
+
+test("an explicit eight-GiB reserve floor preserves aggregate and physical headroom", () => {
+  assert.equal(planTestMemoryAdmission({ ...machine, reserveMiB: 8192 }, [], [], 4096).reserveMiB, 8192);
+  assert.equal(planTestMemoryAdmission(machine, [], [], 4096).reserveMiB, 16_384);
+  const explicitReserve = { totalMemoryMiB: 62_154, availableMemoryMiB: 28_672, reserveMiB: 8906 };
+  const running = [scope("bank", 30_720), scope("watcher", 64)];
+  const admitted = planTestMemoryAdmission(explicitReserve, running, [], 20_480);
+  assert.equal(admitted.admitted, true);
+  assert.equal(admitted.capacityMiB, 53_248);
+  assert.equal(admitted.reservedMiB, 30_784);
+  assert.equal(planTestMemoryAdmission({ ...explicitReserve, availableMemoryMiB: 28_671 }, running, [], 20_480).admitted, false);
+  assert.equal(planTestMemoryAdmission({ ...explicitReserve, availableMemoryMiB: 62_154 }, running, [], 22_465).admitted, false);
 });
 
 test("admission uses the smaller table remainder and live availability minus eight GiB", () => {

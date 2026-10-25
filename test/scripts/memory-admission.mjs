@@ -12,7 +12,7 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
     throw new Error("Memory admission requires positive finite machine and job sizes.");
   }
   const reserveMiB = machine.reserveMiB ?? 16_384;
-  if (!positive(reserveMiB) || reserveMiB < 16_384) throw new Error("The memory reserve must be at least 16384 MiB.");
+  if (!positive(reserveMiB) || reserveMiB < 8_192) throw new Error("The memory reserve must be at least 8192 MiB.");
   const capacityMiB = machine.totalMemoryMiB - reserveMiB;
   if (requestedMiB > capacityMiB) throw new Error(`The job cannot fit alongside the ${reserveMiB} MiB memory reserve.`);
   const claims = new Map();
