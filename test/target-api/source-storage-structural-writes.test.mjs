@@ -204,6 +204,58 @@ test("empty formal demand relations publish proven empty data without retaining 
   }
 });
 
+for (const opaque of [false, true]) test(`empty formal equations validate original invocation effects before omitting unrelated closure (${opaque})`, () => {
+  const current = formalFixture(`
+    ${opaque ? "declare function consume(owner: Reader): void;" : "function consume(owner: Reader): void {}"}
+    function forward(owner: Reader) { consume(owner); }
+  `);
+  const invocation = current.nodes.find(current.source.ast.is.IsCallExpression);
+  assert.equal(invocation !== undefined, true, "the original checked call is present");
+  const selected = current.source.semantics.forNode(invocation).operations.call(invocation);
+  const implementation = selected?.sourceSelectedDeclaration;
+  assert.equal(implementation !== undefined, true, "the selected checked declaration is retained");
+  const declaration = current.callable("forward");
+  const parameter = current.parameter(declaration, "owner");
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const graph = createSourceStorageGraphQueries(budget);
+  graph.seal();
+  const subject = (node, kind = "value") => {
+    const selected = current.storage.subject(node, kind);
+    assert.equal(selected.kind, "resolved", "every summary input is the original checked subject");
+    return selected.subject;
+  };
+  let mapped = 0;
+  const summary = createSourceStorageFormalMemberWrites(current.source, budget, graph, {
+    declarations: [declaration, ...opaque ? [] : [implementation]], invocations: [invocation], subject, subjectFor: subject,
+    invocationInputs(formal, candidate, actual) {
+      mapped += 1;
+      assert.equal(candidate === implementation && actual === invocation, true, "the original selected body and invocation are unchanged");
+      const selected = current.storage.argumentTransportsFor(actual);
+      assert.equal(selected.kind, "resolved", "the canonical selected argument transports are complete");
+      return { subjects: new Set(selected.arguments.filter(input => input.formal === formal).map(input => input.actual)),
+        context: "caller", omitted: false };
+    },
+    inputsFor: () => assert.fail("a validated zero-seed member equation has no demanded transitive producer closure"),
+    implementationsFor: actual => {
+      assert.equal(actual === invocation, true, "only the checked original invocation is inspected");
+      return { nodes: new Set([implementation]), exact: true };
+    },
+    unresolvedFor: () => undefined,
+  });
+  summary.publish();
+  const result = summary.get(declaration, parameter);
+  assert.equal(mapped, opaque ? 0 : 1, "every known input mapping is validated once; an opaque body is not fabricated");
+  assert.equal(budget.failure() === undefined, true, "the original finite work owner remains healthy");
+  if (opaque) {
+    assert.equal(result.kind, "unresolved", "missing body effects cannot publish an empty write proof");
+    assert.match(result.reason, /unknown|bodyless/u);
+  } else {
+    assert.equal(result.kind, "complete", "all original closed body effects have been checked");
+    assert.equal(result.members.length, 0, "the exact zero-seed equation has no member writes");
+    assert.equal(Object.isFrozen(result.members), true, "empty publication is immutable data");
+  }
+});
+
 test("formal member demands consume the complete checked callable-body inventory once", () => {
   const current = formalFixture(`
     function authored(owner: Reader): void;
