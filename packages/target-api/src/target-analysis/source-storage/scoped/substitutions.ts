@@ -44,7 +44,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation, transport.inputSlotsFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
-  const relations = new Map<string, SourceStorageRelation>();
+  const relations = new Map<string | SourceStorageTerm, SourceStorageRelation>();
   const withQuery = scopes.withQuery;
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
@@ -117,7 +117,40 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           term = selected.terms[0]!;
           continue;
         }
-        return transition;
+        const guards: Extract<SourceStorageTerm, { readonly kind: "transition" }>[] = [];
+        const conditions = new Map<number, Map<Node, Map<Node | undefined, Set<string>>>>();
+        let current: SourceStorageTerm = transition;
+        let duplicate = false;
+        while (current.kind === "transition") {
+          if (!budget.step()) return undefined;
+          const key = keys.encode(current.condition);
+          if (key === undefined) return undefined;
+          const equation = conditions.get(current.capture.equation.identity);
+          const owner = equation?.get(current.capture.owner);
+          const selected = owner?.get(current.capture.capture);
+          if (selected?.has(key)) {
+            if (normalize(current.condition, witnesses, temporary, false) === undefined) return undefined;
+            duplicate = true;
+          } else {
+            if (!temporary.add(2 + (equation === undefined ? 2 : 0) + (owner === undefined ? 2 : 0) +
+              (selected === undefined ? 1 : 0))) return undefined;
+            const retainedEquation = equation ?? new Map<Node, Map<Node | undefined, Set<string>>>();
+            const retainedOwner = owner ?? new Map<Node | undefined, Set<string>>();
+            const retained = selected ?? new Set<string>();
+            retained.add(key);
+            retainedOwner.set(current.capture.capture, retained);
+            retainedEquation.set(current.capture.owner, retainedOwner);
+            conditions.set(current.capture.equation.identity, retainedEquation);
+            guards.push(current);
+          }
+          current = current.value;
+        }
+        if (!duplicate) return transition;
+        for (let index = guards.length - 1; index >= 0; index -= 1) {
+          const guard = guards[index]!;
+          current = Object.freeze({ kind: "transition", capture: guard.capture, condition: guard.condition, value: current });
+        }
+        return current;
       }
       break;
     }
@@ -173,6 +206,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   };
   const intern = (term: SourceStorageTerm): SourceStorageRelation | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
+    const canonical = relations.get(term);
+    if (canonical !== undefined) return canonical;
     const retained: SourceStorageRelationWitness[] = [];
     const normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary);
     if (normalized === undefined) { budget.reject(`Source storage ${term.kind} terms require an exact normalized form.`); return undefined; }
@@ -180,9 +215,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (key === undefined) { budget.reject(`Source storage ${normalized.kind} terms require an exact relation key.`); return undefined; }
     let selected = relations.get(key);
     if (selected === undefined) {
-      if (!rows.add(2)) return undefined;
+      if (!rows.add(3)) return undefined;
       selected = { term: normalized, children: new Map(), complete: false };
       relations.set(key, selected);
+      relations.set(normalized, selected);
     }
     if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;

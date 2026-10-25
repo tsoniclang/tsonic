@@ -20,7 +20,7 @@ import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
-import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageInvocationInputSelection, sourceStorageSelectedInputSlots, sourceStorageNativeCallablePayloads, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
+import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageInvocationInputSelection, sourceStorageSelectedInputSlots, sourceStorageNativeCallablePayloads, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageInvocationSelectionKey, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
@@ -479,7 +479,7 @@ export function createSourceStorageTransport(
     enclosingCallable, recordThrow, recordUnresolvedThrow, connect,
   });
   const invocationInputs = createSourceStorageInvocationInputs(source, budget, subject, subjectFor,
-    accessorTargets, invocation => unresolvedInvocations.has(invocation), rejections.receiverOriginsFor, inputSlotsFor);
+    accessorTargets, invocation => unresolvedInvocations.has(invocation), rejections.receiverOriginsFor, inputSlotsFor, argumentTransports);
   const invocationOrigins = createSourceStorageInvocationOrigins(source, budget,
     { invocationInputs, inputSlotsFor, incomingFor, isUnresolved: invocation => unresolvedInvocations.has(invocation) });
 
@@ -639,20 +639,22 @@ export function createSourceStorageTransport(
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         const receiver = subject(candidate, "receiver");
         if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
-        for (const binding of selected?.sourceArgumentBindings ?? []) {
+        const arguments_ = argumentTransports.get(invocation);
+        if (selected !== undefined && arguments_ === undefined && !unresolvedInvocations.has(invocation))
+          throw new Error("Selected source storage invocation actuals were not published before their consumers.");
+        for (const argument of arguments_ ?? []) {
           if (!step()) break;
-          const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
+          const binding = argument.binding;
           for (const slot of slots ?? []) {
             if (!step()) return;
             if (slot.projection === undefined || slot.effectiveIndex !== binding.effectiveArgumentIndex &&
               !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)) continue;
             const destination = subject(slot.parameter, "input", slot.projection);
-            const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
             const initialized = Node_Initializer(ast, slot.parameter) !== undefined;
-            if (actual !== undefined && (!initialized || selected !== undefined &&
-              sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent"))
-              connect(actual.subject, destination, { from: actual.sourceType, to: actual.targetType });
-            if (!initialized && slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
+            if (!initialized || selected !== undefined &&
+              sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
+              connect(argument.actual, destination, { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+            if (!initialized && slot.projection.length === 0) connect(subject(argument.selectedParameterDeclaration, "input"), destination);
           }
         }
         for (const slot of slots ?? []) {
@@ -773,7 +775,7 @@ export function createSourceStorageTransport(
   regions.seal();
   graphQueries.seal();
   invocationSelectionsSealed = true;
-  const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, graphQueries, {
+  const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, createSourceStorageGraphQueries, {
     declarations: callableDeclarations, invocations: { *[Symbol.iterator]() { yield* invocations; yield* accessorTargets.keys(); } },
     invocationInputs, subject, subjectFor,
     inputsFor: current => invocations.has(current.node) || accessorTargets.has(current.node)
@@ -783,7 +785,7 @@ export function createSourceStorageTransport(
   callableDeclarationRows.release();
   callableDeclarations.length = 0;
   storedValues.publish(formalMemberWrites.recordWrite);
-  formalMemberWrites.publish();
+  formalMemberWrites.closeInputs();
   sealed = true;
   return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
@@ -791,7 +793,7 @@ export function createSourceStorageTransport(
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
     writeAt: storedValues.writeAt,
-    formalMemberWriteDemand: formalMemberWrites.get,
+    formalMemberWriteDemand: formalMemberWrites.get, sealFormalMemberWriteDemands: formalMemberWrites.seal,
     invocationImplementationSelection, inputSlotsFor,
     callbackImplementationSelection: (entry: SourceStorageCallbackEntry) => selectedInvocationImplementations(entry)?.values().next().value,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,

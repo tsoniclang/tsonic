@@ -235,9 +235,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         }
         terms.push(leaf(selected, term.scope));
       }
-      for (const store of transport.storesIn(term.region) ?? []) {
+      if (term.region === term.demand) for (const store of transport.storesIn(term.region) ?? []) {
         if (!budget.step()) return undefined;
-        if (term.region === term.demand) terms.push(Object.freeze({ kind: "effect", store, scope: term.scope }));
+        terms.push(Object.freeze({ kind: "effect", store, scope: term.scope }));
       }
       for (const invocation of transport.regions.invocationsIn(term.region) ?? []) {
         if (!budget.step()) return undefined;

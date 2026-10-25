@@ -149,7 +149,7 @@ function formalFixture(body, extraFiles = {}, limits = {}) {
     assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.members), true, `${name}: immutable published summary`);
     return selected;
   };
-  return { source, storage, nodes, callable, parameter, query, member, complete };
+  return { source, sourceFiles, storage, nodes, callable, parameter, query, member, complete };
 }
 
 test("empty formal demand relations publish proven empty data without retaining a construction solver", () => {
@@ -161,8 +161,6 @@ test("empty formal demand relations publish proven empty data without retaining 
     const declaration = current.callable(name);
     for (const limits of [{}, { maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
       const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-      const graph = createSourceStorageGraphQueries(budget);
-      graph.seal();
       let solvers = 0;
       const subject = (node, kind = "value") => {
         if (node === undefined) return undefined;
@@ -170,12 +168,15 @@ test("empty formal demand relations publish proven empty data without retaining 
         assert.equal(selected.kind, "resolved", "the query uses the original checked source subject");
         return selected.subject;
       };
-      const summary = createSourceStorageFormalMemberWrites(current.source, budget, {
-        ...graph,
-        fixedPoint(...arguments_) {
-          solvers += 1;
-          return graph.fixedPoint(...arguments_);
-        },
+      const summary = createSourceStorageFormalMemberWrites(current.source, budget, requestBudget => {
+        const graph = createSourceStorageGraphQueries(requestBudget);
+        return {
+          ...graph,
+          fixedPoint(...arguments_) {
+            solvers += 1;
+            return graph.fixedPoint(...arguments_);
+          },
+        };
       }, {
         declarations: [declaration], invocations: [], subject, subjectFor: subject,
         invocationInputs: () => assert.fail("these complete source bodies have no invocation"),
@@ -183,7 +184,8 @@ test("empty formal demand relations publish proven empty data without retaining 
         implementationsFor: () => assert.fail("these complete source bodies have no invocation"),
         unresolvedFor: () => assert.fail("these complete source bodies have no invocation"),
       });
-      summary.publish();
+      assert.equal("publish" in summary, false, "one demand entry owns final immutable summary publication");
+      summary.closeInputs();
       assert.equal(solvers, 0, "a fully admitted empty equation retains no unreachable fixed-point cells");
       const parameters = sourceCallableValueParameters(current.source.ast, declaration,
         current.source.semantics.forNode(declaration), { kind: "declaration" });
@@ -204,6 +206,138 @@ test("empty formal demand relations publish proven empty data without retaining 
   }
 });
 
+test("formal write inputs close irreversibly before demand and demands stop at the target seal", () => {
+  const current = formalFixture("function replace(owner: Reader) { owner.read = () => 3; }");
+  const declaration = current.callable("replace");
+  const parameter = current.parameter(declaration, "owner");
+  const subject = (node, kind = "value") => {
+    const selected = current.storage.subject(node, kind);
+    assert.equal(selected.kind, "resolved", "the builder retains the original checked subject");
+    return selected.subject;
+  };
+  const reference = current.nodes.find(current.source.ast.is.IsPropertyAccessExpression);
+  const occurrence = current.storage.writeAt(reference, current.storage.emptyBindings);
+  assert.equal(occurrence.kind, "resolved", "the write is the actual collected member mutation");
+  const summary = createSourceStorageFormalMemberWrites(current.source,
+    createSourceStorageBudget(defaultSourceStorageLimits), createSourceStorageGraphQueries, {
+      declarations: [declaration], invocations: [], subject, subjectFor: subject,
+      invocationInputs: () => assert.fail("this body contains no invocation"),
+      inputsFor: () => assert.fail("the receiver is the exact parameter"),
+      implementationsFor: () => assert.fail("this body contains no invocation"),
+      unresolvedFor: () => assert.fail("this body contains no invocation"),
+    });
+  assert.throws(() => summary.get(declaration, parameter), /requires closed write inputs/u);
+  assert.throws(() => summary.seal(), /seal once after their inputs close/u);
+  summary.recordWrite(occurrence.write);
+  summary.closeInputs();
+  assert.throws(() => summary.recordWrite(occurrence.write), /cannot change after their final publication/u);
+  assert.throws(() => summary.closeInputs(), /close exactly once/u);
+  const selected = summary.get(declaration, parameter);
+  assert.equal(selected.kind, "complete", "all original writes participate in the one demanded summary");
+  assert.equal(selected.members.length, 1, "the original mutation is not lost at closure");
+  assert.equal(selected.members[0] === current.member(), true, "the exact checked member is retained");
+  assert.equal(summary.get(declaration, parameter) === selected, true, "one publication per requested key");
+  summary.seal();
+  assert.throws(() => summary.get(declaration, parameter), /cannot run after target sealing/u);
+  assert.throws(() => summary.seal(), /seal once after their inputs close/u);
+});
+
+test("one bounded formal closure cannot exhaust another formal's request in either order", () => {
+  const methods = Array.from({ length: 40 }, (_, index) => `method${index}`);
+  const current = formalFixture(`
+    interface Reader { ${methods.map(name => `${name}(): number;`).join(" ")} }
+    function replace(owner: Reader, other: Reader) {
+      ${methods.map(name => `owner.${name} = () => 3;`).join("\n")}
+    }
+  `);
+  const declaration = current.callable("replace");
+  const writes = current.nodes.filter(current.source.ast.is.IsPropertyAccessExpression).map(reference => {
+    const occurrence = current.storage.writeAt(reference, current.storage.emptyBindings);
+    assert.equal(occurrence.kind, "resolved", "each seed is a real collected source member mutation");
+    return occurrence.write;
+  });
+  assert.equal(writes.length, methods.length, "all distinct checked member writes participate");
+  const select = order => {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 64 });
+    const subject = (node, kind = "value") => {
+      const selected = current.storage.subject(node, kind);
+      assert.equal(selected.kind, "resolved", "each formal uses its identical original checked subject");
+      return selected.subject;
+    };
+    const summary = createSourceStorageFormalMemberWrites(current.source, budget, createSourceStorageGraphQueries, {
+      declarations: [declaration], invocations: [], subject, subjectFor: subject,
+      invocationInputs: () => assert.fail("these write bodies have no invocation"),
+      inputsFor: () => assert.fail("these receivers are original parameter bindings"),
+      implementationsFor: () => assert.fail("these write bodies have no invocation"),
+      unresolvedFor: () => assert.fail("these write bodies have no invocation"),
+    });
+    for (const write of writes) summary.recordWrite(write);
+    assert.equal(budget.failure() === undefined, true, "all write inputs close within the unchanged row selection");
+    summary.closeInputs();
+    const results = new Map(order.map(name => [name, summary.get(declaration, current.parameter(declaration, name))]));
+    assert.equal(results.get("owner").kind, "unresolved", "the larger closure reaches its own finite bound");
+    assert.match(results.get("owner").reason, /transport-row budget/u);
+    assert.equal(results.get("other").kind, "complete", "an unrelated empty closure retains its own budget");
+    assert.equal(results.get("other").members.length, 0, "no unrelated member is fabricated");
+    for (const name of order) assert.equal(summary.get(declaration, current.parameter(declaration, name)) === results.get(name),
+      true, `${name}: one immutable result is stored for the requested key`);
+    summary.seal();
+    assert.throws(() => summary.get(declaration, current.parameter(declaration, "other")), /cannot run after target sealing/u);
+    return results;
+  };
+  const first = select(["owner", "other"]);
+  const second = select(["other", "owner"]);
+  assert.equal(first.get("owner").reason, second.get("owner").reason, "the finite outcome is identical in the opposite order");
+  assert.equal(first.get("other").members.length, second.get("other").members.length, "the complete outcome is identical in the opposite order");
+});
+
+test("formal summary order and finite refusals are independent across the same requested key set", () => {
+  const declarations = `
+    declare function opaque(owner: Reader): void;
+    function read(owner: Reader) { return owner.read(); }
+    function sink(owner: Reader) { owner.read = () => 3; }
+    function forward(owner: Reader) { sink(owner); }
+    function recursive(owner: Reader, depth: number) { if (depth > 0) recursive(owner, depth - 1); sink(owner); }
+    function unknown(owner: Reader) { opaque(owner); }
+  `;
+  const names = ["read", "sink", "forward", "recursive", "unknown"];
+  for (const maximumSteps of [1024, 4096, defaultSourceStorageLimits.maximumSteps]) {
+    const current = formalFixture(declarations, {}, { maximumSteps });
+    const second = createSourceStorageQuery(current.source, current.sourceFiles,
+      { ...defaultSourceStorageLimits, maximumSteps });
+    const firstResults = new Map(names.map(name => [name, current.query(name)]));
+    const secondResults = new Map([...names].reverse().map(name => {
+      const declaration = current.callable(name);
+      return [name, second.formalMemberWriteDemand(declaration, current.parameter(declaration, "owner"))];
+    }));
+    for (const name of names) {
+      const first = firstResults.get(name);
+      const other = secondResults.get(name);
+      assert.equal(first.kind, other.kind, `${maximumSteps}/${name}: result kind is order-independent`);
+      if (first.kind === "unresolved") {
+        assert.equal(first.reason, other.reason, `${maximumSteps}/${name}: identical finite or semantic refusal`);
+      } else {
+        assert.equal(first.members.length, other.members.length, `${maximumSteps}/${name}: exact member count`);
+        assert.equal(first.members.every(member => other.members.includes(member)), true,
+          `${maximumSteps}/${name}: identical original member identities`);
+      }
+      if (current.storage.failureReason() === undefined)
+        assert.equal(current.query(name) === first, true, `${maximumSteps}/${name}: one stored result per admitted key`);
+    }
+    if (maximumSteps === defaultSourceStorageLimits.maximumSteps) {
+      assert.equal(firstResults.get("forward").kind, "complete", "transitive dependencies complete");
+      assert.equal(firstResults.get("forward").members[0] === current.member(), true, "forwarded original member");
+      assert.equal(firstResults.get("unknown").kind, "unresolved", "unknown callee effects are not empty proof");
+    }
+    current.storage.sealFormalMemberWriteDemands();
+    assert.throws(() => current.query("sink"), /cannot run after target sealing/u);
+    const declaration = current.callable("sink");
+    assert.equal(second.formalMemberWriteDemand(declaration, current.parameter(declaration, "owner")).kind,
+      secondResults.get("sink").kind, "sealing one target query does not disable another target on the same source");
+    second.sealFormalMemberWriteDemands();
+  }
+});
+
 for (const opaque of [false, true]) test(`empty formal equations validate original invocation effects before omitting unrelated closure (${opaque})`, () => {
   const current = formalFixture(`
     ${opaque ? "declare function consume(owner: Reader): void;" : "function consume(owner: Reader): void {}"}
@@ -220,15 +354,13 @@ for (const opaque of [false, true]) test(`empty formal equations validate origin
   const declaration = current.callable("forward");
   const parameter = current.parameter(declaration, "owner");
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const graph = createSourceStorageGraphQueries(budget);
-  graph.seal();
   const subject = (node, kind = "value") => {
     const selected = current.storage.subject(node, kind);
     assert.equal(selected.kind, "resolved", "every summary input is the original checked subject");
     return selected.subject;
   };
   let mapped = 0;
-  const summary = createSourceStorageFormalMemberWrites(current.source, budget, graph, {
+  const summary = createSourceStorageFormalMemberWrites(current.source, budget, createSourceStorageGraphQueries, {
     declarations: [declaration, ...opaque ? [] : [implementation]], invocations: [invocation], subject, subjectFor: subject,
     invocationInputs(formal, candidate, actual) {
       mapped += 1;
@@ -245,7 +377,7 @@ for (const opaque of [false, true]) test(`empty formal equations validate origin
     },
     unresolvedFor: () => undefined,
   });
-  summary.publish();
+  summary.closeInputs();
   const result = summary.get(declaration, parameter);
   assert.equal(mapped, opaque ? 0 : 1, "every known input mapping is validated once; an opaque body is not fabricated");
   assert.equal(budget.failure() === undefined, true, "the original finite work owner remains healthy");

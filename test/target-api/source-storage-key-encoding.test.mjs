@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageKeyEncoder } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -96,6 +98,48 @@ test("nested unordered conditions preserve structure without recursively escaped
   assert.equal(typeof encoded === "string" && encoded.length < 30_000, true);
   assert.equal(encoder.encode(second) === encoded, true);
   assert.equal(current.failure() === undefined, true);
+});
+
+test("scoped transition encoding preserves shared term DAGs within one finite request", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "export {}; function selected() { return selected; } selected();",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the key subjects belong to an actual checked source");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const declaration = source.ast.statements(file).find(source.ast.is.IsFunctionDeclaration);
+  const invocation = source.ast.statements(file).find(source.ast.is.IsExpressionStatement);
+  assert.equal(declaration !== undefined && invocation !== undefined, true, "original declaration and capture occurrence");
+  const current = budget({ maximumSteps: 8192, maximumTransportRows: 4096 });
+  const empty = Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze([]) });
+  const identities = new Map();
+  const scopes = { empty, identity(value) {
+    if (!identities.has(value)) identities.set(value, identities.size);
+    return identities.get(value);
+  }, activation(scope) {
+    assert.equal(scope === empty, true, "the immutable key DAG uses the exact empty activation");
+    return { key: "empty", closed: true };
+  } };
+  const equation = Object.freeze({ identity: 0, component: new Set([declaration]), entry: declaration, initial: empty });
+  const capture = Object.freeze({ kind: "variable", equation, owner: declaration, capture: invocation });
+  const keys = createSourceStorageScopedKeys(source, current, {}, scopes, {
+    footprints: createSourceStorageContextFootprints(current, () => new Set(), () => undefined),
+    ownerFor: () => undefined,
+  });
+  const leaf = Object.freeze({ kind: "leaf", subject: Object.freeze({ kind: "value", node: declaration,
+    projection: Object.freeze([]) }), scope: empty });
+  let term = leaf;
+  for (let depth = 0; depth < 16; depth += 1)
+    term = Object.freeze({ kind: "transition", capture, condition: term, value: term });
+  const encoded = keys.encode(term);
+  assert.equal(typeof encoded === "string", true, `one shared term must be encoded once: ${current.failure() ?? "no failure"}`);
+  const retained = current.usage().rows;
+  assert.equal(keys.encode(term) === encoded, true, "a separate request retains the same complete structural identity");
+  assert.equal(current.usage().rows, retained, "temporary DAG work is released after each request");
+  const distinct = Object.freeze({ ...capture, equation: Object.freeze({ ...equation, identity: 1 }) });
+  assert.equal(keys.encode(Object.freeze({ kind: "transition", capture: distinct, condition: leaf, value: term })) === encoded,
+    false, "sharing never drops a distinct transition condition");
+  assert.equal(current.failure(), undefined, "the unchanged finite budget bounds actual DAG work");
 });
 
 for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {

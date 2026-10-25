@@ -32,7 +32,8 @@ function fixture() {
     ast.text(ast.name(node)) === name);
   const initializer = name => ast.as.AsVariableDeclaration(named(name)).Initializer;
   const inputs = createSourceStorageInvocationInputs(source, budget, transport.subject, transport.subjectFor,
-    transport.accessorTargets, call => transport.unresolvedInvocations.has(call), () => undefined, transport.inputSlotsFor);
+    transport.accessorTargets, call => transport.unresolvedInvocations.has(call), () => undefined, transport.inputSlotsFor,
+    transport.argumentTransports);
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
@@ -68,6 +69,27 @@ test("an omitted actual formal stays a terminal leaf instead of reading sibling 
     assert.equal(current.keys.encode(sourceStorageReference(current.formal, omitted)), key);
   }
   assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("selected invocation inputs reuse the exact published actual without reconstructing its expression", () => {
+  const current = fixture();
+  const invocation = current.initializer("supplied");
+  const actual = current.transport.argumentTransports.get(invocation)?.[0]?.actual;
+  assert.equal(actual !== undefined, true, "the checked invocation already published its original actual");
+  const inputs = createSourceStorageInvocationInputs(current.source, current.budget, current.transport.subject,
+    () => assert.fail("a selected actual must not be reconstructed after publication"),
+    current.transport.accessorTargets, call => current.transport.unresolvedInvocations.has(call), () => undefined,
+    current.transport.inputSlotsFor, current.transport.argumentTransports);
+  const selected = inputs(current.formal, current.pick, invocation);
+  assert.equal(selected.subjects.size === 1 && selected.subjects.has(actual), true,
+    "the implementation input retains the identical original published actual");
+  assert.equal(current.budget.failure() === undefined, true, "canonical reuse remains inside the original finite owner");
+  const missing = createSourceStorageInvocationInputs(current.source, current.budget, current.transport.subject,
+    current.transport.subjectFor, current.transport.accessorTargets,
+    call => current.transport.unresolvedInvocations.has(call), () => undefined, current.transport.inputSlotsFor, new Map());
+  assert.throws(() => missing(current.formal, current.pick, invocation), {
+    message: "Selected source storage invocation actuals were not published before their consumers.",
+  });
 });
 
 test("terminal receiver birth retains its exact active invocation instead of the surrounding module", () => {
