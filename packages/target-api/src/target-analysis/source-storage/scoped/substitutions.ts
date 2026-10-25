@@ -631,7 +631,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return parent;
   });
-  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
+  return Object.freeze({ empty: scopes.empty, withQuery, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
