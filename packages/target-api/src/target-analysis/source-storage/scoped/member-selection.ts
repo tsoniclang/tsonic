@@ -5,7 +5,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageClassValue } from "../model/construction.js";
+import type { SourceStorageClassLineage } from "../model/construction.js";
 import type { SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
@@ -19,9 +19,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
   transport: SourceStorageScopedTransport, queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
     symbolic(value: SourceStorageReference): boolean;
-    lineages(value: SourceStorageReference): readonly {
-      readonly classes: readonly SourceStorageClassValue<SourceStorageScope>[]; readonly complete: boolean;
-    }[] | undefined;
+    lineages(value: SourceStorageReference): readonly SourceStorageClassLineage<SourceStorageScope>[] | undefined;
   }) {
   return (receiver: SourceStorageReference, target: Node, receiverType: Type,
     mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {

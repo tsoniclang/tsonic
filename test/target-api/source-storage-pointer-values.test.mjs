@@ -5,7 +5,7 @@ import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } fro
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { selectJsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
-import { namedVariable } from "../fixtures/source-navigation.mjs";
+import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
@@ -42,7 +42,7 @@ function fixture(body) {
     `${name}: exact pointee producers ${originals.join(", ")}`);
     assert.equal(storage.failureReason() === undefined, true, "pointee evidence keeps the existing finite limits");
   };
-  return { query, expect };
+  return { query, expect, source, file, storage };
 }
 
 test("allocated pointees retain original callable values through source function returns", () => {
@@ -147,7 +147,13 @@ test("addressed external backing does not manufacture an original callable", () 
     }
   `);
   const selected = current.query("result");
-  assert.equal(selected.kind === "unresolved", true, `unknown backing values retain their external witness (${selected.kind})`);
+  assert.equal(selected.kind === "open", true, `unknown backing values retain their external witness (${selected.kind})`);
+  const inspect = namedDeclaration(current.source.ast, current.file, "inspect");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" && boundary.exposure === inspect), true,
+    "addressing an external slot preserves its exact caller-owned exposure");
+  assert.equal(selected.origins.every(origin => !current.source.ast.is.IsArrowFunction(origin.subject.node) &&
+    !current.source.ast.is.IsFunctionExpression(origin.subject.node)), true,
+    "an external backing slot never acquires an invented local callable producer");
 });
 
 test("a projected pointer with an opaque conversion stays open", () => {

@@ -35,9 +35,10 @@ test("a conditional actual requires every checked native origin, not a preferred
   assert.equal(selected.kind === "resolved" && selected.premises.length === 2, true);
   assert.equal(selected.premises[0].owner === selected.premises[1].owner, false, "two independent owner correspondences");
   let first;
-  const partial = query({ retentionFor(subject, context) {
-    first ??= subject;
-    return subject === first ? fixture.native.retentionFor(subject, context) : undefined;
+  const partial = query({ retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
+    first ??= request.value;
+    return request.value === first ? fixture.native.retentionFor(request) : undefined;
   } }).forReference(fixture.readReference(), bindings);
   assert.equal(partial.kind, "unresolved", "one missing origin cannot become an empty borrowed dependency set");
   assert.match(partial.reason, /bound origin/u);
@@ -54,8 +55,10 @@ test("missing and empty retention evidence remain unresolved", () => {
 test("a generic formal or copied subject cannot substitute for the actual native view", () => {
   const formal = fixture.subject(fixture.source.ast.parameters(fixture.declaration("read"))[0]);
   for (const replace of [value => formal, value => ({ ...value })]) {
-    const selected = query({ retentionFor(value, bindings) {
-      const evidence = fixture.native.retentionFor(value, bindings);
+    const selected = query({ retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const { value } = request;
+      const evidence = fixture.native.retentionFor(request);
       return { kind: "resolved", premises: evidence.premises.map(premise => ({ ...premise, value: replace(value) })) };
     } }).forReference(fixture.readReference(), binding("awaited"));
     assert.equal(selected.kind, "unresolved");
@@ -67,8 +70,9 @@ test("native evidence must use the selected declaration and exact instantiated t
   const formal = fixture.subject(fixture.source.ast.parameters(fixture.declaration("read"))[0]);
   for (const replacement of [{ contractDeclaration: fixture.declaration("identity") },
     { checkedType: fixture.typeFor(formal) }]) {
-    const selected = query({ retentionFor(value, bindings) {
-      const evidence = fixture.native.retentionFor(value, bindings);
+    const selected = query({ retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const evidence = fixture.native.retentionFor(request);
       return { kind: "resolved", premises: evidence.premises.map(premise => ({ ...premise, ...replacement })) };
     } }).forReference(fixture.readReference(), binding("awaited"));
     assert.equal(selected.kind, "unresolved");
@@ -84,8 +88,9 @@ test("copied binding contexts and foreign owner identities fail at the canonical
   const actualOwner = fixture.source.ast.as.AsVariableDeclaration(fixture.named(fixture.declaration("awaited"), "owner")).Initializer;
   const foreign = otherStorage.subjectFor(actualOwner);
   assert.equal(foreign.kind, "resolved");
-  const selected = query({ retentionFor(value, bindings) {
-    const evidence = fixture.native.retentionFor(value, bindings);
+  const selected = query({ retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
+    const evidence = fixture.native.retentionFor(request);
     return { kind: "resolved", premises: evidence.premises.map(premise => ({ ...premise, owner: foreign.subject })) };
   } }).forReference(fixture.readReference(), binding("awaited"));
   assert.equal(selected.kind, "unresolved");
@@ -95,8 +100,10 @@ test("copied binding contexts and foreign owner identities fail at the canonical
 test("retained, transferred and program-duration ownership remain independent of wrapper spellings", () => {
   for (const kind of ["retained", "transferred"]) {
     for (const reason of kind === "transferred" ? [undefined] : ["owned-value", "retained-owner"]) {
-      const selected = query({ retentionFor(value) {
-        const original = fixture.native.retentionFor(value).premises[0];
+      const selected = query({ retentionFor(request) {
+        if (request.kind === "read-value") return undefined;
+        const { value } = request;
+        const original = fixture.native.retentionFor(request).premises[0];
         return { kind: "resolved", premises: [{ kind, value, ...(reason === undefined ? {} : { reason }),
           ...(reason === "retained-owner" ? { owner: original.owner } : {}),
           ...(kind === "transferred" ? { operation: value.node } : {}),
@@ -111,8 +118,10 @@ test("retained, transferred and program-duration ownership remain independent of
 });
 
 test("a source-file lifetime cannot be mislabeled as a source-scoped lease", () => {
-  const selected = query({ retentionFor(value, bindings) {
-    const evidence = fixture.native.retentionFor(value, bindings);
+  const selected = query({ retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
+    const { value } = request;
+    const evidence = fixture.native.retentionFor(request);
     return { kind: "resolved", premises: evidence.premises.map(premise => ({ ...premise,
       region: fixture.source.ast.getSourceFile(value.node) })) };
   } }).forReference(fixture.readReference(), binding("awaited"));
@@ -122,9 +131,9 @@ test("a source-file lifetime cannot be mislabeled as a source-scoped lease", () 
 
 test("a throwing premise producer publishes no partial retained selection", () => {
   let reject = true;
-  const reader = query({ retentionFor(value, bindings) {
+  const reader = query({ retentionFor(request) {
     if (reject) throw new Error("fixture native proof failed");
-    return fixture.native.retentionFor(value, bindings);
+    return fixture.native.retentionFor(request);
   } });
   const bindings = binding("awaited");
   assert.throws(() => reader.forReference(fixture.readReference(), bindings), /fixture native proof failed/u);
@@ -138,13 +147,79 @@ test("distinct source aliases reuse one checked retention decision for the same 
   const reference = fixture.readReference();
   const parameter = fixture.source.ast.parameters(fixture.declaration("read"))[0];
   let calls = 0;
-  const reader = query({ retentionFor(value, selectedBindings) {
+  const reader = query({ retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
     calls += 1;
-    return fixture.native.retentionFor(value, selectedBindings);
+    return fixture.native.retentionFor(request);
   } });
   const first = reader.forReference(reference, bindings);
   const second = reader.forReference(parameter, bindings);
   assert.equal(first.kind === "resolved" && second.kind === "resolved", true);
   assert.equal(calls, 1, "the native value/owner relation is checked once, not once per source reference");
   assert.equal(first.premises[0] === second.premises[0], true);
+});
+
+test("a qualified native read proves only its exact reference, value and binding context", () => {
+  const reference = fixture.readReference();
+  const value = fixture.subject(reference);
+  let calls = 0;
+  const reader = query({ retentionFor(request) {
+    assert.equal(request.kind, "read-value", "independent read does not request its receiver's origin");
+    assert.equal(request.reference === reference && request.value === value, true, "actual checked read identity");
+    calls += 1;
+    return { kind: "resolved", premises: [{ kind: "retained", reason: "owned-value", value: request.value,
+      contractDeclaration: request.value.node, checkedType: fixture.typeFor(request.value) }] };
+  } });
+  const bindings = binding("awaited");
+  const selected = reader.forReference(reference, bindings);
+  assert.equal(selected.kind === "resolved" && selected.premises.length === 1 &&
+    selected.premises[0].value === value, true, "selected native read is independently owned");
+  assert.equal(reader.forReference(reference, bindings) === selected, true, "same exact read decision is reused");
+  const other = reader.forReference(reference, binding("discarded"));
+  assert.equal(other.kind, "resolved", "another activation requires its own read proof");
+  assert.equal(calls, 2, "different binding contexts never share a read proof");
+});
+
+test("a native read proof cannot substitute an origin, owner lease or copied checked identity", () => {
+  const reference = fixture.readReference();
+  const value = fixture.subject(reference);
+  const owner = fixture.subject(fixture.declaration("awaited"));
+  const base = { kind: "retained", reason: "owned-value", value,
+    contractDeclaration: value.node, checkedType: fixture.typeFor(value) };
+  for (const replacement of [
+    { kind: "retained", reason: "retained-owner", owner },
+    { kind: "retained", reason: "module-owner" },
+    { kind: "transferred", operation: reference },
+    { kind: "scoped-borrowed", owner, region: fixture.source.ast.body(fixture.declaration("awaited")), mode: "shared" },
+    { value: { ...value } },
+    { contractDeclaration: fixture.declaration("identity") },
+  ]) {
+    const reader = query({ retentionFor(request) {
+      assert.equal(request.kind, "read-value", "invalid read proof never reverts to an origin proof");
+      return { kind: "resolved", premises: [{ ...base, ...replacement }] };
+    } });
+    const selected = reader.forReference(reference, binding("awaited"));
+    assert.equal(selected.kind, "unresolved", `invalid independent read ${replacement.kind ?? "identity"}`);
+  }
+});
+
+test("unresolved and empty native reads are not discarded in favour of an owning origin", () => {
+  const reference = fixture.readReference();
+  for (const selection of [{ kind: "resolved", premises: [] },
+    { kind: "unresolved", at: reference, reason: "actual native read lease remains unresolved" }]) {
+    const reader = query({ retentionFor(request) {
+      assert.equal(request.kind, "read-value", "a reported native read failure cannot trigger a second decision");
+      return selection;
+    } });
+    const selected = reader.forReference(reference, binding("awaited"));
+    assert.equal(selected.kind, "unresolved");
+    assert.match(selected.reason, /empty retention|actual native read lease/u);
+  }
+});
+
+test("copied read binding tokens are rejected before a native ownership premise is requested", () => {
+  const reader = query({ retentionFor() { assert.fail("a copied binding is not an actual native read context"); } });
+  const selected = reader.forReference(fixture.readReference(), { ...binding("awaited") });
+  assert.equal(selected.kind, "unresolved");
+  assert.match(selected.reason, /different source storage query/u);
 });

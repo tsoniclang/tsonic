@@ -10,6 +10,13 @@ export interface SourceStorageClassValue<Bindings> {
   readonly bindings: Bindings;
 }
 
+export interface SourceStorageClassLineage<Bindings> {
+  readonly classes: readonly SourceStorageClassValue<Bindings>[];
+  readonly complete: boolean;
+  readonly implementation: Node | undefined;
+  readonly nativeBase: (SourceStorageClassValue<Bindings> & { readonly constructors: readonly Node[] }) | undefined;
+}
+
 export function sourceStorageClassLineages<Bindings>(
   source: TargetSourceProgram,
   budget: SourceStorageBudget,
@@ -20,12 +27,10 @@ export function sourceStorageClassLineages<Bindings>(
     valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
   },
   mode?: "heritage",
-): readonly { readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
-  readonly implementation: Node | undefined }[] | undefined {
+): readonly SourceStorageClassLineage<Bindings>[] | undefined {
   if (values === undefined) return undefined;
   return budget.withRows(rows => {
-    const lineages: { readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
-      readonly implementation: Node | undefined }[] = [];
+    const lineages: SourceStorageClassLineage<Bindings>[] = [];
     const pending: { readonly value: SourceStorageClassValue<Bindings>;
       readonly classes: readonly SourceStorageClassValue<Bindings>[] }[] = [];
     const schedule = (value: SourceStorageClassValue<Bindings>,
@@ -34,9 +39,10 @@ export function sourceStorageClassLineages<Bindings>(
       pending.push({ value, classes });
       return true;
     };
-    const finish = (classes: readonly SourceStorageClassValue<Bindings>[], complete: boolean, implementation?: Node): boolean => {
-      if (!rows.add(2 + classes.length)) return false;
-      lineages.push(Object.freeze({ classes: Object.freeze([...classes]), complete, implementation }));
+    const finish = (classes: readonly SourceStorageClassValue<Bindings>[], complete: boolean, implementation?: Node,
+      nativeBase?: SourceStorageClassLineage<Bindings>["nativeBase"]): boolean => {
+      if (!rows.add(2 + classes.length + (nativeBase === undefined ? 0 : 4))) return false;
+      lineages.push(Object.freeze({ classes: Object.freeze([...classes]), complete, implementation, nativeBase }));
       return true;
     };
     for (const value of values) if (!budget.step() || !schedule(value, [])) return undefined;
@@ -52,7 +58,9 @@ export function sourceStorageClassLineages<Bindings>(
       if (!source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node) ||
         !source.navigation.isProjectDeclaration(node)) {
         const constructors = queries.nativeConstructorsFor(value.subject);
-        if (!finish(classes, constructors !== undefined && constructors.length !== 0)) return undefined;
+        const nativeBase = constructors === undefined || constructors.length === 0 ? undefined
+          : Object.freeze({ ...value, constructors });
+        if (!finish(classes, nativeBase !== undefined, undefined, nativeBase)) return undefined;
         continue;
       }
       const lineage = [...classes, value];
