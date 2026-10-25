@@ -30,7 +30,7 @@ export function createSourceStorageDomains(
       ancestor.subject.projection.length >= current.subject.projection.length ||
       transport.subject(current.subject.node, current.subject.kind,
         current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;
-    if (witnesses.forSubject(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
+    if (boundariesFor(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
       (boundary.kind === "external-input" && (boundary.owner === current.inputOwner ||
         boundary.owner === undefined && ancestor.subject === current.inputOwner) ||
         boundary.kind === "external-write" || boundary.kind === "opaque-write"))) return true;
