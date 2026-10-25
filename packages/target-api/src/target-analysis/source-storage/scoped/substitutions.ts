@@ -44,7 +44,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation, transport.inputSlotsFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
-  const relations = new Map<string, SourceStorageRelation>();
+  const relations = new Map<string | SourceStorageTerm, SourceStorageRelation>();
   const withQuery = scopes.withQuery;
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
@@ -173,6 +173,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   };
   const intern = (term: SourceStorageTerm): SourceStorageRelation | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
+    const canonical = relations.get(term);
+    if (canonical !== undefined) return canonical;
     const retained: SourceStorageRelationWitness[] = [];
     const normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary);
     if (normalized === undefined) { budget.reject(`Source storage ${term.kind} terms require an exact normalized form.`); return undefined; }
@@ -180,9 +182,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (key === undefined) { budget.reject(`Source storage ${normalized.kind} terms require an exact relation key.`); return undefined; }
     let selected = relations.get(key);
     if (selected === undefined) {
-      if (!rows.add(2)) return undefined;
+      if (!rows.add(3)) return undefined;
       selected = { term: normalized, children: new Map(), complete: false };
       relations.set(key, selected);
+      relations.set(normalized, selected);
     }
     if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
