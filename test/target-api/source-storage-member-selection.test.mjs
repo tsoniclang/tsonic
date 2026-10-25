@@ -72,17 +72,17 @@ for (const [name, body, overrides] of [
   assert.equal(selected.members[0].declaration === original, true, "source overriding wins; otherwise retain the exact native original");
   assert.equal(selected.members[0].bindings === (overrides ? lineage.classes[0].bindings : lineage.nativeBase.bindings), true,
     "the chosen physical owner retains its actual captured binding context");
-  assert.equal(transport.memberFlow.membersInLineage({ ...lineage, complete: false }, current.field, current.destination), undefined,
+  assert.equal(transport.memberFlow.membersInLineage({ ...lineage, complete: false }, current.field, current.destination) === undefined, true,
     "incomplete inheritance is not a native storage proof");
   if (!overrides) {
-    assert.equal(transport.memberFlow.membersInLineage({ ...lineage, nativeBase: undefined }, current.field, current.destination), undefined,
+    assert.equal(transport.memberFlow.membersInLineage({ ...lineage, nativeBase: undefined }, current.field, current.destination) === undefined, true,
       "a member's presence in a derived type is not sufficient without the original native constructor");
     assert.equal(transport.memberFlow.membersInLineage({ ...lineage,
-      nativeBase: { ...lineage.nativeBase, constructors: [] } }, current.field, current.destination), undefined,
+      nativeBase: { ...lineage.nativeBase, constructors: [] } }, current.field, current.destination) === undefined, true,
     "missing selected native signatures cannot become an empty physical owner");
     const constructor = source.ast.members(retained).find(source.ast.is.IsConstructorDeclaration);
     if (constructor !== undefined) assert.equal(transport.memberFlow.membersInLineage({ ...lineage,
-      nativeBase: { ...lineage.nativeBase, constructors: [constructor] } }, current.field, current.destination), undefined,
+      nativeBase: { ...lineage.nativeBase, constructors: [constructor] } }, current.field, current.destination) === undefined, true,
     "an ordinary constructor body is not a native construct-signature return contract");
   }
   assert.equal(current.budget.failure(), undefined, "original finite work accounting remains active");
@@ -94,8 +94,8 @@ test("unregistered native construction never supplies a physical inherited membe
   assert.equal(current.lineages?.length, 1, "the original project inheritance remains observable");
   const lineage = current.lineages[0];
   assert.equal(lineage.complete, false, "an opaque constructor cannot prove the native terminal");
-  assert.equal(lineage.nativeBase, undefined, "no native proof is manufactured from declared shape");
-  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination), undefined,
+  assert.equal(lineage.nativeBase === undefined, true, "no native proof is manufactured from declared shape");
+  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination) === undefined, true,
     "unknown construction stays unresolved, not empty or writable");
 });
 
@@ -105,10 +105,14 @@ test("native member lineage refuses foreign selected signatures and an exhausted
   const foreign = await inheritedNativeMemberFixture("native-member-lineage-foreign-other", body);
   const lineage = current.lineages[0];
   assert.equal(current.transport.memberFlow.membersInLineage({ ...lineage,
-    nativeBase: { ...lineage.nativeBase, constructors: foreign.constructors } }, current.field, current.destination), undefined,
+    nativeBase: { ...lineage.nativeBase, constructors: foreign.constructors } }, current.field, current.destination) === undefined, true,
   "a foreign checked signature cannot prove this physical native declaration");
+  assert.equal(current.transport.memberFlow.membersInLineage({ ...lineage,
+    nativeBase: { ...lineage.nativeBase, constructors: [...lineage.nativeBase.constructors, ...foreign.constructors] } },
+  current.field, current.destination) === undefined, true,
+  "every selected native signature must prove the same declaration, not merely the first signature");
   current.budget.reject("test original finite refusal");
-  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination), undefined,
+  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination) === undefined, true,
     "existing finite exhaustion dominates otherwise valid native correspondence");
   assert.equal(current.budget.failure(), "test original finite refusal", "the original exact refusal is unchanged");
 });
