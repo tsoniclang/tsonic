@@ -176,3 +176,46 @@ test("exceptions discard partial forwarding families without damaging completed 
   reject = false;
   assert.equal(select("partial")?.size === 2 && select("stable") === stable && budget.failure() === undefined, true);
 });
+
+test("a final acyclic supplier retires its transfer while unrelated cyclic evidence remains private", () => {
+  const original = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096 });
+  let lastReservation;
+  const budget = { ...original, createRows() {
+    const actual = original.createRows();
+    const observed = { released: false };
+    lastReservation = observed;
+    return { ...actual, release() { observed.released = true; actual.release(); } };
+  } };
+  const graph = createSourceStorageGraphQueries(budget);
+  let transfer; let privateView;
+  const select = graph.fixedPoint((key, read, add, forward) => {
+    if (key === "leaf") return add(key) && add("leaf-extra");
+    if (key === "root") {
+      if (!forward("leaf")) return false;
+      transfer = lastReservation;
+      assert.equal(transfer.released, false, "a live unfinished supplier keeps its subscribed transfer");
+      return forward("cycle");
+    }
+    const previous = read("cycle");
+    if (previous === undefined) return false;
+    if (previous.size !== 0) {
+      assert.equal(transfer.released, true, "the final leaf no longer retains a future-delta subscription");
+      privateView = read("leaf");
+      assert.equal(privateView?.size === 2 && privateView.has("leaf") && privateView.has("leaf-extra"), true,
+        "retirement keeps both supplier values after every queued delta is delivered");
+    }
+    for (const value of previous) if (!add(value)) return false;
+    return add("cycle");
+  }, "acyclic-transfer-retirement");
+  graph.seal();
+  const selected = select("root");
+  assert.equal(selected?.size === 3 && selected.has("leaf") && selected.has("leaf-extra") && selected.has("cycle"), true,
+    "the whole family still publishes all exact values");
+  const leaf = select("leaf");
+  assert.equal(leaf?.size === 2 && leaf.has("leaf") && leaf.has("leaf-extra") && select("root") === selected, true,
+    "published cell identities remain retained");
+  assert.equal(budget.failure() === undefined, true, "all original resource owners remain active");
+  assert.throws(() => privateView.size, /active collector/u, "private settlement does not publish an escaped collector view");
+  assert.equal(leaf.size === 2 && leaf.has("leaf") && leaf.has("leaf-extra"), true,
+    "the public completed view survives the rejected private borrow");
+});

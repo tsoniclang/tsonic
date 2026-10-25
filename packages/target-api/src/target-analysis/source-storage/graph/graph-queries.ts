@@ -49,7 +49,12 @@ interface FixedPointCell<Key, Value> {
   readonly parents: Set<FixedPointCell<Key, Value>>;
   readonly forwardParents: Map<FixedPointCell<Key, Value>, FixedPointTransfer<Key, Value>>;
   readonly forwards: Map<FixedPointCell<Key, Value>, FixedPointTransfer<Key, Value>>;
-  complete: boolean;
+  pendingInputs: number;
+  pendingDeltas: number;
+  evaluated: boolean;
+  dirty: boolean;
+  settled: boolean;
+  complete: boolean | FixedPointCell<Key, Value>;
 }
 
 function readonlyValues<Value>(values: ReadonlySet<Value>, validate?: () => void): ReadonlySet<Value> {
@@ -267,6 +272,9 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
     fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
       add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean, family: string): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
+      const completed = (cell: FixedPointCell<Key, Value>): boolean =>
+        typeof cell.complete === "boolean" ? cell.complete : cell.complete.complete === true;
+      const settled = (cell: FixedPointCell<Key, Value>): boolean => cell.settled || completed(cell);
       let running = false;
       return key => {
         if (!budget.step()) return undefined;
@@ -275,7 +283,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           return undefined;
         }
         const cached = selections.get(key);
-        if (cached?.complete) return cached.view;
+        if (cached !== undefined && completed(cached)) return cached.view;
         return budget.withRows(workRows => {
           const wave = new Set<FixedPointCell<Key, Value>>();
           const pending = new Set<FixedPointCell<Key, Value>>();
@@ -285,8 +293,9 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           let maximumFrontier = 0;
           let maximumDeltas = 0;
           let current: FixedPointCell<Key, Value> | undefined;
-          let complete = false;
-          const schedule = (cell: FixedPointCell<Key, Value>): boolean => {
+          let publication: FixedPointCell<Key, Value> | undefined;
+          const schedule = (cell: FixedPointCell<Key, Value>, dirty: boolean): boolean => {
+            cell.dirty ||= dirty;
             if (pending.has(cell)) return true;
             if (pending.size === maximumFrontier) {
               if (!frontierRows.add(1)) return false;
@@ -295,17 +304,22 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             pending.add(cell);
             return true;
           };
+          const readyToSettle = (cell: FixedPointCell<Key, Value>): boolean =>
+            cell.evaluated && cell.pendingInputs === 0 && cell.pendingDeltas === 0 && !cell.dirty && !cell.settled &&
+            (cell.parents.size !== 0 || cell.forwardParents.size !== 0);
+          const scheduleSettlement = (cell: FixedPointCell<Key, Value>): boolean => !readyToSettle(cell) || schedule(cell, false);
           const publish = (cell: FixedPointCell<Key, Value>, value: Value): boolean => {
             if (!budget.step()) return false;
             if (cell.values.has(value)) return true;
             if (!cell.rows.add(1)) return false;
             cell.values.add(value);
-            for (const parent of cell.parents) if (!budget.step() || !schedule(parent)) return false;
+            for (const parent of cell.parents) if (!budget.step() || !schedule(parent, true)) return false;
             if (cell.forwardParents.size !== 0) {
               if (deltas.length === maximumDeltas) {
                 if (!deltaRows.add(1)) return false;
                 maximumDeltas += 1;
               }
+              cell.pendingDeltas += 1;
               deltas.push({ cell, value });
             }
             return true;
@@ -332,15 +346,17 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             if (!rows.add(2) || !workRows.add(1)) { rows.release(); return undefined; }
             const values = new Set<Value>();
             const cell: FixedPointCell<Key, Value> = { key: input, values, view: readonlyValues(values), rows,
-              dependencyRows: budget.createRows(), parents: new Set(), forwardParents: new Map(), forwards: new Map(), complete: false };
-            if (!schedule(cell)) { rows.release(); return undefined; }
+              dependencyRows: budget.createRows(), parents: new Set(), forwardParents: new Map(), forwards: new Map(),
+              pendingInputs: 0, pendingDeltas: 0, evaluated: false, dirty: false, settled: false, complete: publication ?? false };
+            if (!schedule(cell, true)) { rows.release(); return undefined; }
             selections.set(input, cell);
+            publication ??= cell;
             wave.add(cell);
             return cell;
           };
           const retire = (cell: FixedPointCell<Key, Value>): void => {
             for (const [input, transfer] of cell.forwards) {
-              input.forwardParents.delete(cell);
+              if (input.forwardParents.delete(cell)) cell.pendingInputs -= 1;
               transfer.rows.release();
             }
             cell.forwards.clear();
@@ -353,10 +369,14 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             if (transfer?.projections.has(projection)) return true;
             if (transfer === undefined) {
               const rows = budget.createRows();
-              if (!rows.add(2)) { rows.release(); return false; }
+              if (!rows.add(settled(selected) ? 1 : 2)) { rows.release(); return false; }
               transfer = { projections: new Set(), rows };
               parent.forwards.set(selected, transfer);
-              selected.forwardParents.set(parent, transfer);
+              if (!settled(selected)) {
+                selected.forwardParents.set(parent, transfer);
+                parent.pendingInputs += 1;
+                if (!scheduleSettlement(selected)) return false;
+              }
             }
             if (!transfer.rows.add(1)) return false;
             transfer.projections.add(projection);
@@ -365,8 +385,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           };
           const evaluate = (cell: FixedPointCell<Key, Value>): boolean => budget.withRows(resultRows => {
             current = cell;
+            cell.evaluated = false;
             retire(cell);
             let reading = true;
+            let retainedValues = 0;
             const values = new Set<Value>();
             const borrowed = new Map<FixedPointCell<Key, Value>, ReadonlySet<Value>>();
             const borrowRows = budget.createRows();
@@ -384,6 +406,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               }
               if (values.has(value)) return true;
               if (!resultRows.add(1)) return false;
+              if (cell.values.has(value)) retainedValues += 1;
               values.add(value);
               return true;
             };
@@ -397,10 +420,12 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 }
                 const selected = admit(input);
                 if (selected === undefined) return undefined;
-                if (selected.complete) return selected.view;
-                if (!selected.parents.has(cell)) {
+                if (completed(selected)) return selected.view;
+                if (!selected.settled && !selected.parents.has(cell)) {
                   if (!selected.dependencyRows.add(1)) return undefined;
                   selected.parents.add(cell);
+                  cell.pendingInputs += 1;
+                  if (!scheduleSettlement(selected)) return undefined;
                 }
                 const existing = borrowed.get(selected);
                 if (existing !== undefined) return existing;
@@ -426,18 +451,40 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               budget.reject(`Source storage fixed-point collectors require an exact positive result (${family}).`);
               return false;
             }
-            for (const previous of cell.values) {
-              if (!budget.step()) return false;
-              if (!values.has(previous)) {
-                budget.reject("Source storage fixed-point collectors cannot retract a proved result.");
-                return false;
-              }
+            if (retainedValues !== cell.values.size) {
+              budget.reject("Source storage fixed-point collectors cannot retract a proved result.");
+              return false;
             }
             for (const value of values) {
               if (!publish(cell, value)) return false;
             }
+            cell.evaluated = budget.failure() === undefined;
             return budget.failure() === undefined;
           });
+          const retireForward = (cell: FixedPointCell<Key, Value>, parent: FixedPointCell<Key, Value>,
+            transfer: FixedPointTransfer<Key, Value>): boolean => {
+            parent.forwards.delete(cell);
+            transfer.rows.release();
+            parent.pendingInputs -= 1;
+            return scheduleSettlement(parent);
+          };
+          const settle = (cell: FixedPointCell<Key, Value>): boolean => {
+            if (!budget.step()) return false;
+            cell.settled = true;
+            retire(cell);
+            const released = (parent: FixedPointCell<Key, Value>): boolean => {
+              parent.pendingInputs -= 1;
+              return scheduleSettlement(parent);
+            };
+            for (const parent of cell.parents) if (!budget.step() || !released(parent)) return false;
+            cell.parents.clear();
+            cell.dependencyRows.release();
+            for (const [parent, transfer] of cell.forwardParents) {
+              if (!budget.step() || !retireForward(cell, parent, transfer)) return false;
+            }
+            cell.forwardParents.clear();
+            return true;
+          };
           running = true;
           try {
             const root = admit(key);
@@ -446,23 +493,31 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               if (!budget.step()) return undefined;
               if (deltas.length !== 0) {
                 const delta = deltas.pop()!;
+                delta.cell.pendingDeltas -= 1;
+                const finalDelta = readyToSettle(delta.cell);
                 for (const [parent, transfer] of delta.cell.forwardParents) {
-                  if (pending.has(parent)) { if (!budget.step()) return undefined; continue; }
-                  for (const projection of transfer.projections)
-                    if (!project(parent, delta.value, projection, value => publish(parent, value))) return undefined;
+                  if (parent.dirty && pending.has(parent)) {
+                    if (!budget.step()) return undefined;
+                  } else for (const projection of transfer.projections)
+                      if (!project(parent, delta.value, projection, value => publish(parent, value))) return undefined;
+                  if (finalDelta && !retireForward(delta.cell, parent, transfer)) return undefined;
+                }
+                if (finalDelta) {
+                  delta.cell.forwardParents.clear();
+                  if (!settle(delta.cell)) return undefined;
                 }
                 continue;
               }
               const cell = pending.values().next().value!;
               pending.delete(cell);
-              if (!evaluate(cell)) return undefined;
+              if (cell.dirty) {
+                cell.dirty = false;
+                if (!evaluate(cell)) return undefined;
+              }
+              if (readyToSettle(cell) && !settle(cell)) return undefined;
             }
             if (budget.failure() !== undefined) return undefined;
-            for (const cell of wave) {
-              if (!budget.step()) return undefined;
-              cell.complete = true;
-            }
-            complete = true;
+            root.complete = true;
             return root.view;
           } finally {
             running = false;
@@ -474,7 +529,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               retire(cell);
               cell.forwardParents.clear();
               cell.dependencyRows.release();
-              if (!complete) {
+              cell.pendingInputs = 0;
+              cell.pendingDeltas = 0;
+              cell.dirty = false;
+              if (publication?.complete !== true) {
                 selections.delete(cell.key);
                 cell.values.clear();
                 cell.rows.release();
