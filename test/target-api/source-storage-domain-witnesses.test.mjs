@@ -112,3 +112,24 @@ test("checked public class instances retain every exact writable exposure under 
   assert.equal(writes.every(boundary => boundary.subject === selected.subject && Object.isFrozen(boundary)), true);
   assert.equal(storage.failureReason() === undefined, true, "the same original small finite ceiling remains valid");
 });
+
+test("recursive readonly projections retain their inherited original external input boundary", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `type Children = readonly Children[] | null | undefined;
+export function first(children: Children): Children { return children?.[0]; }`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "checked recursive array and one absence");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const storage = createSourceStorageQuery(source, [file]);
+  const parameter = requiredNode(source.ast, file, node => source.ast.is.IsParameterDeclaration(node));
+  const owner = source.ast.parent(parameter);
+  const root = storage.subject(parameter, "input");
+  const child = storage.subject(parameter, "input", [{ kind: "array-element" }, { kind: "array-element" }]);
+  assert.equal(root.kind === "resolved" && child.kind === "resolved", true, "exact checked recursive subjects");
+  const selected = storage.closedOriginsFor(child.subject);
+  assert.equal(selected.kind === "open", true, "recursive external input never becomes a closed empty domain");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" &&
+    boundary.subject === root.subject && boundary.exposure === owner), true, "original prefix and exposure identity remain");
+  assert.equal(storage.failureReason() === undefined, true, "inherited boundary coverage does not materialize an unbounded projection path");
+});
