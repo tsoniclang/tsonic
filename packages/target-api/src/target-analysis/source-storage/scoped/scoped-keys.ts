@@ -35,6 +35,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const completedReferences = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
   let completedReferenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
+  const actualInputDemand = (term: SourceStorageTerm): boolean => {
+    const demand = term.kind === "region" || term.kind === "application" && term.mode === "execution" ? term.demand : undefined;
+    return demand !== undefined && source.ast.is.IsParameterDeclaration(demand) &&
+      source.ast.is.IsIdentifier(source.ast.name(demand)) && Node_Initializer(source.ast, demand) === undefined &&
+      source.ast.as.AsParameterDeclaration(demand)?.DotDotDotToken === undefined;
+  };
   const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
     if (!budget.step()) return undefined;
     if (footprint.locations.size === 0) return [];
@@ -180,7 +186,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           : [selected.kind, scopes.identity(selected.store.reference), activation, receiver, value];
       }
       if (selected.kind === "region") {
-        const activation = activationKey(selected.scope);
+        const activation = actualInputDemand(selected) ? null : activationKey(selected.scope);
         const inputs: Encoded[] = [];
         const owner = sourceStorageRegionOwner(source.ast, selected.region);
         const callable = owner === undefined ? undefined : transport.subject(owner);
@@ -239,7 +245,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const footprint = subject === undefined ? undefined : footprints.select(subject);
         if (footprint === undefined) return undefined;
         const createsLocation = footprint.locations.has(subject!);
-        const activation = physicalInvocation || selected.mode === "execution" || createsLocation ? activationKey(selected.scope) : null;
+        const activation = !actualInputDemand(selected) && (physicalInvocation || selected.mode === "execution" || createsLocation)
+          ? activationKey(selected.scope) : null;
         if (callee === undefined || receiver === undefined || activation === undefined) return undefined;
         const arguments_: Encoded[] = [];
         for (const argument of call?.sourceArguments ?? []) {
