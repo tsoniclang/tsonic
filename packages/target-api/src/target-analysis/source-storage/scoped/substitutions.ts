@@ -25,14 +25,17 @@ import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 export const sourceStorageMissingProducerReason = "A demanded source storage relation has no completed correlated producer or absence proof.";
 
 const sourceStorageRelationKey = Symbol("source-storage-relation-key");
+const sourceStorageRelationData = Symbol("source-storage-relation-data");
 
 type SourceStorageRelation = SourceStorageTerm & {
   readonly [sourceStorageRelationKey]: string;
-  readonly children: Map<SourceStorageRelation, number>;
-  witnesses?: Map<SourceStorageScope, Map<SourceStorageSubject, number>>;
-  filter?: { readonly reference: Node; readonly input: SourceStorageRelation };
-  forwardProjection?: (value: SourceStorageTerm) => readonly SourceStorageForwardSelection<SourceStorageRelation, SourceStorageTerm>[] | undefined;
-  complete: boolean;
+  readonly [sourceStorageRelationData]: Map<SourceStorageRelation, number> & {
+    witnesses?: Map<SourceStorageScope, Map<SourceStorageSubject, number>>;
+    filter?: { readonly reference: Node; readonly input: SourceStorageRelation };
+    forwardProjection?: (value: SourceStorageTerm) =>
+      readonly SourceStorageForwardSelection<SourceStorageRelation, SourceStorageTerm>[] | undefined;
+    complete: boolean;
+  };
 };
 
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -74,16 +77,17 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const current = relation;
     if ((current.kind === "reference" || current.kind === "leaf") && current.subject === reference.subject &&
       (current.scope === reference.bindings || witnessScope(current.subject, current.scope) === reference.bindings)) return true;
-    const states = relation.witnesses?.get(reference.bindings);
+    const data = relation[sourceStorageRelationData];
+    const states = data.witnesses?.get(reference.bindings);
     const mode = contributes ? 2 : 1;
     const previous = states?.get(reference.subject);
     if (((previous ?? 0) & mode) !== 0) return true;
     if (previous === undefined && !rows.add(states === undefined ? 2 : 1)) return false;
     const selected = states ?? new Map<SourceStorageSubject, number>();
-    const witnesses = relation.witnesses ?? new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
+    const witnesses = data.witnesses ?? new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     selected.set(reference.subject, (previous ?? 0) | mode);
     witnesses.set(reference.bindings, selected);
-    Object.defineProperty(relation, "witnesses", { value: witnesses, writable: true, configurable: true });
+    data.witnesses = witnesses;
     return true;
   };
   const normalize = (term: SourceStorageTerm, witnesses: SourceStorageRelationWitness[], temporary: SourceStorageRows,
@@ -229,18 +233,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (key === undefined) { budget.reject(`Source storage ${normalized.kind} terms require an exact relation key.`); return undefined; }
     let selected = relations.get(key);
     if (selected === undefined) {
-      const node: SourceStorageRelation = { ...normalized, [sourceStorageRelationKey]: key,
-        children: new Map(), complete: false };
-      Object.defineProperties(node, {
-        [sourceStorageRelationKey]: { enumerable: false, writable: false, configurable: false },
-        children: { enumerable: false, writable: false, configurable: false },
-        complete: { enumerable: false, configurable: false },
-      });
-      for (const property of Object.keys(normalized)) {
-        if (!budget.step()) return undefined;
-        Object.defineProperty(node, property, { writable: false, configurable: false });
-      }
       if (!rows.add(2)) return undefined;
+      const node: SourceStorageRelation = { ...normalized, [sourceStorageRelationKey]: key,
+        [sourceStorageRelationData]: Object.assign(new Map<SourceStorageRelation, number>(), { complete: false }) };
+      Object.defineProperties(node, {
+        [sourceStorageRelationKey]: { enumerable: false },
+        [sourceStorageRelationData]: { enumerable: false },
+      });
+      Object.freeze(node);
       selected = node;
       relations.set(key, selected);
     }
@@ -256,7 +256,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     emit: (relation: SourceStorageRelation, direct: boolean) => boolean,
     project: (input: SourceStorageRelation, select: (value: SourceStorageTerm) => readonly SourceStorageRelation[] | undefined) => boolean): boolean => scopes.withTraversal(() => {
     const current = relation;
-    const children = relation.children;
+    const data = relation[sourceStorageRelationData];
+    const children = data;
     const retain = (term: SourceStorageTerm, values = true): SourceStorageRelation | undefined => {
       const selected = intern(term);
       if (selected === undefined) { budget.reject("Source storage relations require an interned successor term."); return undefined; }
@@ -280,9 +281,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (input === undefined) return false;
           if (selected.valueFilter !== undefined) {
             if (selected.inputs.length !== 1) { budget.reject("A guarded storage projection requires one exact original value."); return false; }
-            if (relation.filter === undefined && !rows.add(1)) return false;
-            Object.defineProperty(relation, "filter", { value: { reference: selected.valueFilter, input },
-              writable: true, configurable: true });
+            if (data.filter === undefined && !rows.add(1)) return false;
+            data.filter = { reference: selected.valueFilter, input };
           }
           if (!project(input, value => scopes.withTraversal(() => {
             const projected = value.kind === "leaf" || value.kind === "empty" ? selected.select(value)
@@ -338,16 +338,17 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   });
   const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>((current, read, emit, forward) => {
     const complete = derive(current, read, (relation, direct) => direct ? emit(relation) : forward(relation), (input, select) => {
-      let projection = current.forwardProjection;
+      const data = current[sourceStorageRelationData];
+      let projection = data.forwardProjection;
       if (projection === undefined) {
         if (!rows.add(1)) return false;
         projection = value => select(value)?.map(relation => relation.kind === "leaf" || relation.kind === "unresolved"
           ? { kind: "value", value: relation } : { kind: "relation", key: relation });
-        Object.defineProperty(current, "forwardProjection", { value: projection });
+        data.forwardProjection = projection;
       }
       return forward(input, projection);
     });
-    if (complete) current.complete = true;
+    if (complete) current[sourceStorageRelationData].complete = true;
     return complete;
   }, "storage-relations");
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
@@ -468,7 +469,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const term = current;
       if (term.kind === "reference" && !retain(witnessScope(term.subject, term.scope), term.subject, 2)) return undefined;
       if (term.kind === "leaf" && !retain(term.scope, term.subject, 2 | 16)) return undefined;
-      for (const [scope, inputs] of current.witnesses ?? []) for (const [input, mode] of inputs) {
+      for (const [scope, inputs] of current[sourceStorageRelationData].witnesses ?? []) for (const [input, mode] of inputs) {
         if (!retain(scope, input, mode)) return undefined;
       }
       return stopped;
@@ -498,9 +499,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const stopped = collectWitnesses(relation, entry.collect, entry.guards);
       if (stopped === undefined) return undefined;
       if (stopped) continue;
-      if (!relation.complete) {
+      const data = relation[sourceStorageRelationData];
+      if (!data.complete) {
         if (!derive(relation, results, () => true, project)) return undefined;
-        relation.complete = true;
+        data.complete = true;
         const completed = collectWitnesses(relation, entry.collect, entry.guards);
         if (completed === undefined) return undefined;
         if (completed) continue;
@@ -527,14 +529,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         reason ??= current.reason;
         if (current.exposure === undefined) fatalReason ??= current.reason;
       }
-      const filter = preserveValuePath ? relation.filter : undefined;
+      const filter = preserveValuePath ? data.filter : undefined;
       if (filter !== undefined) {
         const guards = transport.guardedValues.conjoin(entry.guards, filter.reference);
         if (budget.failure() !== undefined) return undefined;
         if (guards !== null) pending.push({ relation: filter.input, collect: entry.collect, guards });
         continue;
       }
-      for (const [child, mode] of relation.children) {
+      for (const [child, mode] of data) {
         if (!budget.step()) return undefined;
         if (child.kind !== "execution-root") pending.push({ relation: child, collect: entry.collect && (mode & 2) !== 0, guards: entry.guards });
       }
