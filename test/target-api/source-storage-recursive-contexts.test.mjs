@@ -78,6 +78,28 @@ test("canonical recursive storage never trusts copied or foreign graph ownership
     "structurally similar recursive entries keep independent caller identity");
 });
 
+for (const reverse of [false, true]) test(`native publication keeps a forwarded input's actual caller effects (${reverse})`, () => {
+  const current = fixture(`
+    interface Cell { value: object; }
+    declare function mutate(value: Cell): void;
+    function forward(value: Cell): void { mutate(value); }
+    const own = {}; const foreign = {};
+    const exposed = { value: own }; const untouched = { value: foreign };
+    forward(exposed);
+    const first = exposed.value; const second = untouched.value;
+  `);
+  for (const name of reverse ? ["second", "first"] : ["first", "second"]) {
+    const selected = current.result(name, name === "first" ? "open" : "complete");
+    const expected = current.subject(name === "first" ? "own" : "foreign");
+    assert.equal(selected.origins.some(origin => origin.subject === expected), true,
+      "the original checked field producer survives native publication");
+    if (name === "first") assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+      "forwarding cannot hide an actual native write exposure");
+    else assert.equal(selected.origins.length === 1, true,
+      "a distinct caller allocation is not published by another invocation");
+  }
+});
+
 for (const [name, declarations] of [
   ["direct", `
     function descend(root: Tree): Tree {

@@ -33,7 +33,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
   const ownerRows = budget.createRows();
   const completedReferences = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
-  const completedReferenceRows = budget.createRows();
+  let completedReferenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
   const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
     if (!budget.step()) return undefined;
@@ -397,6 +397,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     return selected === undefined ? undefined : String(selected.encoded.identity);
   };
   return Object.freeze({ encode: key,
+    releaseReferenceMemo(): void {
+      completedReferences.clear();
+      completedReferenceRows.release();
+      completedReferenceRows = budget.createRows();
+    },
     context(inputs: readonly (readonly { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[])[]): string | undefined {
       return budget.withRows(temporary => {
         const states: Encoded[] = [];
