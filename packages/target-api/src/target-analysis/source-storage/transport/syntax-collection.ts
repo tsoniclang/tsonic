@@ -2,12 +2,13 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
+import { isSourceCallableBodyBoundary } from "../../../source-navigation/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageCallableInputSlots, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
-import type { SourceStorageBudget } from "../model/resource-budget.js";
+import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
@@ -36,6 +37,8 @@ export interface SourceStorageSyntaxCollectionContext {
   readonly unresolvedInvocations: Map<Node, string>;
   readonly memberImplementations: Map<Node, Set<Node>>;
   readonly visitedNodes: Node[];
+  readonly callableDeclarations: Node[];
+  readonly callableDeclarationRows: SourceStorageRows;
   readonly subject: SourceStorageSubjectQuery;
   readonly step: () => boolean;
   retainCheckedContext(node: Node, sourceFile: SourceFile): boolean;
@@ -57,11 +60,16 @@ export interface SourceStorageSyntaxCollectionContext {
 export function createSourceStorageSyntaxCollection(context: SourceStorageSyntaxCollectionContext): (node: Node) => void {
   const { source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects, invocationTargets, invocationArguments,
     invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations, memberImplementations, visitedNodes,
+    callableDeclarations, callableDeclarationRows,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor, locationFor, connect, projections,
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
   const { ast, navigation, semantics } = source;
   const visit = (node: Node): void => {
     visitedNodes.push(node);
+    if (isSourceCallableBodyBoundary(ast, node) && ast.body(node) !== undefined) {
+      if (!callableDeclarationRows.add(1)) return;
+      callableDeclarations.push(node);
+    }
     if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsBindingElement(node) ||
       ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) ||
       ast.is.IsElementAccessExpression(node) || valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);

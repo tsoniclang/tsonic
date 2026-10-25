@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -177,7 +177,7 @@ test("empty formal demand relations publish proven empty data without retaining 
           return graph.fixedPoint(...arguments_);
         },
       }, {
-        nodes: [declaration], invocations: [], subject, subjectFor: subject,
+        declarations: [declaration], invocations: [], subject, subjectFor: subject,
         invocationInputs: () => assert.fail("these complete source bodies have no invocation"),
         inputsFor: () => assert.fail("these parameters have no initializer or forwarding expression"),
         implementationsFor: () => assert.fail("these complete source bodies have no invocation"),
@@ -202,6 +202,37 @@ test("empty formal demand relations publish proven empty data without retaining 
       }
     }
   }
+});
+
+test("formal member demands consume the complete checked callable-body inventory once", () => {
+  const current = formalFixture(`
+    function authored(owner: Reader): void;
+    function authored(owner: Reader) { owner.read = () => 1; }
+    const expression = function(owner: Reader) { owner.read = () => 2; };
+    const arrow = (owner: Reader) => { owner.read = () => 3; };
+    class Methods {
+      constructor(owner: Reader) { owner.read = () => 4; }
+      method(owner: Reader) { owner.read = () => 5; }
+      set value(owner: Reader) { owner.read = () => 6; }
+      get value(): Reader { return { read() { return 0; } }; }
+    }
+  `);
+  let inputs = 0;
+  for (const declaration of current.nodes) {
+    if (!isSourceCallableBodyBoundary(current.source.ast, declaration) || current.source.ast.body(declaration) === undefined) continue;
+    const parameters = sourceCallableValueParameters(current.source.ast, declaration,
+      current.source.semantics.forNode(declaration), { kind: "declaration" });
+    assert.equal(parameters !== undefined, true, "the original body supplies its complete runtime parameter vector");
+    for (const parameter of parameters) {
+      if (current.source.ast.text(current.source.ast.name(parameter)) !== "owner") continue;
+      const selected = current.storage.formalMemberWriteDemand(declaration, parameter);
+      assert.equal(selected.kind, "complete", `${current.source.ast.kindName(declaration)}: ${selected.reason ?? ""}`);
+      assert.equal(selected.members.length, 1, "the exact collected body retains its member write");
+      assert.equal(selected.members[0] === current.member(), true, "all body kinds retain identical checked member evidence");
+      inputs += 1;
+    }
+  }
+  assert.equal(inputs, 6, "declaration/expression/arrow/constructor/method/setter bodies all participate, not overload declarations");
 });
 
 test("formal member demands separate readonly consumers from the actual writer and physical producers", () => {
