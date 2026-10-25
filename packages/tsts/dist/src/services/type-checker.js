@@ -219,13 +219,15 @@ function getResolvedSourceObjectLiteralElementInfo(checker, element, symbolsByTy
     const sourceElementSymbol = symbols.get(element);
     if (sourceElementSymbol === undefined)
         return undefined;
-    const selectedOwnerType = contextualType ?? objectLiteralType;
-    const sourceSelectedSymbol = Checker_GetPropertyOfType(checker, selectedOwnerType, sourceElementSymbol.Name);
-    const sourceSelectedType = contextualType === undefined
-        ? sourceSelectedSymbol === undefined
-            ? sourceElementType
-            : Checker_getTypeOfSymbol(checker, sourceSelectedSymbol)
+    const contextualElementType = contextualType === undefined
+        ? undefined
         : Checker_getTypeOfPropertyOfContextualTypeEx(checker, contextualType, sourceElementSymbol.Name, Checker_getLiteralTypeFromPropertyName(checker, Node_Name(element)));
+    const sourceSelectedSymbol = contextualElementType === undefined
+        ? sourceElementSymbol
+        : Checker_GetPropertyOfType(checker, contextualType, sourceElementSymbol.Name);
+    const sourceSelectedType = contextualElementType === undefined
+        ? Checker_getTypeOfSymbol(checker, sourceElementSymbol)
+        : contextualElementType;
     if (sourceSelectedType === undefined) {
         return undefined;
     }
