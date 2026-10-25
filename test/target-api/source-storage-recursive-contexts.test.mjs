@@ -46,6 +46,38 @@ function nest(callback: () => object, count: number): () => object {
 }
 `;
 
+test("canonical recursive storage never trusts copied or foreign graph ownership", () => {
+  const current = fixture(`
+    function carry(value: object, count: number): object { return count === 0 ? value : carry(value, count - 1); }
+    const own = {}; const foreign = {};
+    const first = carry(own, 2); const second = carry(foreign, 3);
+  `);
+  const first = current.result("first");
+  const other = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles, {
+    ...defaultSourceStorageLimits, maximumSteps: 65_536, maximumTransportRows: 4096,
+  });
+  const foreignSubject = other.subjectFor(current.initializer("first"));
+  assert.equal(foreignSubject.kind === "resolved", true, "the other graph owns its real checked subject");
+  const ownSubject = current.subject("first");
+  for (const subject of [foreignSubject.subject, { ...ownSubject }]) {
+    const rejected = current.storage.closedOriginsFor(subject);
+    assert.equal(rejected.kind === "unresolved" && /different transport graph/u.test(rejected.reason), true,
+      "neither a foreign owner nor copied semantic fields can forge this graph's identity");
+  }
+  const otherResult = other.closedOriginsFor(foreignSubject.subject);
+  const otherOrigin = other.subjectFor(current.initializer("own"));
+  assert.equal(otherResult.kind === "complete" && otherOrigin.kind === "resolved" &&
+    otherResult.origins.length === 1 && otherResult.origins[0].subject === otherOrigin.subject, true,
+  "the other graph still computes its own exact canonical origin");
+  const repeated = current.result("first");
+  assert.equal(first.origins.length === 1 && repeated.origins.length === 1 &&
+    first.origins[0].subject === repeated.origins[0].subject && first.origins[0].subject === current.subject("own"), true,
+  "failed foreign demands do not change the original completed graph");
+  const second = current.result("second");
+  assert.equal(second.origins.length === 1 && second.origins[0].subject === current.subject("foreign"), true,
+    "structurally similar recursive entries keep independent caller identity");
+});
+
 for (const [name, declarations] of [
   ["direct", `
     function descend(root: Tree): Tree {
