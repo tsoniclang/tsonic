@@ -599,9 +599,11 @@ export function createSourceStorageTransport(
       const storage = locationFor(access);
       storedValues.recordWrite(storage, write);
       const physicalOwner = storage === undefined ? undefined : sourceMemberOwner(ast, storage.node);
-      if (owner.kind === "receiver" && storage?.kind === "member" && ast.is.IsPropertyDeclaration(storage.node) &&
+      const receiver = owner.kind === "receiver" ? owner
+        : ast.kindName(owner.node) === "KindThisKeyword" ? receiverFor(owner.node) : undefined;
+      if (receiver !== undefined && storage?.kind === "member" && ast.is.IsPropertyDeclaration(storage.node) &&
         declarations?.includes(storage.node) === true && physicalOwner !== undefined &&
-        (physicalOwner === owner.node || physicalOwner === ast.parent(owner.node))) return;
+        (physicalOwner === receiver.node || physicalOwner === ast.parent(receiver.node))) return;
       for (const origin of originSubjects(owner) ?? []) {
         if (!step()) break;
         if (selected !== undefined && property === undefined && storage !== undefined && storage.projection.length > owner.projection.length) {

@@ -347,11 +347,10 @@ export function createSourceStorageMemberFlow(
     "direct" | "copied" | "absent" | undefined => {
     if (owner.projection.length !== 0) return "direct";
     if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
-    if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return "direct";
-    if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return "copied";
+    if (!source.ast.is.IsObjectLiteralExpression(owner.node)) return "direct";
     const contribution = copyContributionFor(owner, declaration, destinationType, owner.node);
     return contribution === undefined ? undefined : contribution.kind === "spread" ? "copied"
-      : contribution.kind === "absent" ? "absent" : "direct";
+      : contribution.kind === "absent" ? "absent" : contribution.declaration === declaration ? "direct" : "copied";
   };
   const componentsFor = (owner: SourceStorageSubject): readonly SourceStorageProjection[] | undefined => {
     const file = sourceFileFor(owner);
