@@ -42,6 +42,133 @@ function resolved(selection) {
   return selection;
 }
 
+test("selected invocation inputs publish one current call and construction mapping", async () => {
+  const { ast, nodes, storage, declaration } = await fixture("source-selected-input-publication", `
+    class Holder {
+      stored: () => number;
+      constructor(value: () => number) { this.stored = value; }
+      get value(): () => number { return this.stored; }
+      set value(next: () => number) { this.stored = next; }
+    }
+    function identity<Value>(value: Value): Value { return value; }
+    export function run() {
+      const selected = () => 1;
+      const box = new Holder(selected);
+      box.value = identity(selected);
+      return box.value;
+    }
+  `);
+  const call = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "identity");
+  const construct = nodes.find(node => ast.is.IsNewExpression(node));
+  for (const [invocation, kind, owner] of [[call, "call", declaration("identity")],
+    [construct, "construct", nodes.find(node => ast.is.IsConstructorDeclaration(node))]]) {
+    const selected = resolved(storage.invocationImplementationsFor(invocation));
+    const again = resolved(storage.invocationImplementationsFor(invocation));
+    assert.equal(selected.inputs.length, 1, "one selected invocation input record");
+    const input = selected.inputs[0];
+    assert.equal(input === again.inputs[0], true, "consumers share the published record, not reconstructed slots");
+    assert.equal(input.kind, kind, "the record retains its invocation kind");
+    assert.equal(input.invocation === invocation, true, "the checked invocation identity is retained");
+    assert.equal(input.selected.kind, "resolved", "the selected signature is complete");
+    assert.equal(input.selected.slots.length, 1, "one checked selected input");
+    assert.equal(input.implementation.kind, "resolved", "the actual implementation is complete");
+    const body = input.implementations.find(body => body.declaration === owner);
+    assert.equal(body?.selected.kind, "resolved", "the implementation has exact value slots");
+    assert.equal(body.selected.slots[0].parameter === ast.parameters(owner)[0], true, "the actual body parameter is retained");
+    assert.equal(Object.isFrozen(input) && Object.isFrozen(body.selected.slots), true, "published input facts are immutable");
+  }
+  for (const [ownerKind, kind, count] of [["set", "setter", 1], ["get", "getter", 0]]) {
+    const owner = nodes.find(node => ownerKind === "set" ? ast.is.IsSetAccessorDeclaration(node) : ast.is.IsGetAccessorDeclaration(node));
+    const access = nodes.find(node => ast.is.IsPropertyAccessExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsPropertyAccessExpression(node).Expression) &&
+      ast.text(ast.as.AsPropertyAccessExpression(node).Expression) === "box" &&
+      ast.text(ast.name(node)) === "value" &&
+      (ownerKind === "set" ? ast.is.IsBinaryExpression(ast.parent(node)) : ast.is.IsReturnStatement(ast.parent(node))));
+    const selected = resolved(storage.invocationImplementationsFor(access));
+    const input = selected.inputs.find(input => input.kind === kind);
+    assert.equal(input !== undefined && input.accessor === owner, true, "the checked accessor selects its own record");
+    assert.equal(input.selected.kind, "resolved", "accessor signature facts are published");
+    assert.equal(input.selected.slots.length, count, "getter has no invented value input; setter has exactly one");
+    const body = input.implementations.find(body => body.declaration === owner);
+    assert.equal(body?.selected.kind, "resolved", "the selected accessor body is complete");
+    assert.equal(body.selected.slots.length, count, "accessor implementation slots match their operation");
+    if (kind === "setter") {
+      assert.equal(input.value === ast.as.AsBinaryExpression(ast.parent(access)).Right, true, "the setter retains its actual assigned value");
+      assert.equal(body.selected.slots[0].parameter === ast.parameters(owner)[0], true, "the setter keeps its exact checked parameter");
+    }
+  }
+});
+
+test("native callback input records use their exact entry rather than the ordinary call key", async () => {
+  const { ast, nodes, storage } = await fixture("source-selected-native-input-publication", `
+    declare function runNative(first: (value: number) => void, second: (value: string) => void): void;
+    export function run() {
+      const callback = (value: number | string): void => {};
+      runNative(callback, callback);
+    }
+  `, () => ({ callbackEntries: () => [{ parameterIndex: 0, timing: "synchronous" },
+    { parameterIndex: 1, timing: "synchronous" }] }));
+  const invocation = nodes.find(node => ast.is.IsCallExpression(node));
+  const body = nodes.find(node => ast.is.IsArrowFunction(node));
+  const entries = resolved(storage.nativeCallbackArgumentsFor(invocation)).arguments;
+  assert.equal(entries.length, 2, "both checked native entry ports are retained");
+  const ordinary = resolved(storage.invocationImplementationsFor(invocation));
+  const inputs = entries.map(entry => resolved(storage.invocationImplementationsFor(invocation, undefined, entry)).inputs[0]);
+  assert.equal(inputs[0] !== inputs[1] && inputs.every(input => input !== ordinary.inputs[0]), true,
+    "native entries and the ordinary call never share a mapping key");
+  for (const [index, input] of inputs.entries()) {
+    assert.equal(input.kind, "native-callback", "native execution uses its callback selection");
+    assert.equal(input.entry.argument === entries[index], true, "the exact entry argument identity is retained");
+    assert.equal(input.selected.kind, "resolved", "the selected native callback signature is complete");
+    const selected = input.implementations.find(input => input.declaration === body);
+    assert.equal(selected?.selected.kind, "resolved", "the source callback implementation is complete");
+    assert.equal(selected.selected.slots[0].parameter === ast.parameters(body)[0], true, "both native ports retain their shared original body parameter");
+    const repeated = resolved(storage.invocationImplementationsFor(invocation, undefined, entries[index]));
+    assert.equal(repeated.inputs[0] === input, true, "native entry slot facts are not rebuilt by later queries");
+  }
+  assert.equal(storage.invocationImplementationsFor(invocation, undefined, { ...entries[0] }).kind, "unresolved",
+    "a copied callback record is not the exact selected entry");
+});
+
+test("identical checked signatures share slot facts while distinct instantiations retain their selection", async () => {
+  const { ast, nodes, storage } = await fixture("source-selected-input-identical-facts", `
+    function stable(value: object): object { return value; }
+    function generic<Value>(value: Value): Value { return value; }
+    export const left = stable({}); export const right = stable({});
+    export const numeric = generic(1); export const textual = generic("value");
+  `);
+  const selected = name => nodes.filter(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === name)
+    .map(node => resolved(storage.invocationImplementationsFor(node)).inputs[0]);
+  const stable = selected("stable");
+  assert.equal(stable.length, 2, "both independently checked calls are retained");
+  assert.equal(stable[0].signature === stable[1].signature, true, "the two non-generic calls have the identical selected signature");
+  assert.equal(stable[0].selected === stable[1].selected, true, "one canonical signature construction serves both invocation records");
+  assert.equal(stable[0].implementations[0].selected === stable[1].implementations[0].selected, true,
+    "the same resolved body facts are read rather than rebuilt or double-retained");
+  const generic = selected("generic");
+  assert.equal(generic.length, 2, "both instantiation contexts remain selected");
+  assert.equal(generic[0].signature !== generic[1].signature && generic[0].selected !== generic[1].selected, true,
+    "different checked generic instantiations never inherit another invocation's slot record");
+  assert.equal(generic[0].selected.slots[0].parameter === generic[1].selected.slots[0].parameter, true,
+    "separate instantiations retain the same exact original declaration parameter");
+});
+
+test("a selected signature without a source implementation keeps an unresolved body half", async () => {
+  const { ast, nodes, storage } = await fixture("source-selected-input-unresolved-body", `
+    interface Reader { read(value: number): number; }
+    export function run(owner: Reader, value: number): number { return owner.read(value); }
+  `);
+  const invocation = nodes.find(node => ast.is.IsCallExpression(node));
+  const selected = resolved(storage.invocationImplementationsFor(invocation));
+  assert.equal(selected.exact, false, "a type-only contract is not one proven implementation");
+  const input = selected.inputs[0];
+  assert.equal(input.selected.kind, "resolved", "the signature half preserves its checked selected input");
+  assert.equal(input.selected.slots.length, 1, "the selected argument is not dropped");
+  assert.equal(input.implementation.kind, "unresolved", "a missing implementation is not closed-empty");
+  assert.equal(input.implementations.every(body => body.selected.kind === "unresolved"), true,
+    "no type-only contract is published as a resolved body");
+});
+
 test("argument closure frontier retains its caller's symbolic enclosing activation", async () => {
   const { ast, nodes, storage, declaration, subject } = await fixture("source-activation-argument-capture", `
     export function source<Value>(callback: () => Value): Value { return callback(); }

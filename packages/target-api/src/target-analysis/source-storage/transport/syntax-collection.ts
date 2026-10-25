@@ -7,9 +7,9 @@ import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
-import { sourceStorageCallableInputSlots, sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
+import { sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import type { SourceStorageWrite, createSourceStorageStoredValues } from "../graph/stored-values.js";
@@ -54,10 +54,11 @@ export interface SourceStorageSyntaxCollectionContext {
   writeFor(node: Node): SourceStorageWrite | undefined;
   connectWrite(location: SourceStorageSubject | undefined, value: SourceStorageSubject | undefined): void;
   recordThrow(region: Node, origin: SourceStorageSubject): void;
+  inputSlotsFor(invocation: Node): SourceStorageInvocationInputSlots | undefined;
 }
 
 /** The per-node collection pass of source storage transport: subjects, edges, writes, invocations and their transports. */
-export function createSourceStorageSyntaxCollection(context: SourceStorageSyntaxCollectionContext): (node: Node) => void {
+export function createSourceStorageSyntaxCollection(context: SourceStorageSyntaxCollectionContext) {
   const { source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects, invocationTargets, invocationArguments,
     invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations, memberImplementations, visitedNodes,
     callableDeclarations, callableDeclarationRows,
@@ -213,10 +214,17 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
         : consumer.declarations.signatureDeclaration(selected.selectedSignature);
       if (selected?.sourceSelectedSignatureKind !== "resolved" || signature === undefined && !ast.is.IsNewExpression(node))
         unresolvedInvocations.set(node, "Source storage argument transport requires its original checked selected signature.");
+      if (signature !== undefined) invocationDeclarations.set(node, signature);
+      const target = subjectFor(Node_Expression(ast, node));
+      if (target !== undefined) invocationTargets.set(node, target);
+    }
+  };
+  const publishInvocationInputs = (node: Node): void => {
+      const consumer = semantics.forNode(node);
+      const selected = consumer.operations.call(node);
+      const signature = selected === undefined ? undefined : consumer.declarations.signatureDeclaration(selected.selectedSignature);
       if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
-        if (signature !== undefined) invocationDeclarations.set(node, signature);
         const target = subjectFor(Node_Expression(ast, node));
-        if (target !== undefined) invocationTargets.set(node, target);
         const base = sourceStorageSuperConstructor(node, source, step);
         if (base !== undefined) connect(subjectFor(base.callee), target);
         invocationArguments.set(node, Object.freeze([
@@ -224,6 +232,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
           ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
         ]));
         const arguments_: SourceStorageArgumentTransport[] = [];
+        const input = context.inputSlotsFor(node);
+        const selectedSlots = input?.selected.kind === "resolved" ? input.selected.slots : undefined;
         const checkedParameters = consumer.declarations.signatureParameters(selected.selectedSignature);
         for (const parameter of selected.sourceSelectedSignatureParameters) {
           if (!step()) break;
@@ -242,9 +252,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             continue;
           }
           const actual = sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-          const rest = binding.sourceParameterForm === "parameter" || signature === undefined ? undefined
-            : sourceStorageCallableInputSlots(source, signature, consumer,
-              { kind: "selected-signature", signature: selected.selectedSignature }, step)?.filter(slot =>
+          const rest = binding.sourceParameterForm === "parameter" ? undefined
+            : selectedSlots?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
           const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
@@ -269,7 +278,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             connect(actual.subject, destination, { from: actual.sourceType, to: actual.targetType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
-        const supplied = pointerEffect === undefined ? effects.callbackEntries?.(node, selected) : [];
+        const supplied = pointerInvocations.has(node) ? [] : effects.callbackEntries?.(node, selected);
         const callbacks = supplied === undefined ? undefined : snapshotSourceStorageCallbackEffects(supplied, selected, budget);
         const nativeEntries: SourceStorageCallbackEntry[] = [];
         for (const argument of arguments_) {
@@ -284,7 +293,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             argumentType !== undefined && types.callSignatures(argumentType).length !== 0;
           if (known === undefined && !callable) continue;
           if (!budget.row()) break;
-          nativeEntries.push(Object.freeze({ argument, timing: known?.timing ?? "unknown",
+          nativeEntries.push(Object.freeze({ kind: "source-storage-callback-entry" as const, invocation: node,
+            argument, timing: known?.timing ?? "unknown",
             ...(known?.rejection === undefined ? {} : { rejection: known.rejection }),
             ...(known?.inputs === undefined ? {} : { inputs: known.inputs }) }));
         }
@@ -292,7 +302,6 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       } else {
         unresolvedInvocations.set(node, "An invocation has no exact checked selected signature transport.");
       }
-    }
   };
-  return visit;
+  return Object.freeze({ visit, publishInvocationInputs });
 }

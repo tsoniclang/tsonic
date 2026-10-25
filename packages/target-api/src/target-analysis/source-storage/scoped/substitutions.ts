@@ -41,7 +41,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const creation = Object.freeze({ footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs,
     transport.contextLocation, transport.contextualInputs.applicationFor),
     ownerFor: (subject: SourceStorageSubject) => sourceStorageActivationOwner(source, transport.regions.enclosing, subject) });
-  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation);
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries, recursion.entryInputFor, creation, transport.inputSlotsFor);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
@@ -362,7 +362,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
-    const visited = new Map<SourceStorageRelation, Map<string, number>>();
+    const visited = new Map<SourceStorageRelation, number | Map<string, number>>();
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly guards?: SourceStorageValueGuards }[] =
       [{ relation: root, collect: true }];
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
@@ -418,11 +418,22 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const flag = entry.collect ? 2 : 1;
       const guardsKey = entry.guards?.key ?? "";
       const visitedGuards = visited.get(relation);
-      if (((visitedGuards?.get(guardsKey) ?? 0) & flag) !== 0) continue;
-      if (!temporary.add(visitedGuards === undefined ? 2 : 1)) return undefined;
-      const retainedGuards = visitedGuards ?? new Map<string, number>();
-      retainedGuards.set(guardsKey, (retainedGuards.get(guardsKey) ?? 0) | flag);
-      visited.set(relation, retainedGuards);
+      const previous = typeof visitedGuards === "number" ? guardsKey === "" ? visitedGuards : 0
+        : visitedGuards?.get(guardsKey) ?? 0;
+      if ((previous & flag) !== 0) continue;
+      if (visitedGuards === undefined && guardsKey === "") {
+        if (!temporary.add(1)) return undefined;
+        visited.set(relation, flag);
+      } else if (typeof visitedGuards === "number" && guardsKey === "") {
+        visited.set(relation, visitedGuards | flag);
+      } else {
+        if ((visitedGuards === undefined || typeof visitedGuards === "number") && !temporary.add(2) ||
+          visitedGuards instanceof Map && !visitedGuards.has(guardsKey) && !temporary.add(1)) return undefined;
+        const retainedGuards = visitedGuards instanceof Map ? visitedGuards : new Map<string, number>(
+          visitedGuards === undefined ? [] : [["", visitedGuards]]);
+        retainedGuards.set(guardsKey, previous | flag);
+        visited.set(relation, retainedGuards);
+      }
       const stopped = collectWitnesses(relation, entry.collect, entry.guards);
       if (stopped === undefined) return undefined;
       if (stopped) continue;

@@ -13,7 +13,7 @@ import type {
   SourceStorageProducersSelection,
 } from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import { sourceStorageCallableInputSlots, sourceStorageNativeInputSlots } from "../source-storage/graph/invocation-inputs.js";
+import { sourceStorageSelectedInputSlots, sourceStorageNativeInputSlots } from "../source-storage/graph/invocation-inputs.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
 import { createSourceGenericAdoptionDiagnostics } from "./generic-adoption-diagnostics.js";
 
@@ -284,8 +284,14 @@ export function analyzeSourceGenericAdoption(input: {
             continue;
           }
           const owner = implementation.implementation.declaration;
-          const slots = sourceStorageCallableInputSlots(source, owner, semantics,
-            { kind: "source-implementation", signature: undefined }, () => step(executor));
+          const callbacks = input.storage.nativeCallbackArgumentsFor(node);
+          const actual = input.storage.subjectFor(executor);
+          const callback = callbacks.kind === "unresolved" || actual.kind === "unresolved" ? undefined
+            : callbacks.arguments.find(argument => argument.actual === actual.subject);
+          const selection = callback === undefined ? undefined : input.storage.invocationImplementationsFor(node, lexical.kind === "resolved"
+            ? lexical.bindings : undefined, callback);
+          const inputs = selection?.kind === "resolved" ? selection.inputs.find(input => input.kind === "native-callback") : undefined;
+          const slots = sourceStorageSelectedInputSlots(inputs, owner);
           const resolve = slots?.find(slot => slot.effectiveIndex === 0);
           if (slots === undefined || resolve !== undefined && (resolve.repeated || resolve.projection === undefined)) {
             if (generic) markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,
@@ -402,8 +408,10 @@ export function analyzeSourceGenericAdoption(input: {
         const entry = ownerActivation?.kind === "declaration" ? ownerActivation.nativeEntry : undefined;
         if (entry !== undefined) {
           selectedSemantics = source.semantics.forNode(entry.invocation);
+          const selection = input.storage.invocationImplementationsFor(entry.invocation, entry.callerBindings, entry.argument);
+          const inputs = selection.kind === "resolved" ? selection.inputs.find(input => input.kind === "native-callback") : undefined;
           const nativeInputs = sourceStorageNativeInputSlots(source, owner!, origin,
-            entry.argument.binding.selectedParameterType, selectedSemantics, () => step(operation));
+            inputs, selectedSemantics, () => step(operation));
           if (nativeInputs === undefined || nativeInputs.some(input => !input.absent && input.type === undefined)) {
             markType(operation, knownResolverResult ?? producer.type, source.semantics.forFile(producer.sourceFile), Object.freeze({ kind: "unresolved", at: operation,
               reason: "A native resolver callback requires its exact checked input component type bound." }));

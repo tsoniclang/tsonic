@@ -41,7 +41,7 @@ function fixture(relation, limits = {}, context = () => true, selectMember) {
   const source = {
     ast: { name: () => undefined, getSourceFile: () => undefined, kindName: () => "test-node",
       is: { IsObjectLiteralExpression: node => node.kind === "object", IsArrayLiteralExpression: () => false,
-        IsIdentifier: node => node.kind === "identifier" } },
+        IsIdentifier: node => node.kind === "identifier", IsSpreadElement: () => false } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
       types: { expressionType: node => node.expressionType, contextualType: node => node.contextualType, isUnion: () => false,

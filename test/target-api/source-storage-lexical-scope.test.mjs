@@ -45,7 +45,8 @@ function fixture() {
     locationFor: () => undefined, ownerFor: () => undefined }, graph);
   const creation = { footprints: createSourceStorageContextFootprints(budget, contextualInputs, () => undefined),
     ownerFor: origin => sourceStorageActivationOwner(source, () => undefined, origin) };
-  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation);
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation,
+    () => assert.fail("The scalar lexical-scope fixture cannot request callable input slots."));
   const parent = scopes.frameFor(outer, initializer("selected"), scopes.empty, scopes.empty);
   const callee = scopes.frameFor(foreign, initializer("result"), parent, scopes.empty);
   const equation = { identity: 0, entry: foreign, component: new Set([foreign]), initial: callee };

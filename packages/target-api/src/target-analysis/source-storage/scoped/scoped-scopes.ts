@@ -8,7 +8,7 @@ import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../mo
 import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
-import { sourceStorageCallableInputSlots } from "../graph/invocation-inputs.js";
+import { sourceStorageSelectedInputSlots, type SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
@@ -35,7 +35,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined,
-  creation: SourceStorageCreationContext) {
+  creation: SourceStorageCreationContext, inputSlotsFor: SourceStorageInvocationInputSelectionQuery) {
   const rows = budget.createRows();
   const identities = new Map<object, number>();
   const identity = (value: object): number => {
@@ -360,8 +360,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller,
       entries, parents: Object.freeze([captured]) });
-    const slots = sourceStorageCallableInputSlots(source, candidate, source.semantics.forNode(invocation),
-      { kind: "source-implementation", signature: undefined }, budget.step);
+    const slots = sourceStorageSelectedInputSlots(inputSlotsFor(candidate, undefined), candidate);
     if (slots === undefined) return undefined;
     const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
       { kind: "declaration" });
@@ -458,12 +457,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     if (parameters.some(parameter => source.ast.is.IsParameterDeclaration(parameter) &&
       source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined)) {
-      const consumer = source.semantics.forNode(invocation);
-      const selection = consumer.operations.call(invocation);
-      const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
-        { kind: callback === undefined && source.ast.body(candidate) === undefined && selection?.sourceSelectedSignatureKind === "resolved" &&
-            consumer.declarations.signatureDeclaration(selection.selectedSignature) === candidate ? "selected-signature" : "source-implementation",
-          signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step);
+      const slots = sourceStorageSelectedInputSlots(inputSlotsFor(candidate, invocation, callback), candidate);
       if (slots === undefined) return undefined;
       for (const slot of slots) {
         if (!budget.step()) return undefined;

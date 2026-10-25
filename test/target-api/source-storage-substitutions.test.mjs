@@ -68,7 +68,8 @@ function fixture(limits = {}, length = 50) {
   transport.bindingInputFor = createSourceStorageBindingInputs(source.ast, transport, budget);
   const creation = { footprints: createSourceStorageContextFootprints(budget, transport.contextualInputs, transport.contextLocation),
     ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
-  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation);
+  const scopes = createSourceStorageScopes(source, budget, subject, invocationInputs, graph, () => undefined, creation,
+    () => assert.fail("The scalar substitution fixture cannot request callable input slots."));
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   return { budget, subject, scopes, keys, source, transport, creation, callable, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
@@ -494,7 +495,8 @@ test("replacement selection intersects exact free variables on the smaller side 
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(current.source, budget, current.subject,
-    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined, current.creation);
+    () => ({ subjects: new Set(), context: "caller", omitted: false }), graph, () => undefined, current.creation,
+    () => assert.fail("The scalar replacement fixture cannot request callable input slots."));
   const owners = Array.from({ length: 64 }, () => current.callable());
   const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
   const variables = owners.map(owner => scopes.variable(equation, owner));

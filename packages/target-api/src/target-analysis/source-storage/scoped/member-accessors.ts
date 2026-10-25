@@ -1,4 +1,4 @@
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageSelectedInputSlots, type SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
@@ -20,6 +20,7 @@ interface SourceStorageAccessorQueries {
   readonly spreadMembersFor: ReturnType<typeof createSourceStorageMemberFlow>["spreadMembersFor"];
   connect(origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined): void;
   recordInvocation(invocation: Node): void;
+  readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
 }
 
 export function createSourceStorageMemberAccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -95,7 +96,8 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
             const known = targets.get(access);
             if (!known?.some(target => target.declaration === candidate && target.receiver === receiver)) {
               if (!budget.row()) return;
-              targets.set(access, Object.freeze([...known ?? [], Object.freeze({ declaration: candidate, receiver })]));
+              targets.set(access, Object.freeze([...known ?? [], Object.freeze({ kind: "source-storage-accessor-entry" as const,
+                invocation: access, declaration: candidate, receiver })]));
               graph.invalidate({ node: access, kind: targets });
               queries.recordInvocation(access);
             }
@@ -109,15 +111,13 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
               queries.connect(queries.subject(candidate, "return"), queries.subject(object, "value", [{ kind: "member", declaration: accessor }]));
             } else if (readAccess) queries.connect(queries.subject(candidate, "return"), queries.subjectFor(access));
             else {
-              const parent = ast.parent(access);
-              const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent) ? undefined : ast.as.AsBinaryExpression(parent);
-              if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken") {
-                const parameters = sourceCallableValueParameters(ast, candidate, source.semantics.forNode(candidate),
-                  { kind: "declaration" });
-                if (parameters?.length !== 1) {
+              const input = queries.inputSlotsFor(candidate, access);
+              const slots = sourceStorageSelectedInputSlots(input, candidate);
+              if (input?.kind === "setter" && input.value !== undefined) {
+                if (slots?.length !== 1) {
                   budget.reject("A setter write requires its exact checked value parameter."); return;
                 }
-                queries.connect(queries.subjectFor(assignment.Right), queries.subject(parameters[0], "input"));
+                queries.connect(queries.subjectFor(input.value), queries.subject(slots[0]!.parameter, "input"));
               }
             }
           }

@@ -69,6 +69,8 @@ export type SourceStorageOperation =
   | { readonly mode: "execution"; readonly demand: Node; readonly deferred?: boolean };
 
 export interface SourceStorageAccessorInvocation {
+  readonly kind: "source-storage-accessor-entry";
+  readonly invocation: Node;
   readonly declaration: Node;
   readonly receiver: Node;
 }

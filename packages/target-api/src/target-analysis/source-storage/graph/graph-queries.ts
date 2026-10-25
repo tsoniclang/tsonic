@@ -222,7 +222,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         }
       });
     },
-    query<Key, Value>(collect: (key: Key) => ReadonlySet<Value> | undefined): (key: Key) => ReadonlySet<Value> | undefined {
+    query<Key, Value>(collect: (key: Key, retain: (cost: number) => boolean) => ReadonlySet<Value> | undefined): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, { readonly entry: QueryEntry; readonly values?: ReadonlySet<Value> }>();
       return key => {
         if (!budget.step()) return undefined;
@@ -243,7 +243,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         let values: ReadonlySet<Value> | undefined;
         active = entry;
         try {
-          values = collect(key);
+          values = collect(key, rows.add);
         } catch (error) {
           discard(entry);
           throw error;

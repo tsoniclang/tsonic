@@ -5,7 +5,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
-import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
+import type { SourceStorageInvocationInputQuery, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 
@@ -21,6 +21,7 @@ export function createSourceStorageCallbackInputFrontiers(
     readonly subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined;
     readonly originSubjects: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined;
     readonly invocationInputs: SourceStorageInvocationInputQuery;
+    readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
     readonly nativePayloadCandidates: (invocation: Node) => ReadonlySet<{
       readonly values: readonly SourceStorageSubject[]; readonly complete: boolean;
     }> | undefined;
@@ -93,7 +94,7 @@ export function createSourceStorageCallbackInputFrontiers(
         for (const entry of entries) {
           if (!step()) return undefined;
           if (entry.candidate !== owner) continue;
-          const bounds = sourceStorageNativeInputSlots(source, owner, origin, entry.callback.argument.binding.selectedParameterType,
+          const bounds = sourceStorageNativeInputSlots(source, owner, origin, host.inputSlotsFor(owner, entry.invocation, entry.callback),
             semantics.forNode(entry.invocation), step);
           if (bounds !== undefined && bounds.every(bound => bound.absent)) continue;
           const inputs = invocationInputs(origin, owner, entry.invocation, entry.callback);

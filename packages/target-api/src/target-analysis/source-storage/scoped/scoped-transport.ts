@@ -10,7 +10,7 @@ import type { createSourceStorageContextInputs } from "./context-inputs.js";
 import type { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
 import type { SourceStorageContextLocation } from "../graph/context-locations.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
+import type { SourceStorageInvocationInputQuery, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
@@ -31,6 +31,7 @@ export interface SourceStorageScopedTransport {
   resumedImplementations(invocation: Node): ReadonlySet<Node> | undefined;
   readonly accessorTargets: ReadonlyMap<Node, readonly SourceStorageAccessorInvocation[]>;
   readonly invocationInputs: SourceStorageInvocationInputQuery;
+  readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
   readonly sourceFiles: readonly SourceFile[];
   readonly regions: ReturnType<typeof createSourceStorageExecutionRegions>;
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
