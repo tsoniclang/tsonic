@@ -8,6 +8,11 @@ export function caught(error: Error): boolean {
   catch (failure) { return failure === error; }
 }
 
+export function pureCatch(): boolean {
+  try { return true; }
+  catch { return false; }
+}
+
 export function finallyOnly(error: Error): boolean {
   let finalized = false;
   try {
@@ -44,21 +49,22 @@ export function nestedCallable(error: Error): boolean {
 
 export function run(): boolean {
   const error = new Error("protected identity");
-  return caught(error) && finallyOnly(error) && nested(error) &&
+  return pureCatch() && caught(error) && finallyOnly(error) && nested(error) &&
     fallibleOuter(error, false) && nestedCallable(error);
 }
 `;
 
 export const localProtectedAsyncSource = `
-async function failed(error: Error): Promise<never> { throw error; }
+import type { int32 } from "@tsonic/core/types.js";
+async function failed(error: Error): Promise<void> { throw error; }
 
 export async function run(): Promise<boolean> {
   const error = new Error("protected async identity");
-  let finalized = false;
+  let finalized: int32 = 0;
   try {
     try { await failed(error); }
-    finally { finalized = true; }
-  } catch (failure) { return finalized && failure === error; }
+    finally { finalized += 1; }
+  } catch (failure) { return finalized === 1 && failure === error; }
   return false;
 }
 `;
@@ -70,4 +76,26 @@ function fail(): never { throw original; }
 try { fail(); }
 catch (failure) { caught = failure === original; }
 export function run(): boolean { return caught; }
+`;
+
+export const localProtectedIntrinsicSource = `
+export function sum(values: number[]): number {
+  return values.reduce((left, right) => left + right);
+}
+export function caughtMixed(values: number[], local: boolean): boolean {
+  try {
+    if (local) throw new Error("protected local channel");
+    sum(values);
+  } catch { return true; }
+  return false;
+}
+export function run(): boolean {
+  let failures = 0;
+  try { sum([]); }
+  catch (error) {
+    if (!(error instanceof TypeError)) return false;
+    failures += 1;
+  }
+  return failures === 1 && sum([1, 2]) === 3 && caughtMixed([1], true) && caughtMixed([], false);
+}
 `;
