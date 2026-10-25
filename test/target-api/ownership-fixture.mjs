@@ -124,7 +124,9 @@ export function ownershipFixture(options = {}) {
   };
   const native = {
     completionFor(call, _selected, _bindings) { return completion(call); },
-    retentionFor(value) {
+    retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const { value } = request;
       const checkedType = typeFor(value);
       if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("sharedGlobal")) {
         return { kind: "resolved", premises: [{ kind: "retained", reason: "module-owner", value,

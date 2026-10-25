@@ -6,7 +6,6 @@ import { createTargetSourceProgram } from "../../source-semantics/target-source-
 import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import type { SourceStorageBindings } from "../source-storage/model/types.js";
-import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { createSourceOwnershipQuery } from "./query.js";
 import { createSourceContinuationClosureQuery } from "./closure.js";
 import type { SourceOwnershipPremises } from "./model.js";
@@ -137,7 +136,9 @@ function fixture(reverse: boolean, recursive: "self" | "mutual", additional = ""
       return type.kind === "unresolved" ? undefined : { kind: selected === declaration("pending") ? "may-suspend" : "never",
         value, contractDeclaration: selected, checkedType: type.type };
     },
-    retentionFor(value: SourceStorageSubject, bindings: SourceStorageBindings) {
+    retentionFor(request: Parameters<SourceOwnershipPremises["retentionFor"]>[0]) {
+      if (request.kind === "read-value") return undefined;
+      const { value, bindings } = request;
       const type = storage.typeFor(value);
       assert.equal(type.kind === "resolved", true, "exact retained origin type");
       if (type.kind === "unresolved") return { kind: "unresolved", at: value.node, reason: type.reason };
