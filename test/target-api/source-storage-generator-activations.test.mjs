@@ -90,6 +90,26 @@ for (const member of ["next", "throw", "return"]) {
   });
 }
 
+for (const stored of [false, true]) {
+  test(`an asynchronous resume retains its own native value producer, stored=${stored}`, () => {
+    const current = fixture(`
+      async function* g(): AsyncGenerator<number> { yield 1; }
+      const iterator = g();
+      ${stored ? "const pending = iterator.next();" : ""}
+      const result = ${stored ? "pending" : "iterator.next()"};
+    `);
+    const invocation = current.initializer(stored ? "pending" : "result");
+    const selected = current.storage.storageProducersFor(current.subject(current.initializer("result")));
+    assert.equal(selected.kind === "open", true,
+      `the actual native resume result retains its opaque result boundary (${selected.kind}${selected.kind === "unresolved" ? ": " + selected.reason : ""})`);
+    assert.equal(selected.producers.length, 1, "one original native resume supplies the result");
+    assert.equal(selected.producers[0].subject.node === invocation, true, "the original resume is not its generator creation");
+    assert.equal(selected.producers[0].subject.projection.length, 0, "the producer is the complete native result");
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result" && boundary.exposure === invocation),
+      true, "publishing the native result never manufactures body purity or original allocation");
+  });
+}
+
 test("an unchecked generator result cannot invent an original body activation", () => {
   const current = fixture(`
     declare const pending: Generator<void>;
