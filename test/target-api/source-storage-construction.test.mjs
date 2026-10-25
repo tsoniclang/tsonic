@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { analyzeSourceConstructorResults, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
@@ -125,23 +125,35 @@ for (const [name, expression, declaration] of [
       class Owner { value = 1; constructor() { return ${expression}; } }
       const owner = new Owner();
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-    context.diagnostic(JSON.stringify({ control: name, diagnostics: checked.diagnostics.map(diagnostic => ({
-      code: diagnostic.publicCode ?? diagnostic.numericCode ?? diagnostic.code, message: String(diagnostic.message).slice(0, 600),
-    })) }));
-    assert.equal(checked.diagnostics.length, 0, `${name}: exact frontend diagnostics are recorded before classifying constructor results.`);
-    const source = createTargetSourceProgram(checked);
-    const storage = createSourceStorageQuery(source, source.sourceFiles);
-    const issues = analyzeSourceConstructorResults(source, storage);
-    context.diagnostic(JSON.stringify({ control: name, issues: issues.map(issue => ({ code: issue.code, message: issue.message })) }));
-    assert.equal(issues.length, 0, `${name}: native absence is not a substitute object.`);
-    if (name === "effectful void") {
-      const operation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "log");
-      assert.equal(operation !== undefined, true, "Admission preserves the original effectful invocation.");
-      assert.equal(source.semantics.forNode(operation).operations.call(operation) !== undefined, true,
-        "The exact checked call remains available to the native constructor owner.");
-    }
+    const diagnostics = formatDiagnostics(checked.diagnostics, "/src");
+    context.diagnostic(JSON.stringify({ control: name, diagnostics }));
+    assert.deepEqual(checked.diagnostics.map(diagnostic => diagnostic.code), [2322, 2409],
+      `${name}: strict source checking rejects the non-instance constructor return before native admission.`);
+    assert.equal(diagnostics.includes(`Type '${name === "explicit undefined" ? "undefined" : "void"}' is not assignable to type 'Owner'.`), true,
+      `${name}: preserve the actual checked value-type incompatibility.`);
+    assert.equal(diagnostics.includes("Return type of constructor signature must be assignable to the instance type of the class."), true,
+      `${name}: this is a source-checker refusal, not a manufactured substitute-object diagnosis.`);
   });
 }
+
+test("constructor receiver admission preserves an actual effect before return this", () => {
+  const current = constructorResultFixture(`
+    let calls = 0; function log(): void { calls++; }
+    class Owner { value = 1; constructor() { log(); return this; } }
+    const owner = new Owner();
+  `);
+  const { source, storage } = current;
+  const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "log");
+  assert.equal(invocation !== undefined, true, "The original checked effect precedes the receiver return.");
+  const before = source.semantics.forNode(invocation).operations.call(invocation);
+  assert.equal(before !== undefined, true, "The actual invocation has its exact selected call contract.");
+  assert.equal(analyzeSourceConstructorResults(source, storage).length, 0,
+    "A valid effectful constructor that returns its actual receiver stays admitted.");
+  const after = source.semantics.forNode(invocation).operations.call(invocation);
+  assert.equal(after !== undefined && after.selectedSignature === before.selectedSignature && storage.invocations.includes(invocation), true,
+    "Admission does not remove or replace the original effect and its native lowering evidence.");
+});
 
 test("construction storage rejects foreign, missing, formal, non-construction and budget-exhausted identities", () => {
   const current = fixture();
