@@ -63,6 +63,11 @@ for (const [name, text] of [
   ["implicit derived", "class Base { constructor(readonly value = 1) {} } class Owner extends Base {} const owner = new Owner();"],
   ["nested non-constructor return", "class Owner { value = 1; constructor() { const nested = () => { return { value: 2 }; }; nested(); return this; } } const owner = new Owner();"],
   ["native declaration", "declare class Owner { readonly value: number; constructor(value: number); } const owner = new Owner(1);"],
+  ["checked never result", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor() { return fail(); } } const owner = new Owner();"],
+  ["opaque checked never result", "declare function fail(): never; class Owner { value = 1; constructor() { return fail(); } } const owner = new Owner();"],
+  ["aliased checked never result", "function fail(): never { throw 'stop'; } const terminate = fail; class Owner { value = 1; constructor() { return terminate(); } } const owner = new Owner();"],
+  ["transparent checked never result", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor() { return ((fail())); } } const owner = new Owner();"],
+  ["receiver or checked never", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor(flag: boolean) { return flag ? this : fail(); } } const owner = new Owner(true);"],
 ]) {
   test(`constructor result admission preserves ${name}`, () => {
     const current = constructorResultFixture(text);
@@ -78,6 +83,7 @@ for (const [name, text] of [
   ["conditional substitute", "class Owner { value = 1; constructor(flag: boolean) { return flag ? this : { value: 2 }; } } const owner = new Owner(true);"],
   ["reassigned alias", "class Owner { value = 1; constructor() { let self: Owner = this; self = { value: 2 }; return self; } } const owner = new Owner();"],
   ["cached instance", "const cached = { value: 2 }; class Owner { value = 1; constructor() { return cached; } } const owner = new Owner();"],
+  ["substitute or checked never", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor(flag: boolean) { return flag ? { value: 2 } : fail(); } } const owner = new Owner(true);"],
 ]) {
   test(`constructor result admission rejects ${name} at its actual source expression`, () => {
     const current = constructorResultFixture(text);

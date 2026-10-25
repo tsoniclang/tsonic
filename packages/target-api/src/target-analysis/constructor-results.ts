@@ -36,6 +36,9 @@ export function analyzeSourceConstructorResults(
     if (declaration === undefined || !ast.is.IsConstructorDeclaration(declaration) || ast.body(declaration) === undefined) continue;
     const expression = Node_Expression(ast, statement);
     if (expression === undefined) continue;
+    const semantics = source.semantics.forNode(expression);
+    const expressionType = semantics.types.expressionType(expression);
+    if (expressionType !== undefined && semantics.types.isNever(expressionType)) continue;
     const receiver = storage.subject(declaration, "receiver");
     if (receiver.kind === "unresolved") {
       unproven(receiver.reason, expression);
