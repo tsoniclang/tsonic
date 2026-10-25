@@ -8,7 +8,7 @@ import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjec
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
-import type { SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
+import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
 
@@ -437,6 +437,7 @@ export function createSourceStorageInvocationInputs(
   isUnresolved: (invocation: Node) => boolean,
   rejectionOriginsFor: (receiver: Node, formal: SourceStorageSubject) => readonly SourceStorageSubject[] | undefined,
   inputSlotsFor: SourceStorageInvocationInputSelectionQuery,
+  argumentTransports: ReadonlyMap<Node, readonly SourceStorageArgumentTransport[]>,
 ): SourceStorageInvocationInputQuery {
   const { ast, semantics } = source;
   return (formal, candidate, invocation, callback) => {
@@ -534,8 +535,12 @@ export function createSourceStorageInvocationInputs(
         const initializer = Node_Initializer(ast, formal.node);
         let bound = false;
         let matched = false;
-        for (const binding of selected?.sourceArgumentBindings ?? []) {
+        const arguments_ = argumentTransports.get(invocation);
+        if (selected !== undefined && (mapping?.kind === "call" || mapping?.kind === "construct") && arguments_ === undefined)
+          throw new Error("Selected source storage invocation actuals were not published before their consumers.");
+        for (const argument of arguments_ ?? []) {
           if (!budget.step()) break;
+          const binding = argument.binding;
           for (const slot of owned) {
             if (!budget.step()) break;
             if (binding.effectiveArgumentIndex !== slot.effectiveIndex && !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex) ||
@@ -545,9 +550,8 @@ export function createSourceStorageInvocationInputs(
             if (component !== undefined && (wanted === undefined || wanted.kind !== "array-element" &&
               (wanted.kind !== "tuple-element" || component.kind !== "tuple-element" || wanted.index !== component.index))) continue;
             matched = true;
-            const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-            const origin = actual === undefined ? undefined : subject(actual.subject.node, actual.subject.kind,
-              [...actual.subject.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
+            const origin = subject(argument.actual.node, argument.actual.kind,
+              [...argument.actual.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
             if (origin !== undefined) {
               bound = true;
               subjects.add(origin);
