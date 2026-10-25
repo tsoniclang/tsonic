@@ -317,6 +317,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       if (selected.kind === "reference" && selected.scope === scopes.empty)
         return encoder.intern(["reference", scopes.identity(selected.subject)]);
+      if (selected.kind === "guarded") return encodedKey(encodeUncachedTerm(selected));
       if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined) {
         if (terms.has(selected)) {
           const completed = terms.get(selected);

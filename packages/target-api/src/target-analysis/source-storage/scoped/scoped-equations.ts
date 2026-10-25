@@ -77,29 +77,27 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       const previous = scopes.variable(equation, caller);
       const target = site.callback?.argument.actual ?? transport.invocationTargets.get(site.invocation);
       if (previous === undefined || target === undefined) return undefined;
-      if (site.callback !== undefined || transport.bindingInputFor(target) !== undefined) {
-        const host = site.callback === undefined ? target : transport.invocationTargets.get(site.invocation);
-        if (host === undefined) return undefined;
-        if (host !== supplierTarget || previous !== supplierScope) {
-          supplierTarget = host;
-          supplierScope = previous;
-          supplierValues = read(sourceStorageReference(host, previous));
-        }
-        if (supplierValues === undefined) return undefined;
-        if (site.callback !== undefined && supplierValues.size === 0) continue;
-        let excluded = supplierValues.size !== 0;
-        for (const supplier of supplierValues) {
-          if (!budget.step()) return undefined;
-          const selected = supplier.kind === "leaf" && sourceStorageHasOriginalCallableValue(supplier.subject, source.ast)
-            ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
-          if (selected?.kind !== "resolved" || (site.callback === undefined
-            ? selected.implementation.declaration === owner : source.ast.body(selected.implementation.declaration) === undefined)) {
-            excluded = false;
-            break;
-          }
-        }
-        if (excluded) continue;
+      const host = site.callback === undefined ? target : transport.invocationTargets.get(site.invocation);
+      if (host === undefined) return undefined;
+      if (host !== supplierTarget || previous !== supplierScope) {
+        supplierTarget = host;
+        supplierScope = previous;
+        supplierValues = read(sourceStorageReference(host, previous));
       }
+      if (supplierValues === undefined) return undefined;
+      if (supplierValues.size === 0) continue;
+      let excluded = true;
+      for (const supplier of supplierValues) {
+        if (!budget.step()) return undefined;
+        const selected = supplier.kind === "leaf" && sourceStorageHasOriginalCallableValue(supplier.subject, source.ast)
+          ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
+        if (selected?.kind !== "resolved" || (site.callback === undefined
+          ? selected.implementation.declaration === owner : source.ast.body(selected.implementation.declaration) === undefined)) {
+          excluded = false;
+          break;
+        }
+      }
+      if (excluded) continue;
       const capture = scopes.variable(equation, owner, site.invocation, site.callback);
       const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation, site.callback);
       const value = frame === undefined ? undefined : replace(frame);

@@ -153,15 +153,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   });
   const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
+    if (replacements.size === 0) return term;
     if (term.kind === "execution-root") return term;
     if (term.kind === "empty") {
       if (term.absence === undefined) return term;
       const scope = applyScope(term.absence.scope, replacements);
-      return scope === undefined ? undefined : Object.freeze({ kind: "empty", absence: Object.freeze({ ...term.absence, scope }) });
+      return scope === undefined ? undefined : scope === term.absence.scope ? term
+        : Object.freeze({ kind: "empty", absence: Object.freeze({ ...term.absence, scope }) });
     }
     if (term.kind === "guarded") {
       const value = applyTerm(term.value, replacements);
-      return value === undefined ? undefined : Object.freeze({ ...term, value });
+      return value === undefined ? undefined : value === term.value ? term : Object.freeze({ ...term, value });
     }
     if (term.kind === "transition") {
       const condition = applyTerm(term.condition, replacements);
@@ -175,7 +177,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
           free.set(input, replacement);
         }
         const value = free.size === 0 ? term.value : applyTerm(term.value, free);
-        return value === undefined ? undefined : Object.freeze({ ...term, condition, value });
+        return value === undefined ? undefined : condition === term.condition && value === term.value ? term
+          : Object.freeze({ ...term, condition, value });
       });
     }
     if (term.kind === "store") {
@@ -183,7 +186,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const receiver = applyTerm(term.receiver, replacements);
       const value = applyTerm(term.value, replacements);
       return destination === undefined || receiver === undefined || value === undefined
-        ? undefined : Object.freeze({ ...term, destination, receiver, value });
+        ? undefined : destination === term.destination && receiver === term.receiver && value === term.value ? term
+          : Object.freeze({ ...term, destination, receiver, value });
     }
     const scope = applyScope(term.scope, replacements);
     if (scope === undefined) return undefined;
@@ -191,25 +195,30 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const pointer = applyTerm(term.pointer, replacements);
       const input = term.input === undefined ? undefined : applyTerm(term.input, replacements);
       return pointer === undefined || term.input !== undefined && input === undefined ? undefined
-        : Object.freeze({ ...term, scope, pointer, input });
+        : scope === term.scope && pointer === term.pointer && input === term.input ? term
+          : Object.freeze({ ...term, scope, pointer, input });
     }
     if (term.kind === "application") {
       const callee = applyTerm(term.callee, replacements);
       if (term.activation.kind === "provided") {
         const argument = term.activation.argument === undefined ? undefined : applyTerm(term.activation.argument, replacements);
         return callee === undefined || term.activation.argument !== undefined && argument === undefined ? undefined
-          : Object.freeze({ ...term, scope, callee, activation: Object.freeze({ kind: "provided", argument }) });
+          : scope === term.scope && callee === term.callee && argument === term.activation.argument ? term
+            : Object.freeze({ ...term, scope, callee, activation: Object.freeze({ kind: "provided", argument }) });
       }
       const entered = term.activation.kind === "entered" ? applyScope(term.activation.scope, replacements) : undefined;
       return callee === undefined || term.activation.kind === "entered" && entered === undefined ? undefined
+        : scope === term.scope && callee === term.callee &&
+          (term.activation.kind === "invoke" || entered === term.activation.scope) ? term
         : Object.freeze({ ...term, scope, callee, activation: term.activation.kind === "invoke" ? term.activation
           : Object.freeze({ kind: "entered", scope: entered!, actualTypes: term.activation.actualTypes }) });
     }
     if (term.kind === "member") {
       const receiver = applyTerm(term.receiver, replacements);
-      return receiver === undefined ? undefined : Object.freeze({ ...term, scope, receiver });
+      return receiver === undefined ? undefined : scope === term.scope && receiver === term.receiver ? term
+        : Object.freeze({ ...term, scope, receiver });
     }
-    return Object.freeze({ ...term, scope });
+    return scope === term.scope ? term : Object.freeze({ ...term, scope });
   };
   const project = (entry: SourceStorageFrameInput["values"][number], origin: SourceStorageSubject, retain: (cost: number) => boolean,
     selectedRoot?: SourceStorageSubject): readonly SourceStorageTerm[] | undefined => {

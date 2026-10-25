@@ -231,7 +231,7 @@ function selectedEquationFixture() {
   } };
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
-  const expand = (invocation, mixed = false) => {
+  const expand = (invocation, mixed = false, pending = false) => {
     const initial = equations.scopeFor(owner, invocation, scopes.empty, scopes.empty, {
       kind: "application", mode: "value", invocation, callee: { kind: "leaf", subject: transport.subject(owner), scope: scopes.empty },
       scope: scopes.empty, projection: [], activation: { kind: "invoke" },
@@ -245,14 +245,56 @@ function selectedEquationFixture() {
       reads += 1;
       assert.equal(request.subject === transport.invocationTargets.get(recursive) && request.scope.owner === owner, true,
         "native eligibility reads the host callee in its original caller, never the entered callback frame");
-      return new Set([owner, ...mixed ? [native] : []].map(node => ({ kind: "leaf", subject: transport.subject(node), scope: scopes.empty })));
+      return new Set((pending ? [] : [owner, ...mixed ? [native] : []])
+        .map(node => ({ kind: "leaf", subject: transport.subject(node), scope: scopes.empty })));
     });
     assert.equal(alternatives !== undefined && reads === 1, true, "the possible native edge has one scoped supplier decision");
     assert.equal(budget.failure() === undefined, true, "unchanged finite protection remains intact");
     return { alternatives, frames: [...frames] };
   };
-  return { entries, expand };
+  return { entries, expand, scopes: base, budget, owner,
+    inputs: source.ast.parameters(owner).map(parameter => transport.subject(parameter, "input")) };
 }
+
+test("term substitutions share unchanged structure without changing genuine or shadowed captures", () => {
+  const current = selectedEquationFixture();
+  const { scopes, owner, inputs } = current;
+  const equation = Object.freeze({ identity: 0, component: new Set([owner]), entry: owner, initial: scopes.empty });
+  const first = scopes.variable(equation, owner, current.entries[0]);
+  const second = scopes.variable(equation, owner, current.entries[1]);
+  assert.equal(first !== undefined && second !== undefined && first !== second, true, "distinct original capture variables");
+  const frame = Object.freeze({ kind: "frame", owner, parents: Object.freeze([]), entries: new Map() });
+  scopes.withQuery(() => {
+    const original = sourceStorageReference(inputs[0], scopes.empty);
+    const invocation = Object.freeze({ kind: "application", invocation: current.entries[0],
+      callee: original, scope: scopes.empty, projection: Object.freeze([]),
+      activation: Object.freeze({ kind: "invoke" }), mode: "value" });
+    const conditional = Object.freeze({ kind: "transition", capture: first, condition: original, value: invocation });
+    assert.equal(scopes.applyTerm(conditional, new Map([[second, frame]])) === conditional, true,
+      "an unrelated substitution preserves the original immutable term DAG");
+    const bound = Object.freeze({ ...invocation, callee: sourceStorageReference(inputs[0], second), scope: second });
+    const changed = scopes.applyTerm(bound, new Map([[second, frame]]));
+    assert.equal(changed !== undefined && changed !== bound && changed.scope === frame && changed.callee.scope === frame, true,
+      "sharing never skips a genuine callee or activation substitution");
+    const shadowed = Object.freeze({ kind: "transition", capture: second,
+      condition: sourceStorageReference(inputs[0], second), value: bound });
+    const replaced = scopes.applyTerm(shadowed, new Map([[second, frame]]));
+    assert.equal(replaced !== undefined && replaced.condition.scope === frame && replaced.value === bound, true,
+      "a transition substitutes its condition but leaves its bound capture's body untouched");
+  });
+  assert.equal(current.budget.failure() === undefined, true, "exact substitutions remain inside the original finite bounds");
+});
+
+test("recursive equation edges wait for selected supplier evidence instead of creating speculative frames", () => {
+  const current = selectedEquationFixture();
+  const pending = current.expand(current.entries[0], false, true);
+  assert.equal(pending.frames.length === 1 && pending.alternatives.length === 1, true,
+    "an empty current supplier set admits only the actual initial entry, not a guessed recursive edge");
+  const completed = current.expand(current.entries[0]);
+  assert.equal(completed.frames.length === 2 && completed.alternatives.length === 2, true,
+    "the exact recursive source edge becomes available once its supplier evidence arrives");
+  assert.equal(current.budget.failure() === undefined, true, "postponing a producer is not an artificial finite refusal");
+});
 
 for (const reverse of [false, true]) test(`selected Step source recursion creates only its two-entry source frames (${reverse})`, () => {
   const current = selectedEquationFixture();
