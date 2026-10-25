@@ -13,8 +13,9 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
   }
   const reserveMiB = machine.reserveMiB ?? 16_384;
   if (!positive(reserveMiB) || reserveMiB < 8_192) throw new Error("The memory reserve must be at least 8192 MiB.");
-  const capacityMiB = machine.totalMemoryMiB - reserveMiB;
-  if (requestedMiB > capacityMiB) throw new Error(`The job cannot fit alongside the ${reserveMiB} MiB memory reserve.`);
+  const capacityMiB = machine.capacityMiB === undefined ? machine.totalMemoryMiB - reserveMiB : machine.capacityMiB;
+  if (!positive(capacityMiB)) throw new Error("The reservation capacity must be a positive finite integer.");
+  if (requestedMiB > capacityMiB) throw new Error(`The job cannot fit within the ${capacityMiB} MiB reservation capacity (${reserveMiB} MiB reserve).`);
   const claims = new Map();
   for (const claim of reservations) {
     if (typeof claim.unit !== "string" || !positive(claim.memoryMiB) || claims.has(claim.unit)) {
@@ -151,7 +152,11 @@ function memoryAdmissionCommand(arguments_) {
   const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
   const retained = state.reservations.filter(entry => reservationIsLive(entry, scopes, readProcess, bootId));
   if (retained.some(entry => entry.unit === unit)) throw new Error("A test job cannot reserve memory twice.");
-  const machine = { ...readTestHostResources(), reserveMiB: Number(process.env.TSONIC_TEST_RESERVE_MIB ?? 16_384) };
+  const machine = {
+    ...readTestHostResources(),
+    reserveMiB: Number(process.env.TSONIC_TEST_RESERVE_MIB ?? 16_384),
+    capacityMiB: process.env.TSONIC_TEST_CAPACITY_MIB === undefined ? undefined : Number(process.env.TSONIC_TEST_CAPACITY_MIB),
+  };
   const result = planTestMemoryAdmission(machine, retained, scopes, Number(memoryText));
   if (!result.admitted) {
     writeState(statePath, { ...state, reservations: retained });

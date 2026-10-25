@@ -94,6 +94,29 @@ test("an explicit eight-GiB reserve floor preserves aggregate and physical headr
   assert.equal(planTestMemoryAdmission({ ...explicitReserve, availableMemoryMiB: 62_154 }, running, [], 22_465).admitted, false);
 });
 
+test("explicit reservation capacity can overbook the physical total without bypassing live headroom", () => {
+  const explicitCapacity = { totalMemoryMiB: 62_154, availableMemoryMiB: 40_960, reserveMiB: 8906, capacityMiB: 65_536 };
+  const running = [scope("bank", 51_200), scope("watcher", 64)];
+  for (const index of [0, 1, 2]) {
+    const result = planTestMemoryAdmission(explicitCapacity, running, [], 4096);
+    assert.equal(result.admitted, true);
+    assert.equal(result.capacityMiB, 65_536);
+    assert.equal(result.totalMemoryMiB, 62_154);
+    assert.equal(result.reserveMiB, 8906);
+    running.push(scope(`focus-${index}`, 4096));
+  }
+  assert.equal(planTestMemoryAdmission(explicitCapacity, running, [], 4096).admitted, false);
+  assert.equal(planTestMemoryAdmission({ ...explicitCapacity, availableMemoryMiB: 12_287 }, [], [], 4096).admitted, false);
+  assert.equal(planTestMemoryAdmission({ ...explicitCapacity, availableMemoryMiB: 12_288 }, [], [], 4096).admitted, true);
+  assert.equal(planTestMemoryAdmission({ ...explicitCapacity, capacityMiB: 53_248 }, [], [], 4096).capacityMiB, 53_248);
+  assert.equal(planTestMemoryAdmission({ ...explicitCapacity, capacityMiB: 53_248 }, running.slice(0, 2), [], 4096).admitted, false);
+  for (const capacityMiB of [null, 0, -1, 1.5, NaN, Infinity]) {
+    assert.throws(() => planTestMemoryAdmission({ ...explicitCapacity, capacityMiB }, [], [], 4096), /capacity/u);
+  }
+  assert.throws(() => planTestMemoryAdmission({ ...explicitCapacity, reserveMiB: -3382 }, [], [], 4096), /reserve/u);
+  assert.throws(() => planTestMemoryAdmission(explicitCapacity, [], [], 65_537), /capacity/u);
+});
+
 test("admission uses the smaller table remainder and live availability minus eight GiB", () => {
   for (const requestedMiB of [1, 2048, 8192, 14_336, 24_576]) {
     for (const tableDeltaMiB of [-1, 0, 1]) {
