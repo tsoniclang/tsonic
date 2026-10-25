@@ -6,7 +6,7 @@ import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorage
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageClassValue } from "../model/construction.js";
+import type { SourceStorageClassLineage } from "../model/construction.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 
@@ -154,9 +154,7 @@ export function createSourceStorageMemberFlow(
     const entry = selectedMember(owner, declaration, receiverType);
     return entry?.member.kind === "present" ? entry.originals : undefined;
   };
-  const membersInLineage = <Bindings>(lineage: {
-    readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
-  }, declaration: Node, destinationType: Type): {
+  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: Type): {
     readonly members: readonly { readonly declaration: Node; readonly bindings: Bindings }[]; readonly absent: boolean;
   } | undefined => {
     if (!lineage.complete || lineage.classes.length === 0) return undefined;
@@ -176,8 +174,35 @@ export function createSourceStorageMemberFlow(
       return Object.freeze({ members: Object.freeze(physical.map(declaration => Object.freeze({ declaration, bindings: captured.bindings }))),
         absent: false });
     }
-    return excluded === lineage.classes.length || absent
-      ? Object.freeze({ members: Object.freeze([]), absent: excluded !== lineage.classes.length }) : undefined;
+    if (excluded === lineage.classes.length || absent)
+      return Object.freeze({ members: Object.freeze([]), absent: excluded !== lineage.classes.length });
+    const nativeBase = lineage.nativeBase;
+    if (nativeBase === undefined || nativeBase.constructors.length === 0) return undefined;
+    let originals: readonly Node[] | undefined;
+    for (const constructor of nativeBase.constructors) {
+      if (!budget.step() || !source.ast.is.IsConstructSignatureDeclaration(constructor)) return undefined;
+      const receiver = subject(constructor, "return");
+      const member = receiver === undefined ? undefined : memberFor(receiver, declaration, destinationType);
+      if (member?.kind !== "present") return undefined;
+      const physical: Node[] = [];
+      for (const original of member.source.declarations) {
+        if (!budget.step()) return undefined;
+        if (!source.ast.hasModifierKind(original, "static")) physical.push(original);
+      }
+      if (physical.length === 0 || originals !== undefined && originals.length !== physical.length) return undefined;
+      if (originals !== undefined) for (const candidate of physical) {
+        let present = false;
+        for (const original of originals) {
+          if (!budget.step()) return undefined;
+          if (original === candidate) { present = true; break; }
+        }
+        if (!present) return undefined;
+      }
+      originals = physical;
+    }
+    return originals === undefined ? undefined : Object.freeze({
+      members: Object.freeze(originals.map(declaration => Object.freeze({ declaration, bindings: nativeBase.bindings }))), absent: false,
+    });
   };
   const restExcludedKeys = (rest: Node): ReadonlySet<string> | undefined => {
     const owner = sourceStorageObjectRestOwner(rest, source.ast);
@@ -371,9 +396,8 @@ interface SourceStorageMemberImplementationInputs {
   readonly membersInLineage: ReturnType<typeof createSourceStorageMemberFlow>["membersInLineage"];
   readonly memberStorageKindFor: ReturnType<typeof createSourceStorageMemberFlow>["memberStorageKindFor"];
   constructionLineagesFor(invocation: Node,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined, mode?: "heritage"): readonly {
-      readonly classes: readonly SourceStorageClassValue<undefined>[]; readonly complete: boolean;
-    }[] | undefined;
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined,
+    mode?: "heritage"): readonly SourceStorageClassLineage<undefined>[] | undefined;
   readonly contracts: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly accessorTargets: ReadonlyMap<Node, readonly import("./scoped-model.js").SourceStorageAccessorInvocation[]>;
 }
