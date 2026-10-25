@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { analyzeSourceConstructorResults, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -39,6 +39,80 @@ test("construction storage follows exact immutable and parenthesized copies thro
   assert.equal("sourceStorageConstructedClass" in construction, false, "The superseded syntax alias selector is removed.");
   assert.equal("sourceStorageClassValue" in construction, false, "No competing singular class-value selector remains.");
   assert.equal("sourceStorageInvokedClass" in construction, false, "Every constructor consumer uses finite actual source values.");
+});
+
+function constructorResultFixture(text, limits = defaultSourceStorageLimits) {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "Constructor admission controls are actual checked source.");
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles, limits);
+  return { source, storage };
+}
+
+for (const [name, text] of [
+  ["implicit receiver", "class Owner { value = 1; } const owner = new Owner();"],
+  ["fallthrough", "class Owner { value = 1; constructor() { this.value = 2; } } const owner = new Owner();"],
+  ["bare return", "class Owner { value = 1; constructor() { return; } } const owner = new Owner();"],
+  ["this", "class Owner { value = 1; constructor() { return this; } } const owner = new Owner();"],
+  ["receiver alias", "class Owner { value = 1; constructor() { const self = this; return self; } } const owner = new Owner();"],
+  ["transparent receiver", "class Owner { value = 1; constructor() { const self: Owner = this; return ((self) as Owner); } } const owner = new Owner();"],
+  ["conditional same receiver", "class Owner { value = 1; constructor(flag: boolean) { const self = this; return flag ? self : this; } } const owner = new Owner(true);"],
+  ["generic parameter property and default", "class Owner<T> { constructor(readonly value: T, flag = true) { if (flag) { const self = this; return self; } } } const owner = new Owner(1);"],
+  ["derived receiver", "class Base { value = 1; } class Owner extends Base { constructor() { super(); const self = this; return self; } } const owner = new Owner();"],
+  ["implicit derived", "class Base { constructor(readonly value = 1) {} } class Owner extends Base {} const owner = new Owner();"],
+  ["nested non-constructor return", "class Owner { value = 1; constructor() { const nested = () => { return { value: 2 }; }; nested(); return this; } } const owner = new Owner();"],
+  ["native declaration", "declare class Owner { readonly value: number; constructor(value: number); } const owner = new Owner(1);"],
+]) {
+  test(`constructor result admission preserves ${name}`, () => {
+    const current = constructorResultFixture(text);
+    const issues = analyzeSourceConstructorResults(current.source, current.storage);
+    assert.equal(issues.length, 0, `${name}: no receiver substitution is introduced.`);
+    assert.equal(current.storage.failureReason() === undefined, true, `${name}: finite proof remains complete.`);
+    assert.equal(Object.isFrozen(issues), true, `${name}: admission publishes immutable issues.`);
+  });
+}
+
+for (const [name, text] of [
+  ["fresh object", "class Owner { value = 1; constructor() { return { value: 2 }; } } const owner = new Owner();"],
+  ["conditional substitute", "class Owner { value = 1; constructor(flag: boolean) { return flag ? this : { value: 2 }; } } const owner = new Owner(true);"],
+  ["reassigned alias", "class Owner { value = 1; constructor() { let self: Owner = this; self = { value: 2 }; return self; } } const owner = new Owner();"],
+  ["cached instance", "const cached = { value: 2 }; class Owner { value = 1; constructor() { return cached; } } const owner = new Owner();"],
+]) {
+  test(`constructor result admission rejects ${name} at its actual source expression`, () => {
+    const current = constructorResultFixture(text);
+    const issues = analyzeSourceConstructorResults(current.source, current.storage);
+    const returned = current.storage.nodes.find(node => current.source.ast.is.IsReturnStatement(node));
+    assert.equal(issues.length, 1, `${name}: exactly one shared source rejection.`);
+    assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", `${name}: this is a deliberate v1 exclusion, not a native impossibility.`);
+    assert.equal(issues[0].message, "A constructor that returns an object other than its receiver is not supported.");
+    assert.equal(issues[0].sourceNode === current.source.ast.as.AsReturnStatement(returned).Expression, true,
+      `${name}: the original returned expression owns the diagnostic.`);
+    assert.equal(issues[0].category, "error");
+    assert.equal(issues[0].source, "tsonic", "Both targets consume the identical shared diagnostic.");
+    assert.equal(current.storage.failureReason() === undefined, true, `${name}: a source rejection does not fabricate a resource failure.`);
+  });
+}
+
+test("constructor result admission preserves unresolved, resource and foreign-owner reasons", () => {
+  const current = constructorResultFixture("declare function unknown(owner: Owner): Owner; class Owner { value = 1; constructor() { return unknown(this); } }");
+  const issues = analyzeSourceConstructorResults(current.source, current.storage);
+  assert.equal(issues.length, 1, "An opaque result cannot prove the current receiver.");
+  assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "Unresolved identity is not mislabelled as a proven substitute.");
+  assert.equal(issues[0].message.startsWith("Constructor result receiver identity is not proven: "), true);
+  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
+    const bounded = constructorResultFixture("class Owner { constructor() { return this; } }", { ...defaultSourceStorageLimits, ...limits });
+    const reason = bounded.storage.failureReason();
+    assert.equal(reason !== undefined, true, "The original storage owner records the actual resource refusal.");
+    const failures = analyzeSourceConstructorResults(bounded.source, bounded.storage);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN");
+    assert.equal(failures[0].message, `Constructor result receiver identity is not proven: ${reason}`);
+  }
+  const foreign = constructorResultFixture("class Owner { constructor() { return this; } }");
+  const failures = analyzeSourceConstructorResults(current.source, foreign.storage);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].message, "Constructor result receiver identity is not proven: Source storage belongs to a different checked source program.");
 });
 
 test("construction storage rejects foreign, missing, formal, non-construction and budget-exhausted identities", () => {
