@@ -47,7 +47,16 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const equations = createSourceStorageEquations(source, budget, transport, scopes, recursion, keys.invocation);
   const relations = new Map<string, SourceStorageRelation>();
-  const withQuery = scopes.withQuery;
+  let querying = false;
+  const withQuery = <Value>(collect: () => Value): Value => {
+    if (querying) return collect();
+    querying = true;
+    try { return scopes.withQuery(collect); }
+    finally {
+      querying = false;
+      keys.releaseReferenceMemo();
+    }
+  };
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
@@ -691,8 +700,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         return bound !== undefined && (bound.kind !== "replace" || !bound.terms.some(term => term.kind === "leaf" && scopes.isSymbolic(term)));
       }),
     forDeclaration: scopes.declarationFor,
-    forInvocation(candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
-      callee: SourceStorageSubject | undefined) {
+    forInvocation: (candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
+      callee: SourceStorageSubject | undefined) => withQuery(() => {
       if (transport.accessorTargets.has(invocation)) return scopes.frameFor(candidate, invocation, caller, captured);
       if (callee === undefined || !transport.invocationTargets.has(invocation)) {
         budget.reject("An invocation context requires its exact checked callee transport.");
@@ -702,6 +711,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         activation: Object.freeze({ kind: "invoke" }),
         mode: "execution", demand: invocation, invocation, callee: Object.freeze({ kind: "leaf", subject: callee, scope: captured }),
         scope: caller, projection: Object.freeze([]) }));
-    },
+    }),
     identityFor: scopes.identity });
 }
