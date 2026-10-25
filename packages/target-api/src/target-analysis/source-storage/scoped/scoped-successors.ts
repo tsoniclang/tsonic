@@ -369,7 +369,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return scopes.enterApplication(term, selected.implementation.declaration, term.callee);
       }
       if (resumes) {
-        if (term.mode === "value") return undefined;
+        if (term.mode === "value") {
+          const result = transport.subject(term.invocation, "value", term.projection);
+          return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, term.scope)] };
+        }
         const terms: SourceStorageTerm[] = [];
         let supplied = false;
         if (term.callee.subject.kind === "value" && term.callee.subject.projection.length === 0 && ast.is.IsCallExpression(node)) {

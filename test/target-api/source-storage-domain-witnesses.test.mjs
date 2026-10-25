@@ -104,7 +104,8 @@ test("checked public class instances retain every exact writable exposure under 
   const selected = storage.subjectFor(field);
   assert.equal(selected.kind === "resolved", true, "exact original field");
   const result = storage.closedOriginsFor(selected.subject);
-  assert.equal(result.kind === "open", true, "public native members preserve unknown external writes");
+  assert.equal(result.kind === "open", true,
+    `public native members preserve unknown external writes (${result.kind}${result.kind === "unresolved" ? `: ${result.reason}` : ""})`);
   const writes = result.boundaries.filter(boundary => boundary.kind === "external-write");
   assert.equal(writes.length, count, "no original exposure removed");
   assert.equal(new Set(writes.map(boundary => boundary.exposure)).size, count, "no exposure merged by spelling or shape");
