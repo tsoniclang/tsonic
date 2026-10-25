@@ -459,12 +459,14 @@ declare const externalCallbacks: (() => number)[];
 native(callback);
 spread(callback);
 spread(...externalCallbacks);
+positional(...externalCallbacks);
 try { throwRest({ value: 3 }); } catch (caught) { const unprovedCatch = caught; }
 function forwardUnproved(): void { throwRest({ value: 7 }); }
 try { forwardUnproved(); } catch (caught) { const forwardedUnprovedCatch = caught; }
 `, `export declare function native(callback: () => number): void;
 export declare function spread(...callbacks: (() => number)[]): void;
-export function throwRest(...values: Box<number>[]): never { throw values[0]; }`, ["native", "spread", "throwRest"]);
+export declare function positional(callback?: () => number, ...callbacks: (() => number)[]): void;
+export function throwRest(...values: Box<number>[]): never { throw values[0]; }`, ["native", "spread", "positional", "throwRest"]);
   const native = call("native");
   const declaration = namedDeclaration(source.ast, provider, "native");
   const boundary = storage.boundaries.find(boundary => boundary.invocation === native);
@@ -497,14 +499,57 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const unknownRest = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node) &&
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "spread" &&
     source.ast.is.IsSpreadElement(source.ast.arguments(node)[0]));
-  const reason = "Source storage argument transport requires exact selected scalar formal and actual subjects.";
-  for (const selected of [storage.argumentTransportsFor(unknownRest),
-    storage.bindingsForInvocation(restDeclaration, unknownRest),
-    storage.invocationOriginsFor(restFormal, restDeclaration, unknownRest)]) {
-    assert.equal(selected.kind === "unresolved" && selected.reason === reason, true,
-      "an unknown-length spread retains its exact transport refusal");
-  }
+  const spreadArgument = source.ast.arguments(unknownRest)[0];
+  const spreadActual = resolvedSubject(storage.subjectFor(source.ast.as.AsSpreadElement(spreadArgument).Expression), "spread source");
+  const actualElements = resolvedSubject(storage.subject(spreadActual.node, spreadActual.kind,
+    [...spreadActual.projection, ...element]), "spread source elements");
+  const formalElements = resolvedSubject(storage.subject(restFormal.node, restFormal.kind,
+    [...restFormal.projection, ...element]), "spread formal elements");
+  const checkedSpread = source.semantics.forNode(unknownRest).operations.call(unknownRest);
+  assert.equal(checkedSpread.sourceArgumentBindings.length === 1 &&
+    checkedSpread.sourceArgumentBindings[0].sourceForm === "spread-sequence" &&
+    checkedSpread.sourceArgumentBindings[0].sourceParameterForm === "rest-sequence", true,
+    "the checked unknown-length spread has aggregate rather than scalar correspondence");
+  const spreadTransport = storage.argumentTransportsFor(unknownRest);
+  assert.equal(spreadTransport.kind === "resolved" && spreadTransport.arguments.length === 1 &&
+    spreadTransport.arguments[0].actual === actualElements && spreadTransport.arguments[0].formal === formalElements &&
+    spreadTransport.arguments[0].selectedParameterDeclaration === restFormal.node, true,
+    "unknown-length aggregate transport preserves the exact actual and formal element subjects; " + JSON.stringify({
+      kind: spreadTransport.kind, reason: spreadTransport.reason,
+      count: spreadTransport.arguments?.length,
+      actual: spreadTransport.arguments?.[0]?.actual === actualElements,
+      formal: spreadTransport.arguments?.[0]?.formal === formalElements,
+      declaration: spreadTransport.arguments?.[0]?.selectedParameterDeclaration === restFormal.node,
+    }));
+  assert.equal(storage.bindingsForInvocation(restDeclaration, unknownRest).kind, "resolved", "checked aggregate invocation bindings");
+  const aggregateOrigins = storage.invocationOriginsFor(restFormal, restDeclaration, unknownRest);
+  assert.equal(aggregateOrigins.kind === "resolved" && aggregateOrigins.subjects.length === 1 &&
+    aggregateOrigins.subjects[0] === restFormal, true, "aggregate elements never replace the fresh rest container");
+  const implementations = storage.invocationImplementationsFor(unknownRest);
+  assert.equal(implementations.kind === "resolved" && !implementations.exact &&
+    implementations.nodes.every(node => source.ast.body(node) === undefined), true,
+    "an ambient rest signature does not invent an original implementation");
+  const externalElements = storage.closedOriginsFor(actualElements);
+  assert.equal(externalElements.kind === "open" &&
+    externalElements.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "ambient callback elements retain their genuinely open input domain");
   assert.equal(storage.boundaries.some(boundary => boundary.invocation === unknownRest &&
+    boundary.kind === "opaque-invocation"), true, "aggregate correspondence does not close an opaque consumer");
+  const unknownPositional = call("positional");
+  const positionalDeclaration = namedDeclaration(source.ast, provider, "positional");
+  const positionalFormal = resolvedSubject(storage.subject(source.ast.parameters(positionalDeclaration)[0], "input"), "positional formal");
+  const checkedPositional = source.semantics.forNode(unknownPositional).operations.call(unknownPositional);
+  assert.equal(checkedPositional.sourceArgumentBindings.some(binding => binding.sourceForm === "spread-sequence" &&
+    binding.sourceParameterForm !== "rest-sequence"), true,
+    "the refused spread genuinely requires an unproved scalar position");
+  const reason = "Source storage argument transport requires exact selected scalar formal and actual subjects.";
+  for (const selected of [storage.argumentTransportsFor(unknownPositional),
+    storage.bindingsForInvocation(positionalDeclaration, unknownPositional),
+    storage.invocationOriginsFor(positionalFormal, positionalDeclaration, unknownPositional)]) {
+    assert.equal(selected.kind === "unresolved" && selected.reason === reason, true,
+      "an unknown scalar position retains its exact transport refusal");
+  }
+  assert.equal(storage.boundaries.some(boundary => boundary.invocation === unknownPositional &&
     boundary.kind === "unresolved-transport" && boundary.reason === reason), true);
   assert.equal(storage.failureReason() === undefined, true, "local boundary does not contaminate independent graph ownership");
 });
