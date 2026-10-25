@@ -60,9 +60,10 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const selected = scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
     return selected === undefined ? undefined : Object.freeze({ ...selected, key: `${scopes.identity(subject)}:${selected.key}` });
   };
-  const encode = (term: SourceStorageTerm, invocation = false) => {
+  const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(temporary => {
     let closed = true;
     const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceWork>>();
+    const terms = new Map<SourceStorageTerm, ReferenceEncoding | undefined>();
     const encodedKey = (value: Encoded | undefined): SourceStorageKey | undefined => value === undefined ? undefined
       : value !== null && typeof value === "object" && "kind" in value && value.kind === "key" ? value : encoder.intern(value);
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
@@ -317,8 +318,28 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       if (selected.kind === "reference" && selected.scope === scopes.empty)
         return encoder.intern(["reference", scopes.identity(selected.subject)]);
       if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined) {
-        const encoded = encodeUncachedTerm(selected);
-        return encodedKey(encoded);
+        if (terms.has(selected)) {
+          const completed = terms.get(selected);
+          if (completed === undefined) {
+            budget.reject("Source storage key terms require an acyclic exact value.");
+            return undefined;
+          }
+          closed = closed && completed.closed;
+          return completed.encoded;
+        }
+        if (!temporary.add(1)) return undefined;
+        terms.set(selected, undefined);
+        const outerClosed = closed;
+        closed = true;
+        let completed: ReferenceEncoding | undefined;
+        try {
+          const encoded = encodedKey(encodeUncachedTerm(selected));
+          if (encoded !== undefined && budget.failure() === undefined) completed = Object.freeze({ encoded, closed });
+        } finally {
+          closed = outerClosed && closed;
+        }
+        if (completed !== undefined) terms.set(selected, completed);
+        return completed?.encoded;
       }
       const completedSubjects = completedReferences.get(selected.scope);
       const completedEncodings = completedSubjects?.get(selected.subject);
@@ -369,7 +390,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };
-  };
+  });
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
     return selected === undefined ? undefined : String(selected.encoded.identity);

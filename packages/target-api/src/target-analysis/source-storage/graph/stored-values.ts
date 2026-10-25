@@ -6,7 +6,7 @@ import { sourceBindingHasMutableExposure } from "../../../source-navigation/bind
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
-import type { SourceStorageBudget } from "../model/resource-budget.js";
+import { createSourceStorageBudget, type SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
@@ -31,8 +31,8 @@ export interface SourceStorageWrite {
 
 export function createSourceStorageFormalMemberWrites(
   source: TargetSourceProgram,
-  budget: SourceStorageBudget,
-  graph: ReturnType<typeof createSourceStorageGraphQueries>,
+  sourceBudget: SourceStorageBudget,
+  createEquations: (budget: SourceStorageBudget) => ReturnType<typeof createSourceStorageGraphQueries>,
   queries: {
     readonly declarations: readonly Node[];
     readonly invocations: Iterable<Node>;
@@ -45,13 +45,18 @@ export function createSourceStorageFormalMemberWrites(
   },
 ) {
   const { ast, navigation, semantics } = source;
-  const rows = budget.createRows();
+  let budget = sourceBudget;
+  let rows = budget.createRows();
   const formals = new Map<SourceStorageSubject, { readonly declaration: Node; readonly parameter: Node; readonly type: Type }>();
   const owners = new Map<Node, readonly SourceStorageSubject[]>();
   const seeds = new Map<SourceStorageSubject, Set<Node | string>>();
   const forwards = new Map<SourceStorageSubject, Map<SourceStorageSubject, string | undefined>>();
   const published = new Map<SourceStorageSubject, SourceStorageFormalMemberWriteDemandSelection>();
-  let complete = false;
+  let inputsClosed = false;
+  let targetSealed = false;
+  let graphPrepared = false;
+  let inputFailure: string | undefined;
+  let graphFailure: string | undefined;
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const add = (formal: SourceStorageSubject, value: Node | string): void => {
     const values = seeds.get(formal);
@@ -237,6 +242,7 @@ export function createSourceStorageFormalMemberWrites(
     return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
   };
   const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {
+    if (inputsClosed) throw new Error("Formal member-write inputs cannot change after their final publication.");
     if (write.kind !== "mutation" || write.destination !== "member" && write.destination !== "element" || !budget.step()) return write;
     const selected = ast.is.IsPropertyAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.propertyAccess(write.reference)
       : ast.is.IsElementAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.elementAccess(write.reference) : undefined;
@@ -301,13 +307,14 @@ export function createSourceStorageFormalMemberWrites(
       for (const formal of parameters) {
         if (!budget.step()) break;
         const bound = queries.invocationInputs(formal, declaration, invocation);
+        if (!connectInputs) {
+          if (!bound.omitted && (bound.subjects.has(formal) || bound.calleeSubjects?.includes(formal) === true))
+            markUnresolved("Member-write demand has no exact selected signature-to-implementation input correspondence.");
+          continue;
+        }
         for (const supplied of [...bound.subjects, ...(bound.calleeSubjects ?? [])]) {
           if (!budget.step()) break;
-          if (supplied === formal) {
-            if (!connectInputs && !bound.omitted) markUnresolved("Member-write demand has no exact selected signature-to-implementation input correspondence.");
-            continue;
-          }
-          if (!connectInputs) continue;
+          if (supplied === formal) continue;
           const actual = inputsFor(supplied.node);
           for (const input of actual.inputs) forward(input, formal, actual.reason ?? (supplied.projection.length !== 0
             ? "Member-write demand cannot turn a projected or rest input into an unqualified parameter binding." : undefined));
@@ -315,8 +322,10 @@ export function createSourceStorageFormalMemberWrites(
       }
     }
   };
-  const publish = (): void => {
-    if (complete) throw new Error("Formal member-write demands publish exactly once.");
+  const prepareGraph = (): void => {
+    if (graphPrepared) return;
+    budget = createSourceStorageBudget(sourceBudget.limits);
+    rows = budget.createRows();
     for (const invocation of queries.invocations) connectInvocation(invocation, false);
     if (seeds.size !== 0) {
       for (const formal of formals.keys()) {
@@ -328,24 +337,56 @@ export function createSourceStorageFormalMemberWrites(
       }
       for (const invocation of queries.invocations) connectInvocation(invocation, true);
     }
-    const emptyDemands: readonly (Node | string)[] = Object.freeze([]);
-    const demands = seeds.size === 0 ? () => emptyDemands
-      : graph.fixedPoint<SourceStorageSubject, Node | string>((formal, _read, emit, forward) => {
-      for (const value of seeds.get(formal) ?? []) if (!budget.step() || !emit(value)) return false;
-      for (const [input, reason] of forwards.get(formal) ?? []) {
-        const selected = formals.get(input);
-        if (selected === undefined || !forward(input, value => {
-          if (typeof value === "string") return [{ kind: "value", value }];
-          if (reason !== undefined) return [{ kind: "value", value: reason }];
-          const members = membersFor(formal, selected.type, value);
-          return members === undefined ? [{ kind: "value", value: "Member-write demand has no exact checked forwarded member correspondence." }]
-            : members.map(member => ({ kind: "value", value: member }));
-        })) return false;
+    graphFailure = sourceBudget.failure() ?? budget.failure();
+    graphPrepared = true;
+  };
+  return Object.freeze({ recordWrite,
+    closeInputs(): void {
+      if (inputsClosed) throw new Error("Formal member-write inputs close exactly once.");
+      inputFailure = sourceBudget.failure();
+      inputsClosed = true;
+    },
+    seal(): void {
+      if (!inputsClosed || targetSealed) throw new Error("Formal member-write demands seal once after their inputs close.");
+      targetSealed = true;
+    },
+    get(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection {
+      if (!inputsClosed) throw new Error("Formal member-write demand requires closed write inputs.");
+      if (targetSealed) throw new Error("Formal member-write demand cannot run after target sealing.");
+      const formal = owners.get(declaration)?.find(subject => subject.node === parameter);
+      if (formal === undefined) return unresolved(inputFailure ?? "Formal member-write demand requires the identical checked implementation and value parameter.");
+      const existing = published.get(formal);
+      if (existing !== undefined) return existing;
+      if (inputFailure !== undefined) {
+        const result = unresolved(inputFailure);
+        published.set(formal, result);
+        return result;
       }
-      return budget.failure() === undefined;
-    }, "formal-member-write-demands");
-    for (const formal of formals.keys()) {
-      if (!budget.step()) break;
+      prepareGraph();
+      if (graphFailure !== undefined) {
+        const result = unresolved(graphFailure);
+        published.set(formal, result);
+        return result;
+      }
+      budget = createSourceStorageBudget(sourceBudget.limits);
+      const emptyDemands: readonly (Node | string)[] = Object.freeze([]);
+      const equations = seeds.size === 0 ? undefined : createEquations(budget);
+      equations?.seal();
+      const demands = seeds.size === 0 ? () => emptyDemands
+        : equations!.fixedPoint<SourceStorageSubject, Node | string>((formal, _read, emit, forward) => {
+          for (const value of seeds.get(formal) ?? []) if (!budget.step() || !emit(value)) return false;
+          for (const [input, reason] of forwards.get(formal) ?? []) {
+            const selected = formals.get(input);
+            if (selected === undefined || !forward(input, value => {
+              if (typeof value === "string") return [{ kind: "value", value }];
+              if (reason !== undefined) return [{ kind: "value", value: reason }];
+              const members = membersFor(formal, selected.type, value);
+              return members === undefined ? [{ kind: "value", value: "Member-write demand has no exact checked forwarded member correspondence." }]
+                : members.map(member => ({ kind: "value", value: member }));
+            })) return false;
+          }
+          return budget.failure() === undefined;
+        }, "formal-member-write-demands");
       const values = demands(formal);
       let reason = budget.failure();
       const members: Node[] = [];
@@ -355,17 +396,11 @@ export function createSourceStorageFormalMemberWrites(
         else members.push(value);
       }
       if (values === undefined) reason ??= "Member-write demand has no completed finite source relation.";
-      if (!rows.add(1 + members.length)) break;
-      published.set(formal, reason === undefined ? Object.freeze({ kind: "complete", members: Object.freeze(members) }) : unresolved(reason));
-    }
-    complete = true;
-  };
-  return Object.freeze({ recordWrite, publish,
-    get(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection {
-      if (!complete || budget.failure() !== undefined) return unresolved(budget.failure() ?? "Formal member-write demand is not published.");
-      const formal = owners.get(declaration)?.find(subject => subject.node === parameter);
-      return formal === undefined ? unresolved("Formal member-write demand requires the identical checked implementation and value parameter.")
-        : published.get(formal) ?? unresolved("Formal member-write demand has no completed checked parameter evidence.");
+      if (!budget.createRows().add(1 + members.length)) reason ??= budget.failure();
+      const result: SourceStorageFormalMemberWriteDemandSelection = reason === undefined
+        ? Object.freeze({ kind: "complete", members: Object.freeze(members) }) : unresolved(reason);
+      published.set(formal, result);
+      return result;
     },
   });
 }

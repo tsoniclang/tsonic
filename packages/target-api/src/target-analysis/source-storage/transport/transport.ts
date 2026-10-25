@@ -775,7 +775,7 @@ export function createSourceStorageTransport(
   regions.seal();
   graphQueries.seal();
   invocationSelectionsSealed = true;
-  const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, graphQueries, {
+  const formalMemberWrites = createSourceStorageFormalMemberWrites(source, budget, createSourceStorageGraphQueries, {
     declarations: callableDeclarations, invocations: { *[Symbol.iterator]() { yield* invocations; yield* accessorTargets.keys(); } },
     invocationInputs, subject, subjectFor,
     inputsFor: current => invocations.has(current.node) || accessorTargets.has(current.node)
@@ -785,7 +785,7 @@ export function createSourceStorageTransport(
   callableDeclarationRows.release();
   callableDeclarations.length = 0;
   storedValues.publish(formalMemberWrites.recordWrite);
-  formalMemberWrites.publish();
+  formalMemberWrites.closeInputs();
   sealed = true;
   return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
@@ -793,7 +793,7 @@ export function createSourceStorageTransport(
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
     writeAt: storedValues.writeAt,
-    formalMemberWriteDemand: formalMemberWrites.get,
+    formalMemberWriteDemand: formalMemberWrites.get, sealFormalMemberWriteDemands: formalMemberWrites.seal,
     invocationImplementationSelection, inputSlotsFor,
     callbackImplementationSelection: (entry: SourceStorageCallbackEntry) => selectedInvocationImplementations(entry)?.values().next().value,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,

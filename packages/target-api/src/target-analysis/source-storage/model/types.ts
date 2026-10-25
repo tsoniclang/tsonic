@@ -259,6 +259,7 @@ export interface SourceStorageQueries {
   writeAt(reference: Node, bindings: SourceStorageBindings): SourceStorageWriteSelection;
   memberWritesFor(subject: SourceStorageSubject): SourceStorageMemberWritesSelection;
   formalMemberWriteDemand(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection;
+  sealFormalMemberWriteDemands(): void;
   typeFor(subject: SourceStorageSubject): SourceStorageTypeSelection;
   incomingFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   ancestorsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;

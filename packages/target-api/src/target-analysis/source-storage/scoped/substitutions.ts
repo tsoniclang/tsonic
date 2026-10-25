@@ -117,7 +117,40 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           term = selected.terms[0]!;
           continue;
         }
-        return transition;
+        const guards: Extract<SourceStorageTerm, { readonly kind: "transition" }>[] = [];
+        const conditions = new Map<number, Map<Node, Map<Node | undefined, Set<string>>>>();
+        let current: SourceStorageTerm = transition;
+        let duplicate = false;
+        while (current.kind === "transition") {
+          if (!budget.step()) return undefined;
+          const key = keys.encode(current.condition);
+          if (key === undefined) return undefined;
+          const equation = conditions.get(current.capture.equation.identity);
+          const owner = equation?.get(current.capture.owner);
+          const selected = owner?.get(current.capture.capture);
+          if (selected?.has(key)) {
+            if (normalize(current.condition, witnesses, temporary, false) === undefined) return undefined;
+            duplicate = true;
+          } else {
+            if (!temporary.add(2 + (equation === undefined ? 2 : 0) + (owner === undefined ? 2 : 0) +
+              (selected === undefined ? 1 : 0))) return undefined;
+            const retainedEquation = equation ?? new Map<Node, Map<Node | undefined, Set<string>>>();
+            const retainedOwner = owner ?? new Map<Node | undefined, Set<string>>();
+            const retained = selected ?? new Set<string>();
+            retained.add(key);
+            retainedOwner.set(current.capture.capture, retained);
+            retainedEquation.set(current.capture.owner, retainedOwner);
+            conditions.set(current.capture.equation.identity, retainedEquation);
+            guards.push(current);
+          }
+          current = current.value;
+        }
+        if (!duplicate) return transition;
+        for (let index = guards.length - 1; index >= 0; index -= 1) {
+          const guard = guards[index]!;
+          current = Object.freeze({ kind: "transition", capture: guard.capture, condition: guard.condition, value: current });
+        }
+        return current;
       }
       break;
     }

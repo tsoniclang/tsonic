@@ -65,6 +65,7 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
     });
   };
   return Object.freeze({
+    limits: Object.freeze({ ...limits }),
     failure: (): string | undefined => failure,
     usage: () => Object.freeze({ nodes, edges, subjects, rows, peakRows, steps }),
     reject,
