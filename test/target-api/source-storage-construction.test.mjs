@@ -115,6 +115,34 @@ test("constructor result admission preserves unresolved, resource and foreign-ow
   assert.equal(failures[0].message, "Constructor result receiver identity is not proven: Source storage belongs to a different checked source program.");
 });
 
+for (const [name, expression, declaration] of [
+  ["explicit undefined", "undefined", ""],
+  ["effectful void", "log()", "let calls = 0; function log(): void { calls++; }"],
+]) {
+  test(`constructor result admission checked absence boundary: ${name}`, context => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      ${declaration}
+      class Owner { value = 1; constructor() { return ${expression}; } }
+      const owner = new Owner();
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    context.diagnostic(JSON.stringify({ control: name, diagnostics: checked.diagnostics.map(diagnostic => ({
+      code: diagnostic.publicCode ?? diagnostic.numericCode ?? diagnostic.code, message: String(diagnostic.message).slice(0, 600),
+    })) }));
+    assert.equal(checked.diagnostics.length, 0, `${name}: exact frontend diagnostics are recorded before classifying constructor results.`);
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const issues = analyzeSourceConstructorResults(source, storage);
+    context.diagnostic(JSON.stringify({ control: name, issues: issues.map(issue => ({ code: issue.code, message: issue.message })) }));
+    assert.equal(issues.length, 0, `${name}: native absence is not a substitute object.`);
+    if (name === "effectful void") {
+      const operation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "log");
+      assert.equal(operation !== undefined, true, "Admission preserves the original effectful invocation.");
+      assert.equal(source.semantics.forNode(operation).operations.call(operation) !== undefined, true,
+        "The exact checked call remains available to the native constructor owner.");
+    }
+  });
+}
+
 test("construction storage rejects foreign, missing, formal, non-construction and budget-exhausted identities", () => {
   const current = fixture();
   const foreign = fixture();

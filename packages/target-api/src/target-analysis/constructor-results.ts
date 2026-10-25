@@ -66,8 +66,23 @@ export function analyzeSourceConstructorResults(
       unproven("The actual constructor receiver has no completed identity frontier.", expression);
       continue;
     }
-    if (selected.frontier.length !== 0 && selected.frontier.every(value => value.kind === "boundary" &&
-      value.subject === receiver.subject && expected.frontier.some(receiver => receiver.subject === value.subject && receiver.bindings === value.bindings))) continue;
+    const sameReceiver = (value: typeof selected.frontier[number]): boolean => value.kind === "boundary" &&
+      value.subject === receiver.subject && expected.frontier.some(receiver => receiver.subject === value.subject && receiver.bindings === value.bindings);
+    if (selected.frontier.length !== 0 && selected.frontier.every(sameReceiver)) continue;
+    let reason: string | undefined;
+    for (const value of selected.frontier) {
+      if (sameReceiver(value)) continue;
+      const domain = storage.storageProducersFor(value.subject, value.bindings);
+      if (domain.kind === "unresolved") { reason = domain.reason; break; }
+      if (domain.kind === "open") {
+        reason = `The returned value has an open source storage domain: ${[...new Set(domain.boundaries.map(boundary => boundary.kind))].join(", ")}.`;
+        break;
+      }
+    }
+    if (reason !== undefined) {
+      unproven(reason, expression);
+      continue;
+    }
     issues.push(Object.freeze({ code: "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", category: "error", source: "tsonic",
       sourceNode: expression, message: "A constructor that returns an object other than its receiver is not supported." }));
   }
