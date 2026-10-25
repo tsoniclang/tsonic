@@ -13,6 +13,11 @@ export function pureCatch(): boolean {
   catch { return false; }
 }
 
+export function pureBoundCatch(): int32 {
+  try { const value: int32 = 1; return value; }
+  catch (error) { return 2; }
+}
+
 export function finallyOnly(error: Error): boolean {
   let finalized = false;
   try {
@@ -49,7 +54,7 @@ export function nestedCallable(error: Error): boolean {
 
 export function run(): boolean {
   const error = new Error("protected identity");
-  return pureCatch() && caught(error) && finallyOnly(error) && nested(error) &&
+  return pureCatch() && pureBoundCatch() === 1 && caught(error) && finallyOnly(error) && nested(error) &&
     fallibleOuter(error, false) && nestedCallable(error);
 }
 `;
