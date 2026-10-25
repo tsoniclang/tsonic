@@ -26,8 +26,6 @@ export const carrierParityDifferences = Object.freeze([
     register: "S11-03", reason: "A parameter retained by its callable environment closes its open callable carrier over the environment lifetime (closeRustRetainedCallableCarrier). CLR parameters have no lifetime to close." },
   { responsibility: "callables/close-suspended-storage", target: "rust", symbol: "closeRustSuspendedStorage",
     register: "S11-06", reason: "Storage that crosses a native Future suspension point is closed over the retained lifetime of the suspended callable result. C# Task continuations capture CLR references without a storage selection." },
-  { responsibility: "callables/frame-callable-error", target: "rust", symbol: "rustFrameCallableError",
-    register: "S11-04", reason: "A frame entry returns Result<R, E> with E the owning package's program error, so a frame value invoked as a callable input carries that error type. CLR method groups and delegates transport errors as exceptions, outside the signature." },
   { responsibility: "callables/generator-target-type", target: "rust", symbol: "rustGeneratorStorageTargetType",
     register: "S11-03", reason: "Only the borrowing branch adds a native 'a argument to BorrowedGenerator<'a, Y, R, N> or BorrowedAsyncGenerator. That borrow lifetime is required by the selected Rust declaration; the CLR generator reference has no Rust lifetime parameter." },
   { responsibility: "callables/higher-ranked-native-function-carrier", target: "rust", symbol: "rustHigherRankedNativeFunctionCarrier",
