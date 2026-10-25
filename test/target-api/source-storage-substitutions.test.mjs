@@ -289,6 +289,22 @@ test("throwing guard continuation key construction releases its unpublished fron
   assert.equal(current.budget.failure() === undefined, true);
 });
 
+test("linear guard prefixes preserve shared compound DAGs and retain finite cycle refusal", () => {
+  const current = fixture({ maximumSteps: 4096, maximumTransportRows: 1024 }, 1);
+  const guard = { kind: "guarded", reference: {}, value: sourceStorageReference(current.input, current.scopes.empty) };
+  let term = guard;
+  for (let depth = 0; depth < 16; depth += 1) term = { kind: "store", destination: term, receiver: term, value: term };
+  const key = current.keys.encode(term);
+  assert.equal(typeof key === "string", true, "the branching compound DAG remains shared beneath its linear guard prefix");
+  assert.equal(current.keys.encode(term) === key, true, "a later complete request preserves exact key identity");
+  assert.equal(current.budget.failure() === undefined, true, "sharing keeps the same finite work and row guards");
+  const cyclic = fixture({ maximumSteps: 64, maximumTransportRows: 128 }, 1);
+  const cycle = { kind: "guarded", reference: {} };
+  cycle.value = cycle;
+  assert.equal(cyclic.keys.encode(cycle) === undefined, true, "a cyclic guard prefix never publishes a key");
+  assert.match(cyclic.budget.failure(), /analysis-work/u, "the existing finite step guard bounds an invalid linear spine");
+});
+
 test("throwing context traversal releases its own temporary rows without discarding already retained facts", () => {
   const current = fixture({ maximumTransportRows: 80 });
   const parent = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
