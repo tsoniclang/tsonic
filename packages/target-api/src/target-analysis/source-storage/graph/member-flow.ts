@@ -343,6 +343,7 @@ export function createSourceStorageMemberFlow(
   };
   const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type):
     "direct" | "copied" | "absent" | undefined => {
+    if (owner.projection.length !== 0) return "direct";
     if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
     if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return "direct";
     if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return "copied";

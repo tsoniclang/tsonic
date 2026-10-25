@@ -164,6 +164,8 @@ for (const [name, statements] of [
   ["named property", `const container = { value: original }; const { value: selected } = container;`],
   ["shorthand property", `const container = { original }; const { original: selected } = container;`],
   ["nested properties", `const container = { outer: { value: original } }; const { outer: { value: selected } } = container;`],
+  ["spread outer container", `const source = { value: original }; const container = { ...source }; const { value: selected } = container;`],
+  ["rest outer container", `const source = { omitted: 0, value: original }; const { omitted, ...container } = source; const { value: selected } = container;`],
 ]) {
   test(`Error literal-member mutation reaches the original physical allocation through ${name}`, async () => {
     const { source, file, provider, demands, variable, storage } = await checked(`error-literal-member-${name}`, `
@@ -177,6 +179,11 @@ selected.message = "changed";
     const selectedSubject = requiredStorageSubject(storage, binding);
     const selected = demands.storageFor(selectedSubject);
     assert.equal(selected.kind, "writable", `${name}: selected storage is writable`);
+    const container = requiredNode(source.ast, file, node =>
+      (source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsBindingElement(node)) &&
+      source.ast.is.IsIdentifier(source.ast.name(node)) && source.ast.text(source.ast.name(node)) === "container");
+    assert.equal(demands.storageFor(requiredStorageSubject(storage, container)).kind, "immutable",
+      `${name}: mutating a nested value does not mutate or copy the outer container's storage`);
     assert.equal(selected.writes.length, 1, `${name}: one exact write`);
     const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
     assert.equal(original !== undefined && source.ast.is.IsObjectLiteralExpression(original), true, `${name}: checked original allocation`);
