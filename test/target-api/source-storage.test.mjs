@@ -503,7 +503,7 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const spreadActual = resolvedSubject(storage.subjectFor(source.ast.as.AsSpreadElement(spreadArgument).Expression), "spread source");
   const actualElements = resolvedSubject(storage.subject(spreadActual.node, spreadActual.kind,
     [...spreadActual.projection, ...element]), "spread source elements");
-  const formalElements = resolvedSubject(storage.subject(restFormal.node, restFormal.kind,
+  const formalElements = resolvedSubject(storage.subject(restFormal.node, "input",
     [...restFormal.projection, ...element]), "spread formal elements");
   const checkedSpread = source.semantics.forNode(unknownRest).operations.call(unknownRest);
   assert.equal(checkedSpread.sourceArgumentBindings.length === 1 &&

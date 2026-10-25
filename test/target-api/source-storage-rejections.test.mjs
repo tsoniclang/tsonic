@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, Node_Expression, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { jsSourceCallableParameterEffects } from "../../packages/js-source-profile/dist/index.js";
-import { namedVariable } from "../fixtures/source-navigation.mjs";
+import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -40,7 +40,7 @@ function fixture(body) {
       `${name}: original rejection object identity`);
     assert.equal(storage.failureReason() === undefined, true, "finite source graph remains valid");
   };
-  return { source, storage, query, expectOriginal, initializer };
+  return { source, file, storage, query, expectOriginal, initializer };
 }
 
 for (const nested of [false, true]) for (const stored of [false, true]) {
@@ -129,8 +129,20 @@ test("one handler in fulfillment and rejection slots retains the unproved fulfil
     pending.then(handler, handler);
   `);
   const selected = current.query("result");
-  assert.equal(selected.kind === "unresolved", true,
+  assert.equal(selected.kind === "open", true,
     `a mapped reaction never hides an unmapped sibling entry (${selected.kind})`);
+  const reaction = current.storage.invocations.find(node => {
+    const operand = Node_Expression(current.source.ast, node);
+    return current.source.ast.is.IsPropertyAccessExpression(operand) &&
+      current.source.ast.text(current.source.ast.name(operand)) === "then";
+  });
+  const handler = namedDeclaration(current.source.ast, current.file, "handler");
+  const caught = current.storage.subject(current.source.ast.parameters(handler)[0], "input");
+  assert.equal(reaction !== undefined && caught.kind === "resolved" && selected.boundaries.some(boundary =>
+    boundary.kind === "external-input" && boundary.subject === caught.subject && boundary.exposure === reaction), true,
+    "the unproved fulfillment entry retains its exact native callback input boundary");
+  assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("original")), true,
+    "the open fulfillment input does not discard the independently proven rejection origin");
 });
 
 test("distinct Promise constructions retain distinct rejection channels", () => {

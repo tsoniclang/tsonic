@@ -22,7 +22,7 @@ function fixture(body) {
       `${name}: only the callback belonging to the constructed class activation`);
     assert.equal(storage.failureReason() === undefined, true, "exact finite scoped producer evidence");
   };
-  return { expect, source, storage, initializer };
+  return { expect, source, file, storage, initializer };
 }
 
 test("an external class factory does not acquire a checked local class activation", () => {
@@ -36,8 +36,13 @@ test("an external class factory does not acquire a checked local class activatio
   const subject = current.storage.subjectFor(current.initializer("result"));
   assert.equal(subject.kind === "resolved", true, "checked external member subject");
   const origins = current.storage.closedOriginsFor(subject.subject);
-  assert.equal(origins.kind === "unresolved", true,
-    `an external constructor never invents local capture or parameter correspondence (${origins.kind})`);
+  assert.equal(origins.kind === "open", true,
+    `an external constructor retains its unclosed value domain (${origins.kind})`);
+  const imported = namedVariable(current.source.ast, current.file, "imported");
+  assert.equal(origins.boundaries.some(boundary => boundary.kind === "external-input" && boundary.exposure === imported), true,
+    "the external factory retains its exact declaration-owned input witness");
+  assert.equal(origins.origins.every(origin => origin.subject.node !== current.initializer("original")), true,
+    "an external constructor never invents local capture or parameter correspondence");
 });
 
 for (const indirect of [false, true]) for (const reverse of [false, true]) {
