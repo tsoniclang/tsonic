@@ -187,17 +187,17 @@ selected.message = "changed";
     assert.equal(selected.writes.length, 1, `${name}: one exact write`);
     const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
     assert.equal(original !== undefined && source.ast.is.IsObjectLiteralExpression(original), true, `${name}: checked original allocation`);
+    const origins = demands.closedStorageOriginsFor(selectedSubject);
+    assert.equal(origins.kind, "complete", `${name}: selected origin is closed${origins.kind === "unresolved" ? `: ${origins.reason}` : ""}`);
+    assert.equal(origins.origins.length, 1, `${name}: one original allocation`);
+    assert.equal(origins.origins[0].subject.node === original, true, `${name}: exact original allocation identity`);
+    assert.equal(origins.origins[0].subject.projection.length, 0, `${name}: the origin is the allocation itself`);
     for (const node of [variable("original"), original]) {
       const physical = demands.storageFor(requiredStorageSubject(storage, node));
       assert.equal(physical.kind, "writable", `${name}: original ${source.ast.kindName(node)} storage is writable`);
       assert.equal(physical.writes.length, 1, `${name}: original storage receives one write`);
       assert.equal(physical.writes[0] === selected.writes[0], true, `${name}: original receives the identical mutation`);
     }
-    const origins = demands.closedStorageOriginsFor(selectedSubject);
-    assert.equal(origins.kind, "complete", `${name}: selected origin is closed`);
-    assert.equal(origins.origins.length, 1, `${name}: one original allocation`);
-    assert.equal(origins.origins[0].subject.node === original, true, `${name}: exact original allocation identity`);
-    assert.equal(origins.origins[0].subject.projection.length, 0, `${name}: the origin is the allocation itself`);
     const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))[0];
     assert.equal(field !== undefined, true, `${name}: checked Stored.message declaration`);
     const component = demands.closedStorageOriginsFor(requiredStorageSubject(storage, binding, [{ kind: "member", declaration: field }]));
