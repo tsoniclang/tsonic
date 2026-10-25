@@ -82,7 +82,9 @@ export function closureFixture(options = {}) {
       return { kind: pendingDeclarations.has(current) ? "may-suspend" : "never", value,
         contractDeclaration: current, checkedType: typeFor(value) };
     },
-    retentionFor(value, bindings) {
+    retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const { value, bindings } = request;
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
       const checkedType = typeFor(value);
       if (current === declaration("borrow")) {
@@ -92,7 +94,8 @@ export function closureFixture(options = {}) {
           region: storage.enclosingRegionFor(value.node), contractDeclaration: current, checkedType }] };
       }
       if (current === declaration("nativeFuture") || current === declaration("settledFuture")) {
-        const premises = actuals(source.ast.arguments(value.node)[0], bindings).flatMap(actual => native.retentionFor(actual, bindings).premises)
+        const premises = actuals(source.ast.arguments(value.node)[0], bindings).flatMap(actual =>
+          native.retentionFor({ kind: "origin", value: actual, bindings }).premises)
           .map(premise => ({ ...premise, value, contractDeclaration: current, checkedType }));
         return { kind: "resolved", premises };
       }

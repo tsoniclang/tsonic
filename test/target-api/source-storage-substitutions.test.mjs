@@ -134,6 +134,26 @@ test("context traversal reserves only its live frontier while interned binding e
   assert.equal(scopes.frameFor(current.inner, invocation, parent, parent) === undefined, true, "release never clears a failed owner");
 });
 
+test("reference encoding scratch belongs to its query while the canonical key survives its release", () => {
+  const current = fixture({ maximumTransportRows: 256, maximumSteps: 4096 }, 1);
+  const parent = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+  assert.equal(parent !== undefined, true, "the query retains its actual enclosing binding");
+  const reference = sourceStorageReference(current.nodes[0], parent);
+  const first = current.keys.encode(reference);
+  assert.equal(typeof first === "string", true, "the first query completes its exact key");
+  const completedRows = current.budget.usage().rows;
+  current.keys.releaseReferenceMemo();
+  const retainedRows = current.budget.usage().rows;
+  assert.equal(completedRows - retainedRows === 3, true, "only the completed reference index, not interned keys or bindings, is released");
+  for (let repeat = 0; repeat < 10; repeat += 1) {
+    assert.equal(current.keys.encode(sourceStorageReference(current.nodes[0], parent)) === first, true,
+      "a later query recovers the identical canonical key");
+    current.keys.releaseReferenceMemo();
+    assert.equal(current.budget.usage().rows === retainedRows, true, "completed query scratch never accumulates across queries");
+  }
+  assert.equal(current.budget.failure() === undefined, true, "the original finite work and row protection remain active");
+});
+
 test("the same complete context refuses its real encoding peak at an 80-row ceiling", () => {
   const current = fixture({ maximumTransportRows: 80, maximumSteps: 4096 });
   const { scopes, keys, budget } = current;
@@ -287,6 +307,22 @@ test("throwing guard continuation key construction releases its unpublished fron
   ready = true;
   assert.equal(typeof current.keys.encode(term) === "string", true, "no failed key or temporary reservation survives");
   assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("linear guard prefixes preserve shared compound DAGs and retain finite cycle refusal", () => {
+  const current = fixture({ maximumSteps: 4096, maximumTransportRows: 1024 }, 1);
+  const guard = { kind: "guarded", reference: {}, value: sourceStorageReference(current.input, current.scopes.empty) };
+  let term = guard;
+  for (let depth = 0; depth < 16; depth += 1) term = { kind: "store", destination: term, receiver: term, value: term };
+  const key = current.keys.encode(term);
+  assert.equal(typeof key === "string", true, "the branching compound DAG remains shared beneath its linear guard prefix");
+  assert.equal(current.keys.encode(term) === key, true, "a later complete request preserves exact key identity");
+  assert.equal(current.budget.failure() === undefined, true, "sharing keeps the same finite work and row guards");
+  const cyclic = fixture({ maximumSteps: 64, maximumTransportRows: 128 }, 1);
+  const cycle = { kind: "guarded", reference: {} };
+  cycle.value = cycle;
+  assert.equal(cyclic.keys.encode(cycle) === undefined, true, "a cyclic guard prefix never publishes a key");
+  assert.match(cyclic.budget.failure(), /analysis-work/u, "the existing finite step guard bounds an invalid linear spine");
 });
 
 test("throwing context traversal releases its own temporary rows without discarding already retained facts", () => {

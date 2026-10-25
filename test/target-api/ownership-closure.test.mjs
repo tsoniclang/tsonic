@@ -49,7 +49,9 @@ test("the complete shared query admits immediate await and marks an owned discar
   assert.equal(awaited.kind === "resolved" && awaited.decision === "admitted", true,
     awaited.kind === "unresolved" ? awaited.reason : "immediate await");
   const call = fixture.call("nativeOnly", "discardedClosed");
-  const native = { ...fixture.native, retentionFor(value) {
+  const native = { ...fixture.native, retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
+    const { value } = request;
     return { kind: "resolved", premises: [{ kind: "retained", reason: "owned-value", value,
       checkedType: fixture.typeFor(value), contractDeclaration: value.node }] };
   } };

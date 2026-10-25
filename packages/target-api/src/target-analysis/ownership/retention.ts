@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
@@ -237,30 +237,22 @@ export function createSourceRetentionQuery(input: {
   if (source !== storage.source) throw new Error("Retention and storage must share the identical checked source program.");
   const selected = new Map<Node, Map<SourceStorageBindings, SourceRetentionReadSelection>>();
   const origins = new Map<SourceStorageSubject, Map<SourceStorageBindings, SourceRetentionSelection>>();
-  const forOrigin = (actual: SourceStorageSubject, bindings: SourceStorageBindings): SourceRetentionSelection => {
-    if (!budget.step()) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
-    const existing = origins.get(actual)?.get(bindings);
-    if (existing !== undefined) return existing;
-    const type = storage.typeFor(actual);
-    if (type.kind === "unresolved") return sourceOwnershipUnresolved(actual.node, type.reason);
-    const selection = premises.retentionFor(actual, bindings);
-    if (selection === undefined) {
-      return sourceOwnershipUnresolved(actual.node, "The actual bound origin has no checked native retention or source lease premise.");
-    }
+  const validate = (kind: "origin" | "read-value", actual: SourceStorageSubject, bindings: SourceStorageBindings, checkedType: Type,
+    selection: SourceRetentionSelection, rows: ReturnType<SourceOwnershipBudget["createRows"]>): SourceRetentionSelection => {
     if (selection.kind === "unresolved") return selection;
     if (selection.premises.length === 0) {
       return sourceOwnershipUnresolved(actual.node, "An empty retention selection does not prove an independently owned value.");
     }
-    const rows = budget.createRows();
-    let published = false;
-    try {
       const retained: SourceRetentionPremise[] = [];
       for (const premise of selection.premises) {
         if (!budget.step()) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
+        if (kind === "read-value" && (premise.kind !== "retained" || premise.reason !== "owned-value")) {
+          return sourceOwnershipUnresolved(actual.node, "An independent read requires its actual owned native value, not an origin or borrowed-owner premise.");
+        }
         if (premise.value !== actual) {
           return sourceOwnershipUnresolved(actual.node, "Retention must describe the actual bound origin, not a generic formal or copied subject.");
         }
-        const problem = sourceOwnershipContractProblem(source, actual.node, type.type, premise);
+        const problem = sourceOwnershipContractProblem(source, actual.node, checkedType, premise);
         if (problem !== undefined) return sourceOwnershipUnresolved(actual.node, problem);
         if (premise.kind === "retained" && premise.reason === "retained-owner") {
           const owner = storage.typeFor(premise.owner);
@@ -293,7 +285,7 @@ export function createSourceRetentionQuery(input: {
           } else {
             const region = premise.region;
             const semantics = source.semantics.forNode(actual.node);
-            const arguments_ = semantics.types.typeArgumentBindings(type.type);
+            const arguments_ = semantics.types.typeArgumentBindings(checkedType);
             const selected = arguments_?.find(binding => binding.declaration === region.binding.declaration &&
               semantics.types.isIdentical(binding.parameterType, region.binding.parameterType) &&
               semantics.types.isIdentical(binding.argumentType, region.binding.argumentType));
@@ -323,8 +315,24 @@ export function createSourceRetentionQuery(input: {
         if (!rows.add(1)) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
         retained.push(Object.freeze({ ...premise }));
       }
+      return Object.freeze({ kind: "resolved", premises: Object.freeze(retained) });
+  };
+  const forOrigin = (actual: SourceStorageSubject, bindings: SourceStorageBindings): SourceRetentionSelection => {
+    if (!budget.step()) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
+    const existing = origins.get(actual)?.get(bindings);
+    if (existing !== undefined) return existing;
+    const type = storage.typeFor(actual);
+    if (type.kind === "unresolved") return sourceOwnershipUnresolved(actual.node, type.reason);
+    const selection = premises.retentionFor({ kind: "origin", value: actual, bindings });
+    if (selection === undefined) {
+      return sourceOwnershipUnresolved(actual.node, "The actual bound origin has no checked native retention or source lease premise.");
+    }
+    const rows = budget.createRows();
+    let published = false;
+    try {
+      const result = validate("origin", actual, bindings, type.type, selection, rows);
+      if (result.kind === "unresolved") return result;
       if (!rows.add(3)) return sourceOwnershipUnresolved(actual.node, budget.failure()!);
-      const result: SourceRetentionSelection = Object.freeze({ kind: "resolved", premises: Object.freeze(retained) });
       const byBinding = origins.get(actual) ?? new Map<SourceStorageBindings, SourceRetentionSelection>();
       byBinding.set(bindings, result);
       origins.set(actual, byBinding);
@@ -341,26 +349,40 @@ export function createSourceRetentionQuery(input: {
       if (existing !== undefined) return existing;
       const subject = storage.subjectFor(reference);
       if (subject.kind === "unresolved") return sourceOwnershipUnresolved(reference, subject.reason);
-      const origins = storage.storageProducersFor(subject.subject, bindings);
-      if (origins.kind === "unresolved") return sourceOwnershipUnresolved(reference, origins.reason);
-      if (origins.producers.length === 0) {
-        return sourceOwnershipUnresolved(reference, "Retention requires a complete nonempty bound-origin selection.");
-      }
+      const context = storage.contextKeyFor(Object.freeze([]), bindings);
+      if (context.kind === "unresolved") return sourceOwnershipUnresolved(reference, context.reason);
+      const native = premises.retentionFor({ kind: "read-value", reference, value: subject.subject, bindings });
       const rows = budget.createRows();
       let published = false;
       try {
-        const retained: SourceRetentionPremise[] = [];
-        for (const actual of origins.producers) {
-          const selection = forOrigin(actual.subject, actual.bindings);
-          if (selection.kind === "unresolved") return selection;
-          for (const premise of selection.premises) {
-            if (!budget.step() || !rows.add(1)) return sourceOwnershipUnresolved(reference, budget.failure()!);
-            retained.push(premise);
+        let retained: readonly SourceRetentionPremise[];
+        if (native !== undefined) {
+          if (native.kind === "unresolved") return native;
+          const type = storage.typeFor(subject.subject);
+          if (type.kind === "unresolved") return sourceOwnershipUnresolved(reference, type.reason);
+          const validated = validate("read-value", subject.subject, bindings, type.type, native, rows);
+          if (validated.kind === "unresolved") return validated;
+          retained = validated.premises;
+        } else {
+          const origins = storage.storageProducersFor(subject.subject, bindings);
+          if (origins.kind === "unresolved") return sourceOwnershipUnresolved(reference, origins.reason);
+          if (origins.producers.length === 0) {
+            return sourceOwnershipUnresolved(reference, "Retention requires a complete nonempty bound-origin selection.");
           }
+          const original: SourceRetentionPremise[] = [];
+          for (const actual of origins.producers) {
+            const selection = forOrigin(actual.subject, actual.bindings);
+            if (selection.kind === "unresolved") return selection;
+            for (const premise of selection.premises) {
+              if (!budget.step() || !rows.add(1)) return sourceOwnershipUnresolved(reference, budget.failure()!);
+              original.push(premise);
+            }
+          }
+          retained = Object.freeze(original);
         }
         if (!rows.add(2)) return sourceOwnershipUnresolved(reference, budget.failure()!);
         const result: SourceRetentionReadSelection = Object.freeze({ kind: "resolved", reference,
-          premises: Object.freeze(retained) });
+          premises: retained });
         const byBinding = selected.get(reference) ?? new Map<SourceStorageBindings, SourceRetentionReadSelection>();
         byBinding.set(bindings, result);
         selected.set(reference, byBinding);

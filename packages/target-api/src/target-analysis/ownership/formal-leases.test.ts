@@ -70,7 +70,9 @@ function fixture(kind: "input-duration" | "type-argument",
       return type.kind === "unresolved" ? undefined : { kind: owner === declaration("pending") ? "may-suspend" : "never",
         value, contractDeclaration: owner, checkedType: type.type };
     },
-    retentionFor(value) {
+    retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const { value } = request;
       const type = storage.typeFor(value);
       assert.equal(type.kind === "resolved", true, "retention checked type");
       if (type.kind === "unresolved") return { kind: "unresolved", at: value.node, reason: type.reason };

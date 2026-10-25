@@ -58,8 +58,10 @@ test("native discarded async values reject independently of an unresolved contin
 test("D11 marks a discarded completed owning computation without a new runtime representation", () => {
   const call = fixture.readCall(fixture.declaration("discarded"));
   const dependency = dependencyFor(fixture.declaration("discarded"), { ...fixture.native,
-    retentionFor(value, bindings) {
-      const selected = fixture.native.retentionFor(value, bindings);
+    retentionFor(request) {
+      if (request.kind === "read-value") return undefined;
+      const { value } = request;
+      const selected = fixture.native.retentionFor(request);
       return { kind: "resolved", premises: selected.premises.map(premise => ({ kind: "retained", value,
         reason: "owned-value", checkedType: premise.checkedType, contractDeclaration: premise.contractDeclaration })) };
     } });
@@ -143,8 +145,9 @@ test("all four historically observed scoped source call shapes stay immediately 
 });
 
 test("mutable source leases obey the same scoped-await and escape decision as shared leases", () => {
-  const native = { ...fixture.native, retentionFor(value, bindings) {
-    const selected = fixture.native.retentionFor(value, bindings);
+  const native = { ...fixture.native, retentionFor(request) {
+    if (request.kind === "read-value") return undefined;
+    const selected = fixture.native.retentionFor(request);
     return { kind: "resolved", premises: selected.premises.map(premise => ({ ...premise, mode: "mutable" })) };
   } };
   for (const name of ["awaited", "discarded", "stored", "returned"]) {
