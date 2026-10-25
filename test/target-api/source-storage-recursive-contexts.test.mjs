@@ -100,6 +100,71 @@ for (const reverse of [false, true]) test(`native publication keeps a forwarded 
   }
 });
 
+for (const reverse of [false, true]) test(`native publication keeps a forwarded callable's actual return exposure (${reverse})`, () => {
+  const current = fixture(`
+    interface Cell { value: object; }
+    declare function expose(read: () => Cell): void;
+    function forward(read: () => Cell): void { expose(read); }
+    const own = {}; const foreign = {};
+    const exposed = { value: own }; const untouched = { value: foreign };
+    forward(() => exposed);
+    const first = exposed.value; const second = untouched.value;
+  `);
+  for (const name of reverse ? ["second", "first"] : ["first", "second"]) {
+    const selected = current.result(name, name === "first" ? "open" : "complete");
+    const expected = current.subject(name === "first" ? "own" : "foreign");
+    assert.equal(selected.origins.some(origin => origin.subject === expected), true,
+      "the actual callback return retains its checked field producer");
+    if (name === "first") assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" ||
+      boundary.kind === "external-write"), true, "native code can mutate the returned actual allocation");
+    else assert.equal(selected.origins.length === 1, true, "another allocation never becomes a callback result");
+  }
+});
+
+for (const reverse of [false, true]) test(`a native self argument does not hide its other argument's publication (${reverse})`, () => {
+  const current = fixture(`
+    interface Cell { value: object; }
+    type Write = (next: Write, value: Cell) => void;
+    declare const native: Write;
+    const own = {}; const foreign = {};
+    const exposed = { value: own }; const untouched = { value: foreign };
+    native(native, exposed);
+    const first = exposed.value; const second = untouched.value;
+  `);
+  for (const name of reverse ? ["second", "first"] : ["first", "second"]) {
+    const selected = current.result(name, name === "first" ? "open" : "complete");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(name === "first" ? "own" : "foreign")), true,
+      "native self-correlation does not erase the actual payload producer");
+    if (name === "first") assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+      "the independent native payload remains writable");
+    else assert.equal(selected.origins.length === 1, true, "the unrelated allocation remains private");
+  }
+});
+
+for (const reverse of [false, true]) test(`an intervening argument write cannot hide a different callable's captured return (${reverse})`, () => {
+  const current = fixture(`
+    interface Cell { value: object; }
+    type Invoke = (signal: object, next: Invoke, value: Cell) => Cell;
+    declare const native: Invoke;
+    const own = {}; const foreign = {};
+    const exposed = { value: own }; const untouched = { value: foreign };
+    function source(_signal: object, _next: Invoke, _value: Cell): Cell { return exposed; }
+    let current: Invoke = native;
+    function change(): object { current = source; return {}; }
+    current(change(), current, untouched);
+    const first = exposed.value;
+    const privateValue = { value: foreign }; const second = privateValue.value;
+  `);
+  for (const name of reverse ? ["second", "first"] : ["first", "second"]) {
+    const selected = current.result(name, name === "first" ? "open" : "complete");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(name === "first" ? "own" : "foreign")), true,
+      "a different evaluated callback retains its actual return's producer");
+    if (name === "first") assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" ||
+      boundary.kind === "external-write"), true, "the native caller receives the later callback's captured return");
+    else assert.equal(selected.origins.length === 1, true, "a separately created allocation stays outside the native call");
+  }
+});
+
 for (const [name, declarations] of [
   ["direct", `
     function descend(root: Tree): Tree {
