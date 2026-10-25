@@ -211,8 +211,11 @@ for (const opaque of [false, true]) test(`empty formal equations validate origin
   `);
   const invocation = current.nodes.find(current.source.ast.is.IsCallExpression);
   assert.equal(invocation !== undefined, true, "the original checked call is present");
-  const selected = current.source.semantics.forNode(invocation).operations.call(invocation);
-  const implementation = selected?.sourceSelectedDeclaration;
+  const semantics = current.source.semantics.forNode(invocation);
+  const selected = semantics.operations.call(invocation);
+  assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "the original invocation has its exact checked signature");
+  const implementation = selected?.selectedSignature === undefined ? undefined
+    : semantics.declarations.signatureDeclaration(selected.selectedSignature);
   assert.equal(implementation !== undefined, true, "the selected checked declaration is retained");
   const declaration = current.callable("forward");
   const parameter = current.parameter(declaration, "owner");

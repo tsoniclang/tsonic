@@ -109,6 +109,50 @@ test("a checked guarded array element retains its exact source type without eras
     "projecting the array branch never replaces the original parameter's complete union");
 });
 
+for (const optional of [false, true]) for (const [label, receiver] of [
+  ["property", "this.mountpath"], ["element", 'this["mountpath"]'],
+]) test(`guarded member occurrences keep checked value Types (${label}, optional=${optional})`, () => {
+  const current = fixture(`class Mount {
+    mountpath: string | string[] ${optional ? "| undefined" : ""} = "/";
+    path(): string {
+      if (${optional ? `${receiver} === undefined || ` : ""}typeof ${receiver} === "string") return "";
+      const selected = ${receiver}[0];
+      return selected!;
+    }
+  }`);
+  const { ast } = current.source;
+  const access = current.initializer("selected");
+  const semantics = current.source.semantics.forNode(access);
+  const checked = semantics.operations.elementAccess(access);
+  const original = ast.as.AsElementAccessExpression(access)?.Expression;
+  assert.equal(checked !== undefined && checked.receiver.expression === original, true,
+    "the original indexed-use selection retains its exact guarded member occurrence");
+  assert.equal(semantics.types.isArrayLike(checked.receiver.type), true,
+    "the checked indexed-use receiver has no remaining string or absence arm");
+  const expected = semantics.types.expressionType(original);
+  assert.equal(expected !== undefined && semantics.types.isArrayLike(expected), true,
+    "the original occurrence's checked Type agrees with its actual indexed-use receiver");
+  const occurrence = current.storage.subjectFor(original);
+  assert.equal(occurrence.kind, "resolved", `the exact evaluated member has a value subject: ${occurrence.reason ?? ""}`);
+  const value = current.storage.typeFor(occurrence.subject);
+  assert.equal(value.kind === "resolved" && value.type === expected, true,
+    "a guarded member VALUE uses its checked occurrence Type, not the declared field union");
+  const projected = current.storage.subject(occurrence.subject.node, occurrence.subject.kind,
+    [...occurrence.subject.projection, { kind: "array-element" }]);
+  assert.equal(projected.kind, "resolved", `the actual guarded array element is admitted: ${projected.reason ?? ""}`);
+  const actual = current.storage.typeFor(projected.subject);
+  assert.equal(actual.kind === "resolved" && actual.type === semantics.types.expressionType(access), true,
+    "the exact original checked element Type is preserved without selecting a guessed union arm");
+  const field = requiredNode(ast, current.file, node => ast.is.IsPropertyDeclaration(node) && ast.text(ast.name(node)) === "mountpath");
+  const raw = current.storage.subject(field, "member");
+  assert.equal(raw.kind, "resolved", "the original raw member storage declaration remains present");
+  const full = current.storage.typeFor(raw.subject);
+  assert.equal(full.kind === "resolved" && semantics.types.isUnion(full.type), true,
+    "flow narrowing never overwrites the real shared field's full declared union");
+  assert.equal(current.storage.subject(field, "member", [{ kind: "array-element" }]).kind, "unresolved",
+    "the raw mixed union cannot fabricate an all-array component proof");
+});
+
 test("source spread arguments transport their actual backing element producers", () => {
   const current = fixture(`const first = {}; const second = {}; const values = [first, second];
     function take(...items: {}[]): void {} take(...values);`);
