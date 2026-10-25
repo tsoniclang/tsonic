@@ -21,8 +21,8 @@ interface ReferenceEncoding {
 }
 
 interface ReferenceEncodings {
-  reference?: ReferenceEncoding;
-  leaf?: ReferenceEncoding;
+  reference?: Map<SourceStorageSubject, ReferenceEncoding>;
+  leaf?: Map<SourceStorageSubject, ReferenceEncoding>;
 }
 
 type ReferenceWork = { [Kind in SourceStorageReference["kind"]]?: true };
@@ -32,7 +32,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const { footprints, ownerFor: locationOwner } = creation;
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
   const ownerRows = budget.createRows();
-  const completedReferences = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
+  const completedReferences = new Map<SourceStorageScope, ReferenceEncodings>();
   let completedReferenceRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
   const actualInputDemand = (term: SourceStorageTerm): boolean => {
@@ -349,9 +349,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         if (completed !== undefined) terms.set(selected, completed);
         return completed?.encoded;
       }
-      const completedSubjects = completedReferences.get(selected.scope);
-      const completedEncodings = completedSubjects?.get(selected.subject);
-      const completed = completedEncodings?.[selected.kind];
+      const completed = completedReferences.get(selected.scope)?.[selected.kind]?.get(selected.subject);
       if (completed !== undefined) {
         closed = closed && completed.closed;
         return completed.encoded;
@@ -386,14 +384,14 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         }
       });
       if (result === undefined) return undefined;
-      const currentSubjects = completedReferences.get(selected.scope);
-      const currentEncodings = currentSubjects?.get(selected.subject);
-      if (!completedReferenceRows.add(currentEncodings === undefined ? currentSubjects === undefined ? 3 : 2 : 1)) return undefined;
-      const completedModes = currentEncodings ?? {};
-      completedModes[selected.kind] = result;
-      const inputs = currentSubjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
-      inputs.set(selected.subject, completedModes);
-      completedReferences.set(selected.scope, inputs);
+      const currentModes = completedReferences.get(selected.scope);
+      const currentSubjects = currentModes?.[selected.kind];
+      if (!completedReferenceRows.add(currentSubjects === undefined ? currentModes === undefined ? 3 : 2 : 1)) return undefined;
+      const subjectsForMode = currentSubjects ?? new Map<SourceStorageSubject, ReferenceEncoding>();
+      subjectsForMode.set(selected.subject, result);
+      const modes = currentModes ?? {};
+      modes[selected.kind] = subjectsForMode;
+      completedReferences.set(selected.scope, modes);
       return result.encoded;
     };
     const encoded = encodeTerm(term);
