@@ -62,13 +62,20 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
 }
 
 test("Error array storage transports exact element demand through aliases and cross-file parameters", async () => {
-  const { source, demands, variable, storage } = await checked("error-array-storage-components", `
+  const { source, provider, demands, variable, storage } = await checked("error-array-storage-components", `
 const original = { message: "original" };
 const untouched = { message: "untouched" };
 const values: Stored[] = [original];
 const alias = values;
 mutate(alias);
 `);
+  const receiver = requiredNode(source.ast, source.ast.body(namedDeclaration(source.ast, provider, "mutate")),
+    node => source.ast.is.IsElementAccessExpression(node));
+  const frontier = storage.boundValueFrontierFor(requiredStorageSubject(storage, receiver), storage.emptyBindings, Object.freeze([]));
+  assert.equal(frontier.kind, "resolved", frontier.kind === "unresolved" ? frontier.reason : "source writes retain the known actual invocation frontier");
+  const allocation = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+  assert.equal(frontier.frontier.some(entry => entry.subject.node === allocation && entry.subject.projection.length === 0), true,
+    "an exported writer's value frontier includes its actual caller allocation without claiming the outside input is closed");
   assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("original"))).kind, "writable");
   assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable");
   assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"))).kind, "immutable", "container identity is not its element");
@@ -166,12 +173,13 @@ for (const [name, statements] of [
   ["nested properties", `const container = { outer: { value: original } }; const { outer: { value: selected } } = container;`],
   ["spread outer container", `const source = { value: original }; const container = { ...source }; const { value: selected } = container;`],
   ["rest outer container", `const source = { omitted: 0, value: original }; const { omitted, ...container } = source; const { value: selected } = container;`],
+  ["separate factory activations", `function box(value: Stored) { return { value }; } const independent = box(untouched); const container = box(original); const { value: selected } = container;`],
 ]) {
   test(`Error literal-member mutation reaches the original physical allocation through ${name}`, async () => {
     const { source, file, provider, demands, variable, storage } = await checked(`error-literal-member-${name}`, `
 const original: Stored = { message: "original" };
-${statements}
 const untouched = { message: "untouched" };
+${statements}
 selected.message = "changed";
 `);
     const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node) &&
@@ -230,6 +238,11 @@ const untouched = { message: "untouched" };
 `);
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
   const selectedSubject = requiredStorageSubject(storage, binding);
+  const frontier = storage.boundValueFrontierFor(selectedSubject, storage.emptyBindings, Object.freeze([]));
+  assert.equal(frontier.kind, "resolved", frontier.kind === "unresolved" ? frontier.reason : "a source write retains its symbolic outside input");
+  const formal = source.ast.parameters(namedDeclaration(source.ast, file, "write"))[0];
+  assert.equal(frontier.frontier.some(entry => entry.subject.node === formal && entry.subject.projection.length === 1), true,
+    "the outside caller remains an exact projected formal, not an executed allocation or empty source-write domain");
   const selected = demands.storageFor(selectedSubject);
   assert.equal(selected.kind, "writable", "the formal's selected storage receives its actual mutation demand");
   assert.equal(selected.writes.length, 1, "the formal receives one exact write");
