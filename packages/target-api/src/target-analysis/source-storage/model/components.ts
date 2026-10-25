@@ -140,7 +140,8 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
       (source.ast.is.IsForOfStatement(loop) || source.ast.is.IsForInStatement(loop)) &&
       ForInOrOfStatement_Initializer(source.ast, loop) === declarationList ? loop : undefined;
     const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
-      value.kind === "value" && (source.ast.is.IsIdentifier(value.node) || source.ast.kindName(value.node) === "KindThisKeyword");
+      value.kind === "value" && (source.ast.is.IsIdentifier(value.node) || source.ast.is.IsPropertyAccessExpression(value.node) ||
+        source.ast.is.IsElementAccessExpression(value.node) || source.ast.kindName(value.node) === "KindThisKeyword");
     selected = bindingContainer ? iteration !== undefined ? semantics.operations.iteration(iteration)?.sourceElementType
         : containerType !== undefined ? semantics.types.authoredType(containerType)
         : initializer !== undefined ? semantics.types.expressionType(initializer)

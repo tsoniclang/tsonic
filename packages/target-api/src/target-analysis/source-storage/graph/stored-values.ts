@@ -266,62 +266,67 @@ export function createSourceStorageFormalMemberWrites(
     }
     return reason === undefined || formal === undefined ? write : Object.freeze({ ...write, reason: write.reason ?? reason });
   };
-  const publish = (): void => {
-    if (complete) throw new Error("Formal member-write demands publish exactly once.");
-    for (const formal of formals.keys()) {
-      if (!budget.step()) break;
-      const initializer = Node_Initializer(ast, formal.node);
-      if (initializer === undefined) continue;
-      const actual = inputsFor(initializer);
-      for (const input of actual.inputs) forward(input, formal, actual.reason);
+  const connectInvocation = (invocation: Node, connectInputs: boolean): void => {
+    if (!budget.step()) return;
+    const call = semantics.forNode(invocation).operations.call(invocation);
+    const implementations = queries.implementationsFor(invocation);
+    const assignment = ast.parent(invocation);
+    const setter = assignment !== undefined && ast.is.IsBinaryExpression(assignment) &&
+      ast.operatorKindName(assignment) === "KindEqualsToken" ? ast.as.AsBinaryExpression(assignment) : undefined;
+    const supplied = call?.sourceArguments.map(argument => argument.expression)
+      ?? (ast.is.IsCallExpression(invocation) ? ast.as.AsCallExpression(invocation)?.Arguments?.Nodes
+        : ast.is.IsNewExpression(invocation) ? ast.as.AsNewExpression(invocation)?.Arguments?.Nodes
+          : setter?.Left === invocation && setter.Right !== undefined ? [setter.Right] : []);
+    const markUnresolved = (reason: string): void => {
+      for (const expression of supplied ?? []) {
+        if (!budget.step()) break;
+        if (expression === undefined) continue;
+        const actual = ast.is.IsSpreadElement(expression) ? Node_Expression(ast, expression) : expression;
+        if (actual !== undefined) for (const input of inputsFor(actual).inputs) add(input, reason);
+      }
+    };
+    const reason = queries.unresolvedFor(invocation);
+    if (reason !== undefined || implementations?.exact !== true || implementations.nodes.size === 0 ||
+      [...implementations.nodes].some(declaration => !budget.step() || ast.body(declaration) === undefined)) {
+      if (!connectInputs) markUnresolved(reason ?? "Member-write demand cannot prove an unknown or bodyless callee's effects.");
+      return;
     }
-    for (const invocation of queries.invocations) {
+    for (const declaration of implementations.nodes) {
       if (!budget.step()) break;
-      const call = semantics.forNode(invocation).operations.call(invocation);
-      const implementations = queries.implementationsFor(invocation);
-      const assignment = ast.parent(invocation);
-      const setter = assignment !== undefined && ast.is.IsBinaryExpression(assignment) &&
-        ast.operatorKindName(assignment) === "KindEqualsToken" ? ast.as.AsBinaryExpression(assignment) : undefined;
-      const supplied = call?.sourceArguments.map(argument => argument.expression)
-        ?? (ast.is.IsCallExpression(invocation) ? ast.as.AsCallExpression(invocation)?.Arguments?.Nodes
-          : ast.is.IsNewExpression(invocation) ? ast.as.AsNewExpression(invocation)?.Arguments?.Nodes
-            : setter?.Left === invocation && setter.Right !== undefined ? [setter.Right] : []);
-      const markUnresolved = (reason: string): void => {
-        for (const expression of supplied ?? []) {
-          if (!budget.step()) break;
-          if (expression === undefined) continue;
-          const actual = ast.is.IsSpreadElement(expression) ? Node_Expression(ast, expression) : expression;
-          if (actual !== undefined) for (const input of inputsFor(actual).inputs) add(input, reason);
-        }
-      };
-      const reason = queries.unresolvedFor(invocation);
-      if (reason !== undefined || implementations?.exact !== true || implementations.nodes.size === 0 ||
-        [...implementations.nodes].some(declaration => !budget.step() || ast.body(declaration) === undefined)) {
-        markUnresolved(reason ?? "Member-write demand cannot prove an unknown or bodyless callee's effects.");
+      const parameters = owners.get(declaration);
+      if (parameters === undefined) {
+        if (!connectInputs) markUnresolved("Member-write demand requires the actual implementation's complete checked value-parameter vector.");
         continue;
       }
-      for (const declaration of implementations.nodes) {
+      for (const formal of parameters) {
         if (!budget.step()) break;
-        const parameters = owners.get(declaration);
-        if (parameters === undefined) {
-          markUnresolved("Member-write demand requires the actual implementation's complete checked value-parameter vector.");
-          continue;
-        }
-        for (const formal of parameters) {
+        const bound = queries.invocationInputs(formal, declaration, invocation);
+        for (const supplied of [...bound.subjects, ...(bound.calleeSubjects ?? [])]) {
           if (!budget.step()) break;
-          const bound = queries.invocationInputs(formal, declaration, invocation);
-          for (const supplied of [...bound.subjects, ...(bound.calleeSubjects ?? [])]) {
-            if (!budget.step()) break;
-            if (supplied === formal) {
-              if (!bound.omitted) markUnresolved("Member-write demand has no exact selected signature-to-implementation input correspondence.");
-              continue;
-            }
-            const actual = inputsFor(supplied.node);
-            for (const input of actual.inputs) forward(input, formal, actual.reason ?? (supplied.projection.length !== 0
-              ? "Member-write demand cannot turn a projected or rest input into an unqualified parameter binding." : undefined));
+          if (supplied === formal) {
+            if (!connectInputs && !bound.omitted) markUnresolved("Member-write demand has no exact selected signature-to-implementation input correspondence.");
+            continue;
           }
+          if (!connectInputs) continue;
+          const actual = inputsFor(supplied.node);
+          for (const input of actual.inputs) forward(input, formal, actual.reason ?? (supplied.projection.length !== 0
+            ? "Member-write demand cannot turn a projected or rest input into an unqualified parameter binding." : undefined));
         }
       }
+    }
+  };
+  const publish = (): void => {
+    if (complete) throw new Error("Formal member-write demands publish exactly once.");
+    for (const invocation of queries.invocations) connectInvocation(invocation, false);
+    if (seeds.size !== 0) {
+      for (const formal of formals.keys()) {
+        if (!budget.step()) break;
+        const initializer = Node_Initializer(ast, formal.node);
+        if (initializer === undefined) continue;
+        const actual = inputsFor(initializer);
+        for (const input of actual.inputs) forward(input, formal, actual.reason);
+      }
+      for (const invocation of queries.invocations) connectInvocation(invocation, true);
     }
     const emptyDemands: readonly (Node | string)[] = Object.freeze([]);
     const demands = seeds.size === 0 ? () => emptyDemands
