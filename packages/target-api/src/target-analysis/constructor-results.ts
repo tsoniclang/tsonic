@@ -36,9 +36,6 @@ export function analyzeSourceConstructorResults(
     if (declaration === undefined || !ast.is.IsConstructorDeclaration(declaration) || ast.body(declaration) === undefined) continue;
     const expression = Node_Expression(ast, statement);
     if (expression === undefined) continue;
-    const semantics = source.semantics.forNode(expression);
-    const expressionType = semantics.types.expressionType(expression);
-    if (expressionType !== undefined && semantics.types.isNever(expressionType)) continue;
     const receiver = storage.subject(declaration, "receiver");
     if (receiver.kind === "unresolved") {
       unproven(receiver.reason, expression);
@@ -73,19 +70,25 @@ export function analyzeSourceConstructorResults(
       value.subject === receiver.subject && expected.frontier.some(receiver => receiver.subject === value.subject && receiver.bindings === value.bindings);
     if (selected.frontier.length !== 0 && selected.frontier.every(sameReceiver)) continue;
     let reason: string | undefined;
+    let substituted = false;
     for (const value of selected.frontier) {
       if (sameReceiver(value)) continue;
+      const selectedType = storage.typeFor(value.subject);
+      if (selectedType.kind === "unresolved") { reason = selectedType.reason; break; }
+      if (source.semantics.forFile(selectedType.sourceFile).types.isNever(selectedType.type)) continue;
       const domain = storage.storageProducersFor(value.subject, value.bindings);
       if (domain.kind === "unresolved") { reason = domain.reason; break; }
       if (domain.kind === "open") {
         reason = `The returned value has an open source storage domain: ${[...new Set(domain.boundaries.map(boundary => boundary.kind))].join(", ")}.`;
         break;
       }
+      substituted = true;
     }
     if (reason !== undefined) {
       unproven(reason, expression);
       continue;
     }
+    if (!substituted) continue;
     issues.push(Object.freeze({ code: "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", category: "error", source: "tsonic",
       sourceNode: expression, message: "A constructor that returns an object other than its receiver is not supported." }));
   }

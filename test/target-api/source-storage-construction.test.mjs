@@ -84,6 +84,8 @@ for (const [name, text] of [
   ["reassigned alias", "class Owner { value = 1; constructor() { let self: Owner = this; self = { value: 2 }; return self; } } const owner = new Owner();"],
   ["cached instance", "const cached = { value: 2 }; class Owner { value = 1; constructor() { return cached; } } const owner = new Owner();"],
   ["substitute or checked never", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor(flag: boolean) { return flag ? { value: 2 } : fail(); } } const owner = new Owner(true);"],
+  ["substitute asserted as never", "class Owner { value = 1; constructor() { return ({ value: 2 } as never); } } const owner = new Owner();"],
+  ["aliased substitute asserted as never", "class Owner { value = 1; constructor() { const replacement = { value: 2 } as never; return replacement; } } const owner = new Owner();"],
 ]) {
   test(`constructor result admission rejects ${name} at its actual source expression`, () => {
     const current = constructorResultFixture(text);
@@ -106,6 +108,10 @@ test("constructor result admission preserves unresolved, resource and foreign-ow
   assert.equal(issues.length, 1, "An opaque result cannot prove the current receiver.");
   assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "Unresolved identity is not mislabelled as a proven substitute.");
   assert.equal(issues[0].message.startsWith("Constructor result receiver identity is not proven: "), true);
+  const asserted = constructorResultFixture("declare function unknown(owner: Owner): Owner; class Owner { value = 1; constructor() { return unknown(this) as never; } }");
+  const assertedIssues = analyzeSourceConstructorResults(asserted.source, asserted.storage);
+  assert.equal(assertedIssues.length, 1, "An outer never assertion does not close an actual opaque producer.");
+  assert.equal(assertedIssues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "Actual source-domain uncertainty survives the assertion.");
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
     const bounded = constructorResultFixture("class Owner { constructor() { return this; } }", { ...defaultSourceStorageLimits, ...limits });
     const reason = bounded.storage.failureReason();
