@@ -55,6 +55,7 @@ interface FixedPointCell<Key, Value> {
   dirty: boolean;
   settled: boolean;
   complete: boolean | FixedPointCell<Key, Value>;
+  previousInWave: FixedPointCell<Key, Value> | undefined;
 }
 
 function readonlyValues<Value>(values: ReadonlySet<Value>, validate?: () => void): ReadonlySet<Value> {
@@ -284,8 +285,8 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         }
         const cached = selections.get(key);
         if (cached !== undefined && completed(cached)) return cached.view;
-        return budget.withRows(workRows => {
-          const wave = new Set<FixedPointCell<Key, Value>>();
+        return (() => {
+          let wave: FixedPointCell<Key, Value> | undefined;
           const pending = new Set<FixedPointCell<Key, Value>>();
           const frontierRows = budget.createRows();
           const deltaRows = budget.createRows();
@@ -343,15 +344,16 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             const selected = selections.get(input);
             if (selected !== undefined) return selected;
             const rows = budget.createRows();
-            if (!rows.add(2) || !workRows.add(1)) { rows.release(); return undefined; }
+            if (!rows.add(2)) { rows.release(); return undefined; }
             const values = new Set<Value>();
             const cell: FixedPointCell<Key, Value> = { key: input, values, view: readonlyValues(values), rows,
               dependencyRows: budget.createRows(), parents: new Set(), forwardParents: new Map(), forwards: new Map(),
-              pendingInputs: 0, pendingDeltas: 0, evaluated: false, dirty: false, settled: false, complete: publication ?? false };
+              pendingInputs: 0, pendingDeltas: 0, evaluated: false, dirty: false, settled: false,
+              complete: publication ?? false, previousInWave: wave };
             if (!schedule(cell, true)) { rows.release(); return undefined; }
             selections.set(input, cell);
             publication ??= cell;
-            wave.add(cell);
+            wave = cell;
             return cell;
           };
           const retire = (cell: FixedPointCell<Key, Value>): void => {
@@ -524,7 +526,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             current = undefined;
             pending.clear();
             deltas.length = 0;
-            for (const cell of wave) {
+            while (wave !== undefined) {
+              const cell = wave;
+              wave = cell.previousInWave;
+              cell.previousInWave = undefined;
               cell.parents.clear();
               retire(cell);
               cell.forwardParents.clear();
@@ -538,11 +543,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 cell.rows.release();
               }
             }
-            wave.clear();
             frontierRows.release();
             deltaRows.release();
           }
-        });
+        })();
       };
     },
   });

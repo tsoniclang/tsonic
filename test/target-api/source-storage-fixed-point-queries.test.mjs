@@ -214,17 +214,19 @@ test("positive growth uses linear live rows rather than retaining every approxim
 
 test("each distinct result is reserved before insertion and duplicate entries have no second cost", () => {
   const { budget, graph } = fixture({ maximumTransportRows: 6 });
-  let first; let duplicate; let overflow;
+  let first; let duplicate; let third; let overflow;
   const select = graph.fixedPoint((_key, _read, add) => {
     first = add("first");
     duplicate = add("first");
     const second = add("second");
-    overflow = add("third");
-    return first && duplicate && second && overflow;
+    third = add("third");
+    overflow = add("fourth");
+    return first && duplicate && second && third && overflow;
   });
   graph.seal();
   assert.equal(select("bounded") === undefined, true);
-  assert.equal(first === true && duplicate === true && overflow === false, true, "the third entry is rejected before insertion");
+  assert.equal(first === true && duplicate === true && third === true && overflow === false, true,
+    "the fourth entry is rejected before insertion after removal of the duplicate wave index");
   assert.match(budget.failure(), /transport-row/u);
 });
 
