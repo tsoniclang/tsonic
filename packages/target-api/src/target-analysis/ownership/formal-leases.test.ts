@@ -6,6 +6,7 @@ import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import { createSourceOwnershipQuery } from "./query.js";
+import { createSourceControlFlowDomain } from "../flow/graph.js";
 import { createSourceRetentionQuery } from "./retention.js";
 import { decideSourceAsyncResultUse } from "./result-decision.js";
 import { resolveSourceAsyncResultDisposition } from "./result-use.js";
@@ -102,6 +103,40 @@ function fixture(kind: "input-duration" | "type-argument",
   assert.equal(calls.length, 3, "all actual result-use demands");
   return { source, storage, budget, premises, query, declaration, selectedDeclaration, calls };
 }
+
+test("native read erasure omits only its selected callee and preserves the real suspended formal lease", () => {
+  const current = fixture("type-argument");
+  const erased = new Set(current.storage.nodes.filter(node => {
+    if (!current.source.ast.is.IsIdentifier(node)) return false;
+    const call = current.source.ast.parent(node);
+    return call !== undefined && current.source.ast.is.IsCallExpression(call) &&
+      current.selectedDeclaration(call) === current.declaration("read") &&
+      current.source.semantics.forNode(call).operations.call(call)?.sourceCallee.expression === node;
+  }));
+  assert.equal(erased.size, 1, "the selected native load has one original callee reference");
+  const premises: SourceOwnershipPremises = { ...current.premises, retentionFor(request) {
+    if (request.kind === "read-value" && erased.has(request.reference) ||
+      request.kind === "origin" && request.value.node === current.declaration("read"))
+      return { kind: "unresolved", at: request.value.node, reason: "A lowered native callee has no runtime value storage." };
+    return current.premises.retentionFor(request);
+  } };
+  const source = createSourceOwnershipQuery({ ...current, premises });
+  assert.equal(source.continuationFor(current.calls[1]!).kind, "unresolved", "the source domain still requires the callee read");
+  const selected = createSourceControlFlowDomain(current.source, current.storage.nodes.filter(node => !erased.has(node)));
+  assert.equal(selected.kind, "resolved", "the native read inventory retains original checked parent and child identities");
+  if (selected.kind !== "resolved") return;
+  const runtime = createSourceOwnershipQuery({ ...current, premises, domain: selected.domain });
+  const continuation = runtime.continuationFor(current.calls[1]!);
+  assert.equal(continuation.kind === "resolved", true,
+    continuation.kind === "unresolved" ? continuation.reason : "native continuation closes");
+  if (continuation.kind !== "resolved") return;
+  assert.equal(continuation.dependencies.some(dependency => dependency.retention.kind === "formal-borrowed"), true,
+    "the native operand's actual formal borrow is still retained across the await");
+  const decision = runtime.forCall(current.calls[1]!);
+  assert.equal(decision.kind === "resolved" && decision.decision === "rejected" &&
+    decision.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", true,
+  decision.kind === "unresolved" ? decision.reason : "erased function references never admit the borrowed result");
+});
 
 for (const kind of ["input-duration", "type-argument"] as const) {
   test(`actual owned completion evidence preserves passed and receiver uses beside ${kind} lease negatives`, () => {

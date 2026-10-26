@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceFlowLimits } from "../flow/model.js";
+import type { SourceControlFlowOptions, SourceFlowLimits } from "../flow/model.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageConstructionExpression } from "../source-storage/model/construction.js";
@@ -31,6 +31,7 @@ export function createSourceContinuationClosureQuery(input: {
   readonly premises: SourceOwnershipPremises;
   readonly budget: SourceOwnershipBudget;
   readonly flowLimits?: Partial<SourceFlowLimits>;
+  readonly domain?: SourceControlFlowOptions["domain"];
 }) {
   const { source, storage, premises, budget } = input;
   if (source !== storage.source) throw new Error("Continuation closure and storage require the identical checked source program.");
@@ -113,7 +114,7 @@ export function createSourceContinuationClosureQuery(input: {
       if (!budget.step()) return refuse(call, budget.failure()!);
       const candidate = entry.candidate;
       const prepared = prepareSourceContinuationExecution({ source, storage, budget: inputBudget, candidate,
-        construction: entry.construction,
+        construction: entry.construction, domain: input.domain,
         invocation: call, callerBindings: bindings, limits: input.flowLimits ?? {} });
       if (prepared.kind === "unresolved") { failure = prepared; return undefined; }
       if (!transient.add(1)) return refuse(call, budget.failure()!);
