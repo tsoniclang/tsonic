@@ -495,6 +495,7 @@ export function createSourceStorageDomains(
       if (reason !== undefined) break;
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
+        if (boundary.kind === "opaque-result" && !current.observesValue) continue;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
@@ -502,7 +503,7 @@ export function createSourceStorageDomains(
           if (purpose === "storage-producers" && !current.contributes) {
             if (!closedSourceInvocation(boundary.exposure, current.bindings) && !transport.substitutions.isBound(current.subject, current.bindings))
               for (const member of declaredMembers.get(current.subject) ?? [])
-                pending.push({ subject: member, bindings: current.bindings, contributes: true, original: false });
+                pending.push({ subject: member, bindings: current.bindings, contributes: true, observesValue: current.observesValue, original: false });
             continue;
           }
           if (closedSourceInvocation(boundary.exposure, current.bindings)) continue;
@@ -510,7 +511,8 @@ export function createSourceStorageDomains(
             stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
           if (boundary.owner !== undefined) {
             const members = selectedMembers(current.subject, boundary.owner, current.bindings);
-            if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes, original: false }))); continue; }
+            if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes,
+              observesValue: current.observesValue, original: false }))); continue; }
           }
         }
         retainBoundary(boundary, current.bindings);

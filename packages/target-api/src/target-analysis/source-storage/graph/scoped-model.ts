@@ -129,6 +129,7 @@ export interface SourceStorageScopedSubject {
 
 export interface SourceStorageRelationWitness extends SourceStorageScopedSubject {
   readonly contributes: boolean;
+  readonly observesValue: boolean;
 }
 
 export function sourceStorageReference(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference {
