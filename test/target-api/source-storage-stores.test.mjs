@@ -182,8 +182,23 @@ test("implicit declaration absence has no authored store while explicit absence 
     const selected = query.subjectFor(declaration);
     assert.equal(selected.kind, "resolved", `${name}: the original declaration owns the query`);
     const origins = query.closedOriginsFor(selected.subject);
-    assert.equal(origins.kind === "complete" && origins.origins.length === 0, true,
-      `${name}: exact absence closes without inventing an original present value`);
+    assert.equal(origins.kind, "complete", `${name}: the actual initial value has a complete original domain`);
+    if (name === "implicit") {
+      assert.equal(origins.origins.length, 0, "implicit absence invents no authored value origin");
+    } else {
+      const initializer = Node_Initializer(current.source.ast, declaration);
+      const origin = origins.origins[0];
+      assert.equal(initializer !== undefined && origins.origins.length === 1 && origin.subject.kind === "value" &&
+        origin.subject.node === initializer && origin.subject.projection.length === 0, true,
+        "explicit absence retains only its exact checked authored initializer");
+      const types = current.source.semantics.forNode(initializer).types;
+      const authoredType = types.expressionType(initializer);
+      assert.equal(authoredType !== undefined && types.isNullish(origin.type) && types.isIdentical(origin.type, authoredType), true,
+        "the retained origin has exactly the initializer's checked native absence type");
+      const store = current.stores(declaration)[0];
+      assert.equal(store.kind === "initialization" && store.value?.node === initializer, true,
+        "the single canonical initialization store retains that same original initializer");
+    }
   }
 });
 
