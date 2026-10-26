@@ -417,7 +417,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (regions === undefined) return undefined;
         const reason = "The relevant native callback has no completed checked execution contract.";
         const terms = term.callback.timing === "unknown" ? conditionalExecutions(regions, term.demand, term.invocation,
-          { value: reason, effect: undefined }, true) : regions;
+          { value: { reason, executionOnly: true }, effect: undefined }, true) : regions;
         if (terms === undefined) return undefined;
         return { kind: "replace", terms, dependencies };
       }
@@ -517,7 +517,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const entry: SourceStorageTerm = Object.freeze({ kind: "execution-root", demand: term.subject.node, deferred: true });
       for (const value of walkSourceStorageExecution(budget, [entry], readRelation)) {
         if (!budget.step()) return undefined;
-        if (value.kind === "unresolved") terms.push(value);
+        if (value.kind === "unresolved") {
+          if (value.executionOnly !== true || value.subject !== root || scopes.owningScope(value.scope, inputOwner) === undefined)
+            terms.push(value);
+        }
         else if (value.kind === "leaf" && value.subject === root && scopes.owningScope(value.scope, inputOwner) !== undefined)
           terms.push(sourceStorageReference(term.subject, value.scope));
       }
@@ -608,9 +611,20 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const target = transport.invocationTargets.get(node);
       if (target !== undefined) return { kind: "replace", terms: [application(node, target, term.scope, term.subject.projection, { mode: "value" })] };
     }
+    const parents = transport.incomingFor(term.subject);
+    let initial: Extract<SourceStorageTerm, { readonly kind: "empty" }> | undefined;
+    if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0) {
+      const elements = ast.elements(node);
+      const component = term.subject.projection[0];
+      if (component?.kind === "tuple-element" && term.subject.projection.length === 1 &&
+        !elements.some(element => element !== undefined && ast.is.IsSpreadElement(element)) &&
+        (elements[component.index] === undefined || ast.is.IsOmittedExpression(elements[component.index])))
+        initial = Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) });
+      else if (elements.length === 0) initial = empty;
+    }
     if (stores !== undefined) {
-      const terms: SourceStorageTerm[] = [];
-      for (const input of transport.incomingFor(term.subject)) {
+      const terms: SourceStorageTerm[] = initial === undefined ? [] : [initial];
+      for (const input of parents) {
         if (!budget.step()) return undefined;
         if (input.kind === "input" && input.node === node || ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0)
           terms.push(sourceStorageReference(input, term.scope));
@@ -677,16 +691,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       return { kind: "replace", terms };
     }
-    const parents = transport.incomingFor(term.subject);
-    if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0) {
-      const elements = ast.elements(node);
-      const component = term.subject.projection[0];
-      if (component?.kind === "tuple-element" && term.subject.projection.length === 1 &&
-        !elements.some(element => element !== undefined && ast.is.IsSpreadElement(element)) &&
-        (elements[component.index] === undefined || ast.is.IsOmittedExpression(elements[component.index])))
-        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) })] };
-      if (elements.length === 0) return absent;
-    }
+    if (initial !== undefined) return { kind: "replace", terms: [initial] };
     let selectedBody: boolean | undefined;
     const terms = [...parents].filter(parent => {
       if (parent.kind !== "return") return true;

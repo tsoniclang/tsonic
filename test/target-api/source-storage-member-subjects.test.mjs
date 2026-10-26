@@ -4,6 +4,8 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
+import { sourceStorageProjectComponents } from "../../packages/target-api/dist/target-analysis/source-storage/graph/component-projections.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -82,6 +84,77 @@ test("canonical Error carrier queries preserve entry versus local binding roles 
   assert.equal(selected(storage.storageSubjectFor(field, projection)) === projected, true);
   assert.equal(projected.kind, "member");
   assert.equal(Object.isFrozen(projected) && Object.isFrozen(projected.projection), true);
-  assert.equal(demand.storageFor(projected).kind, "immutable");
+  const projectedDemand = demand.storageFor(projected);
+  assert.equal(projectedDemand.kind, "immutable", projectedDemand.kind === "unresolved"
+    ? projectedDemand.reason : "the exact projected member has no Error mutation demand");
   assert.equal(storage.failureReason() === undefined, true);
+});
+
+test("nested storage projections preserve a proven never prefix without closing unknown or invalid paths", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": `export {}; class Box { items: [object, object][] = []; }
+      declare const unproved: unknown;` },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "the actual source collection and unknown input check");
+  const source = createTargetSourceProgram(checked);
+  const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
+  const field = namedMember(source.ast, namedDeclaration(source.ast, file, "Box"), "items");
+  const semantics = source.semantics.forNode(field);
+  const empty = semantics.types.expressionType(Node_Initializer(source.ast, field));
+  const target = semantics.declarations.declaredValueType(field);
+  const unproved = semantics.declarations.declaredValueType(namedVariable(source.ast, file, "unproved"));
+  assert.equal(empty !== undefined && target !== undefined && unproved !== undefined, true,
+    "all projection inputs retain exact checked types");
+  assert.equal(semantics.types.isUnknown(unproved), true, "the negative source really is unknown, not bottom");
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const project = (from, remaining) => {
+    const paths = [];
+    sourceStorageProjectComponents([], from, target, remaining, semantics, source.ast, budget, path => paths.push(path));
+    return paths;
+  };
+  const remaining = [{ kind: "array-element" }, { kind: "tuple-element", index: 1 }];
+  const absent = project(empty, remaining);
+  assert.equal(absent.length === 1 && absent[0].length === 1 && absent[0][0].kind === "array-element", true,
+    "the exact empty element prefix survives the later tuple projection");
+  const present = project(target, remaining);
+  assert.equal(present.length === 1 && present[0].length === 2 && present[0][0].kind === "array-element" &&
+    present[0][1].kind === "tuple-element" && present[0][1].index === 1, true,
+  "inhabited source components retain their complete selected path");
+  assert.equal(project(unproved, remaining).length, 0, "unknown never fabricates a proven empty prefix");
+  assert.equal(project(empty, [{ kind: "array-element" }, { kind: "tuple-element", index: 9 }]).length, 0,
+    "bottom cannot admit a destination tuple slot that does not exist");
+  assert.equal(project(empty, [...remaining, { kind: "array-element" }]).length, 0,
+    "the entire remaining destination path is validated before publication");
+  assert.equal(budget.failure() === undefined, true, "all actual projection work stays within the unchanged finite limits");
+});
+
+test("completed empty value frontiers do not close rootless or opaque producer demands", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": `export {};
+      const values: object[] = [];
+      declare const foreign: object[];
+      const unproved = foreign[0];
+      function recurse<Value>(value: Value): Value { return recurse(value); }
+      const recursive = recurse({});` },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "the original empty, opaque and recursive producers check");
+  const source = createTargetSourceProgram(checked);
+  const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
+  const storage = createSourceStorageQuery(source, [file]);
+  const variable = name => namedVariable(source.ast, file, name);
+  const empty = selected(storage.subject(Node_Initializer(source.ast, variable("values")), "value", [{ kind: "array-element" }]));
+  const frontier = storage.boundValueFrontierFor(empty, storage.emptyBindings, []);
+  assert.equal(frontier.kind === "resolved" && frontier.frontier.length === 0, true,
+    "an exact empty initializer has a completed frontier without a fabricated value");
+  assert.equal(storage.closedOriginsFor(empty).kind, "unresolved", "an empty frontier cannot certify an actual closed element");
+  const recursive = selected(storage.subjectFor(variable("recursive")));
+  assert.equal(storage.boundValueFrontierFor(recursive, storage.emptyBindings, []).kind, "unresolved",
+    "a rootless cycle still has no completed producer proof");
+  const unproved = selected(storage.subjectFor(variable("unproved")));
+  const opaque = storage.boundValueFrontierFor(unproved, storage.emptyBindings, []);
+  assert.equal(opaque.kind === "resolved" && opaque.frontier.length === 0, false,
+    "an opaque external element never becomes a proven empty frontier");
+  assert.equal(storage.failureReason() === undefined, true, "independent empty and unresolved demands do not poison the source graph");
 });

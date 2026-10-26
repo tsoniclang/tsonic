@@ -307,6 +307,19 @@ test("nested empty literal projections do not become element values while nonemp
   assert.equal(current.storage.failureReason() === undefined, true);
 });
 
+test("an empty initializer keeps a completed element relation when no writes contribute", () => {
+  const current = fixture(`const values: [object, object][] = [];`);
+  const element = current.storage.subject(current.initializer("values"), "value", [{ kind: "array-element" }]);
+  assert.equal(element.kind === "resolved", true, "the actual empty initializer has its exact checked element subject");
+  const contents = current.storage.originsFor(element.subject);
+  assert.equal(contents.kind === "resolved" && contents.origins.length === 0, true,
+    "the empty literal supplies a completed empty relation, never a fabricated element producer");
+  assert.equal(current.storage.closedOriginsFor(element.subject).kind === "unresolved", true,
+    "completed empty contents alone cannot certify an actual closed element value");
+  assert.equal(current.storage.failureReason() === undefined, true,
+    "an initialized empty relation is not a missing or resource-failed producer");
+});
+
 test("later indexed writes retain actual contents without reviving an empty initial producer", () => {
   const current = fixture(`const token = {}; const values: {}[] = []; values[0] = token; const read = values[0];`);
   const selected = current.storage.closedOriginsFor(current.subject("read"));
