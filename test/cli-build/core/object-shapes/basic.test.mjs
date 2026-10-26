@@ -618,8 +618,13 @@ test("CLI runs nested object literals through the canonical broad TypeScript-val
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
-  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/u);
+  const nativeShape = /public static (ObjectShape_[a-f0-9]{12}) leak\(\)/u.exec(generatedSource)?.[1];
+  assert.ok(nativeShape, "the closed original return retains its exact native object carrier");
+  assert.match(generatedSource, new RegExp(`public static ${nativeShape} value\\b`, "u"));
+  assert.match(generatedSource, new RegExp(`return new ${nativeShape}\\b`, "u"));
+  assert.match(generatedSource, /global::Smoke\.Generated\.Index\.value\.value/u);
+  assert.match(generatedSource, /global::Smoke\.Generated\.Index\.value\.child\.label/u);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|TsValue|CreateDynamicObject|ReadDynamicSlot/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
