@@ -142,6 +142,75 @@ function fixture(body, extraFiles = {}) {
   return { source, storage, variable, initializer, origins };
 }
 
+test("ordinary implicit and explicit absent declarations select only the actual default producer", () => {
+  const current = fixture(`
+    const fallback = {};
+    let implicit: object | undefined;
+    let explicit: object | undefined = undefined;
+    function select(value: object | undefined = fallback): object { return value; }
+    const implicitResult = select(implicit);
+    const explicitResult = select(explicit);
+  `);
+  for (const name of ["implicitResult", "explicitResult"]) {
+    const origins = current.origins(name);
+    assert.equal(origins.length === 1 && origins[0].subject.node === current.initializer("fallback"), true,
+      `${name}: absence invokes the exact default without a fabricated declaration allocation`);
+  }
+});
+
+test("implicit initial absence retains every actual direct and captured write producer", () => {
+  const current = fixture(`
+    const first = {}; const second = {}; const unrelated = {};
+    let value: object | undefined;
+    value = first;
+    function replace(): void { value = second; }
+    replace();
+    const result = value;
+  `);
+  const origins = current.origins("result");
+  assert.equal(origins.length === 2 && ["first", "second"].every(name =>
+    origins.some(origin => origin.subject.node === current.initializer(name))), true,
+    "all real writes remain in the same physical storage family without an unrelated producer");
+  assert.equal(origins.some(origin => origin.subject.node === current.initializer("unrelated")), false,
+    "a complete absent initial state cannot admit an unrelated allocation");
+});
+
+test("implicit declaration absence and captured writes remain correlated per owning activation", () => {
+  const current = fixture(`
+    function retain(input: object): object | undefined {
+      let value: object | undefined;
+      const write = (): void => { value = input; };
+      write();
+      return value;
+    }
+    const left = {}; const right = {};
+    const first = retain(left); const second = retain(right);
+  `);
+  for (const [result, input] of [["first", "left"], ["second", "right"]]) {
+    const origins = current.origins(result);
+    assert.equal(origins.length === 1 && origins[0].subject.node === current.initializer(input), true,
+      `${result}: the creator's initial absence cannot merge independent invocation allocations`);
+  }
+});
+
+test("ambient and declaration-file bindings never become closed implicit local absence", () => {
+  const current = fixture(`
+    declare let external: object | undefined;
+    declare namespace Foreign { let ambientMember: object | undefined; }
+    const first = external; const second = Foreign.ambientMember; const third = fromFile;
+  `, { "/src/input.d.ts": "declare let fromFile: object | undefined;" });
+  for (const name of ["external", "ambientMember", "fromFile"]) {
+    const declaration = current.storage.nodes.find(node => current.source.ast.is.IsVariableDeclaration(node) &&
+      current.source.ast.text(current.source.ast.name(node)) === name);
+    assert.equal(declaration !== undefined, true, `${name}: the original external declaration is checked`);
+    const selected = current.storage.subjectFor(declaration);
+    assert.equal(selected.kind, "resolved", `${name}: external identity is not fabricated`);
+    const origins = current.storage.closedOriginsFor(selected.subject);
+    assert.equal(origins.kind === "open" || origins.kind === "unresolved" && typeof origins.reason === "string" && origins.reason.length > 0, true,
+      `${name}: missing external producer evidence remains open or precisely unresolved`);
+  }
+});
+
 for (const [name, writes, expected] of [
   ["uninitialized", "", ["fallback"]],
   ["direct write", "missing.callback = replacement;", ["fallback", "replacement"]],

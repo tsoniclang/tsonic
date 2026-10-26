@@ -154,6 +154,37 @@ test("initializer-less declared iteration has one loop-owned initialization and 
     "the actual mutation of a checked binding retains its physical value without a fabricated initialization store");
 });
 
+test("implicit declaration absence has no authored store while explicit absence retains its initialization", () => {
+  const current = fixture("let implicit: object | undefined; let explicit: object | undefined = undefined;");
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  for (const [name, count] of [["implicit", 0], ["explicit", 1]]) {
+    const declaration = current.variable(name);
+    assert.equal(current.stores(declaration).length, count, `${name}: only authored initialization creates a store`);
+    const selected = query.subjectFor(declaration);
+    assert.equal(selected.kind, "resolved", `${name}: the original declaration owns the query`);
+    const origins = query.closedOriginsFor(selected.subject);
+    assert.equal(origins.kind === "complete" && origins.origins.length === 0, true,
+      `${name}: exact absence closes without inventing an original present value`);
+  }
+});
+
+test("caught inputs retain the original thrown producer rather than declaration absence", () => {
+  const current = fixture(`
+    const original = {};
+    function read(): unknown { try { throw original; } catch (caught) { return caught; } }
+    const result = read();
+  `);
+  const query = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const declaration = current.variable("caught");
+  assert.equal(current.stores(declaration).length, 1, "the catch clause has one actual input initialization");
+  const selected = query.subjectFor(current.variable("result"));
+  assert.equal(selected.kind, "resolved", "the original caught result owns its storage subject");
+  const origins = query.closedOriginsFor(selected.subject);
+  assert.equal(origins.kind === "complete" && origins.origins.length === 1 &&
+    origins.origins[0].subject.node === Node_Initializer(current.source.ast, current.variable("original")), true,
+    "catch retains the thrown allocation, never implicit ordinary-declaration absence");
+});
+
 test("duplicate occurrence admission rejects conflicting original values without replacing the first owner", () => {
   const current = fixture("const first = {}; const second = {}; const value = first;");
   const storage = current.transport.subject(current.variable("value"));

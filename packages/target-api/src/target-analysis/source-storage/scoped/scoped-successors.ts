@@ -639,6 +639,23 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         initial = Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) });
       else if (elements.length === 0) initial = empty;
     }
+    if (term.subject.kind === "value" && term.subject.projection.length === 0 &&
+      ast.is.IsVariableDeclaration(node) && ast.is.IsIdentifier(ast.name(node)) &&
+      Node_Initializer(ast, node) === undefined && navigation.isProjectDeclaration(node) &&
+      ast.getSourceFile(node)?.IsDeclarationFile !== true) {
+      const declarations = ast.parent(node);
+      const container = declarations === undefined ? undefined : ast.parent(declarations);
+      if (declarations !== undefined && ast.is.IsVariableDeclarationList(declarations) &&
+        (container === undefined || !ast.is.IsForInStatement(container) && !ast.is.IsForOfStatement(container))) {
+        let ambient = false;
+        for (let owner: Node | undefined = node; owner !== undefined && !ast.is.IsSourceFile(owner); owner = ast.parent(owner)) {
+          if (!budget.step()) return undefined;
+          if (ast.hasModifierKind(owner, "ambient")) { ambient = true; break; }
+        }
+        if (!ambient) initial = Object.freeze({ kind: "empty",
+          absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
+      }
+    }
     if (stores !== undefined) {
       const terms: SourceStorageTerm[] = initial === undefined ? [] : [initial];
       for (const input of parents) {
