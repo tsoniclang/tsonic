@@ -81,7 +81,7 @@ test("CLI emits expanded process operations from selected Node provider-package 
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(Tsonic\.CSharp\.Generated\.__TsonicConversions\.LiftNullable<double, int>\(code, System\.Convert\.ToInt32\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0D\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.killNumber<int, double>\(Tsonic\.CSharp\.Node\.process\.pid, 0D\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
   assert.match(generatedSource, /long\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
   assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
