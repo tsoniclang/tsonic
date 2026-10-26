@@ -29,26 +29,33 @@ function fixture(limits = {}, length = 50) {
   const innerParameter = {};
   const inner = callable([innerParameter]);
   const nodes = Array.from({ length }, () => subject({}));
+  const values = new Set([input.node, parameter, innerParameter, ...nodes.map(value => value.node)]);
+  const elementType = Object.freeze({ kind: "fixture-element" });
+  const inputType = Object.freeze({ kind: "fixture-tuple" });
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
   const semantics = Object.freeze({ declarations: Object.freeze({
     declarationSignature: owner => signatures.get(owner),
     signatureParameters: signature => signature.parameters,
     primarySymbolDeclaration: symbol => symbol.declaration,
-    declaredValueType: () => undefined,
-  }), types: Object.freeze({ expressionType: () => undefined, signatureThisParameterInfo: () => undefined }) });
+    declaredValueType: node => values.has(node) ? inputType : undefined,
+  }), types: Object.freeze({ expressionType: () => undefined, signatureThisParameterInfo: () => undefined,
+    isNullish: () => false, isVoidLike: () => false, isUnion: () => false, isArrayLike: () => false,
+    isTuple: type => type === inputType,
+    tupleElementInfos: type => type === inputType ? [{ elementKind: "required", type: elementType }] : [],
+  }) });
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
     IsArrowFunction: () => false, IsInterfaceDeclaration: () => false,
-    IsCallExpression: () => false, IsNewExpression: () => false, IsIdentifier: () => false,
+    IsCallExpression: () => false, IsNewExpression: () => false, IsIdentifier: () => false, IsSpreadElement: () => false,
     IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
     IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameterOwners.has(node) },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
-    getSourceFile: node => signatures.has(node) || parameterOwners.has(node) ? file : undefined,
+    getSourceFile: node => signatures.has(node) || values.has(node) ? file : undefined,
     name: () => undefined, body: () => undefined, kindName: () => "test-node",
     parent: node => parameterOwners.get(node) ?? (node === inner ? outer : undefined) },
   semantics: { includes: candidate => candidate === file,
     forNode(node) {
-      if (!signatures.has(node) && !parameterOwners.has(node)) throw new Error("The substitution fixture requires its exact checked callable or parameter.");
+      if (!signatures.has(node) && !values.has(node)) throw new Error("The substitution fixture requires its exact checked callable, parameter or input value.");
       return semantics;
     },
     forFile(candidate) {

@@ -224,20 +224,23 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     selectedRoot?: SourceStorageSubject): readonly SourceStorageTerm[] | undefined => {
     if (entry.kind === "empty") return retain(1) ? [entry] : undefined;
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
+    const from = sourceStorageSubjectType(source, entry.subject);
+    if (from === undefined) return undefined;
+    const context = source.semantics.forNode(entry.subject.node);
+    if (context.types.isNullish(from) || context.types.isVoidLike(from))
+      return retain(1) ? [Object.freeze({ kind: "empty", absence: sourceStorageReference(entry.subject, entry.scope) })] : undefined;
     const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
       const projected = subject(entry.subject.node, entry.subject.kind, projection);
-      if (projected !== undefined && retain(1)) selected.push(Object.freeze({ ...entry, subject: projected,
-        kind: entry.scope.kind === "frame" && entry.scope.boundary === "declaration" ? "reference" : entry.kind }));
+      if (projected !== undefined && retain(1)) selected.push(Object.freeze({ ...entry, subject: projected, kind: "reference" }));
     };
     const memberIndex = origin.projection.findIndex(sourceStorageIsMemberProjection);
     if (memberIndex < 0)
       collect([...entry.subject.projection, ...origin.projection]);
     else {
       const root = selectedRoot ?? subject(origin.node, origin.kind);
-      const from = sourceStorageSubjectType(source, entry.subject);
       const to = root === undefined ? undefined : sourceStorageSubjectType(source, root);
-      if (from === undefined || to === undefined) return undefined;
+      if (to === undefined) return undefined;
       const component = origin.projection[memberIndex];
       const prefix = origin.projection.slice(0, memberIndex);
       const contract = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...prefix]);
@@ -621,7 +624,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       return input?.initialization === "actual" && original?.kind === "leaf" &&
         original.subject === root && original.scope === value.scope;
     },
-    owningScope, boundActivation, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
+    owningScope, boundActivation, project, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
     withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
     withTraversal: <Value>(collect: () => Value): Value => withTraversal(() => collect()) });
 }

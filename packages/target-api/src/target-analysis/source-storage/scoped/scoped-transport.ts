@@ -122,11 +122,8 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   if (bound?.initialization === "initialized") return bound;
   if (initializer !== undefined && term.subject.projection.length !== 0) {
     const root = transport.subject(term.subject.node, "input");
-    return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)], select: value => {
-      if (value.kind === "empty") return [value];
-      const projected = transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, ...term.subject.projection]);
-      return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
-    } };
+    return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)],
+      select: value => budget.withRows(temporary => scopes.project(value, term.subject, temporary.add)) };
   }
   if (initializer === undefined) return bound;
   const fallback = transport.subjectFor(initializer);

@@ -285,6 +285,53 @@ test("unrefined non-array and unknown arms never become a completed array elemen
   }
 });
 
+test("checked absent call inputs retain one absence before member and collection projection", () => {
+  const current = fixture(`
+const token = {};
+function first<Value>(values: readonly Value[] | null | undefined): Value | undefined { return values?.[0]; }
+function tuple(values: readonly [object] | null | undefined): object | undefined { return values?.[0]; }
+function member(value: { readonly part: object } | null | undefined): object | undefined { return value?.part; }
+function defaulted(values: readonly object[] | undefined = [token]): object | undefined { return values[0]; }
+function nested(values: readonly (readonly object[] | null | undefined)[] | null | undefined): object | undefined {
+  return values?.[0]?.[0];
+}
+const missingNull = first<object>(null);
+const missingUndefined = first<object>(undefined);
+const tupleNull = tuple(null);
+const tupleUndefined = tuple(undefined);
+const memberNull = member(null);
+const memberUndefined = member(undefined);
+const nestedNull = nested(null);
+const nestedElementNull = nested([null]);
+const present = first([token]);
+const presentTuple = tuple([token]);
+const presentMember = member({ part: token });
+const presentNested = nested([[token]]);
+const defaultValue = defaulted(undefined);
+declare function unknownValues(): readonly object[] | undefined;
+const unknown = first(unknownValues());
+`);
+  for (const name of ["missingNull", "missingUndefined", "tupleNull", "tupleUndefined", "memberNull", "memberUndefined", "nestedNull", "nestedElementNull"]) {
+    const selected = current.storage.storageProducersFor(current.subject(name));
+    assert.equal(selected.kind, "complete", `${name}: exact checked absence is not an unresolved projection${
+      selected.kind === "unresolved" ? ` (${selected.reason})` : ""}`);
+    assert.equal(selected.producers.every(producer => producer.subject.projection.length === 0 &&
+      (current.source.semantics.forNode(producer.subject.node).types.isNullish(producer.type) ||
+        current.source.semantics.forNode(producer.subject.node).types.isVoidLike(producer.type))), true,
+    `${name}: no component is manufactured on an absent input`);
+  }
+  for (const name of ["present", "presentTuple", "presentMember", "presentNested", "defaultValue"]) {
+    const selected = current.storage.storageProducersFor(current.subject(name));
+    assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
+      selected.producers[0].subject.node === current.initializer("token"), true,
+    `${name}: exact present/default producer identity is unchanged (${selected.kind}${
+      selected.kind === "unresolved" ? `; ${selected.reason}` : `; ${selected.producers.length} producers`})`);
+  }
+  assert.equal(current.storage.closedOriginsFor(current.subject("unknown")).kind === "complete", false,
+    "an actual unknown native input never becomes completed empty absence");
+  assert.equal(current.storage.failureReason() === undefined, true, "all actual frame projections remain bounded");
+});
+
 test("an empty array allocation has container identity but no manufactured projected element", () => {
   const current = fixture(`const values: {}[] = []; const read = values[0];`);
   const identity = current.storage.closedOriginsFor(current.subject("values"));

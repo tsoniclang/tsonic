@@ -15,7 +15,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -531,6 +531,21 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
+    if (term.subject.kind === "value" && ast.is.IsElementAccessExpression(node) &&
+      ast.as.AsElementAccessExpression(node)?.QuestionDotToken !== undefined) {
+      const context = semantics.forNode(node);
+      const selected = context.operations.elementAccess(node);
+      const component = selected === undefined ? undefined
+        : sourceIndexedStorageProjection(selected.receiver.type, selected.argument.expression, context, ast);
+      if (component !== undefined) {
+        const receiver = transport.subjectFor(selected?.receiver.expression);
+        const projection = receiver === undefined ? undefined
+          : transport.subject(receiver.node, receiver.kind, [component, ...term.subject.projection]);
+        if (receiver === undefined || projection === undefined) return undefined;
+        return materializeChild(sourceStorageReference(receiver, term.scope), value =>
+          budget.withRows(rows => scopes.project(value, projection, rows.add, receiver)));
+      }
+    }
     const pointed = pointerValues.reduce(term);
     if (pointed !== undefined) return pointed;
     const bindingPattern = ast.is.IsBindingElement(node) ? ast.parent(node) : undefined;
