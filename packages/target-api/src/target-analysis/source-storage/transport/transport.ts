@@ -24,7 +24,7 @@ import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigi
 import type { SourceStorageInvocationSelectionKey, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
-import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites, type SourceStorageWrite } from "../graph/stored-values.js";
@@ -69,9 +69,9 @@ export function createSourceStorageTransport(
   const visitedNodes: Node[] = [];
   const callableDeclarations: Node[] = [];
   const callableDeclarationRows = budget.createRows();
-  const ambientDeclarations = new Map<Node, boolean>();
+  const admittedAmbient = new Map<Node, boolean>();
   const declarationIsAmbient = (declaration: Node): boolean | undefined =>
-    budget.step() ? ambientDeclarations.get(declaration) : undefined;
+    budget.step() ? admittedAmbient.get(declaration) : undefined;
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
@@ -280,30 +280,23 @@ export function createSourceStorageTransport(
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow,
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
-  const pendingNodes: { readonly node: Node; readonly ambient: boolean }[] = [];
-  const visited = new Set<Node>();
-  const admitNode = (node: Node): boolean => {
-    if (visited.has(node) || !budget.node()) return false;
-    visited.add(node);
+  const pendingNodes: Node[] = [];
+  const admitNode = (node: Node, inheritedAmbient: boolean): boolean => {
+    if (admittedAmbient.has(node) || !budget.node()) return false;
+    admittedAmbient.set(node, sourceDeclarationAmbientContext(ast, node, inheritedAmbient));
     return true;
   };
   for (const file of sourceFiles) {
     if (!semantics.includes(file)) budget.reject("Source storage transport requires exact checked source-file ownership.");
-    else if (admitNode(file)) pendingNodes.push({ node: file, ambient: false });
+    else if (admitNode(file, false)) pendingNodes.push(file);
   }
   while (pendingNodes.length !== 0 && budget.failure() === undefined) {
-    const pending = pendingNodes.pop()!;
-    const node = pending.node;
-    const ambient = sourceDeclarationAmbientContext(ast, node, pending.ambient);
-    if (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsPropertyDeclaration(node) ||
-      ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node)) {
-      if (!step() || !budget.row()) break;
-      ambientDeclarations.set(node, ambient);
-    }
+    const node = pendingNodes.pop()!;
+    const ambient = admittedAmbient.get(node)!;
     syntax.visit(node);
     const children: Node[] = [];
-    ast.forEachChild(node, child => { if (child !== undefined && admitNode(child)) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push({ node: children[index]!, ambient });
+    ast.forEachChild(node, child => { if (child !== undefined && admitNode(child, ambient)) children.push(child); });
+    for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
   }
   const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
   const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
@@ -862,7 +855,7 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, pointerInvocations, pointerAccessors, resumedImplementations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
-    accessorTargets, visitedNodes, hasNode: (node: Node): boolean => visited.has(node),
+    accessorTargets, visitedNodes, hasNode: (node: Node): boolean => admittedAmbient.has(node),
     regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };

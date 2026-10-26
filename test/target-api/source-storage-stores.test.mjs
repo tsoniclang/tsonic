@@ -166,12 +166,15 @@ test("ambient declaration context has one bounded checked ancestor owner", () =>
   for (const [name, expected] of [["local", false], ["external", true], ["inherited", true], ["deep", true], ["nested", false]]) {
     const declaration = current.variable(name);
     assert.equal(declaration !== undefined, true, `${name}: ambient selection starts at a checked declaration`);
+    assert.equal(current.transport.hasNode(declaration), true, `${name}: the identical source admission owns its ambient context`);
     const before = current.budget.usage().steps;
     assert.equal(current.transport.declarationIsAmbient(declaration), expected,
       `${name}: only exact direct or ancestor ambient modifiers determine the fact`);
     assert.equal(current.budget.usage().steps - before, 1, `${name}: one bounded lookup never walks ancestry`);
     assert.equal(current.transport.declarationIsAmbient(Object.create(declaration)), undefined,
       `${name}: a copied or foreign declaration cannot borrow the original fact`);
+    assert.equal(current.transport.hasNode(Object.create(declaration)), false,
+      `${name}: a copied declaration cannot borrow the original node admission either`);
   }
   assert.equal(current.transport.declarationIsAmbient(current.field("value")), true,
     "a nested ambient class field inherits the same produced context");
