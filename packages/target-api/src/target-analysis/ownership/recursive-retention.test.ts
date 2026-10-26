@@ -693,7 +693,8 @@ for (const reverse of [false, true]) for (const override of [false, true]) {
       assert.equal(subject.kind === "resolved" && bindings.kind === "resolved", true, `${name}: checked source storage and caller context`);
       if (subject.kind !== "resolved" || bindings.kind !== "resolved") return;
       const selected = storage.storageProducersFor(subject.subject, bindings.bindings);
-      assert.equal(selected.kind, "complete", `${name}: its exact selected factory provenance closes`);
+      assert.equal(selected.kind, "complete", `${name}: its exact selected factory provenance closes${
+        selected.kind === "unresolved" ? ` (${selected.reason})` : ""}`);
       if (selected.kind !== "complete") return;
       const expected = (name === "fromDerived") !== reverse ? owned : borrowed;
       assert.equal(selected.producers.length > 0 && selected.producers.every(producer => producer.subject.node === expected), true,
