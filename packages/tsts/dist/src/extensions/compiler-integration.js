@@ -5,7 +5,7 @@ import { GetSymbolId } from "../internal/ast/utilities.js";
 import * as utf8 from "../go/unicode/utf8.js";
 import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindCallSignature, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindNeverKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindTypeLiteral, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { argumentPassingFactKey, canonicalIdentityFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, } from "./facts.js";
-import { extensionHostRunSourceAnalysis, extensionHostSetFact, getExtensionHost, } from "./host.js";
+import { extensionHostRunSourceAnalysis, extensionHostProviderExportMaterialized, extensionHostSetFact, getExtensionHost, } from "./host.js";
 import { getProviderVirtualArtifactForCompiler, getProviderVirtualCompilerMetadata, getProviderTypeFamilyVariantNominalMemberName, } from "./provider-virtual-internal.js";
 import { parseProviderFunctionSignatureMarker, providerFunctionSignatureMarkerMaximumLength } from "./provider-callable-signatures.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
@@ -123,7 +123,9 @@ function recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualMo
         exportName,
         canonicalSymbolId: getSymbolFactId(symbol),
     }, evidence);
-    extensionHost[extensionHostSetFact](symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
+    const publication = extensionHost[extensionHostSetFact](symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
+    if (publication === "inserted")
+        extensionHost[extensionHostProviderExportMaterialized](symbol);
 }
 function recordProviderVirtualFunctionSignatureFacts(extensionHost, file, virtualModule, renderedFunctionSignatures, evidence) {
     if (renderedFunctionSignatures.length === 0) {

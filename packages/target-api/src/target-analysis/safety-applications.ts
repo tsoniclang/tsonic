@@ -18,9 +18,11 @@ export interface TargetSafetyApplicationFact {
   readonly applicationPlacement: TargetSafetyApplicationPlacement;
 }
 
-export type TargetSafetyBuilderFact = TargetSafetyApplicationFact | { readonly kind: "builder-state" };
+export type TargetSafetyBuilderFact =
+  | TargetSafetyApplicationFact
+  | (Omit<TargetSafetyApplicationFact, "kind"> & { readonly kind: "builder-state" });
 
-export type TargetSafetyApplication<Fact extends TargetSafetyApplicationFact> = Fact & {
+export type TargetSafetyApplication<Fact extends TargetSafetyBuilderFact> = Fact & {
   readonly sourceSubject: Node;
   readonly sourceFile: SourceFile;
   readonly selectedMemberDeclarations: readonly Node[];
@@ -78,20 +80,22 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
       const builder = input.readSafetyBuilder(node);
       if (builder !== undefined) {
         bySubject.set(node, Object.freeze({ kind: "safety-builder", fact: builder }));
-        if (isApplicationFact(builder)) {
-          const application = resolveApplication(node, sourceFile, builder, input);
+        const application = resolveApplication(node, sourceFile, builder, input);
+        if (isApplicationFact(application)) {
           applications.push(application);
           all.push(application);
-          if (application.targetDeclarations.length > 0) {
-            const declarations = new Set(enclosing);
-            for (const declaration of application.targetDeclarations) {
-              declarations.add(declaration);
+        }
+        if (application.targetDeclarations.length > 0) {
+          const declarations = new Set(enclosing);
+          for (const declaration of application.targetDeclarations) {
+            declarations.add(declaration);
+            if (isApplicationFact(application)) {
               const existing = byDeclaration.get(declaration) ?? [];
               existing.push(application);
               byDeclaration.set(declaration, existing);
             }
-            enclosing = declarations;
           }
+          enclosing = declarations;
         }
       }
       if (enclosing !== undefined) enclosingDeclarations.set(node, enclosing);
@@ -127,7 +131,7 @@ function isApplicationFact<Builder extends TargetSafetyBuilderFact>(
   return fact.kind === "application";
 }
 
-function resolveApplication<Fact extends TargetSafetyApplicationFact>(
+function resolveApplication<Fact extends TargetSafetyBuilderFact>(
   sourceSubject: Node,
   sourceFile: SourceFile,
   fact: Fact,
@@ -146,7 +150,7 @@ function resolveApplication<Fact extends TargetSafetyApplicationFact>(
   const resolvedRootDeclaration = applicationTarget === undefined
     ? undefined
     : projectDeclaration(applicationTarget, input.navigation);
-  return Object.freeze({
+  const application: TargetSafetyApplication<Fact> = {
     ...fact,
     sourceSubject,
     sourceFile,
@@ -158,7 +162,8 @@ function resolveApplication<Fact extends TargetSafetyApplicationFact>(
       resolvedRootDeclaration,
       input.ast,
     ),
-  });
+  };
+  return Object.freeze(application);
 }
 
 function projectDeclaration(

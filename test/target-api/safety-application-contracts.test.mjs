@@ -23,15 +23,18 @@ test("safety application readers require complete compiler-owned fact contracts"
     return result;
   };
   const accepted = check(`export type Input = TargetSafetyApplicationIndexInput<unknown,
-    TargetSafetyApplicationFact | { readonly kind: "builder-state"; readonly label: string }>;`);
+    TargetSafetyApplicationFact | (Omit<TargetSafetyApplicationFact, "kind"> & {
+      readonly kind: "builder-state"; readonly label: string;
+    })>;`);
   assert.equal(accepted.status, 0, accepted.stdout || accepted.stderr);
   const rejected = check(`
     export type Incomplete = TargetSafetyApplicationIndexInput<unknown, { readonly kind: "application" }>;
     export type Unrecognized = TargetSafetyApplicationIndexInput<unknown, { readonly kind: "unrecognized" }>;
+    export type IncompleteBuilder = TargetSafetyApplicationIndexInput<unknown, { readonly kind: "builder-state" }>;
   `);
   assert.equal(rejected.status, 1, rejected.stdout || rejected.stderr);
   const diagnostics = rejected.stdout.split("\n").filter(line => line.includes("error TS"));
-  assert.equal(diagnostics.length, 2, rejected.stdout.slice(0, 8192));
+  assert.equal(diagnostics.length, 3, rejected.stdout.slice(0, 8192));
   assert.equal(diagnostics.every(line => line.includes("error TS2344:") && line.includes("TargetSafetyBuilderFact")), true,
     diagnostics.join("\n"));
 });
