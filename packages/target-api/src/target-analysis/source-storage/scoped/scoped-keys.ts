@@ -34,6 +34,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const ownerRows = budget.createRows();
   const completedReferences = new Map<SourceStorageScope, ReferenceEncodings>();
   let completedReferenceRows = budget.createRows();
+  const completedTerms = new Map<SourceStorageTerm, ReferenceEncoding>();
+  const completedInvocations = new Map<SourceStorageTerm, ReferenceEncoding>();
+  let completedTermRows = budget.createRows();
   const encoder = createSourceStorageKeyEncoder(budget);
   const actualInputDemand = (term: SourceStorageTerm): boolean => {
     const demand = term.kind === "region" || term.kind === "application" && term.mode === "execution" ? term.demand : undefined;
@@ -339,6 +342,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           closed = closed && completed.closed;
           return completed.encoded;
         }
+        const memo = invocation && selected === term && selected.kind === "application"
+          ? completedInvocations : completedTerms;
+        const known = memo.get(selected);
+        if (known !== undefined) {
+          closed = closed && known.closed;
+          return known.encoded;
+        }
         if (!temporary.add(1)) return undefined;
         terms.set(selected, undefined);
         const outerClosed = closed;
@@ -399,7 +409,20 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return result.encoded;
     };
     const encoded = encodeTerm(term);
-    return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };
+    if (encoded === undefined || budget.failure() !== undefined) return undefined;
+    let retained = 0;
+    for (const completed of terms.values()) {
+      if (!budget.step()) return undefined;
+      if (completed !== undefined) retained += 1;
+    }
+    if (retained !== 0 && !completedTermRows.add(retained)) return undefined;
+    for (const [selected, completed] of terms) {
+      if (completed === undefined) continue;
+      const memo = invocation && selected === term && selected.kind === "application"
+        ? completedInvocations : completedTerms;
+      memo.set(selected, completed);
+    }
+    return { encoded, closed };
   });
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
@@ -410,6 +433,10 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       completedReferences.clear();
       completedReferenceRows.release();
       completedReferenceRows = budget.createRows();
+      completedTerms.clear();
+      completedInvocations.clear();
+      completedTermRows.release();
+      completedTermRows = budget.createRows();
     },
     context(inputs: readonly (readonly { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[])[]): string | undefined {
       return budget.withRows(temporary => {

@@ -43,9 +43,106 @@ function fixture(count = 4, limits = {}) {
     ownerFor: origin => sourceStorageActivationOwner(source, transport.regions.enclosing, origin) };
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes, creation);
   const reference = (scope, selected = root) => ({ kind: "reference", subject: selected, scope });
-  return { budget, owner, subject, root, locations, inputs, empty, first, second, keys, reference, failure,
+  return { budget, owner, source, transport, scopes, subject, root, locations, inputs, empty, first, second, keys, reference, failure,
     locationReads: () => locationReads, unavailable: value => { unavailable = value; } };
 }
+
+function applicationFixture() {
+  const current = fixture(0);
+  current.source.semantics = { forNode: () => ({ operations: {
+    call: () => ({ sourceArguments: [] }), propertyAccess: () => undefined,
+  } }) };
+  current.transport.subject = node => node?.subject;
+  current.transport.subjectFor = () => undefined;
+  const application = (scope = current.first) => {
+    const invocation = Object.freeze({ subject: current.subject() });
+    return Object.freeze({ kind: "application", mode: "value", invocation,
+      callee: Object.freeze({ kind: "leaf", subject: current.root, scope: current.empty }),
+      scope, projection: Object.freeze([]), activation: Object.freeze({ kind: "invoke" }) });
+  };
+  return { ...current, application };
+}
+
+test("completed compound encodings are reused and released with their exact query cohort", () => {
+  const current = fixture(0);
+  const term = Object.freeze({ kind: "empty", absence: undefined });
+  const encoded = current.keys.encode(term);
+  assert.equal(typeof encoded, "string", "the complete original term has a canonical key");
+  const retained = current.budget.usage().rows;
+  const before = current.budget.usage().steps;
+  for (let repeat = 0; repeat < 100; repeat++)
+    assert.equal(current.keys.encode(term), encoded, "the same immutable term does not re-enter its encoder");
+  assert.equal(current.budget.usage().steps - before, 100, "each completed memo lookup charges exactly one real lookup step");
+  assert.equal(current.budget.usage().rows, retained, "repeated complete keys retain one exact term entry");
+  current.keys.releaseReferenceMemo();
+  assert.equal(current.budget.usage().rows, retained - 1, "the completed term's own retained row is released at the existing boundary");
+  assert.equal(current.keys.encode(term), encoded, "a fresh cohort preserves canonical structural identity");
+  assert.equal(current.budget.usage().rows, retained, "the fresh cohort reserves its own completed row before publication");
+});
+
+test("an application keeps distinct ordinary and physical-root invocation encodings", () => {
+  const current = applicationFixture();
+  const term = current.application();
+  const ordinary = current.keys.encode(term);
+  const invocation = current.keys.invocation(term);
+  assert.equal(typeof ordinary === "string" && typeof invocation === "string", true, "both original modes are fully encoded");
+  assert.equal(ordinary === invocation, false, "physical invocation identity is not a normal value key");
+  assert.equal(current.keys.encode(term), ordinary, "the physical-root lookup does not overwrite the ordinary memo");
+  assert.equal(current.keys.invocation(term), invocation, "each actual mode retains its own exact key");
+  const inner = current.application();
+  assert.equal(typeof current.keys.invocation(inner), "string", "the child's physical mode is already cached");
+  const outer = Object.freeze({ ...current.application(), activation: Object.freeze({ kind: "provided", argument: inner }) });
+  const copied = Object.freeze({ ...outer, activation: Object.freeze({ kind: "provided", argument: Object.freeze({ ...inner }) }) });
+  assert.equal(current.keys.invocation(outer), current.keys.invocation(copied),
+    "a nested application remains ordinary beneath a physical invocation root, regardless of its cached physical key");
+  assert.equal(current.budget.failure(), undefined, "mode separation does not invent a new source guard");
+});
+
+test("completed compound memo hits retain independently open physical evidence", () => {
+  const current = fixture(0);
+  const symbolic = { key: "symbolic", owners: new Map(), variable: {} };
+  const leaf = Object.freeze({ kind: "leaf", subject: current.root, scope: symbolic });
+  const term = Object.freeze({ kind: "store", destination: leaf, receiver: leaf, value: leaf });
+  assert.equal(current.keys.closed(term), false, "the original compound physically retains an open activation");
+  const steps = current.budget.usage().steps;
+  assert.equal(current.keys.closed(term), false, "memoization merges the cached open flag, not only the key");
+  assert.equal(current.budget.usage().steps - steps, 1, "the open result is a completed lookup, not re-analysis");
+  current.keys.releaseReferenceMemo();
+  assert.equal(current.keys.closed(term), false, "query-cohort release never makes an open physical state closed");
+});
+
+test("a throwing compound key publishes no partial completed child", () => {
+  const current = fixture(4);
+  const activation = current.scopes.activation;
+  let activations = 0;
+  current.scopes.activation = scope => { activations++; return activation(scope); };
+  const child = Object.freeze({ kind: "effect", scope: current.first, store: Object.freeze({ reference: {} }) });
+  const term = Object.freeze({ kind: "store", destination: child, receiver: current.reference(current.first), value: child });
+  current.unavailable(true);
+  assert.throws(() => current.keys.encode(term), error => error === current.failure,
+    "the original exact owner lookup failure is not replaced by a memo answer");
+  const before = activations;
+  current.unavailable(false);
+  assert.equal(typeof current.keys.encode(child), "string", "a later query can encode the completed child normally");
+  assert.equal(activations - before, 1, "the failed outer request did not publish its completed child into the cohort memo");
+  assert.equal(current.budget.failure(), undefined, "temporary work and failed memo additions are fully released");
+});
+
+test("compound memoization preserves active-cycle and sticky finite-budget refusal", () => {
+  const current = fixture(0);
+  const empty = Object.freeze({ kind: "empty", absence: undefined });
+  const cycle = { kind: "store", destination: empty, receiver: undefined, value: empty };
+  cycle.receiver = cycle;
+  Object.freeze(cycle);
+  assert.equal(current.keys.encode(cycle), undefined, "an in-progress marker is never a completed cached answer");
+  assert.equal(current.budget.failure(), "Source storage key terms require an acyclic exact value.");
+  assert.equal(current.keys.encode(empty), undefined, "an earlier complete child cannot bypass a sticky owner failure");
+  const limited = fixture(0, { maximumTransportRows: 1 });
+  assert.equal(limited.keys.encode(empty), undefined, "retention cannot publish beyond the actual row limit");
+  assert.equal(limited.budget.failure() !== undefined, true, "the unchanged row guard remains authoritative");
+  limited.keys.releaseReferenceMemo();
+  assert.equal(limited.keys.encode(empty), undefined, "releasing memo rows does not erase a finite-budget failure");
+});
 
 test("many physical sites in one activation retain one exact context key within a finite linear work bound", () => {
   const current = fixture(256, { maximumSteps: 2048 });
