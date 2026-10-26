@@ -1,4 +1,5 @@
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
+import { sourceDeclarationIsAmbient } from "../../../source-navigation/declaration-context.js";
 import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -647,11 +648,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const container = declarations === undefined ? undefined : ast.parent(declarations);
       if (declarations !== undefined && ast.is.IsVariableDeclarationList(declarations) &&
         (container === undefined || !ast.is.IsForInStatement(container) && !ast.is.IsForOfStatement(container))) {
-        let ambient = false;
-        for (let owner: Node | undefined = node; owner !== undefined && !ast.is.IsSourceFile(owner); owner = ast.parent(owner)) {
-          if (!budget.step()) return undefined;
-          if (ast.hasModifierKind(owner, "ambient")) { ambient = true; break; }
-        }
+        const ambient = sourceDeclarationIsAmbient(ast, node, budget.step);
+        if (ambient === undefined) return undefined;
         if (!ambient) initial = Object.freeze({ kind: "empty",
           absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
       }

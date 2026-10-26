@@ -6,6 +6,7 @@ import { createSourceStorageQuery } from "../../packages/target-api/dist/public/
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { sourceDeclarationIsAmbient } from "../../packages/target-api/dist/source-navigation/declaration-context.js";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -152,6 +153,24 @@ test("initializer-less declared iteration has one loop-owned initialization and 
   const originalInputs = [...current.transport.storedInputsFor(current.transport.subject(current.variable("assigned"))) ?? []];
   assert.equal(originalInputs.length === 1 && originalInputs[0] === assigned[0].value, true,
     "the actual mutation of a checked binding retains its physical value without a fabricated initialization store");
+});
+
+test("ambient declaration context has one bounded checked ancestor owner", () => {
+  const current = fixture(`
+    let local: object | undefined;
+    declare let external: object | undefined;
+    declare namespace Foreign { let inherited: object | undefined; }
+  `);
+  for (const [name, expected] of [["local", false], ["external", true], ["inherited", true]]) {
+    const declaration = current.variable(name);
+    assert.equal(declaration !== undefined, true, `${name}: ambient selection starts at a checked declaration`);
+    let steps = 0;
+    assert.equal(sourceDeclarationIsAmbient(current.source.ast, declaration, () => { steps += 1; return true; }), expected,
+      `${name}: only exact direct or ancestor ambient modifiers determine the fact`);
+    assert.equal(steps > 0, true, `${name}: ancestor traversal is accounted`);
+    assert.equal(sourceDeclarationIsAmbient(current.source.ast, declaration, () => false) === undefined, true,
+      `${name}: exhausted evidence remains unknown, never non-ambient`);
+  }
 });
 
 test("implicit declaration absence has no authored store while explicit absence retains its initialization", () => {

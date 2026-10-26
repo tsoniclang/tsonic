@@ -113,7 +113,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (selected?.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
         }
         if (term.subject.kind === "value" && !term.subject.projection.some(sourceStorageIsMemberProjection) &&
-          !source.ast.is.IsNewExpression(term.subject.node) && !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
+          !source.ast.is.IsVariableDeclaration(term.subject.node) && !source.ast.is.IsNewExpression(term.subject.node) &&
+          !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
           !source.ast.is.IsElementAccessExpression(term.subject.node) && !transport.invocations.has(term.subject.node) &&
           !transport.accessorTargets.has(term.subject.node) && transport.storedValuesFor(term.subject) === undefined &&
           transport.incomingFor(term.subject).size === 0 && sourceStorageHasOriginalValue(term.subject, source.ast, false))

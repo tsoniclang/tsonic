@@ -6,6 +6,7 @@ import { sourceBindingHasMutableExposure } from "../../../source-navigation/bind
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceDeclarationIsAmbient } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageBudget, type SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
@@ -450,12 +451,8 @@ export function createSourceStorageStoredValues(
       if (!ast.is.IsVariableDeclaration(declaration) && !ast.is.IsBindingElement(declaration) && !sourceClassFieldHasStorage(ast, declaration) &&
         !ast.is.IsPropertyAssignment(declaration) && !ast.is.IsShorthandPropertyAssignment(declaration) &&
         !sourceParameterIsProperty(ast, declaration)) return;
-      let lexical: Node | undefined = ast.is.IsVariableDeclaration(declaration) ? ast.parent(declaration) : declaration;
-      if (lexical !== undefined && ast.is.IsVariableDeclarationList(lexical)) lexical = ast.parent(lexical);
-      for (let owner: Node | undefined = lexical; owner !== undefined && !ast.is.IsSourceFile(owner); owner = ast.parent(owner)) {
-        if (!budget.step()) return;
-        if (ast.hasModifierKind(owner, "ambient")) return;
-      }
+      const ambient = sourceDeclarationIsAmbient(ast, declaration, budget.step);
+      if (ambient === undefined || ambient) return;
     }
     const previous = occurrences.get(write.reference);
     if (previous !== undefined) {
