@@ -62,6 +62,9 @@ export function createSourceSemanticsExtension(options) {
         initialize(context) {
             context.registerFactResolver(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
         },
+        providerExportMaterialized(context) {
+            recordCanonicalProviderTypeMarker(context, modules);
+        },
         analyzeSource(context) {
             const sourceFiles = context.source.getSourceFiles().filter((sourceFile) => sourceFile !== undefined);
             for (const sourceFile of sourceFiles) {
@@ -254,6 +257,23 @@ function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourc
         }
         recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, node, callInfo, marker);
     });
+}
+function recordCanonicalProviderTypeMarker(context, modules) {
+    const { facts, symbol, declaration } = context;
+    if (declaration.exportName === undefined)
+        return;
+    const module = modules.find(candidate => candidate.moduleSpecifier === declaration.moduleSpecifier);
+    const marker = getModuleMarker(module, "type-marker", declaration.exportName);
+    if (marker?.kind !== "type-marker")
+        return;
+    const evidence = createMarkerEvidence(marker.exportName);
+    const fact = { kind: marker.kind, marker: marker.marker };
+    for (const subject of [symbol, ...(symbol.Declarations ?? [])]) {
+        if (subject === undefined)
+            continue;
+        facts.set(subject, selectedSourceMarkerDeclarationFactKey, marker, evidence);
+        facts.set(subject, sourceMarkerFactKey, fact, evidence);
+    }
 }
 function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker) {
     const evidence = createMarkerEvidence(marker.exportName);
