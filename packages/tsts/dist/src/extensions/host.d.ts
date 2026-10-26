@@ -1,6 +1,7 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
+import type { Symbol } from "../internal/ast/symbol.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import { type ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
@@ -168,6 +169,7 @@ export interface CompilerExtension {
     readonly identity: CompilerExtensionIdentity;
     readonly dependencies?: ExtensionDependencySpec;
     readonly initialize?: (context: ExtensionInitializeContext) => void;
+    readonly providerExportMaterialized?: (context: ProviderExportMaterializationContext) => void;
     readonly analyzeSource?: (context: SourceAnalysisContext) => void;
 }
 export interface ExtensionDiagnosticWriter {
@@ -190,6 +192,11 @@ export interface SourceAnalysisContext {
     readonly facts: SourceAnalysisFactAccess;
     readonly factResolver: SourceAnalysisFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
+}
+export interface ProviderExportMaterializationContext {
+    readonly symbol: Symbol;
+    readonly declaration: ProviderVirtualDeclarationFact;
+    readonly facts: Pick<SourceAnalysisFactAccess, "set">;
 }
 export interface ExtensionInitializeContext {
     readonly diagnostics: ExtensionDiagnosticWriter;
@@ -488,6 +495,7 @@ export interface ExtendedProgram<TProgram extends object = object> {
 }
 export declare const extensionHostSetFact: unique symbol;
 export declare const extensionHostRunSourceAnalysis: unique symbol;
+export declare const extensionHostProviderExportMaterialized: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -623,6 +631,7 @@ export declare class ExtensionHost {
     readonly factResolver: ExtensionFactResolver;
     readonly providers: ProviderRegistry;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
+    [extensionHostProviderExportMaterialized](symbol: Symbol): void;
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
     get program(): object;
