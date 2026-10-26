@@ -305,7 +305,9 @@ test("throwing guard continuation key construction releases its unpublished fron
   assert.equal(remaining.add(8), true, "only the original scope and exact guard-reference identities remain retained");
   remaining.release();
   ready = true;
-  assert.equal(typeof current.keys.encode(term) === "string", true, "no failed key or temporary reservation survives");
+  const retried = current.keys.encode(term);
+  assert.equal(typeof retried === "string", true,
+    `no failed key or temporary reservation survives: ${JSON.stringify({ reason: current.budget.failure(), ...current.budget.usage() })}`);
   assert.equal(current.budget.failure() === undefined, true);
 });
 
