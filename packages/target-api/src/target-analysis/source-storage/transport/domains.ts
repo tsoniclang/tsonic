@@ -56,7 +56,6 @@ export function createSourceStorageDomains(
     });
   });
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
-  let observedArrayProducerBoundary = false;
   let initialized = false;
   const add = domainInputs.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
@@ -437,18 +436,6 @@ export function createSourceStorageDomains(
     });
     const boundaries: SourceStorageDomainBoundary<SourceStorageScope>[] = [];
     const retainBoundary = (boundary: Omit<SourceStorageDomainBoundary, "bindings">, bindings: SourceStorageScope): void => {
-      if (!observedArrayProducerBoundary && purpose === "storage-producers" &&
-        subject.projection.some(component => component.kind === "array-element") &&
-        (ast.is.IsArrayLiteralExpression(subject.node) || ast.is.IsVariableDeclaration(subject.node) &&
-          ast.text(ast.name(subject.node)) === "callbacks")) {
-        observedArrayProducerBoundary = true;
-        const scalar = (selected: SourceStorageSubject) => ({ kind: selected.kind, node: ast.kindName(selected.node),
-          position: ast.pos(selected.node), projection: selected.projection.map(component => component.kind) });
-        console.error("W2_C763_ARRAY_FRONTIER " + JSON.stringify({ subject: scalar(subject), kind: boundary.kind,
-          boundary: scalar(boundary.subject), owner: boundary.owner === undefined ? undefined : scalar(boundary.owner),
-          exposure: { node: ast.kindName(boundary.exposure), position: ast.pos(boundary.exposure),
-            name: ast.text(ast.name(boundary.exposure)) }, scope: bindings.kind }).slice(0, 3500));
-      }
       if (boundaries.some(selected => selected.kind === boundary.kind && selected.subject === boundary.subject &&
         selected.owner === boundary.owner && selected.exposure === boundary.exposure && selected.bindings === bindings)) return;
       if (rows.add(1)) boundaries.push(Object.freeze({ ...boundary, bindings }));
