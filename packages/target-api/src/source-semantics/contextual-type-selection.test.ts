@@ -69,8 +69,13 @@ for (const [name, initializer] of [
   const component = semantics.types.contextualType(arrow);
   assert.equal(component !== undefined && component.authoredTypeNode !== undefined, true,
     "context includes the actual native source occurrence, not only a checker Type");
-  assert.equal(source.ast.text(component!.authoredTypeNode), "Callback<number>",
-    "the exact authored alias and omitted default are retained");
+  assert.equal(source.ast.is.IsTypeReferenceNode(component!.authoredTypeNode), true,
+    "the authored destination is the exact alias reference, not its expanded signature");
+  const reference = source.ast.as.AsTypeReferenceNode(component!.authoredTypeNode!);
+  assert.equal(source.ast.text(reference?.TypeName), "Callback", "the exact authored alias is retained");
+  const arguments_ = source.ast.typeArguments(component!.authoredTypeNode);
+  assert.equal(arguments_.length, 1, "the omitted default is not manufactured as an authored argument");
+  assert.equal(source.ast.kindName(arguments_[0]), "KindNumberKeyword", "the authored argument is exactly number");
   assert.equal(Node_Type(source.ast, component!.declaration) === component!.authoredTypeNode, true,
     "the source component retains its own real annotation owner");
   const selected = semantics.types.contextualValueSelection(arrow);
