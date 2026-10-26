@@ -7,7 +7,10 @@ import { createTargetSafetyApplicationIndex, type TargetSafetyApplicationFact, t
 
 type TestBuilderFact =
   | (TargetSafetyApplicationFact & { readonly contract: string })
-  | { readonly kind: "builder-state"; readonly label?: string };
+  | (Omit<TargetSafetyApplicationFact, "kind"> & {
+      readonly kind: "builder-state";
+      readonly label?: string;
+    });
 
 function guarded<T extends object>(value: T, sealed: () => boolean, path: string, accesses: Map<string, number>): T {
   const copy: Record<string, unknown> = {};
@@ -37,7 +40,7 @@ class Value {
   set current(value: number) { this.stored = value; }
 }
 interface Indexed { [key: string]: number; }
-declare function mark(label: string): void;
+declare function mark(label: string, target?: unknown): void;
 mark("getter");
 mark("setter");
 mark("field");
@@ -45,10 +48,10 @@ mark("index");
 mark("declaration");
 mark("constructor");
 (mark("parenthesized"));
-mark("state");
+mark("state", Value);
 ((mark("nested")));
 (mark("wrapped-exact"));
-mark("unregistered");
+mark("unregistered", Value);
 (1 + 2);
 export {};
 `;
@@ -101,11 +104,13 @@ function fixture(text = sourceText) {
     ["declaration", application("declaration", [getter, setter])],
     ["constructor", application("constructor", [], value)],
     ["parenthesized", application("getter", [getter, setter])],
-    ["state", { kind: "builder-state" }],
-    ["nested", { kind: "builder-state", label: "nested" }],
-    ["wrapped-exact", { kind: "builder-state", label: "inner" }],
+    ["state", { kind: "builder-state", applicationTarget: value, applicationPlacement: "declaration" }],
+    ["nested", { kind: "builder-state", label: "nested", applicationTarget: value, applicationPlacement: "declaration" }],
+    ["wrapped-exact", { kind: "builder-state", label: "inner", applicationTarget: value, applicationPlacement: "declaration" }],
   ]);
-  const wrapperFact: TestBuilderFact = { kind: "builder-state", label: "wrapper" };
+  const wrapperFact: TestBuilderFact = {
+    kind: "builder-state", label: "wrapper", applicationTarget: value, applicationPlacement: "declaration",
+  };
   const calls = new Map<string, Node>();
   for (const node of nodes) {
     const text = label(node);
@@ -189,6 +194,22 @@ test("compile-time application references are the references inside an applicati
   assert.equal(index.isCompileTimeApplicationReference(getter, outside!), false);
 });
 
+test("incomplete builder target references are compile-time without publishing applications", () => {
+  const { ast, index, call, value, getter, seal } = fixture();
+  const inside = ast.arguments(call("state"))[1];
+  const outside = ast.arguments(call("unregistered"))[1];
+  assert.equal(inside !== undefined && outside !== undefined, true);
+  const applications = index.forDeclaration(value);
+  seal();
+  assert.equal(index.isCompileTimeApplicationReference(value, inside!), true);
+  assert.equal(index.isCompileTimeApplicationReference(getter, inside!), false);
+  assert.equal(index.isCompileTimeApplicationReference(value, outside!), false);
+  assert.equal(index.operationForSubject(call("state"))?.fact.kind, "builder-state");
+  assert.equal(index.all.some(application => application.sourceSubject === call("state")), false);
+  assert.equal(index.forDeclaration(value), applications);
+  assert.equal(applications.some(application => application.sourceSubject === call("state")), false);
+});
+
 test("parenthesis-transparent lookups are stored at construction, with exact-node precedence", () => {
   const { ast, index, call, nodes, wrapperFact } = fixture();
   const wrappersOf = (inner: Node): Node[] => {
@@ -251,7 +272,6 @@ test("published safety memberships and operation wrappers are immutable", () => 
 
 test("nested application membership inherits outer declarations without crossing siblings", () => {
   const { ast, index, call, getter, setter } = fixture(sourceText
-    .replace("declare function mark(label: string): void;", "declare function mark(label: string, ...values: unknown[]): void;")
     .replace('mark("getter");', 'mark("getter", mark("setter"));'));
   const outer = call("getter");
   const inner = ast.arguments(outer)[1];
