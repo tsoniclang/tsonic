@@ -185,9 +185,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (selected?.kind === "project") return { kind: "project", inputs: selected.inputs,
       select: value => selected.select(value)?.map(child => child.kind === "empty" ? child : replace(child)) };
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(child => child.kind === "empty" ? child : replace(child)), dependencies: selected.dependencies,
-      witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness : { ...witness, contributes: false }),
+      witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness
+        : { ...witness, contributes: false, observesValue: false }),
         ...child.kind === "reference" || child.kind === "leaf"
-        ? [{ subject: child.subject, bindings: child.scope, contributes: context.contributes !== false }] : []] } : selected;
+        ? [{ subject: child.subject, bindings: child.scope, contributes: context.contributes !== false,
+          observesValue: context.contributes !== false }] : []] } : selected;
   };
   const independentCalleeFor = (invocation: Node): Node | undefined => {
     if (!budget.step()) return undefined;
