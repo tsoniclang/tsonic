@@ -2,6 +2,7 @@ import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { createSourceProgramQueries, } from "./source-program.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
 import { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
+import { providerVirtualDeclarationFactKey } from "./facts.js";
 import { defineExtensionFactKey, formatExtensionFactKeyForDisplay, getExtensionFactKeyIdentity, isHostSourceReadableFactKey, } from "./fact-key.js";
 export { defineExtensionFactKey, } from "./fact-key.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
@@ -99,6 +100,7 @@ const sealProviderRegistrations = Symbol("tsts.provider.sealRegistrations");
 const providerMaxRegisteredProviders = 4_096;
 export const extensionHostSetFact = Symbol("tsts.extensionHost.setFact");
 export const extensionHostRunSourceAnalysis = Symbol("tsts.extensionHost.runSourceAnalysis");
+export const extensionHostProviderExportMaterialized = Symbol("tsts.extensionHost.providerExportMaterialized");
 const extensionStoreViewToken = Object.freeze({});
 export class ExtensionDiagnosticStore {
     #state;
@@ -2528,6 +2530,44 @@ export class ExtensionHost {
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }
+    [extensionHostProviderExportMaterialized](symbol) {
+        if (this.#semanticFinalizationState !== "open") {
+            throw new Error("Provider exports must materialize before semantic finalization.");
+        }
+        const declaration = this.facts.get(symbol, providerVirtualDeclarationFactKey);
+        if (declaration?.exportId === undefined || declaration.memberId !== undefined) {
+            throw new Error("Provider export materialization requires its published exact export identity.");
+        }
+        for (const extension of this.#extensions) {
+            const materialized = extension.providerExportMaterialized;
+            if (materialized === undefined)
+                continue;
+            const attempt = this.#beginFactAttempt();
+            try {
+                const capabilities = this.#getOwnerCapabilities(extension.identity.id);
+                runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
+                    const scope = createExtensionCapabilityScope();
+                    try {
+                        const facts = createSourceAnalysisFactAccess(capabilities.facts, scope);
+                        materialized(Object.freeze({
+                            symbol,
+                            declaration,
+                            facts: Object.freeze({ set: facts.set }),
+                        }));
+                    }
+                    finally {
+                        revokeExtensionCapabilityScope(scope);
+                    }
+                });
+                this.#commitFactAttempt(attempt);
+            }
+            catch (error) {
+                const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
+                this.#failSemanticFinalization();
+                throw settledError;
+            }
+        }
+    }
     constructor(program, options = {}) {
         this.#program = program;
         this.diagnostics = new ExtensionDiagnosticStore();
@@ -3172,6 +3212,8 @@ function snapshotCompilerExtension(extension) {
         identity,
         ...(dependencies === undefined ? {} : { dependencies }),
         ...(extension.initialize === undefined ? {} : { initialize: extension.initialize }),
+        ...(extension.providerExportMaterialized === undefined
+            ? {} : { providerExportMaterialized: extension.providerExportMaterialized }),
         ...(extension.analyzeSource === undefined ? {} : { analyzeSource: extension.analyzeSource }),
     });
 }
