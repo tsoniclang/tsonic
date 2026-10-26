@@ -417,7 +417,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (regions === undefined) return undefined;
         const reason = "The relevant native callback has no completed checked execution contract.";
         const terms = term.callback.timing === "unknown" ? conditionalExecutions(regions, term.demand, term.invocation,
-          { value: reason, effect: reason }, true) : regions;
+          { value: { reason, executionOnly: true }, effect: undefined }, true) : regions;
         if (terms === undefined) return undefined;
         return { kind: "replace", terms, dependencies };
       }
@@ -517,7 +517,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const entry: SourceStorageTerm = Object.freeze({ kind: "execution-root", demand: term.subject.node, deferred: true });
       for (const value of walkSourceStorageExecution(budget, [entry], readRelation)) {
         if (!budget.step()) return undefined;
-        if (value.kind === "unresolved") terms.push(value);
+        if (value.kind === "unresolved") {
+          if (value.executionOnly !== true || value.subject !== root || scopes.owningScope(value.scope, inputOwner) === undefined)
+            terms.push(value);
+        }
         else if (value.kind === "leaf" && value.subject === root && scopes.owningScope(value.scope, inputOwner) !== undefined)
           terms.push(sourceStorageReference(term.subject, value.scope));
       }
