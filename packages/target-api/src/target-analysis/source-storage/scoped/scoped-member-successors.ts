@@ -95,7 +95,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       const member = sourceStorageMemberSubject(declaration, ast, transport.subject, subject.projection.slice(1));
       if (member === undefined) return undefined;
       return { kind: "replace", terms: [sourceStorageReference(member, scope)],
-        witnesses: [{ subject, bindings: scope, contributes: false }] };
+        witnesses: [{ subject, bindings: scope, contributes: false, observesValue: true }] };
     }
     const terms: SourceStorageTerm[] = [leaf(subject, scope)];
     const owner = sourceStorageFormalOwner(subject, source);
@@ -320,7 +320,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         } else terms.push(sourceStorageReference(result, scope));
         continue;
       }
-      if (!copied) witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
+      if (!copied) witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true, observesValue: true }));
       const stores = transport.storedValuesFor(subject);
       // An unbound external receiver keeps its symbolic member value; stored writes of the member still apply.
       const unboundReceiver = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
