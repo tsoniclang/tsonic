@@ -131,7 +131,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
   };
   const operation = (term: Extract<SourceStorageTerm, { readonly kind: "pointer" }>): SourceStorageReduction | undefined => {
     if (term.pointer.kind !== "leaf") return { kind: "project", inputs: [term.pointer], select: value =>
-      value.kind === "empty" ? [value] : [Object.freeze({ ...term, pointer: value })] };
+      value.kind === "empty" ? [value] : [value === term.pointer ? term : Object.freeze({ ...term, pointer: value })] };
     const original = term.pointer;
     const selected = original.subject.kind === "value" && original.subject.projection.length === 0
       ? source.sourceFacts.getFact(original.subject.node, pointerOperationFactKey) : undefined;

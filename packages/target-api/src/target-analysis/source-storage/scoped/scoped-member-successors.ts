@@ -175,7 +175,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
     if (term.receiver.kind !== "leaf") {
-      const replace = (receiver: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, receiver });
+      const replace = (receiver: SourceStorageTerm): SourceStorageTerm =>
+        receiver === term.receiver ? term : Object.freeze({ ...term, receiver });
       return !correlated && term.mode === "value" && declarations.every(passiveMember)
         ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
     }

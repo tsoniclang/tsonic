@@ -123,7 +123,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (term.kind === "transition") {
         const condition = normalize(term.condition, witnesses, temporary, false, false);
         if (condition === undefined) return undefined;
-        const transition = Object.freeze({ ...term, condition });
+        const transition = condition === term.condition ? term : Object.freeze({ ...term, condition });
         if (condition.kind === "leaf" && sourceStorageHasOriginalCallableValue(condition.subject, source.ast)) {
           const selected = successors.reduce(transition);
           if (selected === undefined) return undefined;
@@ -175,7 +175,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const destination = normalize(term.destination, witnesses, temporary, false, observesValue);
       const receiver = normalize(term.receiver, witnesses, temporary, false, observesValue);
       const value = normalize(term.value, witnesses, temporary, contributes, observesValue);
-      return destination === undefined || receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, destination, receiver, value });
+      return destination === undefined || receiver === undefined || value === undefined ? undefined
+        : destination === term.destination && receiver === term.receiver && value === term.value ? term
+          : Object.freeze({ ...term, destination, receiver, value });
     }
     if (term.kind === "empty" && term.absence !== undefined) {
       if (!budget.step() || !temporary.add(1)) return undefined;
@@ -185,8 +187,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       let current: SourceStorageTerm = term;
       let guards: SourceStorageValueGuards | undefined;
       const references = new Set<Node>();
+      let duplicate = false;
       while (current.kind === "guarded") {
         if (!budget.step()) return undefined;
+        duplicate ||= references.has(current.reference);
         if (!references.has(current.reference) && !temporary.add(1)) return undefined;
         references.add(current.reference);
         const selected = transport.guardedValues.conjoin(guards, current.reference);
@@ -197,28 +201,31 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const normalized = normalize(current, witnesses, temporary, false, observesValue);
       if (normalized === undefined) return undefined;
+      if (!duplicate && normalized === current) return term;
       let value: SourceStorageTerm = normalized;
       for (const reference of [...references].reverse()) value = Object.freeze({ kind: "guarded", value, reference });
       return value;
     }
     if (term.kind === "member") {
       const receiver = normalize(term.receiver, witnesses, temporary, false, observesValue);
-      return receiver === undefined ? undefined : Object.freeze({ ...term, receiver });
+      return receiver === undefined ? undefined : receiver === term.receiver ? term : Object.freeze({ ...term, receiver });
     }
     if (term.kind === "pointer") {
       const pointer = normalize(term.pointer, witnesses, temporary, false, observesValue);
       const input = term.input === undefined ? undefined : normalize(term.input, witnesses, temporary, false, observesValue);
       return pointer === undefined || term.input !== undefined && input === undefined ? undefined
-        : Object.freeze({ ...term, pointer, input });
+        : pointer === term.pointer && input === term.input ? term : Object.freeze({ ...term, pointer, input });
     }
     if (term.kind === "application") {
       const callee = normalize(term.callee, witnesses, temporary, false, false);
       if (term.activation.kind === "provided") {
         const argument = term.activation.argument === undefined ? undefined : normalize(term.activation.argument, witnesses, temporary, false, false);
         return callee === undefined || term.activation.argument !== undefined && argument === undefined ? undefined
-          : Object.freeze({ ...term, callee, activation: Object.freeze({ kind: "provided", argument }) });
+          : callee === term.callee && argument === term.activation.argument ? term
+            : Object.freeze({ ...term, callee, activation: argument === term.activation.argument
+              ? term.activation : Object.freeze({ kind: "provided", argument }) });
       }
-      return callee === undefined ? undefined : Object.freeze({ ...term, callee });
+      return callee === undefined ? undefined : callee === term.callee ? term : Object.freeze({ ...term, callee });
     }
     return term;
   };

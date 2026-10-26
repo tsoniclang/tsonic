@@ -216,7 +216,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf") {
-        const replace = (value: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, value });
+        const replace = (value: SourceStorageTerm): SourceStorageTerm => value === term.value ? term : Object.freeze({ ...term, value });
         return correlated ? replaceChild(term.value, replace, { contributes: false, correlated })
           : { ...materializeChild(term.value, value => guardedLeaf(term.reference, value)), valueFilter: term.reference };
       }
@@ -289,8 +289,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return { kind: "replace", terms };
     }
     if (term.kind === "store") {
-      if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination => Object.freeze({ ...term, destination }), { contributes: false });
-      if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
+      if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination =>
+        destination === term.destination ? term : Object.freeze({ ...term, destination }), { contributes: false });
+      if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver =>
+        receiver === term.receiver ? term : Object.freeze({ ...term, receiver }));
       if (term.receiver.subject !== term.destination.subject) return sourceStorageSymbolicMemberAlias(transport, symbolicInput,
         term.receiver, term.destination) ? { kind: "replace", terms: [term.value] } : absent;
       const receiver = birth(term.receiver.subject, term.receiver.scope);
@@ -329,7 +331,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       });
     }
     if (term.kind === "transition") {
-      if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));
+      if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition =>
+        condition === term.condition ? term : Object.freeze({ ...term, condition }));
       const node = term.condition.subject.node;
       if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
         const owner = ast.is.IsConstructorDeclaration(term.capture.owner) ? ast.parent(term.capture.owner) : term.capture.owner;
@@ -357,7 +360,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
       const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
-        const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), {
+        const selected = replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
           independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
         });
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
