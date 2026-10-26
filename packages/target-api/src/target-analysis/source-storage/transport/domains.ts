@@ -16,6 +16,7 @@ import { createSourceStorageDomainPublications, type SourceStoragePublication } 
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
 import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
+import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -361,6 +362,18 @@ export function createSourceStorageDomains(
     const receiver = transport.subject(subject.node, "receiver");
     return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
+  const separateExportedCreation = (boundary: Omit<SourceStorageDomainBoundary, "bindings">,
+    bindings: SourceStorageScope): boolean => {
+    const owner = boundary.owner;
+    if (boundary.kind !== "external-write" || owner?.kind !== "value" || owner.projection.length !== 0 ||
+      !ast.is.IsObjectLiteralExpression(owner.node) && !ast.is.IsArrayLiteralExpression(owner.node)) return false;
+    const implementation = navigation.callableImplementation(boundary.exposure);
+    const region = transport.regions.enclosing(owner.node);
+    if (implementation.kind !== "resolved" || region === undefined ||
+      sourceStorageRegionOwner(ast, region) !== implementation.implementation.declaration) return false;
+    const activation = transport.substitutions.boundActivation(bindings, implementation.implementation.declaration);
+    return activation?.invocation !== undefined && activation.nativeEntry === undefined;
+  };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
     const bindings = externalEntry ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
     if (bindings === undefined) {
@@ -495,6 +508,7 @@ export function createSourceStorageDomains(
       if (reason !== undefined) break;
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
+        if (separateExportedCreation(boundary, current.bindings)) continue;
         if (boundary.kind === "opaque-result" && !current.observesValue) continue;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;

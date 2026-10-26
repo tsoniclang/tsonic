@@ -179,6 +179,15 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       return !correlated && term.mode === "value" && declarations.every(passiveMember)
         ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
     }
+    const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
+      ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
+      : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
+    if (optional) {
+      const type = sourceStorageSubjectType(source, term.receiver.subject);
+      const types = semantics.forNode(term.receiver.subject.node).types;
+      if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
+        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: term.receiver })] };
+    }
     if (term.selection.kind === "projection" && term.selection.before !== undefined) {
       const before = term.selection.before;
       const selection = term.selection;

@@ -235,6 +235,57 @@ test("public identity returns do not expose private observed arguments or callba
   complete(current.selection("selected"), "private actual record is not exposed by public identity return");
 });
 
+test("private factory creations do not inherit foreign exported-call member writers", async () => {
+  const declarations = `
+    export function create(seed: number) {
+      let first = true;
+      const choose = <Value>(left: Value, right: Value): Value => first ? left : right;
+      const change = (): void => { first = false; };
+      return { choose, change, seed };
+    }
+  `;
+  const current = await fixture("storage-domain-private-factory-creation", `${declarations}
+    const first = create(7);
+    const saved = first.choose;
+    first.change();
+    const selected = saved;
+    const second = create(9);
+    const separate = second.choose;
+    export function createSequence() { return [<Value>(value: Value): Value => value]; }
+    const sequence = createSequence();
+    const element = sequence[0];
+  `);
+  const selected = complete(current.selection("selected"), "a foreign create call cannot replace this instance's stored callable");
+  assert.equal(selected.length === 1 && current.source.ast.is.IsArrowFunction(selected[0].subject.node), true,
+    "the actual checked generic implementation is retained");
+  const original = current.storage.storageProducersFor(current.subject(current.variable("selected")));
+  const separate = current.storage.storageProducersFor(current.subject(current.variable("separate")));
+  assert.equal(original.kind === "complete" && separate.kind === "complete" &&
+    original.producers.length === 1 && separate.producers.length === 1 &&
+    original.producers[0].subject === separate.producers[0].subject &&
+    original.producers[0].bindings !== separate.producers[0].bindings, true,
+  "two actual creations retain distinct lexical capture bindings for the same source implementation");
+  complete(current.selection("element"), "private array allocation is qualified by its actual source invocation too");
+  for (const [name, program, boundary] of [
+    ["published-instance", `${declarations}
+      export const escaped = create(7); const selected = escaped.choose;`, "external-write"],
+    ["cached-instance", `${declarations}
+      const escaped = create(7); export function read() { return escaped; } const selected = escaped.choose;`, "external-write"],
+    ["shared-return", `
+      const shared = { choose: <Value>(left: Value, right: Value): Value => left };
+      export function create() { return shared; } const selected = create().choose;`, "external-write"],
+    ["opaque-instance", `${declarations}
+      declare function mutate(value: { choose: <Value>(left: Value, right: Value) => Value }): void;
+      const first = create(7); mutate(first); const selected = first.choose;`, "opaque-write"],
+    ["unknown-native-creation", `
+      declare class Native { choose: <Value>(left: Value, right: Value) => Value; }
+      export function create() { return new Native(); } const selected = create().choose;`, "external-write"],
+  ]) {
+    const inverse = await fixture(`storage-domain-factory-${name}`, program);
+    open(inverse.selection("selected"), boundary, `${name}: real foreign/native provenance remains open`);
+  }
+});
+
 test("an actual stored into exported storage is exposed even when transferred through a public formal", async () => {
   const current = await fixture("storage-domain-public-slot-transfer", `
     export let slot: { token: {} } | null = null;
