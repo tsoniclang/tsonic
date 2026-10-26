@@ -231,7 +231,7 @@ test("CLI emits structural type-literal methods as authored object-shape methods
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public class ObjectShape_[a-f0-9]{12,64}[^{]*\{[\s\S]*?public double run\(double value\)\s*\{\s*return value \+ 1D;\s*\}/u);
+  assert.match(generatedShapes, /public class ObjectShape_[a-f0-9]{12,64}[^{]*\{[\s\S]*?public double run\(double value\)\s*\{\s*return value \+ 1;\s*\}/u);
   assert.doesNotMatch(generatedShapes + generatedSource, /__tsonic_shape_method_/u);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
