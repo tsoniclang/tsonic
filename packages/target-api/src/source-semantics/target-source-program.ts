@@ -6,7 +6,7 @@ import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
 import { selectSourceCallResult } from "./call-result-selection.js";
 import { selectSourceProviderSignature, type SourceProviderSignatureSelection } from "./provider-signature.js";
 import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
-import { selectSourceContextualValueType } from "./contextual-type-selection.js";
+import { selectSourceContextualType, selectSourceContextualValueType } from "./contextual-type-selection.js";
 import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
 import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
@@ -146,7 +146,9 @@ export function createTargetSourceProgram(
       expressionType: queries.checker.getTypeAtLocation,
       awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
-      contextualType: queries.checker.getContextualType,
+      contextualType(node: Node) {
+        return selectSourceContextualType(source.ast, queries.checker, semantics, node);
+      },
       typeOfSymbol: queries.checker.getTypeOfSymbol,
       declaredSymbolType: queries.checker.getDeclaredTypeOfSymbol,
       writeSymbolType: queries.checker.getWriteTypeOfSymbol,
@@ -227,8 +229,10 @@ export function createTargetSourceProgram(
       },
       contextualValueSelection(node: Node) {
         return selectSourceContextualValueType(
+          source.ast,
           queries.typeShape,
           queries.checker,
+          semantics,
           node,
         );
       },

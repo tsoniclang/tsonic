@@ -12,10 +12,10 @@ export function selectSourceContextualTupleLiteral(
     );
   }
   const contextual = types.contextualValueSelection(node);
-  if (contextual.kind !== "selected" || !types.isTuple(contextual.type)) {
+  if (contextual.kind !== "selected" || !types.isTuple(contextual.component.selectedType)) {
     return { kind: "unavailable" };
   }
-  const elements = types.tupleElementInfos(contextual.type);
+  const elements = types.tupleElementInfos(contextual.component.selectedType);
   if (
     presentElementCount > elements.length ||
     elements.some((element) =>
@@ -37,7 +37,7 @@ export function selectSourceContextualTupleLiteral(
   }
   return Object.freeze({
     kind: "selected",
-    type: contextual.type,
+    type: contextual.component.selectedType,
     elements: Object.freeze(elements.slice()) as readonly TypeTupleElementInfo[],
     omittedOptionalElementIndexes: Object.freeze(
       omittedOptionalElementIndexes,

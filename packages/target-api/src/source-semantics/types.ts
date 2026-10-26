@@ -36,7 +36,7 @@ export interface SourceFinalTypeQueries {
   expressionType(node: Node): Type | undefined;
   awaitedType(type: Type): Type | undefined;
   authoredType(node: Node): Type | undefined;
-  contextualType(node: Node): Type | undefined;
+  contextualType(node: Node): SourceTypeComponentEvidence | undefined;
   typeOfSymbol(symbol: Symbol | undefined): Type | undefined;
   declaredSymbolType(symbol: Symbol | undefined): Type | undefined;
   writeSymbolType(symbol: Symbol | undefined): Type | undefined;

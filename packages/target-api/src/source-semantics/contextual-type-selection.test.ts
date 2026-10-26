@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../source-navigation/ast.js";
+import { Node_Initializer, Node_Type } from "../source-navigation/ast.js";
 import { createTargetSourceProgram } from "./target-source-program.js";
 
 function fixture(sourceText: string) {
@@ -47,6 +47,54 @@ const unannotated = [
   ["array parameter", 'export function read([key] = (["value"] as const)): string { return key; }'],
 ] as const;
 
+for (const [name, initializer] of [
+  ["direct", "const typed: Callback<number> = value => value;"],
+  ["parenthesized", "const typed: Callback<number> = ((value => value));"],
+  ["asserted", "const typed = ((value => value) as Callback<number>);"],
+  ["satisfies", "const typed = ((value => value) satisfies Callback<number>);"],
+] as const) test(`contextual ${name} callable retains its exact authored destination occurrence`, () => {
+  const { source, declarations } = fixture(`type Callback<Input, Output = Input> = (value: Input) => Output;
+    const sentinel = {}; ${initializer}`);
+  const declaration = declarations.find(node => source.ast.text(source.ast.name(node)) === "typed");
+  assert.equal(declaration !== undefined, true, "the typed initializer is an original checked declaration");
+  const arrows: Node[] = [];
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsArrowFunction(node)) arrows.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(declaration!);
+  assert.equal(arrows.length, 1, "one actual contextual callable occurrence");
+  const arrow = arrows[0]!;
+  const semantics = source.semantics.forNode(arrow);
+  const component = semantics.types.contextualType(arrow);
+  assert.equal(component !== undefined && component.authoredTypeNode !== undefined, true,
+    "context includes the actual native source occurrence, not only a checker Type");
+  assert.equal(source.ast.text(component!.authoredTypeNode), "Callback<number>",
+    "the exact authored alias and omitted default are retained");
+  assert.equal(Node_Type(source.ast, component!.declaration) === component!.authoredTypeNode, true,
+    "the source component retains its own real annotation owner");
+  const selected = semantics.types.contextualValueSelection(arrow);
+  assert.equal(selected.kind === "selected" && selected.component.authoredTypeNode === component!.authoredTypeNode, true,
+    "raw and non-nullish contextual selection share the identical authored occurrence");
+  assert.equal(selected.kind === "selected" && selected.component.selectedType === component!.selectedType, true,
+    "the original checker identity is unchanged");
+  if (name === "direct" || name === "parenthesized")
+    assert.equal(component!.declaration === declaration, true, "parentheses do not invent an annotation owner");
+});
+
+test("contextual nested callables do not borrow an enclosing declaration's annotation", () => {
+  const { source, declarations } = fixture("const sentinel = {}; const typed: () => () => number = () => () => 1;");
+  const declaration = declarations.find(node => source.ast.text(source.ast.name(node)) === "typed");
+  const outer = Node_Initializer(source.ast, declaration);
+  assert.equal(outer !== undefined && source.ast.is.IsArrowFunction(outer), true, "the outer callable is exact");
+  const inner = source.ast.as.AsArrowFunction(outer!)?.Body;
+  assert.equal(inner !== undefined && source.ast.is.IsArrowFunction(inner), true, "the inner callable is a distinct source occurrence");
+  const context = source.semantics.forNode(inner!).types.contextualType(inner!);
+  assert.equal(context !== undefined, true, "the actual checked return context remains available");
+  assert.equal(context!.authoredTypeNode, undefined, "an enclosing declaration is not the inner callable's direct annotation");
+  assert.equal(context!.declaration, undefined, "no unrelated source owner is manufactured");
+});
+
 for (const [name, sourceText] of unannotated) {
   test(`unannotated ${name} keeps its actual initializer rather than a synthetic contextual destination`, () => {
     const { source, literal, declarations } = fixture(sourceText);
@@ -80,7 +128,7 @@ for (const [name, sourceText] of authoredDestinations) {
     const contextual = queries.checker.getContextualType(literal);
     assert.equal(contextual !== undefined, true, `${name}: the real checker supplies the authored destination`);
     const selected = source.semantics.forNode(literal).types.contextualValueSelection(literal);
-    assert.equal(selected.kind === "selected" && selected.type === contextual, true,
+    assert.equal(selected.kind === "selected" && selected.component.selectedType === contextual, true,
       `${name}: const transparency cannot discard a real annotation or typed assertion`);
   });
 }
@@ -104,7 +152,7 @@ consume({ key: "value" });
   const retained = candidates.filter(candidate => candidate !== undefined && !queries.typeShape.isNullish(candidate));
   const selected = source.semantics.forNode(literal).types.contextualValueSelection(literal);
   assert.equal(retained.length, 1, "the authored nullable union has exactly one native value candidate");
-  assert.equal(selected.kind === "selected" && selected.type === retained[0], true,
+  assert.equal(selected.kind === "selected" && selected.component.selectedType === retained[0], true,
     "filtering source absence preserves the exact candidate, not a reconstructed object type");
 });
 
@@ -203,7 +251,7 @@ for (const [name, sourceText, literalIndex] of propagatedDestinations) {
     const retained = candidates.filter(candidate => candidate !== undefined && !queries.typeShape.isNullish(candidate));
     const selection = source.semantics.forNode(literal).types.contextualValueSelection(literal);
     assert.equal(retained.length, 1, `${name}: one genuine non-nullish contextual destination is checked`);
-    assert.equal(selection.kind === "selected" && selection.type === retained[0], true,
+    assert.equal(selection.kind === "selected" && selection.component.selectedType === retained[0], true,
       `${name}: skipping synthetic binding patterns preserves the actual destination identity`);
   });
 }

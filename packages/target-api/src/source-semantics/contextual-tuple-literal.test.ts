@@ -13,7 +13,7 @@ test("contextual tuple literals retain exact trailing optional omissions", () =>
     { type: type(), elementKind: "optional" },
   ];
   const semantics = sourceSemantics(
-    { kind: "selected", type: contextualType },
+    { kind: "selected", component: { selectedType: contextualType } },
     contextualType,
     elements,
   );
@@ -52,7 +52,7 @@ test("contextual tuple literals fail closed for non-trailing or variable omissio
     assert.deepEqual(
       selectSourceContextualTupleLiteral(
         sourceSemantics(
-          { kind: "selected", type: contextualType },
+          { kind: "selected", component: { selectedType: contextualType } },
           contextualType,
           elements,
         ),
@@ -83,7 +83,7 @@ test("contextual tuple literals reject absent, ambiguous, and contradictory cont
   assert.deepEqual(
     selectSourceContextualTupleLiteral(
       sourceSemantics(
-        { kind: "selected", type: contextualType },
+        { kind: "selected", component: { selectedType: contextualType } },
         contextualType,
         [{ type: type(), elementKind: "optional" }],
       ),
@@ -95,7 +95,7 @@ test("contextual tuple literals reject absent, ambiguous, and contradictory cont
   assert.throws(
     () => selectSourceContextualTupleLiteral(
       sourceSemantics(
-        { kind: "selected", type: contextualType },
+        { kind: "selected", component: { selectedType: contextualType } },
         contextualType,
         [],
       ),
