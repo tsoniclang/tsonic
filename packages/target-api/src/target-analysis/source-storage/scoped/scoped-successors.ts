@@ -578,6 +578,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const stores = term.subject.kind === "value" || term.subject.kind === "member" ? transport.storedValuesFor(term.subject) : undefined;
     const storedBinding = stores !== undefined && term.subject.kind === "value" &&
+      !term.subject.projection.some(sourceStorageIsMemberProjection) &&
       (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node));
     if (!storedBinding && term.subject.kind === "value" && term.subject.projection.length !== 0 &&
       !term.subject.projection.some(sourceStorageIsMemberProjection) &&

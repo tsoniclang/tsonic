@@ -5,6 +5,52 @@ import { createTargetSourceProgram, Node_Initializer } from "../../packages/targ
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable } from "../fixtures/source-navigation.mjs";
 
+test("inline optional declaration members preserve correlated absence and real callback stores", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" }, files: { "/src/index.ts": `
+      export {};
+      function deliver(callback: (value: object) => void, value: object): void { callback(value); }
+      const receiver: { value?: object } = {};
+      const absent: { value?: object } = {};
+      const other: { value?: object } = {};
+      const original = {};
+      const unrelated = {};
+      const callback = (value: object): void => { receiver.value = value; };
+      const otherCallback = (value: object): void => { other.value = value; };
+      deliver(callback, original);
+      deliver(otherCallback, unrelated);
+      const read = receiver.value;
+    ` } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the original inline optional storage checks");
+  const source = createTargetSourceProgram(checked);
+  const { ast } = source;
+  const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
+  assert.equal(file !== undefined, true, "the original checked file is present");
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+  const demand = createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [],
+    storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
+  const original = Node_Initializer(ast, namedVariable(ast, file, "original"));
+  const unrelated = Node_Initializer(ast, namedVariable(ast, file, "unrelated"));
+  for (const name of ["receiver", "absent"]) {
+    const declaration = namedVariable(ast, file, name);
+    const member = namedMember(ast, ast.typeNode(declaration), "value");
+    const subject = storage.subject(declaration, "value", [{ kind: "member", declaration: member }]);
+    assert.equal(subject.kind === "resolved", true, `${name}: the exact inline declaration member is admitted`);
+    const frontier = storage.boundValueFrontierFor(subject.subject, storage.emptyBindings, []);
+    assert.equal(frontier.kind === "resolved", true, `${name}: declaration member completion retains its absence proof`);
+    assert.equal(frontier.frontier.some(value => value.kind === "origin" && value.subject.node === original), name === "receiver",
+      `${name}: only the actual callback store contributes its checked origin`);
+    assert.equal(frontier.frontier.some(value => value.subject.node === unrelated), false,
+      `${name}: another receiver's real callback store remains separate`);
+    if (name === "absent") assert.equal(frontier.frontier.length, 0, "omitted inline initialization is completed absence, not an unknown producer");
+    assert.equal(demand.storageFor(subject.subject).kind, "immutable", `${name}: origin-member demands share the same completed native storage`);
+  }
+  const read = storage.subject(Node_Initializer(ast, namedVariable(ast, file, "read")), "value");
+  assert.equal(read.kind === "resolved", true, "the actual property read is admitted");
+  assert.equal(demand.storageFor(read.subject).kind, "immutable", "the property read and declaration origin use the same member owner");
+  assert.equal(storage.failureReason() === undefined, true, "the original query completes within the unchanged budget");
+});
+
 for (const [name, container, prefix, fieldType = "object", stored = "value", suffix = []] of [
   ["direct", "const container = receiver; const absentContainer = absent; const unknownContainer = external;", []],
   ["tuple", "const container: [Slot] = [receiver]; const absentContainer: [Slot] = [absent]; const unknownContainer: [Required] = [external];", [{ kind: "tuple-element", index: 0 }]],
