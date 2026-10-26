@@ -61,6 +61,37 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
   return { source, file, provider, demands, storage, variable: name => namedVariable(source.ast, file, name) };
 }
 
+test("Error demand distinguishes an initialized member from the constructor parameter binding", async () => {
+  const { source, file, demands, storage, variable } = await checked("error-parameter-property-demand", `
+class Holder { constructor(public readonly value: Stored) {} }
+class WritingHolder { constructor(public readonly value: Stored) { value.message = "during construction"; } }
+function write(value: Stored): void { value.message = "later"; }
+const original = { message: "original" };
+const readOnlyAlias = original;
+const holder = new Holder(original);
+write(holder.value);
+const direct = { message: "direct" };
+const writing = new WritingHolder(direct);
+`);
+  const parameterFor = name => source.ast.parameters(source.ast.members(namedDeclaration(source.ast, file, name))
+    .find(source.ast.is.IsConstructorDeclaration))[0];
+  const parameter = parameterFor("Holder");
+  const binding = requiredStorageSubject(storage, parameter);
+  const member = storage.memberSubjectFor(parameter);
+  assert.equal(member.kind === "resolved" && member.subject !== binding, true,
+    "the original checked parameter has separate local and initialized member roles");
+  assert.equal(demands.storageFor(member.subject).kind, "writable", "the later field use retains its exact mutation");
+  assert.equal(demands.storageFor(binding).kind, "immutable", "a shared referent is not a write through its sibling local binding");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("original"))).kind, "writable",
+    "the actual originating value still needs writable storage");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("readOnlyAlias"))).kind, "immutable",
+    "the identical referent does not manufacture a mutation through another local binding");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, parameterFor("WritingHolder"))).kind, "writable",
+    "an actual constructor-parameter receiver remains writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("direct"))).kind, "writable",
+    "a direct parameter write keeps its exact caller origin");
+});
+
 test("Error array storage transports exact element demand through aliases and cross-file parameters", async () => {
   const { source, provider, demands, variable, storage } = await checked("error-array-storage-components", `
 const original = { message: "original" };
