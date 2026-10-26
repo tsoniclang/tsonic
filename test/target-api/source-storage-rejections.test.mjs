@@ -84,6 +84,26 @@ for (const reaction of ["catch(caught => { const result = caught; })", "then(und
   });
 }
 
+for (const payloadFirst of [false, true]) {
+  test("checked rejection payloads keep the native container's opaque provenance independent: " + payloadFirst, () => {
+    const current = fixture(`
+      const original = {};
+      const pending = new Promise<void>((resolve, reject) => { reject(original); });
+      pending.catch(caught => { const result = caught; });
+    `);
+    const container = () => {
+      const selected = current.query("pending");
+      assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true,
+        "a checked callback input does not certify the native container's allocation or implementation");
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer("pending"), true,
+        "the container retains its original checked construction independently of the rejection value");
+    };
+    if (payloadFirst) current.expectOriginal("result", "original");
+    container();
+    if (!payloadFirst) current.expectOriginal("result", "original");
+  });
+}
+
 for (const arrow of [false, true]) {
   test(`async returned Promises adopt their original rejection (${arrow ? "expression" : "return"})`, () => {
     const current = fixture(`
