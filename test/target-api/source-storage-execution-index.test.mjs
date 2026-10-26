@@ -55,6 +55,35 @@ test("one execution index retains module, unused-result, nested-closure and defa
     "selected callable execution includes a missing argument's default, not a returned closure body");
 });
 
+test("object-literal compound accessor writes keep checked invocation and backing-store identities", () => {
+  const current = fixture(`
+    function update(seed: number): number {
+      let backing = seed;
+      const value = {
+        get current(): number { return backing; },
+        set current(next: number) { backing = next; },
+        get doubled(): number { return this.current * 2; },
+      };
+      value.current += 3;
+      return value.doubled;
+    }
+    const result = update(1);
+  `);
+  assert.equal(current.budget.failure() === undefined, true,
+    "the original accessor write is a checked setter invocation, not a fabricated data slot");
+  const { ast } = current.source;
+  const value = current.named("value", ast.is.IsVariableDeclaration);
+  const literal = Node_Initializer(ast, value);
+  const owner = current.transport.subjectFor(literal);
+  const type = current.source.semantics.forNode(literal).types.expressionType(literal);
+  assert.equal(owner !== undefined && type !== undefined, true, "the original object retains its checked storage owner and type");
+  for (const predicate of [ast.is.IsGetAccessorDeclaration, ast.is.IsSetAccessorDeclaration]) {
+    const accessor = current.named("current", predicate);
+    assert.equal(current.transport.memberFlow.memberStorageKindFor(owner, accessor, type), "direct",
+      "both declarations of the same checked accessor slot are original, not copied data members");
+  }
+});
+
 test("instance initializers and accessor writes/reads share the exact execution-region index", () => {
   const current = fixture(`
     function create(): object { return {}; }
