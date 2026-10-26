@@ -45,7 +45,8 @@ function fixture(relation, limits = {}, context = () => true, selectMember) {
         IsElementAccessExpression: () => false, IsSpreadElement: () => false } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: node => node.expressionType, contextualType: node => node.contextualType, isUnion: () => false,
+      types: { expressionType: node => node.expressionType,
+        contextualType: node => node.contextualType === undefined ? undefined : { selectedType: node.contextualType }, isUnion: () => false,
         structuralMember(from, to, declaration, purpose) {
           assert.equal(purpose, "correspondence", "physical slot identity does not grant a read or write operation");
           return selectMember === undefined ? checkedRelation(file, from, to).selected.get(declaration)

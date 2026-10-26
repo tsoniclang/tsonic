@@ -977,7 +977,7 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   assert.equal(semantics.types.isStringLike(semanticRefinement.types[0]), true);
   const contextualPayload = semantics.types.contextualValueSelection(payloadObject);
   assert.equal(contextualPayload.kind, "selected");
-  assert.equal(sourceTypeSymbolName(semantics, contextualPayload.type), "Payload");
+  assert.equal(sourceTypeSymbolName(semantics, contextualPayload.component.selectedType), "Payload");
   const contextualEither = semantics.types.contextualValueSelection(eitherObject);
   assert.equal(contextualEither.kind, "ambiguous");
   assert.deepEqual(
@@ -1027,7 +1027,7 @@ export function authored({ index }: Counter = { index: 5 }): number { return ind
   for (const text of ["{ index: 2 }", "{ index: 5 }"]) {
     const selection = selections.get(text);
     assert.equal(selection?.kind, "selected", text);
-    assert.equal(sourceTypeSymbolName(semantics, selection.type), "Counter");
+    assert.equal(sourceTypeSymbolName(semantics, selection.component.selectedType), "Counter");
   }
 });
 
