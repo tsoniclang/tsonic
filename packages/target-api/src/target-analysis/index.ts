@@ -1,4 +1,5 @@
 export { selectTargetNativeHandler, selectTargetNativePointerOperation } from "./native-handlers.js";
+export { snapshotTargetReadonlyMap } from "./readonly-map.js";
 export type { TargetNativeHandler } from "./native-handlers.js";
 export {
   createSourceDeclarationMembership,
