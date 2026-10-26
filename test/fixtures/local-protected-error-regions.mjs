@@ -99,6 +99,7 @@ export function run(): boolean {
   try { sum([]); }
   catch (error) {
     if (!(error instanceof TypeError)) return false;
+    if (error.message !== "Reduce of empty array with no initial value") return false;
     failures += 1;
   }
   return failures === 1 && sum([1, 2]) === 3 && caughtMixed([1], true) && caughtMixed([], false);
