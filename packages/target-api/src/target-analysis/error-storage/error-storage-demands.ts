@@ -184,7 +184,7 @@ export function createSourceErrorStorageDemandQuery(
       }
     }
     const boundaries = Object.freeze([subject]);
-    const physicalComponent = subject.kind === "member" || subject.projection.length !== 0;
+    const physicalComponent = subject.projection.length !== 0;
     const demandedWrites: Node[] = [];
     for (const [write, receiver] of selectedWrites) {
       if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
