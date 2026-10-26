@@ -31,6 +31,11 @@ export function sourceStorageProjectComponents(
         if (!budget.step()) return;
         const target = sourceStorageComponentType(candidate.to, component, semantics, ast);
         if (target === undefined) continue;
+        if (semantics.types.isNever(candidate.from)) {
+          if (!nextRows.add(1)) return;
+          next.push({ projection: candidate.projection, from: candidate.from, to: target });
+          continue;
+        }
         for (const original of sourceStorageOriginalComponents(candidate.from, candidate.to, component, semantics)) {
           if (!budget.step()) return;
           const sourceType = sourceStorageComponentType(candidate.from, original, semantics, ast);

@@ -725,6 +725,61 @@ test("source/native recursion closes in the existing finite callback equations",
   assert.equal(storage.failureReason() === undefined, true, "no new budget or late solver bootstrap");
 });
 
+for (const timing of ["synchronous", undefined]) {
+  test("possible native callback writes retain initial and conditional captured values: " + timing, async () => {
+    const { ast, nodes, storage } = await fixture("native-possible-captured-write-" + timing, `
+      declare function nativeInvoke(callback: () => void): void;
+      function run(first: object, second: object, choose: boolean): object {
+        let received = first;
+        nativeInvoke(() => { if (choose) received = second; });
+        return received;
+      }
+      const first = {};
+      const second = {};
+      const result = run(first, second, true);
+    `, timing === undefined ? undefined : nativeContract(timing));
+    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+    const selected = resolved(storage.boundValueFrontierFor(resolved(storage.subjectFor(result)).subject,
+      storage.emptyBindings, []));
+    const values = new Set(selected.frontier.map(value => value.subject.node));
+    for (const name of ["first", "second"]) {
+      const declaration = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === name);
+      assert.equal(values.has(ast.as.AsVariableDeclaration(declaration).Initializer), true,
+        "possible write retains the exact " + name + " value");
+    }
+    const invocation = nodes.find(node => ast.is.IsCallExpression(node) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+    assert.equal(storage.nativeCallbackArgumentsFor(invocation).kind, timing === undefined ? "open" : "resolved",
+      "possible values do not certify native callback execution timing");
+    assert.equal(storage.failureReason() === undefined, true, "possible writes do not hide an unresolved source or budget");
+  });
+}
+
+test("possible native callback writes preserve their typed external input instead of inventing a source allocation", async () => {
+  const { ast, nodes, storage } = await fixture("native-possible-external-write", `
+    declare function nativeInvoke(callback: (value: object) => void): void;
+    function run(initial: object): object {
+      let received = initial;
+      nativeInvoke((value: object) => { received = value; });
+      return received;
+    }
+    const initial = {};
+    const result = run(initial);
+  `);
+  const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+  const callback = nodes.find(node => ast.is.IsArrowFunction(node));
+  const parameter = ast.parameters(callback)[0];
+  const selected = resolved(storage.boundValueFrontierFor(resolved(storage.subjectFor(result)).subject,
+    storage.emptyBindings, []));
+  assert.equal(selected.frontier.some(value => value.subject.node === parameter && value.subject.kind === "input"), true,
+    "the possible assigned value retains its exact checked native callback parameter");
+  const initial = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "initial");
+  assert.equal(selected.frontier.some(value => value.subject.node === ast.as.AsVariableDeclaration(initial).Initializer), true,
+    "the initial value remains an independent possible origin");
+  const domain = storage.closedOriginsFor(resolved(storage.subjectFor(result)).subject);
+  assert.equal(domain.kind === "complete", false, "an unknown external value is not a closed source allocation");
+});
+
 test("deferred callbacks retain captured locations rather than registration-time value snapshots", async () => {
   const current = await fixture("native-entry-live-location", `
     declare function nativeInvoke(callback: () => void): void;

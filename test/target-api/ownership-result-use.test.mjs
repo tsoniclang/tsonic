@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceContinuationDependencyQuery, createSourceContinuationTransfer, createSourceSuspensionQuery,
+  createSourceStorageBudget, createSourceStorageQuery, defaultSourceStorageLimits,
   decideSourceAsyncResultUse, resolveSourceAsyncResultDisposition } from "../../packages/target-api/dist/public/analysis.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 
@@ -128,6 +131,63 @@ test("selected completion contracts reject foreign declarations and incompatible
       retention: () => assert.fail("a malformed selected completion cannot request retention lookup") });
     assert.equal(selected.kind, "unresolved", "a checked type or declaration mismatch cannot authorize a policy");
   }
+});
+
+test("selected completion contracts retain checked dependency identity without exposing its body", () => {
+  const files = {
+    "/src/index.ts": `import { pending } from "./provider.js";
+      export async function run(): Promise<number> { return await pending(); }`,
+    "/src/provider.d.ts": `export declare function pending(): Promise<number>;
+      export declare function unrelated(): Promise<number>;`,
+  };
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files,
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0,
+    formatDiagnostics(checked.diagnostics.filter(item => item !== undefined)).slice(0, 2048));
+  const source = createTargetSourceProgram({ ...checked,
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) });
+  const file = checked.getSourceFile("/src/index.ts");
+  const nodes = [];
+  const visit = node => {
+    nodes.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  const call = nodes.find(node => source.ast.is.IsCallExpression(node));
+  assert.equal(call !== undefined, true, "the original source call is checked");
+  const semantics = source.semantics.forNode(call);
+  const selected = semantics.operations.call(call);
+  assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "the call owns its actual selected signature");
+  const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+  const providerFile = source.ast.getSourceFile(declaration);
+  assert.equal(checked.containsSourceFile(providerFile), true, "the hidden declaration belongs to the exact SDK program");
+  assert.equal(source.semantics.includes(providerFile), false, "provider bodies are not added to emitted-source traversal");
+  assert.equal(source.sourceFiles.length, 1, "only the original project source is exposed");
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const completion = { kind: "async", resultPolicy: "observe-rejection",
+    contractDeclaration: declaration, checkedType: selected.sourceResultType };
+  const decide = contract => decideSourceAsyncResultUse({ source, storage, budget, call, completion: contract,
+    disposition: resolveSourceAsyncResultDisposition(source, storage, call, budget),
+    continuation: () => ({ kind: "resolved", dependencies: [] }),
+    retention: () => assert.fail("the exact empty continuation needs no retention substitution") });
+  const admitted = decide(completion);
+  assert.equal(admitted.kind === "resolved" && admitted.decision === "admitted", true,
+    "the actual selected dependency declaration authorizes its completion contract");
+  const foreign = createCompilerSessionFromFiles({ currentDirectory: "/src", files,
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  const foreignProvider = foreign.getSourceFile("/src/provider.d.ts");
+  const foreignDeclaration = foreign.ast.statements(foreignProvider)[0];
+  assert.equal(source.ast.getFileName(providerFile), foreign.ast.getFileName(foreignProvider),
+    "foreign evidence deliberately reuses the identical source URI");
+  assert.equal(declaration === foreignDeclaration, false, "the foreign declaration has a different original node");
+  const rejected = decide({ ...completion, contractDeclaration: foreignDeclaration });
+  assert.equal(rejected.kind, "unresolved", "a foreign same-URI declaration cannot authorize completion");
+  assert.match(rejected.reason, /selected declaration/u);
+  const unrelated = source.ast.statements(providerFile)[1];
+  const mismatched = decide({ ...completion, contractDeclaration: unrelated });
+  assert.equal(mismatched.kind, "unresolved", "another real declaration in the same checked program remains invalid");
+  assert.match(mismatched.reason, /selected declaration/u);
 });
 
 test("all four historically observed scoped source call shapes stay immediately awaited", () => {

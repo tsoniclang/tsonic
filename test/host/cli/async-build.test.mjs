@@ -564,7 +564,7 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
   assert.equal(build.status, 1);
   assert.equal(
     build.stderr,
-    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: The exact selected source callee is external to the project and has no C# target relation.\n",
+    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: Declaration/provider identifier 'Promise' requires a selected target operation or type-position usage before C# emission.\n",
   );
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
