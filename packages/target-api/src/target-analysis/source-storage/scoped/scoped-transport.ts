@@ -18,6 +18,7 @@ import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageScopedTransport {
+  declarationIsAmbient(declaration: Node): boolean | undefined;
   readonly subject: SourceStorageSubjectQuery;
   readonly invocationTargets: ReadonlyMap<Node, SourceStorageSubject>;
   readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;

@@ -6,7 +6,6 @@ import { sourceBindingHasMutableExposure } from "../../../source-navigation/bind
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
-import { sourceDeclarationIsAmbient } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageBudget, type SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
@@ -418,6 +417,7 @@ export function createSourceStorageStoredValues(
   budget: SourceStorageBudget,
   regionFor: (node: Node) => Node | undefined,
   receiverFor: (node: Node) => SourceStorageSubject | undefined,
+  declarationIsAmbient: (declaration: Node) => boolean | undefined,
 ) {
   const locations = new Map<SourceStorageSubject, Map<Node, SourceStorageStore>>();
   const regions = new Map<Node, Set<SourceStorageStore>>();
@@ -451,8 +451,12 @@ export function createSourceStorageStoredValues(
       if (!ast.is.IsVariableDeclaration(declaration) && !ast.is.IsBindingElement(declaration) && !sourceClassFieldHasStorage(ast, declaration) &&
         !ast.is.IsPropertyAssignment(declaration) && !ast.is.IsShorthandPropertyAssignment(declaration) &&
         !sourceParameterIsProperty(ast, declaration)) return;
-      const ambient = sourceDeclarationIsAmbient(ast, declaration, budget.step);
-      if (ambient === undefined || ambient) return;
+      const ambient = declarationIsAmbient(declaration);
+      if (ambient === undefined) {
+        budget.reject("Source store initialization requires its collected declaration ambient context.");
+        return;
+      }
+      if (ambient) return;
     }
     const previous = occurrences.get(write.reference);
     if (previous !== undefined) {

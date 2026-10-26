@@ -6,7 +6,7 @@ import { createSourceStorageQuery } from "../../packages/target-api/dist/public/
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
-import { sourceDeclarationIsAmbient } from "../../packages/target-api/dist/source-navigation/declaration-context.js";
+import * as declarationContext from "../../packages/target-api/dist/source-navigation/declaration-context.js";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -160,16 +160,31 @@ test("ambient declaration context has one bounded checked ancestor owner", () =>
     let local: object | undefined;
     declare let external: object | undefined;
     declare namespace Foreign { let inherited: object | undefined; }
+    declare namespace Nested { namespace Inner { class Box { value: object; } let deep: object; } }
+    function ordinary() { let nested: object | undefined; return nested; }
   `);
-  for (const [name, expected] of [["local", false], ["external", true], ["inherited", true]]) {
+  for (const [name, expected] of [["local", false], ["external", true], ["inherited", true], ["deep", true], ["nested", false]]) {
     const declaration = current.variable(name);
     assert.equal(declaration !== undefined, true, `${name}: ambient selection starts at a checked declaration`);
-    let steps = 0;
-    assert.equal(sourceDeclarationIsAmbient(current.source.ast, declaration, () => { steps += 1; return true; }), expected,
+    const before = current.budget.usage().steps;
+    assert.equal(current.transport.declarationIsAmbient(declaration), expected,
       `${name}: only exact direct or ancestor ambient modifiers determine the fact`);
-    assert.equal(steps > 0, true, `${name}: ancestor traversal is accounted`);
-    assert.equal(sourceDeclarationIsAmbient(current.source.ast, declaration, () => false) === undefined, true,
-      `${name}: exhausted evidence remains unknown, never non-ambient`);
+    assert.equal(current.budget.usage().steps - before, 1, `${name}: one bounded lookup never walks ancestry`);
+    assert.equal(current.transport.declarationIsAmbient(Object.create(declaration)), undefined,
+      `${name}: a copied or foreign declaration cannot borrow the original fact`);
+  }
+  assert.equal(current.transport.declarationIsAmbient(current.field("value")), true,
+    "a nested ambient class field inherits the same produced context");
+  assert.equal(declarationContext.sourceDeclarationAmbientContext(current.source.ast,
+    current.source.navigation.sourceFiles[0], false), false, "a source file never manufactures an ambient modifier");
+  assert.equal(declarationContext.sourceDeclarationIsAmbient, undefined, "the superseded ancestry walker is removed");
+  for (const limit of ["maximumNodes", "maximumTransportRows", "maximumSteps"]) {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, [limit]: 1 });
+    const transport = createSourceStorageTransport(current.source, current.source.navigation.sourceFiles, budget);
+    assert.equal(budget.failure() !== undefined, true, `${limit}: construction really exhausts its bound`);
+    for (const name of ["local", "external", "inherited", "deep", "nested"])
+      assert.equal(transport.declarationIsAmbient(current.variable(name)), undefined,
+        `${limit}/${name}: failed publication stays unknown rather than nonambient`);
   }
 });
 
@@ -202,6 +217,34 @@ test("implicit declaration absence has no authored store while explicit absence 
   }
 });
 
+test("one admitted ambient inventory covers every initialized declaration form before collection", () => {
+  const current = fixture(`
+    const original = {};
+    const { value: bound } = { value: original };
+    const named = original;
+    const literal = { property: original, named };
+    class Box { field = original; constructor(public member: object) {} }
+  `);
+  const { ast } = current.source;
+  for (const [label, predicate, name] of [
+    ["variable", ast.is.IsVariableDeclaration, "original"],
+    ["binding element", ast.is.IsBindingElement, "bound"],
+    ["class field", ast.is.IsPropertyDeclaration, "field"],
+    ["parameter property", ast.is.IsParameterDeclaration, "member"],
+    ["object property", ast.is.IsPropertyAssignment, "property"],
+    ["shorthand property", ast.is.IsShorthandPropertyAssignment, "named"],
+  ]) {
+    const declaration = current.declaration(name, predicate);
+    assert.equal(declaration !== undefined, true, `${label}: the exact checked declaration exists`);
+    assert.equal(current.transport.declarationIsAmbient(declaration), false,
+      `${label}: current-node publication precedes the original initialization consumer`);
+    const before = current.budget.usage().steps;
+    for (let index = 0; index < 8; index += 1)
+      assert.equal(current.transport.declarationIsAmbient(declaration), false, `${label}: identical produced evidence is reused`);
+    assert.equal(current.budget.usage().steps - before, 8, `${label}: repeated reads perform no ancestry work`);
+  }
+});
+
 test("caught inputs retain the original thrown producer rather than declaration absence", () => {
   const current = fixture(`
     const original = {};
@@ -226,7 +269,8 @@ test("duplicate occurrence admission rejects conflicting original values without
   const original = current.transport.subjectFor(reference);
   const replacement = current.transport.subjectFor(Node_Initializer(current.source.ast, current.variable("second")));
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   inventory.initialize(storage, reference, original);
   inventory.initialize(storage, reference, replacement);
   assert.equal(budget.failure()?.includes("one exact checked occurrence owner"), true,
@@ -317,7 +361,8 @@ test("rest creation retains its exact original value and checked projected input
     const rows = 11 + 3 * original.birth.length;
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: rows });
     assert.equal(budget.row(), true, `${name}: exactly one canonical birth record no longer fits`);
-    const inventory = createSourceStorageStoredValues(ast, budget, current.transport.regions.enclosing, () => undefined);
+    const inventory = createSourceStorageStoredValues(ast, budget, current.transport.regions.enclosing,
+      () => undefined, current.transport.declarationIsAmbient);
     inventory.recordWrite(original.storage, original);
     assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
       `${name}: original component mappings reserve every retained cell before insertion`);
@@ -356,7 +401,8 @@ test("an arbitrary self-assignment cannot forge the producer's original rest bir
   const storage = current.transport.subject(declaration);
   const reference = Node_Initializer(current.source.ast, declaration);
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   inventory.recordWrite(storage, { reference, operation: declaration, kind: "initialization", value: storage, birth: Object.freeze([]),
     values: Object.freeze([Object.freeze({ source: Object.freeze({ kind: "value", expression: reference, projection: Object.freeze([]) }),
       subjects: Object.freeze([storage]), reason: undefined })]) });
@@ -469,7 +515,8 @@ test("store rows reserve canonical records and both indexes before insertion and
   const occurrence = Node_Initializer(current.source.ast, node);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 11 });
   assert.equal(budget.row(), true, "an independent live row leaves insufficient capacity for the complete store and indexes");
-  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
@@ -486,7 +533,8 @@ test("the identical eleven-row store refuses an individually oversized capacity 
   const storage = current.transport.subject(node);
   const occurrence = Node_Initializer(current.source.ast, node);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 10 });
-  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   inventory.initialize(storage, occurrence, current.transport.subjectFor(occurrence));
   assert.equal(budget.failure(), "Source storage transport exceeds its finite transport-row budget.",
     "the exact original individually-oversized reservation refusal remains authoritative");
@@ -590,11 +638,13 @@ test("write selections reject forged contexts, foreign nodes, and post-publicati
   assert.equal(query.writeAt(other.stores(other.variable("value"))[1].reference, query.emptyBindings).kind === "unresolved", true,
     "a foreign checked occurrence cannot impersonate this source program");
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   inventory.initialize(mutation.storage, mutation.reference, mutation.value);
   inventory.publish(write => write);
   assert.throws(() => inventory.publish(write => write), /publish exactly once/u);
-  const unpublished = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing, () => undefined);
+  const unpublished = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
+    () => undefined, current.transport.declarationIsAmbient);
   assert.throws(() => unpublished.publish(), /requires its original write selector/u,
     "the removed publication signature is rejected even when no stores exist");
   assert.throws(() => inventory.initialize(mutation.storage, mutation.reference, mutation.value), /cannot change/u);
@@ -618,7 +668,7 @@ test("receiver resolution failure cannot publish a store or either secondary ind
   const storage = current.transport.subjectFor(reference);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 1 });
   const inventory = createSourceStorageStoredValues(current.source.ast, budget, current.transport.regions.enclosing,
-    () => { budget.step(); return undefined; });
+    () => { budget.step(); return undefined; }, current.transport.declarationIsAmbient);
   const write = { reference, operation: current.source.ast.parent(reference), kind: "mutation", value: storage,
     values: Object.freeze([{ source: undefined, subjects: Object.freeze([storage]), reason: undefined }]) };
   inventory.recordWrite(storage, write);

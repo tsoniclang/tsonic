@@ -24,7 +24,8 @@ import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigi
 import type { SourceStorageInvocationSelectionKey, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
+import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites, type SourceStorageWrite } from "../graph/stored-values.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
@@ -68,6 +69,9 @@ export function createSourceStorageTransport(
   const visitedNodes: Node[] = [];
   const callableDeclarations: Node[] = [];
   const callableDeclarationRows = budget.createRows();
+  const ambientDeclarations = new Map<Node, boolean>();
+  const declarationIsAmbient = (declaration: Node): boolean | undefined =>
+    budget.step() ? ambientDeclarations.get(declaration) : undefined;
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
@@ -246,7 +250,7 @@ export function createSourceStorageTransport(
     const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
       : ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined;
     return subjectFor(selected?.receiver.expression);
-  });
+  }, declarationIsAmbient);
   const writeFor = (node: Node) => storedValues.writeFor(node, projections.writeValue, values => {
     const selected = [...new Set(values)];
     if (selected.length === 1) return selected[0];
@@ -276,7 +280,7 @@ export function createSourceStorageTransport(
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow,
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
-  const pendingNodes: Node[] = [];
+  const pendingNodes: { readonly node: Node; readonly ambient: boolean }[] = [];
   const visited = new Set<Node>();
   const admitNode = (node: Node): boolean => {
     if (visited.has(node) || !budget.node()) return false;
@@ -285,14 +289,21 @@ export function createSourceStorageTransport(
   };
   for (const file of sourceFiles) {
     if (!semantics.includes(file)) budget.reject("Source storage transport requires exact checked source-file ownership.");
-    else if (admitNode(file)) pendingNodes.push(file);
+    else if (admitNode(file)) pendingNodes.push({ node: file, ambient: false });
   }
   while (pendingNodes.length !== 0 && budget.failure() === undefined) {
-    const node = pendingNodes.pop()!;
+    const pending = pendingNodes.pop()!;
+    const node = pending.node;
+    const ambient = sourceDeclarationAmbientContext(ast, node, pending.ambient);
+    if (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsPropertyDeclaration(node) ||
+      ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node)) {
+      if (!step() || !budget.row()) break;
+      ambientDeclarations.set(node, ambient);
+    }
     syntax.visit(node);
     const children: Node[] = [];
     ast.forEachChild(node, child => { if (child !== undefined && admitNode(child)) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
+    for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push({ node: children[index]!, ambient });
   }
   const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
   const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
@@ -780,7 +791,7 @@ export function createSourceStorageTransport(
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
+    subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, declarationIsAmbient, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, visitedNodes, pointerInvocations, pointerAccessors, resumedImplementations, thrownOrigins, unresolvedThrows,
     accessorTargets, invocationInputs, inputSlotsFor, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
@@ -838,7 +849,7 @@ export function createSourceStorageTransport(
   storedValues.publish(formalMemberWrites.recordWrite);
   formalMemberWrites.closeInputs();
   sealed = true;
-  return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
+  return { subject, subjectFor, nativeConstructorsFor, locationFor, declarationIsAmbient, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
     storedValuesFor: storedProjections,
     storesFor: storedValues.storesFor,

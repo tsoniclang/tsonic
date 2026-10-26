@@ -2,7 +2,6 @@ import { sourceCallableValueParameters } from "../../../source-navigation/callab
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
-import { sourceDeclarationIsAmbient } from "../../../source-navigation/declaration-context.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -119,7 +118,7 @@ export function createSourceStorageDomains(
       if (!budget.step()) return;
       if (!ast.is.IsVariableDeclaration(node) && !ast.is.IsFunctionDeclaration(node) && !ast.is.IsClassDeclaration(node)) continue;
       if (ast.is.IsVariableDeclaration(node) && navigation.isProjectDeclaration(node) && Node_Initializer(ast, node) === undefined) {
-        const ambient = sourceDeclarationIsAmbient(ast, node, budget.step);
+        const ambient = transport.declarationIsAmbient(node);
         if (ambient === undefined) return;
         if (ambient) {
           const subject = transport.subjectFor(node);
