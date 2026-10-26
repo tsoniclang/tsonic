@@ -301,6 +301,16 @@ export function createSourceStorageMemberFlow(
     const properties = source.ast.properties(owner.node);
     const limit = before === owner.node ? properties.length : properties.indexOf(before);
     if (limit < 0) return undefined;
+    const ownContribution = (element: Node): { readonly kind: "own"; readonly declaration: Node } | undefined => {
+      const accessor = (node: Node): boolean => source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node);
+      if (element !== declaration && accessor(element) && accessor(declaration) && source.ast.parent(declaration) === owner.node) {
+        const original = queries.operations.objectLiteralElement(declaration)?.sourceElementSymbol;
+        const selected = queries.operations.objectLiteralElement(element)?.sourceElementSymbol;
+        if (original === undefined || selected === undefined) return undefined;
+        if (original === selected) return Object.freeze({ kind: "own", declaration });
+      }
+      return Object.freeze({ kind: "own", declaration: element });
+    };
     for (let ordinal = limit - 1; ordinal >= 0; ordinal -= 1) {
       const element = properties[ordinal];
       if (!budget.step() || element === undefined) return undefined;
@@ -309,12 +319,12 @@ export function createSourceStorageMemberFlow(
         const checked = name === undefined ? undefined : queries.operations.propertyName(name);
         if (checked === undefined) return undefined;
         if (checked.kind !== "unique-symbol") {
-          if (checked.name === property.name) return Object.freeze({ kind: "own", declaration: element });
+          if (checked.name === property.name) return ownContribution(element);
           continue;
         }
         const symbol = queries.operations.objectLiteralElement(element)?.sourceElementSymbol;
         if (symbol === undefined) return undefined;
-        if (symbol === property.symbol || property.rootSymbols.includes(symbol)) return Object.freeze({ kind: "own", declaration: element });
+        if (symbol === property.symbol || property.rootSymbols.includes(symbol)) return ownContribution(element);
         continue;
       }
       const expression = SpreadAssignment_Expression(source.ast, element);
