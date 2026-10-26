@@ -294,9 +294,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" || selected.kind === "unresolved" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
-      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
-        ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
-        : [selected.kind, scopes.identity(selected.subject), birth, context];
+      if (selected.kind === "unresolved") {
+        const exposure = selected.exposure === undefined ? null : scopes.identity(selected.exposure);
+        if (exposure === undefined) return undefined;
+        return [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
+          selected.executionOnly === true ? 1 : 0, ...(exposure === null ? [] : [exposure])];
+      }
+      return [selected.kind, scopes.identity(selected.subject), birth, context];
     };
     const encodeBinding = (selected: SourceStorageTerm): Encoded | undefined => {
       if (selected.kind !== "reference" || selected.subject.kind !== "value") return encodeTerm(selected);

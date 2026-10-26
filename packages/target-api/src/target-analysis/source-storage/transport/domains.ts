@@ -6,7 +6,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
@@ -396,9 +396,14 @@ export function createSourceStorageDomains(
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const isExternalInput = (current: SourceStorageScopedSubject): boolean => {
+    const aggregateInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
+      const owner = !current.original && current.subject.kind === "input" ? sourceStorageFormalOwner(current.subject, source) : undefined;
+      return owner !== undefined && ast.body(owner) !== undefined;
+    };
+    const isExternalInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
       const boundaries = boundariesFor(current.subject);
       if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
+      if (aggregateInput(current)) return false;
       if (transport.substitutions.isBound(current.subject, current.bindings) ||
         receiverBinding(current.subject, current.bindings)) return false;
       // A location with stored writes holds them as well as its outside value, so the walk continues into its stores.
@@ -475,7 +480,7 @@ export function createSourceStorageDomains(
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }
     }
-    const pending: SourceStorageRelationWitness[] = [...selected.subjects];
+    const pending: (SourceStorageRelationWitness & { readonly original: boolean })[] = [...selected.subjects];
     const visited = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
       if (!budget.step()) break;
@@ -490,14 +495,14 @@ export function createSourceStorageDomains(
       if (reason !== undefined) break;
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
-        if (boundary.kind === "opaque-result" && !current.contributes) continue;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
+          if (aggregateInput(current) && (current.contributes || purpose === "storage-producers")) continue;
           if (purpose === "storage-producers" && !current.contributes) {
             if (!closedSourceInvocation(boundary.exposure, current.bindings) && !transport.substitutions.isBound(current.subject, current.bindings))
               for (const member of declaredMembers.get(current.subject) ?? [])
-                pending.push({ subject: member, bindings: current.bindings, contributes: true });
+                pending.push({ subject: member, bindings: current.bindings, contributes: true, original: false });
             continue;
           }
           if (closedSourceInvocation(boundary.exposure, current.bindings)) continue;
@@ -505,7 +510,7 @@ export function createSourceStorageDomains(
             stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
           if (boundary.owner !== undefined) {
             const members = selectedMembers(current.subject, boundary.owner, current.bindings);
-            if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes }))); continue; }
+            if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes, original: false }))); continue; }
           }
         }
         retainBoundary(boundary, current.bindings);

@@ -4,7 +4,7 @@ import { selectSourceNativeValueGuard } from "../../../source-semantics/native-v
 import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../value-flow-conditions.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageValueGuards {
@@ -56,6 +56,8 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
   });
   const instanceOf = (owner: SourceStorageSubject, target: Node): boolean | undefined => {
     if (owner.projection.length !== 0) return undefined;
+    if (ast.is.IsArrayLiteralExpression(owner.node) || ast.is.IsObjectLiteralExpression(owner.node) ||
+      sourceStorageHasOriginalCallableValue(owner, ast)) return false;
     const file = ast.getSourceFile(owner.node);
     const type = sourceStorageSubjectType(source, owner, file);
     if (type !== undefined && file !== undefined) {

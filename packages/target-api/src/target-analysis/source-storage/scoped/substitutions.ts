@@ -359,7 +359,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const values = new Set<SourceStorageScopedSubject>();
     for (const value of selected) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") { if (value.exposure === undefined) budget.reject(value.reason); return undefined; }
+      if (value.kind === "unresolved" && value.executionOnly !== true) {
+        if (value.exposure === undefined) budget.reject(value.reason); return undefined;
+      }
       if (value.kind === "leaf") values.add(Object.freeze({ subject: value.subject, bindings: value.scope }));
     }
     return values;
@@ -373,7 +375,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     let fatalReason: string | undefined;
     for (const value of selected) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") {
+      if (value.kind === "unresolved" && value.executionOnly !== true) {
         reason ??= value.reason;
         if (value.exposure === undefined) fatalReason ??= value.reason;
       }
@@ -420,7 +422,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    stopAt?: (subject: SourceStorageScopedSubject) => boolean, preserveValuePath = false) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
+    stopAt?: (subject: SourceStorageScopedSubject & { readonly original: boolean }) => boolean, preserveValuePath = false) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
@@ -460,8 +462,12 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         let selected = previous | (contributes ? 2 : 1);
         if (contributes && (mode & 16) !== 0) selected |= 16;
         if (contributes && stopAt !== undefined) {
-          if ((selected & 4) === 0) selected |= 4 | (stopAt({ subject: input, bindings: scope }) ? 8 : 0);
-          if ((selected & 8) !== 0) { origins.add(input); selected |= 16; stopped = true; }
+          const original = (mode & 16) !== 0;
+          const inspected = original ? 32 : 4;
+          const boundary = original ? 64 : 8;
+          if ((selected & inspected) === 0) selected |= inspected |
+            (stopAt({ subject: input, bindings: scope, original }) ? boundary : 0);
+          if ((selected & boundary) !== 0) { origins.add(input); selected |= 16; stopped = true; }
         }
         retained.set(input, selected); subjects.set(scope, retained);
         return true;
@@ -525,7 +531,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (entry.collect && current.kind === "leaf" && admitted(current.subject, entry.guards)) origins.add(current.subject);
       if (entry.collect && current.kind === "empty" && current.absence !== undefined &&
         admitted(current.absence.subject, entry.guards)) absence = true;
-      if (current.kind === "unresolved") {
+      if (current.kind === "unresolved" && current.executionOnly !== true) {
         reason ??= current.reason;
         if (current.exposure === undefined) fatalReason ??= current.reason;
       }
