@@ -580,6 +580,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const storedBinding = stores !== undefined && term.subject.kind === "value" &&
       (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node));
     if (!storedBinding && term.subject.kind === "value" && term.subject.projection.length !== 0 &&
+      !term.subject.projection.some(sourceStorageIsMemberProjection) &&
       (ast.is.IsVariableDeclaration(node) || ast.is.IsIdentifier(node) || ast.is.IsBindingElement(node))) {
       const root = transport.subject(node, term.subject.kind);
       return root === undefined ? undefined : materializeChild(sourceStorageReference(root, term.scope), value => {

@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { namedDeclaration, namedMember, namedVariable } from "../fixtures/source-navigation.mjs";
+
+for (const [name, container, prefix, fieldType = "object", stored = "value", suffix = []] of [
+  ["direct", "const container = receiver; const absentContainer = absent; const unknownContainer = external;", []],
+  ["tuple", "const container: [Slot] = [receiver]; const absentContainer: [Slot] = [absent]; const unknownContainer: [Required] = [external];", [{ kind: "tuple-element", index: 0 }]],
+  ["array", "const container: Slot[] = [receiver]; const absentContainer: Slot[] = [absent]; const unknownContainer: Required[] = [external];", [{ kind: "array-element" }]],
+  ["tuple-array", "const container: [Slot[]] = [[receiver]]; const absentContainer: [Slot[]] = [[absent]]; const unknownContainer: [Required[]] = [[external]];",
+    [{ kind: "tuple-element", index: 0 }, { kind: "array-element" }]],
+  ["member-tuple", "const container = receiver; const absentContainer = absent; const unknownContainer = external;",
+    [], "[object]", "[value]", [{ kind: "tuple-element", index: 0 }]],
+  ["member-array", "const container = receiver; const absentContainer = absent; const unknownContainer = external;",
+    [], "object[]", "[value]", [{ kind: "array-element" }]],
+]) {
+  test(`projected optional member ${name} retains absence and correlated callback writes`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+      compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+      files: { "/src/index.ts": `
+        export {};
+        interface Slot { value?: ${fieldType}; }
+        interface Foreign { value?: ${fieldType}; }
+        interface Required { value: ${fieldType}; }
+        declare const external: Required;
+        function deliver(callback: (value: object) => void, value: object): void { callback(value); }
+        const original = {};
+        const unrelated = {};
+        const receiver: Slot = {};
+        const otherReceiver: Slot = {};
+        const absent: Slot = {};
+        const alias = receiver;
+        const callback = (value: object): void => { alias.value = ${stored}; };
+        const otherCallback = (value: object): void => { otherReceiver.value = ${stored}; };
+        deliver(callback, original);
+        deliver(otherCallback, unrelated);
+        ${container}
+      ` },
+    }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, `${name}: the original source checks`);
+    const source = createTargetSourceProgram(checked);
+    const { ast } = source;
+    const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
+    assert.equal(file !== undefined, true, `${name}: the original file is present`);
+    const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+    const member = namedMember(ast, namedDeclaration(ast, file, "Slot"), "value");
+    const projection = [...prefix, { kind: "member", declaration: member }, ...suffix];
+    const subject = storage.subject(namedVariable(ast, file, "container"), "value", projection);
+    const absentSubject = storage.subject(namedVariable(ast, file, "absentContainer"), "value", projection);
+    assert.equal(subject.kind === "resolved" && absentSubject.kind === "resolved", true,
+      `${name}: both exact projected subjects are admitted`);
+    const frontier = storage.boundValueFrontierFor(subject.subject, storage.emptyBindings, []);
+    const absentFrontier = storage.boundValueFrontierFor(absentSubject.subject, storage.emptyBindings, []);
+    assert.equal(frontier.kind === "resolved", true, `${name}: a callback store does not erase the initial absence proof`);
+    assert.equal(absentFrontier.kind === "resolved" && absentFrontier.frontier.length === 0, true,
+      `${name}: proven absence is a completed empty frontier rather than a missing producer`);
+    const original = Node_Initializer(ast, namedVariable(ast, file, "original"));
+    const unrelated = Node_Initializer(ast, namedVariable(ast, file, "unrelated"));
+    assert.equal(frontier.frontier.some(value => value.kind === "origin" && value.subject.node === original), true,
+      `${name}: the exact live callback producer is retained`);
+    assert.equal(frontier.frontier.some(value => value.subject.node === unrelated), false,
+      `${name}: a distinct receiver origin is not joined`);
+    const demand = createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [],
+      storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
+    assert.equal(demand.storageFor(subject.subject).kind, "immutable", `${name}: the completed member has no Error mutation demand`);
+    assert.equal(demand.storageFor(absentSubject.subject).kind, "immutable", `${name}: exact absence is not an unresolved Error owner`);
+    const required = namedMember(ast, namedDeclaration(ast, file, "Required"), "value");
+    const unknown = storage.subject(namedVariable(ast, file, "unknownContainer"), "value", [...prefix, { kind: "member", declaration: required }, ...suffix]);
+    assert.equal(unknown.kind === "resolved", true, `${name}: the required external member has its original checked identity`);
+    const unknownOrigins = storage.closedOriginsFor(unknown.subject);
+    assert.equal(unknownOrigins.kind === "open" || unknownOrigins.kind === "unresolved" &&
+      typeof unknownOrigins.reason === "string" && unknownOrigins.reason.length !== 0, true,
+      `${name}: an unknown required producer cannot become proven optional absence`);
+    const foreign = namedMember(ast, namedDeclaration(ast, file, "Foreign"), "value");
+    const invalid = storage.subject(namedVariable(ast, file, "container"), "value", [...prefix, { kind: "member", declaration: foreign }, ...suffix]);
+    assert.equal(invalid.kind === "unresolved" ||
+      storage.boundValueFrontierFor(invalid.subject, storage.emptyBindings, []).kind === "unresolved", true,
+      `${name}: same-spelling unrelated member identity cannot manufacture a producer`);
+    assert.equal(storage.failureReason() === undefined, true, `${name}: the finite query has no global budget failure`);
+  });
+}
