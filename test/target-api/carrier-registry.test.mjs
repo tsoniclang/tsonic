@@ -36,7 +36,7 @@ const rows = [
 ];
 const signed = new Set(["NATIVE-01"]);
 const parity = (left, right = rows, differences = []) =>
-  validateCarrierParity({ left: { rows: left }, right: { rows: right } }, differences, signed);
+  validateCarrierParity({ left: { rows: left, roles: [] }, right: { rows: right, roles: [] } }, differences, signed);
 const validate = (selected, selectedVocabulary = vocabulary, opposite = rows) => [
   ...validateCarrierRegistry(selected, selectedVocabulary),
   ...parity(selected, opposite),

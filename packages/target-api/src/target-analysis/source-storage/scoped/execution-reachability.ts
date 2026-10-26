@@ -227,7 +227,8 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
   const { ast } = source;
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
   const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
-    reasons: { readonly value: string; readonly effect: string | undefined }, retainProducers: boolean): readonly SourceStorageTerm[] | undefined => {
+    reasons: { readonly value: { readonly reason: string; readonly executionOnly: boolean };
+      readonly effect: string | undefined }, retainProducers: boolean): readonly SourceStorageTerm[] | undefined => {
     const selected = transport.subjectFor(demand);
     const terms: SourceStorageTerm[] = [];
     for (const result of walkSourceStorageExecution(budget, roots, readRelation)) {
@@ -235,7 +236,11 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
       if (result.kind === "unresolved") terms.push(result);
       else if (result.kind === "leaf" && result.subject === selected) {
         if (retainProducers) terms.push(result);
-        terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value }));
+        const uncertainty: Extract<SourceStorageTerm, { readonly kind: "unresolved" }> = {
+          kind: "unresolved", subject: result.subject, scope: result.scope, exposure, reason: reasons.value.reason,
+          ...(reasons.value.executionOnly ? { executionOnly: true } : {}),
+        };
+        terms.push(Object.freeze(uncertainty));
       } else if (result.kind === "effect" && result.store.region === demand) {
         if (retainProducers) terms.push(result);
         if (reasons.effect !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage,
@@ -326,7 +331,8 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
             ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
             mode: "execution", demand, deferred });
           const conditional = conditionalExecutions([possible], demand, frontier.exposure, {
-            value: "A relevant source callable crosses a native input without completed value and capture correspondence.",
+            value: { reason: "A relevant source callable crosses a native input without completed value and capture correspondence.",
+              executionOnly: false },
             effect: "A relevant source effect crosses a native input without completed value and capture correspondence.",
           }, false);
           if (conditional === undefined) return undefined;

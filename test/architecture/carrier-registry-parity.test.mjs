@@ -49,6 +49,22 @@ test("the registries pair by responsibility; one-sided responsibilities have sig
   assert.deepEqual(parity(), []);
 });
 
+test("authored node admission pairs by its checked owner rather than a fabricated carrier or native difference", () => {
+  for (const target of ["rust", "csharp"]) {
+    const owner = registries[target].roles.filter(role => role.carrierResponsibility === "producers/resolve-node");
+    assert.equal(owner.length, 1, `${target}: one exact checked admission owner`);
+    assert.equal(owner[0].role, "analysis");
+    assert.equal(registries[target].vocabulary.declarationBodies.get(`${owner[0].file}#${owner[0].symbol}`),
+      owner[0].bodySha256, "the actual current declaration, not an unchecked name, owns the responsibility");
+  }
+  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node"), false,
+    "the resolved/rejected record is not a pure carrier constructor");
+  assert.equal(carrierParityDifferences.some(row => row.responsibility === "producers/resolve-node"), false,
+    "source admission is not a signed native-language divergence");
+  assert.equal(registries.rust.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), true);
+  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), true);
+});
+
 test("the native trait constructor pairs with the named-contract owner and preserves native arguments", async () => {
   const { rustNativeTraitRef } = await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
   const { csharpTargetNamedType } = await import("../../../tsonic-csharp/dist/target-model/types/factories.js");

@@ -83,7 +83,7 @@ export type SourceStorageMemberSelection =
 export type SourceStorageTerm =
   | SourceStorageReference
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
-      readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node }
+      readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node; readonly executionOnly?: true }
   | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
