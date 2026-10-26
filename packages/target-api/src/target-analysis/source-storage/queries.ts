@@ -640,8 +640,7 @@ export function createSourceStorageQuery(
             frontier.push(Object.freeze({ kind: current.kind, subject: current.subject, bindings: retained }));
           }
         }
-        return budget.failure() !== undefined ? unresolved(budget.failure()!) : frontier.length === 0
-          ? unresolved("A source value transport cycle has no proven frontier.")
+        return budget.failure() !== undefined ? unresolved(budget.failure()!)
           : Object.freeze({ kind: "resolved", frontier: Object.freeze(frontier) });
       });
     },
