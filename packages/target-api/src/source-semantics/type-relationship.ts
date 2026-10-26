@@ -21,11 +21,13 @@ export function sourceTypeRelationship(
     return "unrelated";
   }
   const leftTarget = types.getTypeReferenceTarget(left);
-  if (
-    leftTarget !== undefined &&
-      leftTarget === types.getTypeReferenceTarget(right)
-  ) {
-    return "same-declaration";
+  const rightTarget = types.getTypeReferenceTarget(right);
+  if (leftTarget !== undefined && rightTarget !== undefined) {
+    if (leftTarget === rightTarget) return "same-declaration";
+    const leftSymbol = checker.getTypeSymbol(left);
+    if (leftSymbol !== undefined && leftSymbol === checker.getTypeSymbol(right)) {
+      return "same-declaration";
+    }
   }
   const leftProviderIds = providerTypeDeclarationIds(checker, facts, left);
   return leftProviderIds.some((id) =>

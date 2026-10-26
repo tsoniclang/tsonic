@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, formatDiagnostics, type Node, type Type } from "@tsonic/tsts";
 import { createTargetSourceProgram, sourceCallableValueParameters } from "../public/source.js";
 
 function inspect(sourceText: string) {
@@ -82,6 +82,52 @@ test("literal refinements retain exact declared primitive members across union b
   assert.equal(text !== undefined && numeric !== undefined, true);
   assert.equal(semantics.types.refinement(text!.declared, numeric!.selected).kind, "unrelated");
   assert.equal(semantics.types.refinement(numeric!.declared, text!.selected).kind, "unrelated");
+});
+
+test("class receiver instantiations retain their checked declaration across union refinements", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/models.ts": `
+      export class Entry { value = 1; read(): number { return this.value; } }
+      export class Other { value = 1; read(): number { return this.value; } }
+    `,
+    "/src/index.ts": `
+      import { Entry } from "./models.js";
+      export function read(value: Entry | string): number {
+        if (value instanceof Entry) return value.value;
+        return 0;
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"), "");
+  const source = createTargetSourceProgram(checked);
+  const models = checked.getSourceFile("/src/models.ts");
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(models && file);
+  const receivers: Type[] = [];
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsPropertyAccessExpression(node)) {
+      const selected = source.semantics.forNode(node).operations.propertyAccess(node);
+      assert.ok(selected);
+      receivers.push(selected.receiver.type);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(models);
+  assert.equal(receivers.length, 2);
+  const declaration = source.ast.statements(file).find(source.ast.is.IsFunctionDeclaration);
+  assert.ok(declaration);
+  const parameter = source.ast.parameters(declaration)[0];
+  assert.ok(parameter);
+  const semantics = source.semantics.forFile(file);
+  const declared = semantics.declarations.declaredValueType(parameter);
+  assert.ok(declared);
+  const selected = semantics.types.refinement(declared, receivers[0]!);
+  assert.equal(selected.kind, "members");
+  if (selected.kind !== "members") return;
+  assert.equal(selected.types.length, 1);
+  assert.equal(semantics.types.relationship(selected.types[0]!, receivers[0]!), "same-declaration");
+  assert.equal(semantics.types.refinement(declared, receivers[1]!).kind, "unrelated",
+    "the same source spelling and complete structural shape do not identify another class declaration");
 });
 
 test("an intersection with two possible source members remains ambiguous", () => {
