@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
+import { keelOwnedTargets } from "../architecture/tooling/keel-owned-contracts.mjs";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
 
 export const carrierDeclarationId = declaration => `${declaration.module}#${declaration.symbol}`;
@@ -289,7 +291,13 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
     .map(([, { declaration }]) => declaration);
   const declarationKinds = new Map([...types].filter(([identity]) => exports.has(identity)).map(([identity, node]) =>
     [identity, [...new Set(kindsFor(node, declarations.get(identity).declaration.module))].filter(kind => knownKinds.has(kind))]));
-  return { kinds, contracts, exports, declarationKinds };
+  const declarationBodies = new Map([...values].map(([identity, { node, callable }]) => {
+    const selected = callable ?? node;
+    const range = ast.authoredRange(selected);
+    return [identity, range.kind !== "authored" ? undefined : createHash("sha256")
+      .update(ast.getSourceText(ast.getSourceFile(selected)).slice(range.start, range.end)).digest("hex")];
+  }));
+  return { kinds, contracts, exports, declarationKinds, declarationBodies };
 }
 
 // Neutral responsibility keys: "<family>/<name>" in lower-case words, never naming a target.
@@ -341,7 +349,8 @@ export function validateCarrierRegistry(rows, vocabulary) {
 export function validateCarrierParity(registries, differences, signedDifferences) {
   const failures = [];
   const keys = new Map(Object.entries(registries).map(([target, registry]) =>
-    [target, new Set(registry.rows.map(row => row.responsibility))]));
+    [target, new Set([...registry.rows.map(row => row.responsibility),
+      ...registry.roles.map(role => role.carrierResponsibility)])]));
   const explained = new Set();
   const seen = new Set();
   for (const entry of differences) {
@@ -378,6 +387,13 @@ export function productCarrierRegistryReferences(files) {
 export async function loadCarrierRegistry(root) {
   const files = await readCarrierRegistrySourceFiles(root);
   const vocabulary = deriveCarrierVocabulary(files, { module: "src/target-model/types/model.ts", symbol: "TargetTypeRef" });
+  const roles = keelOwnedTargets[path.basename(root)].functions.filter(role => role.carrierResponsibility !== undefined);
+  for (const role of roles) {
+    const identity = carrierDeclarationId({ module: role.file, symbol: role.symbol });
+    if (role.role !== "analysis" || !carrierResponsibilityPattern.test(role.carrierResponsibility) ||
+      vocabulary.declarationBodies.get(identity) !== role.bodySha256)
+      throw new Error(`Stale checked carrier responsibility: ${identity}`);
+  }
   const { carrierRegistry } = await import(pathToFileURL(path.join(root, "test/target-model/types/carriers/registry/index.mjs")).href);
-  return { files, vocabulary, rows: carrierRegistry };
+  return { files, vocabulary, rows: carrierRegistry, roles };
 }

@@ -3,8 +3,8 @@ import { createSourceStoragePointerBackings } from "./pointer-backings.js";
 import { createSourceStorageGeneratorResumes } from "./generator-resumes.js";
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
-import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
-import { Node_Expression, Node_Initializer, sourceReceiverOwner } from "../../../source-navigation/index.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
@@ -512,11 +512,12 @@ export function createSourceStorageTransport(
     const lineages = constructionLineagesFor(origin.node, originSubjects, "heritage");
     if (lineages === undefined || lineages.length === 0) return undefined;
     for (const lineage of lineages) {
-      if (!step() || !lineage.complete) return undefined;
+      if (!step()) return undefined;
       if (lineage.classes.length === 0) {
         if (!ordinary()) return undefined;
         continue;
       }
+      if (!lineage.complete) return undefined;
       for (const declaration of declarations) {
         if (!step()) return undefined;
         const selected = memberFlow.membersInLineage(lineage, declaration, receiverType);
@@ -532,6 +533,50 @@ export function createSourceStorageTransport(
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const invocation of invocations)
       yield once => { if (once(invocation)) syntax.publishInvocationInputs(invocation); };
+    for (const access of memberAccessors.sites) {
+      if (!ast.is.IsSpreadAssignment(access)) continue;
+      const object = ast.parent(access);
+      if (object === undefined || !ast.is.IsObjectLiteralExpression(object)) continue;
+      yield once => {
+        if (!once(object) || !step()) return;
+        const owner = subject(object);
+        const type = owner === undefined ? undefined : sourceStorageSubjectType(source, owner);
+        const components = owner === undefined ? undefined : memberFlow.componentsFor(owner);
+        if (owner === undefined || type === undefined || components === undefined) return;
+        for (const component of components) {
+          if (!step()) return;
+          if (!sourceStorageIsMemberProjection(component)) continue;
+          const destination = subject(object, "value", [component]);
+          let before = object;
+          while (step()) {
+            const contribution = memberFlow.copyContributionFor(owner, component.declaration, type, before);
+            if (contribution === undefined || contribution.kind === "absent") break;
+            if (contribution.kind === "own") {
+              if (!ast.is.IsGetAccessorDeclaration(contribution.declaration) && !ast.is.IsSetAccessorDeclaration(contribution.declaration))
+                connect(subjectFor(ObjectLiteralProperty_Value(ast, contribution.declaration)), destination);
+              break;
+            }
+            const original = subjectFor(contribution.expression);
+            if (original === undefined) return;
+            let definite = contribution.definite;
+            for (const selected of contribution.components) {
+              if (!step() || !sourceStorageIsMemberProjection(selected)) return;
+              const declaration = selected.declaration;
+              const declaredOwner = sourceMemberOwner(ast, declaration);
+              if (declaredOwner !== undefined && (ast.is.IsClassDeclaration(declaredOwner) || ast.is.IsClassExpression(declaredOwner)) &&
+                (ast.is.IsMethodDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) {
+                definite = false;
+                continue;
+              }
+              if (ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)) continue;
+              connect(subject(original.node, original.kind, [...original.projection, selected]), destination);
+            }
+            if (definite) break;
+            before = contribution.evaluation;
+          }
+        }
+      };
+    }
     for (const invocation of pointerInvocations) {
       const pointer = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
       if (pointer?.operation !== "store") continue;
@@ -553,6 +598,12 @@ export function createSourceStorageTransport(
           reason: "Source storage mutation requires its exact selected value producer." };
       const storage = locationFor(access);
       storedValues.recordWrite(storage, write);
+      const physicalOwner = storage === undefined ? undefined : sourceMemberOwner(ast, storage.node);
+      const receiver = owner.kind === "receiver" ? owner
+        : ast.kindName(owner.node) === "KindThisKeyword" ? receiverFor(owner.node) : undefined;
+      if (receiver !== undefined && storage?.kind === "member" && ast.is.IsPropertyDeclaration(storage.node) &&
+        declarations?.includes(storage.node) === true && physicalOwner !== undefined &&
+        (physicalOwner === receiver.node || physicalOwner === ast.parent(receiver.node))) return;
       for (const origin of originSubjects(owner) ?? []) {
         if (!step()) break;
         if (selected !== undefined && property === undefined && storage !== undefined && storage.projection.length > owner.projection.length) {
@@ -800,7 +851,8 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, pointerInvocations, pointerAccessors, resumedImplementations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
-    accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
+    accessorTargets, visitedNodes, hasNode: (node: Node): boolean => visited.has(node),
+    regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };
 }

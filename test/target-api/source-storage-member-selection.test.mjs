@@ -2,13 +2,120 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceGlobalCallStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStoragePhysicalMembers } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/member-selection.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
-import { namedVariable } from "../fixtures/source-navigation.mjs";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
+
+async function inheritedNativeMemberFixture(name, body, admitted = true) {
+  const checked = await checkedSource(name, {
+    "globals.d.ts": `
+      interface Object {} interface Function {} interface CallableFunction extends Function {}
+      interface NewableFunction extends Function {} interface IArguments {} interface Boolean {}
+      interface Number {} interface String {} interface RegExp {}
+      interface Array<T> { [index: number]: T; length: number; }
+      interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: number; }
+      ${sourceErrorDeclarations}
+    `,
+    "src/index.ts": `export {}; ${body} const created = new Retained(); const observed = created.message;`,
+  });
+  assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const globals = projectSourceFile(source, "globals.d.ts");
+  const error = namedDeclaration(source.ast, globals, "Error");
+  const owner = namedDeclaration(source.ast, globals, "ErrorConstructor");
+  const constructors = source.ast.members(owner).filter(source.ast.is.IsConstructSignatureDeclaration);
+  const effects = createSourceGlobalCallStorageEffects(source, () => undefined, declaration =>
+    admitted && constructors.includes(declaration)
+      ? jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration }) : undefined);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget, effects);
+  const invocation = Node_Initializer(source.ast, namedVariable(source.ast, file, "created"));
+  const lineages = transport.constructionLineagesFor(invocation, undefined, "heritage");
+  const field = source.ast.members(error).find(member => source.ast.text(source.ast.name(member)) === "message");
+  const destination = source.semantics.forNode(error).declarations.declaredType(error);
+  assert.equal(field !== undefined && destination !== undefined, true, "the actual checked native member and instance contract");
+  return { source, file, budget, transport, lineages, field, destination, constructors };
+}
+
+for (const [name, body, overrides] of [
+  ["native base", `class Retained extends Error { constructor() { super("original"); this.message = "changed"; } }`, false],
+  ["project intermediate", `class Middle extends Error {} class Retained extends Middle {
+    constructor() { super("original"); this.message = "changed"; }
+  }`, false],
+  ["generic project intermediate", `class Middle<T> extends Error { constructor(readonly value: T) { super("original"); } }
+    class Retained extends Middle<number> { constructor() { super(1); this.message = "changed"; } }`, false],
+  ["source override", `class Retained extends Error { message = "own"; }`, true],
+]) test(`native member lineage retains exact physical ownership through ${name}`, async () => {
+  const current = await inheritedNativeMemberFixture(`native-member-lineage-${name.replaceAll(" ", "-")}`, body);
+  const { source, transport, lineages } = current;
+  assert.equal(lineages?.length, 1, "one actual construction alternative");
+  const lineage = lineages[0];
+  assert.equal(lineage.complete, true, "all project inheritance and the selected native terminal are checked");
+  assert.equal(lineage.classes.every(value => source.navigation.isProjectDeclaration(value.subject.node)), true,
+    "native construction is not inserted into project body execution");
+  assert.equal(lineage.nativeBase !== undefined && lineage.nativeBase.constructors.length === current.constructors.length &&
+    lineage.nativeBase.constructors.every(declaration => current.constructors.includes(declaration)), true,
+  "the exact original selected native signatures are retained without an invented source body");
+  assert.equal(Object.isFrozen(lineage) && Object.isFrozen(lineage.nativeBase), true, "immutable one-owner lineage evidence");
+  const selected = transport.memberFlow.membersInLineage(lineage, current.field, current.destination);
+  assert.equal(selected !== undefined && !selected.absent && selected.members.length === 1, true,
+    "the actual native or overridden physical declaration is proven, not closed-empty");
+  const retained = namedDeclaration(source.ast, current.file, "Retained");
+  const original = overrides ? source.ast.members(retained).find(member => source.ast.text(source.ast.name(member)) === "message")
+    : current.field;
+  assert.equal(selected.members[0].declaration === original, true, "source overriding wins; otherwise retain the exact native original");
+  assert.equal(selected.members[0].bindings === (overrides ? lineage.classes[0].bindings : lineage.nativeBase.bindings), true,
+    "the chosen physical owner retains its actual captured binding context");
+  assert.equal(transport.memberFlow.membersInLineage({ ...lineage, complete: false }, current.field, current.destination) === undefined, true,
+    "incomplete inheritance is not a native storage proof");
+  if (!overrides) {
+    assert.equal(transport.memberFlow.membersInLineage({ ...lineage, nativeBase: undefined }, current.field, current.destination) === undefined, true,
+      "a member's presence in a derived type is not sufficient without the original native constructor");
+    assert.equal(transport.memberFlow.membersInLineage({ ...lineage,
+      nativeBase: { ...lineage.nativeBase, constructors: [] } }, current.field, current.destination) === undefined, true,
+    "missing selected native signatures cannot become an empty physical owner");
+    const constructor = source.ast.members(retained).find(source.ast.is.IsConstructorDeclaration);
+    if (constructor !== undefined) assert.equal(transport.memberFlow.membersInLineage({ ...lineage,
+      nativeBase: { ...lineage.nativeBase, constructors: [constructor] } }, current.field, current.destination) === undefined, true,
+    "an ordinary constructor body is not a native construct-signature return contract");
+  }
+  assert.equal(current.budget.failure(), undefined, "original finite work accounting remains active");
+});
+
+test("unregistered native construction never supplies a physical inherited member guarantee", async () => {
+  const current = await inheritedNativeMemberFixture("unregistered-native-member-lineage",
+    `class Retained extends Error { constructor() { super("original"); this.message = "changed"; } }`, false);
+  assert.equal(current.lineages?.length, 1, "the original project inheritance remains observable");
+  const lineage = current.lineages[0];
+  assert.equal(lineage.complete, false, "an opaque constructor cannot prove the native terminal");
+  assert.equal(lineage.nativeBase === undefined, true, "no native proof is manufactured from declared shape");
+  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination) === undefined, true,
+    "unknown construction stays unresolved, not empty or writable");
+});
+
+test("native member lineage refuses foreign selected signatures and an exhausted original budget", async () => {
+  const body = `class Retained extends Error { constructor() { super("original"); this.message = "changed"; } }`;
+  const current = await inheritedNativeMemberFixture("native-member-lineage-foreign-current", body);
+  const foreign = await inheritedNativeMemberFixture("native-member-lineage-foreign-other", body);
+  const lineage = current.lineages[0];
+  assert.equal(current.transport.memberFlow.membersInLineage({ ...lineage,
+    nativeBase: { ...lineage.nativeBase, constructors: foreign.constructors } }, current.field, current.destination) === undefined, true,
+  "a foreign checked signature cannot prove this physical native declaration");
+  assert.equal(current.transport.memberFlow.membersInLineage({ ...lineage,
+    nativeBase: { ...lineage.nativeBase, constructors: [...lineage.nativeBase.constructors, ...foreign.constructors] } },
+  current.field, current.destination) === undefined, true,
+  "every selected native signature must prove the same declaration, not merely the first signature");
+  current.budget.reject("test original finite refusal");
+  assert.equal(current.transport.memberFlow.membersInLineage(lineage, current.field, current.destination) === undefined, true,
+    "existing finite exhaustion dominates otherwise valid native correspondence");
+  assert.equal(current.budget.failure(), "test original finite refusal", "the original exact refusal is unchanged");
+});
 
 function fixture(body, extraFiles = {}) {
   const files = { "/src/index.ts": `export {}; ${body}`, ...extraFiles };
@@ -146,7 +253,8 @@ test("physical exclusion remains explicit when a completed alternative grows alo
       assert.equal(request.subject === subject(operand) && request.scope === scope, true, "the exact constructor supplier is selected");
       return available ? suppliers : undefined;
     },
-    lineages: value => [{ classes: [{ subject: value.subject, bindings: value.scope }], complete }],
+    lineages: value => [{ classes: [{ subject: value.subject, bindings: value.scope }], complete,
+      implementation: undefined, nativeBase: undefined }],
   });
   const select = () => physicalMembers(receiver, declaration, contract, "read", receiver.subject);
   assert.equal(select()?.kind === "pending", true, "an unfinished empty supplier set has no exclusion proof");

@@ -187,11 +187,11 @@ test("CLI emits interface object literals through provider object-shape adapters
   assert.ok(shapeName);
   assert.match(generated, /public interface Named[\s\S]*string name \{ get; set; \}[\s\S]*double run\(double value\);/);
   assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named/u);
-  assert.match(generatedShapes, /public double run\(double value\)[\s\S]*return value \+ 1D;/u);
+  assert.match(generatedShapes, /public double run\(double value\)[\s\S]*return value \+ 1;/u);
   assert.match(generatedShapes, /public required string name\s*\{\s*get;\s*set;\s*\}/u);
   assert.doesNotMatch(generatedShapes, /Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}\\s*\\{\\s*name = "one",\\s*\\};`));
-  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2D\);/);
+  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });

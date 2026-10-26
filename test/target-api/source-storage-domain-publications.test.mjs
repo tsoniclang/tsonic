@@ -11,13 +11,13 @@ test("publication admission preserves all exact demand flags and their first ord
   const selected = subject();
   const type = {};
   const sourceFile = {};
+  const exposure = {};
   const expected = [];
   for (const kind of ["external-write", "opaque-write", "unclassified-exposure"]) {
     for (const externalEntry of [false, true]) for (const writes of [false, true]) {
-      const exposure = {};
       publications.add(selected, type, sourceFile, exposure, writes, kind, externalEntry);
       expected.push({ exposure, writes, kind, externalEntry });
-      publications.add(selected, type, {}, {}, writes, kind, externalEntry);
+      publications.add(selected, type, {}, exposure, writes, kind, externalEntry);
     }
   }
   assert.equal(publications.size(), 12, "all independent kind/entry/write combinations, with no duplicate record");
@@ -29,6 +29,10 @@ test("publication admission preserves all exact demand flags and their first ord
       actual.externalEntry === value.externalEntry, true, `exact ordered publication ${index}`);
     assert.equal(Object.isFrozen(actual) && !Object.hasOwn(actual, "inputOwner"), true);
   }
+  const otherExposure = {};
+  publications.add(selected, type, sourceFile, otherExposure, true, "external-write", false);
+  assert.equal(publications.size() === 13 && publications.at(12).exposure === otherExposure, true,
+    "a distinct exposure retains its own exact publication rather than becoming a duplicate");
   assert.equal(budget.failure() === undefined, true);
 });
 
@@ -56,7 +60,7 @@ test("publication keys keep subjects, native type identities and every exact inp
 });
 
 test("repeat publication admission remains bounded without allocating another queued or indexed cell", () => {
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 5, maximumSteps: 128 });
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 6, maximumSteps: 128 });
   const publications = createSourceStorageDomainPublications(budget, () => false);
   const selected = subject();
   const type = {};
@@ -73,7 +77,7 @@ test("repeat publication admission remains bounded without allocating another qu
 });
 
 test("publication admission is atomic, and completion releases only its own construction rows", () => {
-  for (const maximumTransportRows of [1, 2, 3, 4]) {
+  for (const maximumTransportRows of [1, 2, 3, 4, 5]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows });
     const publications = createSourceStorageDomainPublications(budget, () => false);
     publications.add(subject(), {}, {}, {}, true, "external-write", false);

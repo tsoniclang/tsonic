@@ -29,24 +29,15 @@ export function createSourceStorageQuery(
   const bindingRows = budget.createRows();
   const frontierBoundaries = new WeakMap<readonly SourceStorageSubject[], ReadonlySet<SourceStorageSubject>>();
   const frontierRows = budget.createRows();
-  let declarations: ReadonlySet<Node> | undefined;
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const checkedNode = (node: Node): boolean => {
     if (!budget.step()) return false;
-    if (declarations === undefined) {
-      if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
-      declarations = new Set(transport.visitedNodes);
-    }
-    if (!declarations.has(node)) return false;
+    if (!transport.hasNode(node)) return false;
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
   };
   const checkedDeclaration = (declaration: Node): boolean => {
-    if (declarations === undefined) {
-      if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
-      declarations = new Set(transport.visitedNodes);
-    }
-    if (!declarations.has(declaration) || !checkedNode(declaration)) return false;
+    if (!transport.hasNode(declaration) || !checkedNode(declaration)) return false;
     const ast = source.ast;
     return ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) ||
       ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
@@ -191,7 +182,7 @@ export function createSourceStorageQuery(
     return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
   const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings,
-    purpose: "values" | "storage-producers") => {
+    purpose: "values" | "storage-producers") => transport.substitutions.withQuery(() => {
     const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
     if (reason !== undefined) return unresolved(reason);
     const states = bindingStates.get(bindings);
@@ -228,7 +219,7 @@ export function createSourceStorageQuery(
     if (origins.kind === "unresolved") return origins;
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
       : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
-  };
+  });
   const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
     const selected = selectDomain(subject, bindings, "values");
     return selected.kind === "unresolved" ? selected : selected.kind === "complete"

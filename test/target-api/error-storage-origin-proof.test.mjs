@@ -111,7 +111,8 @@ test("opaque native construction cannot invent fresh disjoint Error owners from 
     const selected = current.demand.closedStorageOriginsFor(subject);
     assert.equal(selected.kind === shared.kind, true,
       `${name}: the actual shared origin proof is not replaced by a different mutation-demand question`);
-    assert.equal(selected.kind === "open", true, `${name}: opaque native result lacks an allocation contract`);
+    assert.equal(selected.kind === "open", true,
+      `${name}: opaque native result lacks an allocation contract (${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""})`);
     assert.equal(shared.kind === "open" && selected.origins.length === shared.origins.length &&
       selected.origins.every((origin, index) => origin.subject === shared.origins[index].subject) &&
       selected.boundaries.length === shared.boundaries.length && selected.boundaries.every((boundary, index) =>

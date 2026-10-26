@@ -6,7 +6,7 @@ import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorage
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageClassValue } from "../model/construction.js";
+import type { SourceStorageClassLineage } from "../model/construction.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 
@@ -154,9 +154,7 @@ export function createSourceStorageMemberFlow(
     const entry = selectedMember(owner, declaration, receiverType);
     return entry?.member.kind === "present" ? entry.originals : undefined;
   };
-  const membersInLineage = <Bindings>(lineage: {
-    readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
-  }, declaration: Node, destinationType: Type): {
+  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: Type): {
     readonly members: readonly { readonly declaration: Node; readonly bindings: Bindings }[]; readonly absent: boolean;
   } | undefined => {
     if (!lineage.complete || lineage.classes.length === 0) return undefined;
@@ -176,8 +174,35 @@ export function createSourceStorageMemberFlow(
       return Object.freeze({ members: Object.freeze(physical.map(declaration => Object.freeze({ declaration, bindings: captured.bindings }))),
         absent: false });
     }
-    return excluded === lineage.classes.length || absent
-      ? Object.freeze({ members: Object.freeze([]), absent: excluded !== lineage.classes.length }) : undefined;
+    if (excluded === lineage.classes.length || absent)
+      return Object.freeze({ members: Object.freeze([]), absent: excluded !== lineage.classes.length });
+    const nativeBase = lineage.nativeBase;
+    if (nativeBase === undefined || nativeBase.constructors.length === 0) return undefined;
+    let originals: readonly Node[] | undefined;
+    for (const constructor of nativeBase.constructors) {
+      if (!budget.step() || !source.ast.is.IsConstructSignatureDeclaration(constructor)) return undefined;
+      const receiver = subject(constructor, "return");
+      const member = receiver === undefined ? undefined : memberFor(receiver, declaration, destinationType);
+      if (member?.kind !== "present") return undefined;
+      const physical: Node[] = [];
+      for (const original of member.source.declarations) {
+        if (!budget.step()) return undefined;
+        if (!source.ast.hasModifierKind(original, "static")) physical.push(original);
+      }
+      if (physical.length === 0 || originals !== undefined && originals.length !== physical.length) return undefined;
+      if (originals !== undefined) for (const candidate of physical) {
+        let present = false;
+        for (const original of originals) {
+          if (!budget.step()) return undefined;
+          if (original === candidate) { present = true; break; }
+        }
+        if (!present) return undefined;
+      }
+      originals = physical;
+    }
+    return originals === undefined ? undefined : Object.freeze({
+      members: Object.freeze(originals.map(declaration => Object.freeze({ declaration, bindings: nativeBase.bindings }))), absent: false,
+    });
   };
   const restExcludedKeys = (rest: Node): ReadonlySet<string> | undefined => {
     const owner = sourceStorageObjectRestOwner(rest, source.ast);
@@ -239,7 +264,8 @@ export function createSourceStorageMemberFlow(
   };
   const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type, before: Node):
     | { readonly kind: "own"; readonly declaration: Node }
-    | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[]; readonly evaluation: Node }
+    | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[];
+        readonly evaluation: Node; readonly definite: boolean }
     | { readonly kind: "absent" }
     | undefined => {
     const file = sourceFileFor(owner);
@@ -270,7 +296,7 @@ export function createSourceStorageMemberFlow(
       if (excluded.has(property.name)) return Object.freeze({ kind: "absent" });
       return Object.freeze({ kind: "spread", expression: Node_Initializer(source.ast, rest) ?? rest,
         components: Object.freeze([Object.freeze({ kind: sourceStorageIsMethodMember(declaration, source.ast)
-          ? "method-value" : "member", declaration })]), evaluation: owner.node });
+          ? "method-value" : "member", declaration })]), evaluation: owner.node, definite: !property.optional });
     }
     const properties = source.ast.properties(owner.node);
     const limit = before === owner.node ? properties.length : properties.indexOf(before);
@@ -312,18 +338,19 @@ export function createSourceStorageMemberFlow(
         }
       }
       return components.length === 0 ? undefined : Object.freeze({ kind: "spread", expression,
-        components: Object.freeze(components), evaluation: element });
+        components: Object.freeze(components), evaluation: element,
+        definite: matches.length === alternatives.length && matches.every(member => !member.optional) });
     }
     return Object.freeze({ kind: "absent" });
   };
   const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type):
     "direct" | "copied" | "absent" | undefined => {
+    if (owner.projection.length !== 0) return "direct";
     if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
-    if (!source.ast.is.IsObjectLiteralExpression(owner.node) || source.ast.parent(declaration) === owner.node) return "direct";
-    if (!source.ast.is.IsPropertySignatureDeclaration(declaration) && source.ast.kindName(declaration) !== "KindMethodSignature") return "copied";
+    if (!source.ast.is.IsObjectLiteralExpression(owner.node)) return "direct";
     const contribution = copyContributionFor(owner, declaration, destinationType, owner.node);
     return contribution === undefined ? undefined : contribution.kind === "spread" ? "copied"
-      : contribution.kind === "absent" ? "absent" : "direct";
+      : contribution.kind === "absent" ? "absent" : contribution.declaration === declaration ? "direct" : "copied";
   };
   const componentsFor = (owner: SourceStorageSubject): readonly SourceStorageProjection[] | undefined => {
     const file = sourceFileFor(owner);
@@ -371,9 +398,8 @@ interface SourceStorageMemberImplementationInputs {
   readonly membersInLineage: ReturnType<typeof createSourceStorageMemberFlow>["membersInLineage"];
   readonly memberStorageKindFor: ReturnType<typeof createSourceStorageMemberFlow>["memberStorageKindFor"];
   constructionLineagesFor(invocation: Node,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined, mode?: "heritage"): readonly {
-      readonly classes: readonly SourceStorageClassValue<undefined>[]; readonly complete: boolean;
-    }[] | undefined;
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined,
+    mode?: "heritage"): readonly SourceStorageClassLineage<undefined>[] | undefined;
   readonly contracts: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly accessorTargets: ReadonlyMap<Node, readonly import("./scoped-model.js").SourceStorageAccessorInvocation[]>;
 }

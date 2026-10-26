@@ -56,7 +56,10 @@ export type SourceAsyncCompletionSelection =
 export interface SourceOwnershipPremises {
   completionFor(call: Node, selected: ResolvedSourceCallInfo,
     bindings: SourceStorageBindings): SourceAsyncCompletionSelection;
-  retentionFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceRetentionSelection | undefined;
+  retentionFor(request:
+    | { readonly kind: "origin"; readonly value: SourceStorageSubject; readonly bindings: SourceStorageBindings }
+    | { readonly kind: "read-value"; readonly reference: Node; readonly value: SourceStorageSubject;
+        readonly bindings: SourceStorageBindings }): SourceRetentionSelection | undefined;
   suspensionFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceSuspensionSelection | undefined;
 }
 

@@ -47,6 +47,7 @@ export function createSourceErrorStorageDemandQuery(
   const writes = new Map<SourceStorageSubject, Set<Node>>();
   const unresolvedWrites = new Map<SourceStorageSubject, string>();
   const nativeSubjects = new Set<SourceStorageSubject>();
+  const noBoundaries: readonly SourceStorageSubject[] = Object.freeze([]);
   const retainedBoundaries: Node[] = [];
   const fieldWrites: Node[] = [];
   let demandRows = 0;
@@ -90,16 +91,30 @@ export function createSourceErrorStorageDemandQuery(
     indexes.add(mutator.sourceParameterIndex);
     storageMutators.set(mutator.signature, indexes);
   }
-  const recordWrite = (subject: SourceStorageSubject | undefined, write: Node): void => {
-    if (subject === undefined) { reject("An admitted Error write has no exact source storage subject."); return; }
+  const recordStorageWrite = (subject: SourceStorageSubject, write: Node): void => {
     const selected = writes.get(subject) ?? new Set<Node>();
     if (selected.has(write) || !reserveRow("selected-write")) return;
     selected.add(write);
     writes.set(subject, selected);
+  };
+  const recordWrite = (subject: SourceStorageSubject | undefined, write: Node): void => {
+    if (subject === undefined) { reject("An admitted Error write has no exact source storage subject."); return; }
+    recordStorageWrite(subject, write);
     const reason = storage.unresolvedFor(subject);
     if (reason !== undefined) {
       if (storage.failureReason() !== undefined) reject(storage.failureReason()!);
       else unresolvedWrites.set(subject, reason);
+      return;
+    }
+    const selected = storage.boundValueFrontierFor(subject, storage.emptyBindings, noBoundaries);
+    if (selected.kind === "unresolved") {
+      if (storage.failureReason() !== undefined) reject(storage.failureReason()!);
+      else unresolvedWrites.set(subject, selected.reason);
+      return;
+    }
+    for (const origin of selected.frontier) {
+      if (!step()) break;
+      recordStorageWrite(origin.subject, write);
     }
   };
   for (const node of storage.nodes) {
@@ -138,31 +153,6 @@ export function createSourceErrorStorageDemandQuery(
       if (subject !== undefined) nativeSubjects.add(subject);
     }
   }
-  const pending = [...writes.keys()];
-  const queued = new Set(pending);
-  for (let index = 0; index < pending.length && failureReason() === undefined; index += 1) {
-    const destination = pending[index]!;
-    queued.delete(destination);
-    const destinationWrites = writes.get(destination)!;
-    const incoming = storage.incomingFor(destination);
-    if (incoming.kind === "unresolved") {
-      if (storage.failureReason() !== undefined) { reject(storage.failureReason()!); break; }
-      unresolvedWrites.set(destination, incoming.reason);
-      continue;
-    }
-    for (const origin of incoming.subjects) {
-      const originWrites = writes.get(origin) ?? new Set<Node>();
-      const previous = originWrites.size;
-      for (const write of destinationWrites) {
-        if (!step()) break;
-        if (originWrites.has(write)) continue;
-        if (!reserveRow("transported-write")) break;
-        originWrites.add(write);
-      }
-      writes.set(origin, originWrites);
-      if (originWrites.size !== previous && !queued.has(origin)) { queued.add(origin); pending.push(origin); }
-    }
-  }
   const selections = new Map<SourceStorageSubject, SourceErrorStorageDemand>();
   const storageFor: SourceErrorStorageDemandQueries["storageFor"] = subject => {
     const failure = failureReason();
@@ -179,8 +169,21 @@ export function createSourceErrorStorageDemandQuery(
     }
     const cached = selections.get(subject);
     if (cached !== undefined) return cached;
-    const selectedWrites = writes.get(subject);
-    const demand = selectedWrites === undefined || selectedWrites.size === 0 ? immutableDemand
+    const frontier = storage.boundValueFrontierFor(subject, storage.emptyBindings, noBoundaries);
+    if (frontier.kind === "unresolved") return Object.freeze({ kind: "unresolved", reason: frontier.reason });
+    const selectedWrites = new Set(writes.get(subject));
+    for (const origin of frontier.frontier) {
+      if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+      const reason = unresolvedWrites.get(origin.subject);
+      if (reason !== undefined) return Object.freeze({ kind: "unresolved", reason });
+      for (const write of writes.get(origin.subject) ?? []) {
+        if (!step()) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+        if (selectedWrites.has(write)) continue;
+        if (!reserveRow("physical-write-selection")) return Object.freeze({ kind: "unresolved", reason: failureReason()! });
+        selectedWrites.add(write);
+      }
+    }
+    const demand = selectedWrites.size === 0 ? immutableDemand
       : Object.freeze({ kind: "writable" as const, writes: Object.freeze([...selectedWrites]) });
     selections.set(subject, demand);
     return demand;
