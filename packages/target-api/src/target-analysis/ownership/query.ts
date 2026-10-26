@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceFlowLimits } from "../flow/model.js";
+import type { SourceControlFlowOptions, SourceFlowLimits } from "../flow/model.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceAsyncOwnershipSelection, SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipPremises } from "./model.js";
 import { sourceOwnershipUnresolved } from "./contracts.js";
@@ -15,6 +15,7 @@ export function createSourceOwnershipQuery(input: {
   readonly premises: SourceOwnershipPremises;
   readonly budget: SourceOwnershipBudget;
   readonly flowLimits?: Partial<SourceFlowLimits>;
+  readonly domain?: SourceControlFlowOptions["domain"];
 }) {
   const { source, storage, premises, budget } = input;
   const closure = createSourceContinuationClosureQuery(input);

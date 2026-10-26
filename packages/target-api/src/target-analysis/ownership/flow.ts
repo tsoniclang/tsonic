@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceControlFlow } from "../flow/graph.js";
 import { solveSourceFlow } from "../flow/solver.js";
-import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint } from "../flow/model.js";
+import type { SourceControlFlowGraph, SourceControlFlowOptions, SourceFlowLimits, SourceFlowPoint } from "../flow/model.js";
 import { sourceFlowOrder } from "../flow/ordering.js";
 import { SourceFlowFailure } from "../flow/resources.js";
 import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
@@ -49,13 +49,14 @@ interface SourceContinuationFlowInput {
   readonly limits: Partial<SourceFlowLimits>;
   readonly invocationFor: (call: Node, bindings: SourceStorageBindings) => SourceContinuationClosureSelection;
   readonly execution?: SourceContinuationExecution;
+  readonly domain?: SourceControlFlowOptions["domain"];
 }
 
 export function prepareSourceContinuationExecution(input: Pick<SourceContinuationFlowInput,
-  "source" | "storage" | "budget" | "candidate" | "invocation" | "callerBindings" | "construction" | "limits"
+  "source" | "storage" | "budget" | "candidate" | "invocation" | "callerBindings" | "construction" | "limits" | "domain"
 >): SourceOwnershipUnresolved | { readonly kind: "resolved"; readonly execution: SourceContinuationExecution } {
   const { source, storage, budget, candidate, invocation } = input;
-  const selected = createSourceControlFlow(source, candidate, { domain: { kind: "source" }, limits: input.limits,
+  const selected = createSourceControlFlow(source, candidate, { domain: input.domain ?? { kind: "source" }, limits: input.limits,
     invocation: { storage, call: invocation, callerBindings: input.callerBindings, construction: input.construction } });
   if (selected.kind === "unresolved") return sourceOwnershipUnresolved(selected.source ?? candidate, selected.reason);
   const rows = budget.createRows();
