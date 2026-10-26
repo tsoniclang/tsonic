@@ -268,7 +268,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     };
     const select = (term: SourceStorageTerm, values = true): ReadonlySet<SourceStorageTerm> | undefined => {
       const selected = retain(term, values);
-      return selected === undefined ? undefined : read(selected);
+      if (selected === undefined) return undefined;
+      children.set(selected, children.get(selected)! | 8);
+      return read(selected);
     };
     const previousRead = currentRead;
     currentRead = term => select(term, false);
@@ -423,6 +425,18 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
+  const hasStaticValue = (relation: SourceStorageRelation): boolean | undefined => {
+    if (relation.kind === "leaf" || relation.kind === "unresolved" || relation.kind === "empty") return true;
+    const data = relation[sourceStorageRelationData];
+    if (!data.complete || data.forwardProjection !== undefined) return false;
+    let present = false;
+    for (const [child, mode] of data) {
+      if (!budget.step()) return undefined;
+      if ((mode & 12) !== 0) return false;
+      present ||= (mode & 2) !== 0 && (child.kind === "leaf" || child.kind === "unresolved" || child.kind === "empty");
+    }
+    return present;
+  };
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
     stopAt?: (subject: SourceStorageScopedSubject & { readonly original: boolean }) => boolean, preserveValuePath = false) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
@@ -517,17 +531,21 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (completed) continue;
       }
       if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
-        const completed = results(relation);
-        if (completed === undefined) return undefined;
-        if (completed.size === 0) {
-          const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
-            : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
-            : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
-              : transport.subject(current.selection.node) : undefined;
-          const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
-          if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
-            if (!temporary.add(1)) return undefined;
-            emptyDemands.push(current);
+        const present = hasStaticValue(relation);
+        if (present === undefined) return undefined;
+        if (!present) {
+          const completed = results(relation);
+          if (completed === undefined) return undefined;
+          if (completed.size === 0) {
+            const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
+              : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
+              : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
+                : transport.subject(current.selection.node) : undefined;
+            const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
+            if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
+              if (!temporary.add(1)) return undefined;
+              emptyDemands.push(current);
+            }
           }
         }
       }
