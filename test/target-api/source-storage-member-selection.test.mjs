@@ -603,6 +603,36 @@ test("selected structural adaptation still preserves real members from a distinc
     "distinct nominal declarations are not by themselves impossible structural selections");
 });
 
+for (const [name, type, value] of [
+  ["array", "readonly {}[]", "[foreign]"],
+  ["function", "(() => {})", "() => foreign"],
+  ["structural object", "{ read(): {} }", "{ read() { return foreign; } }"],
+]) {
+  test("nominal receiver guards exclude original non-instance " + name + " allocations", () => {
+    const current = fixture(`
+      const token = {};
+      const foreign = {};
+      const fallback = {};
+      class Selected { read(): {} { return token; } }
+      function choose(condition: boolean): Selected | ${type} {
+        return condition ? new Selected() : ${value};
+      }
+      function select(value: Selected | ${type}): {} {
+        if (value instanceof Selected) return value.read();
+        return fallback;
+      }
+      const result = select(choose(true));
+    `);
+    const origins = current.origins("result");
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true,
+      "the actual checked instance retains its member value");
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("fallback")), true,
+      "the non-instance alternative retains the real fallback");
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("foreign")), false,
+      "a non-instance cannot acquire the guarded class method through structural shape");
+  });
+}
+
 test("nominal guards exclude sibling allocations even when both classes have the selected member", () => {
   const current = fixture(`
     class Base { kind: string = "base"; }
@@ -734,7 +764,7 @@ test("a chained primitive result retains its exact declared method without a fab
   assert.equal(selected.kind === "resolved", true);
   const origins = current.storage.closedOriginsFor(selected.subject);
   assert.equal(origins.kind === "open" && origins.origins.length === 1 && origins.origins[0].subject.node === declaration, true,
-    "exact native method provenance remains open for an external declaration without inventing a source implementation");
+    `exact native method provenance remains open for an external declaration without inventing a source implementation (${origins.kind}; ${origins.origins?.length ?? 0}; ${origins.reason ?? ""})`);
   assert.equal(current.storage.failureReason() === undefined, true);
 });
 

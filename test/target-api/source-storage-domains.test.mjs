@@ -44,8 +44,9 @@ function complete(selected, label) {
 }
 
 function open(selected, kind, label) {
-  assert.equal(selected.kind === "open", true, label);
-  assert.equal(selected.boundaries.some(boundary => boundary.kind === kind), true, label);
+  assert.equal(selected.kind === "open", true, `${label}: ${selected.kind}`);
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === kind), true,
+    `${label}: ${selected.boundaries.map(boundary => boundary.kind).join(", ")}`);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.boundaries) && selected.boundaries.every(Object.isFrozen), true);
 }
 
@@ -868,6 +869,20 @@ test("exact record slots keep independent writes, immutable aliases and generic 
   const returned = current.storage.subject(owner, "return");
   assert.equal(returned.kind === "resolved", true);
   open(current.storage.closedOriginsFor(returned.subject), "external-input", "observed private record calls do not close an unknown external receiver");
+});
+
+test("an interface member alias keeps its original receiver boundary without inventing a second external caller", async () => {
+  const current = await fixture("storage-domain-interface-method-alias", `
+    interface Reader { value(): number; }
+    export function pick(owner: Reader): number { const alias = owner.value; return alias(); }
+  `);
+  const selected = current.storage.storageProducersFor(current.subject(current.variable("alias")));
+  assert.equal(selected.kind === "open", true, "the interface does not provide a source implementation");
+  assert.equal(selected.boundaries.length, 1, "the declared member and receiver describe one unknown caller");
+  assert.equal(selected.boundaries[0].kind, "external-input", "the original input uncertainty is preserved");
+  assert.equal(current.source.ast.is.IsParameterDeclaration(selected.boundaries[0].subject.node), true,
+    "the boundary stays on the actual receiver input, not its bodyless method declaration");
+  assert.equal(current.storage.failureReason() === undefined, true, "unknown values are not global source failures");
 });
 
 test("abstract external receivers remain open while selected concrete overrides and native method aliases retain their contracts", async () => {
