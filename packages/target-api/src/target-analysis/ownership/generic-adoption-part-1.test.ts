@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativeEntryFixture, fixture, identity, declarations } from './generic-adoption-fixtures.js';
+import { nativeEntryFixture, fixture } from './generic-adoption-fixtures.js';
 
 for (const timing of ["synchronous", "deferred", undefined] as const) {
   for (const ordinary of [false, true]) {

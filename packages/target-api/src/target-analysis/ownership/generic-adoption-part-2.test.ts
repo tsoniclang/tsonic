@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativePayloadContinuationCases, fixture, identity, declarations } from './generic-adoption-fixtures.js';
+import { nativePayloadContinuationCases, fixture } from './generic-adoption-fixtures.js';
 
 for (const form of nativePayloadContinuationCases) for (const adopting of [false, true]) {
   for (const ordinary of [false, true]) for (const reversed of [false, true]) {
