@@ -82,7 +82,13 @@ test("CLI runs nested object literals through the canonical broad TypeScript-val
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
+  assert.equal((generatedSource.match(/new Tsonic\.CSharp\.Runtime\.TsObject\(\)/gu) ?? []).length, 2);
+  assert.match(generatedSource, /\.WriteDynamicSlot\("value",/u);
+  assert.match(generatedSource, /\.WriteDynamicSlot\("child",/u);
+  assert.match(generatedSource, /\.WriteDynamicSlot\("label",/u);
+  assert.ok(generatedSource.indexOf('.WriteDynamicSlot("value",') < generatedSource.indexOf('.WriteDynamicSlot("label",') &&
+    generatedSource.indexOf('.WriteDynamicSlot("label",') < generatedSource.indexOf('.WriteDynamicSlot("child",'));
+  assert.doesNotMatch(generatedSource, /\.CreateDynamicObject\(|new object\??\[/u);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
