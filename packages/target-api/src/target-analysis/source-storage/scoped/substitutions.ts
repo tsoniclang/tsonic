@@ -581,7 +581,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           const boundary = original ? 64 : 8;
           if ((selected & inspected) === 0) selected |= inspected |
             (stopAt({ subject: input, bindings: scope, original }) ? boundary : 0);
-          if ((selected & boundary) !== 0) { origins.add(input); selected |= 2 | 16; stopped = true; }
+          if ((selected & boundary) !== 0) {
+            if (contributes) { origins.add(input); selected |= 16; }
+            stopped = true;
+          }
         }
         retained.set(input, selected); subjects.set(scope, retained);
         return true;
