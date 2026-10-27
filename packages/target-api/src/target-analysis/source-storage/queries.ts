@@ -41,14 +41,14 @@ export function createSourceStorageQuery(
     if (sourceStorageIsMemberProjection(component)) return checkedNode(component.declaration);
     if (component.kind !== "indexed-value") return true;
     const declarations = component.index.declaration === undefined ? component.index.components : [component.index.declaration];
-    if (declarations.length === 0) return false;
+    const first = declarations[0];
+    if (first === undefined) return false;
     for (const declaration of declarations) {
       if (!budget.step() || declaration === undefined) return false;
       const file = source.ast.getSourceFile(declaration);
-      if (file === undefined || !source.semantics.includes(file) ||
-        sourceStorageCheckedIndex(component, source.semantics.forFile(file)) === undefined) return false;
+      if (file === undefined || !source.semantics.includes(file)) return false;
     }
-    return true;
+    return sourceStorageCheckedIndex(component, source.semantics.forNode(first)) !== undefined;
   };
   const checkedDeclaration = (declaration: Node): boolean => {
     if (!transport.hasNode(declaration) || !checkedNode(declaration)) return false;
