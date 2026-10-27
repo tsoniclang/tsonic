@@ -1,4 +1,4 @@
-import type { TargetArtifactContract, TargetArtifactContractGraph, TargetArtifactDependency } from "./contract-graph.js";
+import type { TargetArtifactContract, TargetArtifactContractGraph, TargetArtifactDependency } from "./contract-graph-model.js";
 
 export type TargetArtifactReconstruction<Facet extends string, Artifact> =
   | {

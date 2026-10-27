@@ -13,7 +13,7 @@ export type {
   TargetArtifactContractUpdate,
   TargetArtifactDependency,
   TargetArtifactFacetContract,
-} from "./contract-graph.js";
+} from "./contract-graph-model.js";
 export {
   reconstructTargetArtifacts,
 } from "./reconstruction.js";
