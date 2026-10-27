@@ -32,7 +32,8 @@ async function fixture(name, body, limits = defaultSourceStorageLimits) {
 }
 
 function producers(selected) {
-  assert.equal(selected.kind === "complete", true, "complete exact storage producers");
+  assert.equal(selected.kind === "complete", true,
+    `complete exact storage producers; ${selected.kind}; ${selected.kind === "unresolved" ? selected.reason : ""}`);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.producers) && selected.producers.every(Object.isFrozen), true);
   assert.equal(selected.producers.length > 0, true, "nonempty original producer evidence");
   return selected.producers;
