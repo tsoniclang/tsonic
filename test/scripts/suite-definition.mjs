@@ -18,7 +18,7 @@ export function createParallelSuiteDefinition(repos) {
   const rustNodejs = resolve(repos.tsonicCsharp, "../rust-nodejs");
   const hostPreRuns = ["tsonic.build", "tsonic-csharp.build", "csharp-runtime.build", "csharp-js.build",
     "csharp-nodejs.install", "csharp-nodejs.build", "csharp-nodejs.test-build"];
-  const targetPreRuns = ["tsonic.build", "tsonic-csharp.build"];
+  const targetPreRuns = ["tsonic.build", "tsonic-csharp.build", "tsonic-csharp.native-runtime"];
   const providerPreRuns = [...targetPreRuns, "tsonic-csharp.provider-fixtures"];
   const nativeResources = { heapMiB: 3072 };
   const hostSuite = (group, path, metadata = {}) => nodeSuite(repos.tsonic, "tsonic", group, path,
@@ -47,6 +47,13 @@ export function createParallelSuiteDefinition(repos) {
         cwd: repos.csharpRuntime,
         command: "dotnet",
         args: ["build", "Tsonic.CSharp.Runtime.sln", "--verbosity", "minimal"],
+      },
+      {
+        id: "tsonic-csharp.native-runtime",
+        dependsOn: ["tsonic-csharp.build"],
+        cwd: repos.tsonicCsharp,
+        command: "node",
+        args: ["scripts/test/build-dotnet-runtime.mjs"],
       },
       {
         id: "csharp-js.build",
