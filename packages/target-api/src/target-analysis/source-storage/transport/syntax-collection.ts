@@ -36,7 +36,6 @@ export interface SourceStorageSyntaxCollectionContext {
   readonly callbackEntries: Map<Node, readonly SourceStorageCallbackEntry[]>;
   readonly unresolvedInvocations: Map<Node, string>;
   readonly memberImplementations: Map<Node, Set<Node>>;
-  readonly visitedNodes: Node[];
   readonly callableDeclarations: Node[];
   readonly callableDeclarationRows: SourceStorageRows;
   readonly subject: SourceStorageSubjectQuery;
@@ -60,13 +59,12 @@ export interface SourceStorageSyntaxCollectionContext {
 /** The per-node collection pass of source storage transport: subjects, edges, writes, invocations and their transports. */
 export function createSourceStorageSyntaxCollection(context: SourceStorageSyntaxCollectionContext) {
   const { source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects, invocationTargets, invocationArguments,
-    invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations, memberImplementations, visitedNodes,
+    invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations, memberImplementations,
     callableDeclarations, callableDeclarationRows,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor, locationFor, connect, projections,
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
   const { ast, navigation, semantics } = source;
   const visit = (node: Node): void => {
-    visitedNodes.push(node);
     if (isSourceCallableBodyBoundary(ast, node) && ast.body(node) !== undefined) {
       if (!callableDeclarationRows.add(1)) return;
       callableDeclarations.push(node);

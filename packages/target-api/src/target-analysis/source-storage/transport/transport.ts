@@ -296,7 +296,7 @@ export function createSourceStorageTransport(
   };
   const syntax = createSourceStorageSyntaxCollection({ source, budget, effects, mutationOwners, invocations, pointerInvocations, invocationEffects,
     invocationTargets, invocationArguments, invocationDeclarations, argumentTransports, callbackEntries, unresolvedInvocations,
-    memberImplementations, visitedNodes, callableDeclarations, callableDeclarationRows,
+    memberImplementations, callableDeclarations, callableDeclarationRows,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow,
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
@@ -317,10 +317,14 @@ export function createSourceStorageTransport(
   while (pendingNodes.length !== 0 && budget.failure() === undefined) {
     const node = pendingNodes.pop()!;
     const ambient = admittedAmbient.get(node)!.ambient;
-    syntax.visit(node);
+    visitedNodes.push(node);
     const children: Node[] = [];
     ast.forEachChild(node, child => { if (child !== undefined && admitNode(child, ambient)) children.push(child); });
     for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
+  }
+  for (const node of visitedNodes) {
+    if (budget.failure() !== undefined) break;
+    syntax.visit(node);
   }
   const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
   const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
