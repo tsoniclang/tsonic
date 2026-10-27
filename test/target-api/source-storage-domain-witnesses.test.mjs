@@ -46,6 +46,27 @@ test("domain witnesses retain exact composite identities and original insertion 
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("writer witnesses retain creation contexts after exact queue admission", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const witnesses = createSourceStorageDomainWitnesses(budget);
+  const member = subject();
+  const owner = subject();
+  const exposure = {};
+  const first = Object.freeze({});
+  const second = Object.freeze({});
+  witnesses.add(member, "opaque-write", exposure, owner, first);
+  const original = witnesses.forSubject(member)[0];
+  const admitted = budget.usage().rows;
+  witnesses.add(member, "opaque-write", exposure, owner, first);
+  assert.equal(budget.usage().rows, admitted, "a repeated exact creation reserves no extra rows");
+  witnesses.add(member, "opaque-write", exposure, owner, second);
+  const values = witnesses.forSubject(member);
+  assert.equal(values.length === 2 && values[0] === original && values[0].creationBindings === first &&
+    values[1].creationBindings === second && values.every(value => value.subject === member && value.owner === owner &&
+      value.exposure === exposure && Object.isFrozen(value)), true, "same source site and exposure retain two exact physical creations");
+  assert.equal(budget.failure(), undefined, "creation evidence uses the unchanged finite reservation owner");
+});
+
 test("many distinct exposures and repeated admissions remain linear under finite work and retained rows", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 256, maximumTransportRows: 768 });
   const witnesses = createSourceStorageDomainWitnesses(budget);

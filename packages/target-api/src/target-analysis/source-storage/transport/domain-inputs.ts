@@ -2,6 +2,7 @@ import type { createSourceStorageTransport } from "./transport.js";
 import type { createSourceStorageDomainWitnesses } from "../graph/domain-witnesses.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageScope } from "../graph/scoped-model.js";
 import { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 
 export function createSourceStorageDomainInputs(
@@ -47,13 +48,13 @@ export function createSourceStorageDomainInputs(
       if (selected !== undefined) queries.read(selected);
     },
     add(subject: SourceStorageSubject | undefined, kind: Parameters<typeof witnesses.add>[1], exposure: Parameters<typeof witnesses.add>[2],
-      owner?: SourceStorageSubject): void {
+      owner?: SourceStorageSubject, creationBindings?: SourceStorageScope): void {
       if (sealed) { budget.reject("Source storage domain inputs require a live construction owner."); return; }
       if (subject === undefined) return;
       const previous = witnesses.inputOwners(subject);
       const known = previous.has(owner);
       const present = previous.size !== 0;
-      witnesses.add(subject, kind, exposure, owner);
+      witnesses.add(subject, kind, exposure, owner, creationBindings);
       if (kind !== "external-input" || known || !witnesses.inputOwners(subject).has(owner)) return;
       if (owner !== undefined) {
         const selected = input(subject, owner);

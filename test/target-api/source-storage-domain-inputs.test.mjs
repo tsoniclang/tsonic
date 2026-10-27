@@ -40,6 +40,22 @@ test("domain input relationships preserve every exposure while reusing duplicate
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("domain input handoff retains writer context without fabricating an external-input relation", () => {
+  const { budget, subject, witnesses, inputs } = fixture();
+  const member = subject({});
+  const owner = subject({});
+  const exposure = {};
+  const bindings = Object.freeze({});
+  inputs.add(member, "opaque-write", exposure, owner, bindings);
+  const selected = witnesses.forSubject(member);
+  assert.equal(selected.length === 1 && selected[0].creationBindings === bindings && selected[0].owner === owner,
+    true, "the actual exposed activation survives the input service handoff");
+  assert.equal(inputs.hasInputs(), false, "a scoped writer is not a new unknown input");
+  inputs.seal();
+  assert.equal(witnesses.forSubject(member)[0] === selected[0], true, "sealing query dependencies retains immutable writer evidence");
+  assert.equal(budget.failure(), undefined, "only construction-owned dependency rows are released");
+});
+
 test("domain input dependencies distinguish exact binding owners and source subject kinds", () => {
   const { budget, subject, inputs } = fixture();
   const node = {};

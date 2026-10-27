@@ -758,6 +758,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }));
     },
     boundActivation: scopes.boundActivation,
+    creationKeyFor: (subject: SourceStorageSubject, bindings: SourceStorageScope): string | undefined =>
+      withQuery(() => keys.birth(subject, bindings)?.key),
     ownerScope: scopes.owningScope,
     isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
       scopes.withTraversal(() => {

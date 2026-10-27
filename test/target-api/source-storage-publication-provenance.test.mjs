@@ -44,6 +44,51 @@ test("published readonly class fields retain their actual receiver allocations",
 });
 
 for (const reverse of [false, true]) {
+  for (const array of [false, true]) {
+    test(`writer boundaries retain nested payload creation activations (${reverse}; array ${array})`, () => {
+      const current = fixture(`
+        class Box { constructor(readonly backing: ${array ? "object[]" : "{ token: object }"}) {} }
+        declare function consume(value: Box): void;
+        function make(token: object): Box { return new Box(${array ? "[token]" : "{ token }"}); }
+        const publicToken = {}; const privateToken = {};
+        const exposed = make(publicToken);
+        const isolated = make(privateToken);
+        consume(exposed);
+        const changed = exposed.backing${array ? "[0]" : ".token"};
+        const unchanged = isolated.backing${array ? "[0]" : ".token"};
+      `);
+      const { ast } = current.source;
+      const file = ast.getSourceFile(current.initializer("changed"));
+      const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+        ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+        ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+      const exposedValue = () => {
+        const selected = current.storage.closedOriginsFor(current.subject("changed"));
+        assert.equal(selected.kind, "open", `the actual exposed creation remains writable; ${selected.reason ?? selected.kind}`);
+        assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure),
+          true, "the real consume invocation remains the writer");
+        assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("publicToken") &&
+          origin.subject.projection.length === 0), true, "the exact exposed creation keeps its known original token");
+        assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("privateToken")), false,
+          "the writer cannot import another activation's known producer");
+      };
+      const privateValue = () => {
+        const selected = current.storage.closedOriginsFor(current.subject("unchanged"));
+        assert.equal(selected.kind, "complete", `the identical nested allocation site in another creation stays private; ${selected.reason ?? selected.kind}`);
+        assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer("privateToken") &&
+          selected.origins[0].subject.projection.length === 0, true, "only the original private activation token is retained");
+      };
+      for (const inspect of reverse ? [privateValue, exposedValue] : [exposedValue, privateValue]) inspect();
+      const exposed = current.storage.storageProducersFor(current.subject("exposed"));
+      const isolated = current.storage.storageProducersFor(current.subject("isolated"));
+      assert.equal(exposed.kind === "complete" && isolated.kind === "complete" && exposed.producers.length === 1 &&
+        isolated.producers.length === 1 && exposed.producers[0].subject === isolated.producers[0].subject &&
+        exposed.producers[0].bindings !== isolated.producers[0].bindings, true,
+      "the Box allocation site is shared, but neither actual creator binding is replaced or merged");
+      assert.equal(current.storage.failureReason(), undefined, "member and array witness context retain existing finite limits");
+    });
+  }
+
   for (const sharedCreation of [false, true]) {
     test(`readonly receiver publication keeps mutable descendants private (${reverse}; shared creation ${sharedCreation})`, () => {
       const current = fixture(`
