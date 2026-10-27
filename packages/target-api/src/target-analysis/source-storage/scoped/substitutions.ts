@@ -564,7 +564,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const collectWitnesses = (current: SourceStorageRelation, collect: boolean, observesValue: boolean,
       guards: SourceStorageValueGuards | undefined, frontier: boolean): boolean | undefined => {
       let stopped = false;
-      const retain = (scope: SourceStorageScope, input: SourceStorageSubject, mode: number): boolean => {
+      const retain = (scope: SourceStorageScope, input: SourceStorageSubject, mode: number, actual = false): boolean => {
         if (!budget.step()) return false;
         const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
         const previous = retained.get(input) ?? 0;
@@ -575,7 +575,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const contributes = collect && (mode & 2) !== 0 && admitted(input, guards);
         let selected = previous | (contributes ? 2 : 1) | (observed ? 128 : 0);
         if (contributes && (mode & 16) !== 0) selected |= 16;
-        if ((contributes || frontier && (mode & 2) !== 0 && admitted(input, guards)) && stopAt !== undefined) {
+        if (actual && (contributes || frontier && (mode & 2) !== 0 && admitted(input, guards)) && stopAt !== undefined) {
           const original = (mode & 16) !== 0;
           const inspected = original ? 32 : 4;
           const boundary = original ? 64 : 8;
@@ -587,8 +587,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         return true;
       };
       const term = current;
-      if (term.kind === "reference" && !retain(witnessScope(term.subject, term.scope), term.subject, 2)) return undefined;
-      if (term.kind === "leaf" && !retain(term.scope, term.subject, 2 | 16)) return undefined;
+      if (term.kind === "reference" && !retain(witnessScope(term.subject, term.scope), term.subject, 2, true)) return undefined;
+      if (term.kind === "leaf" && !retain(term.scope, term.subject, 2 | 16, true)) return undefined;
       for (const [scope, inputs] of current[sourceStorageRelationData].witnesses ?? []) for (const [input, mode] of inputs) {
         if (!retain(scope, input, mode)) return undefined;
       }
