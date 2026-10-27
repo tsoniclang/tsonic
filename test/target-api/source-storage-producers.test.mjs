@@ -43,6 +43,39 @@ function open(selected, kind) {
   assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === kind), true, kind);
 }
 
+for (const reverse of [false, true]) test(`fixed authored callees retain separate outside argument domains (${reverse})`, async () => {
+  const current = await fixture(`storage-producer-fixed-callee-${reverse}`, `
+    declare const outside: object;
+    function retain(value: object): object { return value; }
+    const original = {}; const known = retain(original); const unknown = retain(outside);
+  `);
+  for (const name of reverse ? ["unknown", "known"] : ["known", "unknown"]) {
+    const selected = current.storage.closedOriginsFor(current.subject(current.variable(name)));
+    if (name === "unknown") {
+      assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+        "a fixed source body does not certify preservation of an outside argument");
+    } else {
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("original"), true,
+      "the exact direct source callee keeps its own caller allocation");
+    }
+  }
+  assert.equal(current.storage.failureReason(), undefined, "exact callable identity needs no unbounded re-analysis");
+});
+
+test("a rewritten authored function binding cannot prove its later callee closed", async () => {
+  const current = await fixture("storage-producer-rewritten-callee", `
+    declare function native(value: object): object;
+    function retain(value: object): object { return value; }
+    retain = native;
+    const original = {}; const selected = retain(original);
+  `);
+  const selected = current.storage.closedOriginsFor(current.subject(current.variable("selected")));
+  assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true,
+    `a source declaration with a native write retains its actual opaque result; ${selected.reason ?? selected.kind}`);
+  assert.equal(current.storage.failureReason(), undefined, "the actual native alternative remains bounded");
+});
+
 test("stored invocation producers retain exact independent activation bindings", async () => {
   const current = await fixture("storage-producer-activation", `
     function retain(callback: () => {}): {} { return callback(); }

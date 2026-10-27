@@ -271,6 +271,14 @@ export function createSourceStorageDomains(
   const computeClosedSourceInvocation = (invocation: Node, bindings: SourceStorageScope): boolean => {
     if (transport.unresolvedInvocations.has(invocation)) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
+      const callee = Node_Expression(ast, invocation);
+      const declaration = callee !== undefined && ast.is.IsIdentifier(callee)
+        ? navigation.sourceReferenceFor(callee)?.declaration : undefined;
+      const authored = declaration !== undefined && ast.is.IsFunctionDeclaration(declaration) &&
+        ast.body(declaration) !== undefined && navigation.isProjectDeclaration(declaration) ? transport.subject(declaration) : undefined;
+      if (authored !== undefined && transport.incomingFor(authored).size === 0 &&
+        transport.storedValuesFor(authored) === undefined && transport.unresolvedStoredInputsFor(authored) === undefined &&
+        boundariesFor(authored).length === 0) return true;
       const target = transport.invocationTargets.get(invocation);
       const selected = target === undefined ? undefined : transport.substitutions.walk(target, bindings);
       if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
@@ -283,7 +291,6 @@ export function createSourceStorageDomains(
       // The callee's receiver selects the member: an unbound external receiver leaves the implementation open even though
       // the receiver value itself does not contribute.
       const receivers = new Set<SourceStorageSubject>();
-      const callee = Node_Expression(ast, invocation);
       let receiver = callee !== undefined && ast.is.IsPropertyAccessExpression(callee) ? transport.subjectFor(Node_Expression(ast, callee)) : undefined;
       for (let depth = 0; receiver !== undefined && !receivers.has(receiver) && depth < 64; depth += 1) {
         if (!budget.step()) return false;
