@@ -4,6 +4,8 @@ import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceErrorStorageDemandQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedMember, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const globals = `
 interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -221,6 +223,67 @@ function resolvedSubject(selection, label) {
   assert.equal(selection.kind === "resolved", true, label);
   return selection.subject;
 }
+
+test("ordinary physical store readers preserve first and later producers through repeated enumeration", async () => {
+  const current = await checked("source-storage-repeatable-ordinary-stores", `
+const original = {}; const replacement = {};
+let slot = original; slot = replacement;
+`);
+  const { source, file, variable, subject, initializer } = current;
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inventory = createSourceStorageStoredValues(source.ast, budget, () => file, () => undefined, () => false);
+  const slot = subject("slot"); const original = subject("original"); const replacement = subject("replacement");
+  inventory.initialize(slot, initializer("slot"), original);
+  const stores = inventory.storesFor(slot);
+  const first = [...stores];
+  assert.equal(first.length === 1 && first[0].value === original && first[0].storage === slot, true,
+    "the only initialization retains its identical producer and binding");
+  const repeated = [...stores];
+  assert.equal(repeated.length === 1 && repeated[0] === first[0], true,
+    "a stored iterable starts a new traversal without copying or reconstructing store records");
+  const inputs = inventory.inputsFor(slot);
+  for (let repetition = 0; repetition < 2; repetition += 1) {
+    const values = [...inputs];
+    assert.equal(values.length === 1 && values[0] === original, true,
+      "physical destination discovery cannot consume the sole initialization producer");
+  }
+  assert.equal(inventory.unresolvedFor(slot) === undefined, true, "a valid first producer has no invented refusal");
+  const assignment = requiredNode(source.ast, file, source.ast.is.IsBinaryExpression);
+  const reference = source.ast.as.AsBinaryExpression(assignment).Left;
+  inventory.recordWrite(slot, { reference, operation: assignment, kind: "mutation", value: replacement,
+    values: [{ source: undefined, subjects: [replacement], reason: undefined }] });
+  for (let repetition = 0; repetition < 2; repetition += 1) {
+    const stored = [...stores];
+    const values = [...inventory.inputsFor(slot)];
+    assert.equal(stored.length === 2 && stored[0] === first[0] && stored[1].reference === reference &&
+      stored[1].value === replacement, true, "repeated store queries retain initialization and mutation in checked insertion order");
+    assert.equal(values.length === 2 && values[0] === original && values[1] === replacement, true,
+      "physical input queries never drop or reorder the first of multiple real producers");
+  }
+  assert.equal(variable("slot") === slot.node && budget.failure() === undefined, true,
+    "the original checked binding and finite guard remain authoritative");
+});
+
+test("ordinary physical store readers retain the first precise refusal through repeated queries", async () => {
+  const current = await checked("source-storage-repeatable-ordinary-refusal", `const original = {}; let slot = original;`);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inventory = createSourceStorageStoredValues(current.source.ast, budget, () => current.file, () => undefined, () => false);
+  const slot = current.subject("slot");
+  const reference = current.initializer("slot");
+  const reason = "Source storage writes require their exact checked original value producer, iteration element and component projection.";
+  inventory.recordWrite(slot, { reference, operation: slot.node, kind: "initialization",
+    values: [{ source: undefined, subjects: [], reason }], reason });
+  const stores = inventory.storesFor(slot);
+  const first = [...stores];
+  for (let repetition = 0; repetition < 2; repetition += 1) {
+    const repeated = [...stores];
+    assert.equal(repeated.length === 1 && repeated[0] === first[0] && repeated[0].reference === reference &&
+      repeated[0].reason === reason, true, "the original failed store keeps its exact identity and refusal");
+    assert.equal(inventory.unresolvedFor(slot), reason, "physical destination discovery cannot silently consume a first-store refusal");
+    assert.equal([...inventory.inputsFor(slot)].length, 0, "a precise rejected producer is never fabricated as physical input");
+  }
+  assert.equal(budget.failure() === undefined, true, "a source refusal is not finite-budget exhaustion");
+});
 
 test("fresh storage allocations preserve exact expression types independently of declared bindings", async () => {
   const { source, storage, variable, initializer } = await checked("source-storage-fresh-allocation-types", `
