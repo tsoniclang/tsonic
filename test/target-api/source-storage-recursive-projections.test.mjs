@@ -77,15 +77,25 @@ for (const openFirst of [false, true]) {
 test("an unproved inspection retains its exact opaque operand even when the object's checked view has no members", () => {
   const current = fixture(`
     declare function inspect(value: object): boolean;
-    const original: object = {};
+    const token = {};
+    const original = { token };
     const alias = original;
     const observed = inspect(alias);
+    const selected = alias.token;
   `);
-  const selected = current.query("alias");
-  assert.equal(selected.kind === "open", true, "an empty public view cannot certify that an opaque operation preserves its input");
+  const identity = current.query("alias");
+  assert.equal(identity.kind === "complete", true,
+    "a by-value opaque operation cannot replace the original container identity");
+  assert.equal(identity.origins.length === 1 && identity.origins[0].subject.node === current.initializer("original"), true,
+    "the exact original allocation survives the memberless public view");
+  const selected = current.query("selected");
+  assert.equal(selected.kind === "open", true,
+    "an empty public view cannot certify preservation of the original contained storage");
   assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" &&
     current.source.ast.is.IsCallExpression(boundary.exposure)), true,
-  "the real checked invocation owns the opacity witness");
+    "the real checked invocation owns the opacity witness");
+  assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true,
+    "opacity does not erase the independently known original contained value");
   assert.equal(current.storage.failureReason() === undefined, true, "no synthetic effect or new resource ceiling is required");
 });
 
