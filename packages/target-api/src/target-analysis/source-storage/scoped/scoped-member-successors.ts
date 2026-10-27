@@ -168,6 +168,15 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
     const selected = access === undefined ? undefined : property ?? (ast.is.IsElementAccessExpression(access)
       ? semantics.forNode(access).operations.elementAccess(access) : undefined);
+    const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
+      ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
+      : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
+    if (optional && term.receiver.kind === "leaf") {
+      const type = sourceStorageSubjectType(source, term.receiver.subject);
+      const types = semantics.forNode(term.receiver.subject.node).types;
+      if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
+        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: term.receiver })] };
+    }
     let selections = term.selection.kind === "projection" ? [{ target: term.selection.declaration, read: true }]
       : access === undefined ? undefined : term.mode === "execution" ? [
         ...(sourceStorageAccessDeclarations(source, access, "read") ?? []).map(target => ({ target, read: true })),
@@ -214,15 +223,6 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         receiver === term.receiver ? term : Object.freeze({ ...term, receiver });
       return !correlated && term.mode === "value" && declarations.every(passiveMember)
         ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace, { contributes: false });
-    }
-    const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
-      ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
-      : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
-    if (optional) {
-      const type = sourceStorageSubjectType(source, term.receiver.subject);
-      const types = semantics.forNode(term.receiver.subject.node).types;
-      if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
-        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: term.receiver })] };
     }
     if (term.selection.kind === "projection" && term.selection.before !== undefined) {
       const before = term.selection.before;

@@ -41,6 +41,8 @@ for (const [name, read] of [
   ["property", "value.child"],
   ["literal element", 'value["child"]'],
   ["constant element", "value[key]"],
+  ["optional property", "value?.child"],
+  ["optional element", 'value?.["child"]'],
 ]) test(`actual ${name} receiver retains the child allocation through a broad local and return`, () => {
   const current = fixture(`
     const child = { label: "ready" }; const untouched = { count: 1 };
@@ -85,6 +87,16 @@ test("selecting an outer dynamic receiver never selects its unaccessed contained
   `);
   exactOrigins(current, "receiver", [current.initializer("original")], [current.initializer("child")]);
 });
+
+for (const value of ["null", "undefined"]) for (const read of ["value?.child", 'value?.["child"]']) {
+  test(`an absent actual dynamic receiver retains canonical optional absence (${value}; ${read})`, () => {
+    const current = fixture(`const value: any = ${value}; const selected = ${read};`);
+    const selected = current.domain("selected");
+    assert.equal(selected.kind === "complete" && selected.origins.length === 0, true,
+      `an absent receiver needs no fabricated physical member; ${selected.reason ?? selected.kind}`);
+    assert.equal(current.storage.failureReason(), undefined, "optional absence does not reject the checked source graph");
+  });
+}
 
 for (const [name, body] of [
   ["external receiver", "declare const value: any; const selected = value.child;"],
