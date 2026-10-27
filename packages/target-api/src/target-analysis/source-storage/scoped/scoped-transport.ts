@@ -60,7 +60,7 @@ export interface SourceStorageScopedTransport {
 
 export function sourceStorageTransparentInput(subject: SourceStorageSubject, ast: AstReader,
   transport: Pick<SourceStorageScopedTransport, "incomingFor">): SourceStorageSubject | undefined {
-  if (subject.kind !== "value") return undefined;
+  if (subject.kind !== "value" || subject.projection.length !== 0) return undefined;
   const parents = transport.incomingFor(subject);
   const input = parents.size === 1 ? parents.values().next().value : undefined;
   if (input?.kind === "input" && input.node === subject.node) return input;
@@ -74,6 +74,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
   const retained = budget.createRows();
   return subject => {
     if (!budget.step()) return undefined;
+    if (subject.projection.length !== 0) return undefined;
     const transparent = sourceStorageTransparentInput(subject, ast, transport);
     if (transparent !== undefined) return transparent;
     if (subject.kind !== "value" || !ast.is.IsIdentifier(subject.node) && ast.kindName(subject.node) !== "KindThisKeyword")
@@ -86,6 +87,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
       const visited = new Set<SourceStorageSubject>();
       while (current.kind === "value") {
         if (!budget.step()) return undefined;
+        if (current.projection.length !== 0) return undefined;
         if (visited.has(current)) {
           budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
         }

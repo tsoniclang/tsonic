@@ -226,6 +226,25 @@ test("repeated unguarded recursive witnesses retain every exact caller and origi
   }
 });
 
+test("recursive generic collection aliases retain their exact independent instantiations", () => {
+  const current = fixture(`
+    import type { Tree } from "./tree.js";
+    function keep<Value>(tree: Tree<Value>): Tree<Value> { return tree; }
+    const numbers: Tree<number> = [2, [3, 4]];
+    const strings: Tree<string> = ["left", ["middle", "right"]];
+    const first = keep<number>(numbers);
+    const second = keep<string>(strings);
+  `, { "/src/tree.ts": `export type Tree<Value> = Value | readonly Tree<Value>[];` });
+  for (const [name, own, foreign] of [["first", "numbers", "strings"], ["second", "strings", "numbers"],
+    ["second", "strings", "numbers"], ["first", "numbers", "strings"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      `${name}: the exact original collection survives the generic call`);
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      `${name}: another recursive instantiation cannot enter its storage domain`);
+  }
+});
+
 test("a cross-file generic recursive entry retains its actual input without requiring an invariant recursive argument", () => {
   const current = fixture(`
     import { descend } from "./descend.js";

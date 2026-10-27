@@ -11,6 +11,7 @@ function fixture(limits = {}) {
   const empty = {};
   const identities = new Map();
   const inputs = new Map();
+  const inputReads = new Map();
   const guards = new Set();
   const subject = (kind, syntax, extra = {}) => ({ kind, node: { syntax, ...extra }, projection: [] });
   const formal = subject("input", "parameter");
@@ -21,7 +22,10 @@ function fixture(limits = {}) {
     IsParameterDeclaration: node => node.syntax === "parameter",
   }, as: { AsParameterDeclaration: node => node.syntax === "parameter" ? { Initializer: undefined } : undefined },
   variableDeclarationKind: node => node.declarationKind, kindName: node => node.syntax };
-  const transport = { incomingFor: value => inputs.get(value) ?? new Set(),
+  const transport = { incomingFor: value => {
+    inputReads.set(value, (inputReads.get(value) ?? 0) + 1);
+    return inputs.get(value) ?? new Set();
+  },
     contextualInputs: value => value === destination ? new Set([formal]) : new Set(),
     contextLocation: () => undefined, regions: { enclosing: () => undefined },
     guardedValues: { appliesTo: node => guards.has(node) } };
@@ -45,8 +49,24 @@ function fixture(limits = {}) {
     inputs.set(selected, new Set([value]));
     return selected;
   };
-  return { budget, inputs, guards, subject, key, binding, read };
+  return { budget, inputs, inputReads, guards, subject, key, binding, read };
 }
+
+test("binding identity never unfolds a projected data demand as a transparent alias", () => {
+  const current = fixture();
+  const original = current.subject("value", "identifier");
+  const element = { ...original, projection: [{ kind: "array-element" }] };
+  const nested = { ...original, projection: [{ kind: "array-element" }, { kind: "array-element" }] };
+  current.inputs.set(element, new Set([nested]));
+  current.inputs.set(nested, new Set([element]));
+  const first = current.binding(element);
+  const second = current.binding(nested);
+  assert.equal(typeof first === "string" && typeof second === "string" && first !== second, true,
+    "binding keys preserve distinct exact component paths without expanding their data graph");
+  assert.equal((current.inputReads.get(element) ?? 0) === 0 && (current.inputReads.get(nested) ?? 0) === 0, true,
+    "projected component ancestry belongs to the value reducer, not alias-key normalization");
+  assert.equal(current.budget.failure() === undefined, true, "recursive data edges do not consume alias traversal budgets");
+});
 
 test("binding aliases share exact input identity without merging ordered read occurrences", () => {
   const current = fixture();
