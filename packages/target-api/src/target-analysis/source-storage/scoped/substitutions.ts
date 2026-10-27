@@ -29,6 +29,10 @@ export const sourceStorageMissingProducerReason = "A demanded source storage rel
 const sourceStorageRelationKey = Symbol("source-storage-relation-key");
 const sourceStorageRelationData = Symbol("source-storage-relation-data");
 
+function sourceStorageIsTerminalValue(term: SourceStorageTerm): boolean {
+  return term.kind === "leaf" || term.kind === "unresolved" || term.kind === "empty";
+}
+
 type SourceStorageRelation = SourceStorageTerm & {
   readonly [sourceStorageRelationKey]: string;
   readonly [sourceStorageRelationData]: SourceStorageRelationState;
@@ -250,7 +254,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (selected === undefined) {
       if (!rows.add(2)) return undefined;
       const node: SourceStorageRelation = { ...normalized, [sourceStorageRelationKey]: key,
-        [sourceStorageRelationData]: Object.assign(new Map<SourceStorageRelation, number>(), { complete: false }) };
+        [sourceStorageRelationData]: Object.assign(new Map<SourceStorageRelation, number>(), {
+          complete: sourceStorageIsTerminalValue(normalized) }) };
       Object.defineProperties(node, {
         [sourceStorageRelationKey]: { enumerable: false },
         [sourceStorageRelationData]: { enumerable: false },
@@ -296,7 +301,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (!budget.step()) return false;
         if ((mode & 2) !== 0 && !emit(child, child.kind === "leaf" || child.kind === "unresolved" || child.kind === "empty")) return false;
       }
-      if (current.kind === "leaf" || current.kind === "unresolved" || current.kind === "effect" || current.kind === "empty") return emit(relation, true);
+      if (sourceStorageIsTerminalValue(current) || current.kind === "effect") return emit(relation, true);
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
@@ -349,7 +354,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (successor === undefined || !emit(successor, true)) return false;
           continue;
         }
-        const terminal = term.kind === "leaf" || term.kind === "unresolved" || term.kind === "empty";
+        const terminal = sourceStorageIsTerminalValue(term);
         const successor = retain(term);
         if (successor === undefined) return false;
         if (terminal) {
@@ -455,7 +460,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return Object.freeze({ subjects: Object.freeze(subjects), boundaries: Object.freeze(boundaries), reason });
     }));
   const hasStaticValue = (relation: SourceStorageRelation, data = relation[sourceStorageRelationData]): boolean | undefined => {
-    if (relation.kind === "leaf" || relation.kind === "unresolved" || relation.kind === "empty") return true;
+    if (sourceStorageIsTerminalValue(relation)) return true;
     if (!data.complete || data.forwardProjection !== undefined) return false;
     let present = false;
     for (const [child, mode] of data) {
@@ -476,7 +481,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const existing = localStates.get(relation);
       if (existing !== undefined) return existing;
       if (!temporary.add(2)) return undefined;
-      const state: SourceStorageRelationState = Object.assign(new Map<SourceStorageRelation, number>(), { complete: false });
+      const state: SourceStorageRelationState = Object.assign(new Map<SourceStorageRelation, number>(), {
+        complete: sourceStorageIsTerminalValue(relation) });
       localStates.set(relation, state);
       return state;
     };
