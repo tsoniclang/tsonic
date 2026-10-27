@@ -14,7 +14,7 @@ export function createSourceSuspensionQuery(input: {
   const { source, storage, premises, budget } = input;
   if (source !== storage.source) throw new Error("Suspension and storage must share the identical checked source program.");
   const rows = budget.createRows();
-  type PendingEntry = { readonly selection: SourcePendingSelection; readonly declared: boolean };
+  type PendingEntry = { readonly value?: SourcePendingSelection; readonly invocation?: SourcePendingSelection };
   const cache = new Map<Node, Map<SourceStorageBindings, PendingEntry>>();
   type OriginSelection = { readonly kind: "resolved"; readonly contract: Exclude<SourceSuspensionSelection, SourceOwnershipUnresolved>;
     readonly declared: boolean };
@@ -48,53 +48,60 @@ export function createSourceSuspensionQuery(input: {
   const select = (operation: Node, expression: Node, bindings: SourceStorageBindings,
     requireContract: boolean): SourcePendingSelection => {
     if (!budget.step()) return sourceOwnershipUnresolved(operation, budget.failure()!);
-    const existing = cache.get(operation)?.get(bindings);
+    const mode = requireContract ? "invocation" : "value";
+    const existing = cache.get(operation)?.get(bindings)?.[mode];
     const missingContract = () => sourceOwnershipUnresolved(expression,
       "A no-body invocation requires its checked native continuation contract; a non-async result is not an empty-work proof.");
-    if (existing !== undefined) return requireContract && !existing.declared ? missingContract() : existing.selection;
+    if (existing !== undefined) return existing;
+    const publish = (selection: SourcePendingSelection): void => {
+      const values = cache.get(operation) ?? new Map<SourceStorageBindings, PendingEntry>();
+      values.set(bindings, Object.freeze({ ...values.get(bindings), [mode]: selection }));
+      cache.set(operation, values);
+    };
     const types = source.semantics.forNode(expression).types;
     const expressionType = types.expressionType(expression);
     if (!requireContract && expressionType !== undefined && sourceOwnershipImmediateType(expressionType, types, budget)) {
       if (!rows.add(2)) return sourceOwnershipUnresolved(operation, budget.failure()!);
       const selection: SourcePendingSelection = Object.freeze({ kind: "never" });
-      const values = cache.get(operation) ?? new Map<SourceStorageBindings, PendingEntry>();
-      values.set(bindings, Object.freeze({ selection, declared: false }));
-      cache.set(operation, values);
+      publish(selection);
       return selection;
     }
     const subject = storage.subjectFor(expression);
     if (subject.kind === "unresolved") return sourceOwnershipUnresolved(operation, subject.reason);
-    const bound = storage.storageProducersFor(subject.subject, bindings);
-    if (bound.kind === "unresolved") return sourceOwnershipUnresolved(operation, bound.reason);
-    if (bound.producers.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
     const contracts: SourcePendingOperation["contracts"][number][] = [];
-    let declared = true;
-    for (const actual of bound.producers) {
-      const selection = forOrigin(actual.subject, actual.bindings);
+    if (requireContract) {
+      const context = storage.contextKeyFor([], bindings);
+      if (context.kind === "unresolved") return sourceOwnershipUnresolved(operation, context.reason);
+      const selection = forOrigin(subject.subject, bindings);
       if (selection.kind === "unresolved") return selection;
-      declared &&= selection.declared;
-      if (requireContract && !selection.declared) return missingContract();
+      if (!selection.declared) return missingContract();
       if (selection.contract.kind === "may-suspend") contracts.push(selection.contract);
+    } else {
+      const bound = storage.storageProducersFor(subject.subject, bindings);
+      if (bound.kind === "unresolved") return sourceOwnershipUnresolved(operation, bound.reason);
+      if (bound.producers.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
+      for (const actual of bound.producers) {
+        const selection = forOrigin(actual.subject, actual.bindings);
+        if (selection.kind === "unresolved") return selection;
+        if (selection.contract.kind === "may-suspend") contracts.push(selection.contract);
+      }
     }
     if (!rows.add(2 + contracts.length)) return sourceOwnershipUnresolved(operation, budget.failure()!);
     const result: SourcePendingSelection = contracts.length === 0 ? Object.freeze({ kind: "never" })
       : Object.freeze({ kind: "resolved", pending: Object.freeze({ operation, expression, bindings,
         contracts: Object.freeze(contracts) }) });
-    const byBinding = cache.get(operation) ?? new Map<SourceStorageBindings, PendingEntry>();
-    byBinding.set(bindings, Object.freeze({ selection: result, declared }));
-    cache.set(operation, byBinding);
+    publish(result);
     return result;
   };
   return Object.freeze({
     owns(pending: SourcePendingOperation): boolean {
       if (!budget.step()) return false;
       const selected = cache.get(pending.operation)?.get(pending.bindings);
-      return selected?.selection.kind === "resolved" && selected.selection.pending === pending;
+      return selected?.value?.kind === "resolved" && selected.value.pending === pending ||
+        selected?.invocation?.kind === "resolved" && selected.invocation.pending === pending;
     },
     forAwait(operation: Node, bindings: SourceStorageBindings): SourcePendingSelection {
       if (!budget.step()) return sourceOwnershipUnresolved(operation, budget.failure()!);
-      const existing = cache.get(operation)?.get(bindings);
-      if (existing !== undefined) return existing.selection;
       const file = source.ast.getSourceFile(operation);
       const expression = source.ast.is.IsAwaitExpression(operation)
         ? source.ast.as.AsAwaitExpression(operation)?.Expression : undefined;

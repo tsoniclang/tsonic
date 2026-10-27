@@ -129,6 +129,22 @@ test("an inferred settled result cannot be reused as an absent native invocation
   assert.equal(native.kind, "unresolved", "native invocation work still requires its own exact contract");
 });
 
+for (const resultFirst of [false, true]) {
+  test(`result and native invocation decisions preserve their own complete contracts (${resultFirst})`, () => {
+    const current = closureFixture({ text: "function scalarFactory() { return nativeScalar(1); }" });
+    const call = current.calls(current.declaration("scalarFactory"))[0];
+    let contracts = 0;
+    const query = createSourceSuspensionQuery({ ...current, premises: { suspensionFor(value, bindings) {
+      contracts += 1;
+      return current.native.suspensionFor(value, bindings);
+    } } });
+    const value = () => assert.equal(query.forResult(call, current.storage.emptyBindings).kind, "never", "plain scalar result stays immediate");
+    const invocation = () => assert.equal(query.forCall(call, current.storage.emptyBindings).kind, "never", "native call retains its actual checked contract");
+    for (const inspect of resultFirst ? [value, invocation] : [invocation, value]) inspect();
+    assert.equal(contracts, 1, "the invocation contract is computed once and is never inferred from the scalar result");
+  });
+}
+
 test("completed continuation caches cannot outlive a sticky exhausted owner budget", () => {
   const current = closureFixture();
   const call = current.call("after");
