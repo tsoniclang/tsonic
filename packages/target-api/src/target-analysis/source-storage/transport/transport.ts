@@ -484,7 +484,8 @@ export function createSourceStorageTransport(
     const entries = callbackEntries.get(invocation);
     if (entries === undefined || entries.length === 0) return entries ?? [];
     const selected = invocationImplementationSelection(invocation);
-    if (selected?.exact === true && [...selected.nodes].some(candidate => ast.body(candidate) !== undefined)) return [];
+    if (selected?.exact === true && selected.nodes.size !== 0 &&
+      [...selected.nodes].every(candidate => ast.body(candidate) !== undefined)) return [];
     return entries;
   };
   const callbackImplementationsFor = (entry: SourceStorageCallbackEntry): ReadonlySet<Node> =>
@@ -803,8 +804,8 @@ export function createSourceStorageTransport(
     const reason = unresolvedInvocations.get(invocation);
     if (reason === undefined && pointerInvocations.has(invocation)) continue;
     const implementations = invocationImplementationSelection(invocation);
-    if (reason === undefined && implementations?.exact === true &&
-      [...implementations.nodes].some(candidate => ast.body(candidate) !== undefined ||
+    if (reason === undefined && implementations?.exact === true && implementations.nodes.size !== 0 &&
+      [...implementations.nodes].every(candidate => ast.body(candidate) !== undefined ||
         ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate))) continue;
     const selected = new Set<SourceStorageSubject>();
     const result = subject(invocation);

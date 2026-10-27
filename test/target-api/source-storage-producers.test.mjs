@@ -76,6 +76,30 @@ test("a rewritten authored function binding cannot prove its later callee closed
   assert.equal(current.storage.failureReason(), undefined, "the actual native alternative remains bounded");
 });
 
+for (const assignment of ["retain = native;", "retain = choose ? retain : native;"]) {
+  test(`native callee alternatives retain the actual opaque result (${assignment})`, async () => {
+    const current = await fixture("storage-producer-native-alternative", `
+      declare const choose: boolean;
+      declare function native(value: object): object;
+      let retain = function (value: object): object { return value; };
+      ${assignment}
+      const original = {}; const independent = {};
+      const selected = retain(original);
+    `);
+    const selected = current.storage.closedOriginsFor(current.subject(current.variable("selected")));
+    assert.equal(selected.kind === "open", true,
+      `the actual native alternative stays opaque; ${selected.reason ?? selected.kind}`);
+    const exposure = current.initializer("selected");
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result" && boundary.exposure === exposure),
+      true, "the exact invocation, not its stale source signature, owns the opaque result");
+    const independent = current.storage.closedOriginsFor(current.subject(current.variable("independent")));
+    assert.equal(independent.kind === "complete" && independent.origins.length === 1 &&
+      independent.origins[0].subject.node === current.initializer("independent"), true,
+    "native alternatives cannot poison an unrelated exact allocation");
+    assert.equal(current.storage.failureReason() === undefined, true, "native alternative transport remains finite");
+  });
+}
+
 test("stored invocation producers retain exact independent activation bindings", async () => {
   const current = await fixture("storage-producer-activation", `
     function retain(callback: () => {}): {} { return callback(); }

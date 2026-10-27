@@ -476,7 +476,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         })], dependencies };
       }
       if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
-        contract !== undefined && ast.body(contract) === undefined) {
+        (contract !== undefined && ast.body(contract) === undefined || transport.declarationIsAmbient(node) === true &&
+          semantics.forNode(node).declarations.declarationSignature(node) !== undefined)) {
         const result = transport.subject(term.invocation, "value", term.projection);
         return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
           ? [leaf(result, term.scope)] : term.mode === "execution" ? []
