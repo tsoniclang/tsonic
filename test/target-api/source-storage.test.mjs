@@ -52,6 +52,34 @@ const missing = absent["item"];
   assert.equal(current.storage.failureReason() === undefined, true, "the existing finite source guards remain enabled");
 });
 
+test("readonly indexed aliases share their backing writes across checked property and element access", async () => {
+  const current = await checked("source-storage-indexed-readonly-alias", `
+interface Mutable { [key: string]: object | undefined; }
+interface ReadonlyView { readonly [key: string]: object | undefined; }
+const token = {}; const independent = {};
+const backing = {};
+const mutable: Mutable = backing;
+const readonly: ReadonlyView = mutable;
+const separate: Mutable = {};
+mutable.item = token; separate.item = independent;
+const selected = readonly["item"];
+const property = readonly.item;
+`);
+  for (const name of ["selected", "property"]) {
+    const domain = current.storage.closedOriginsFor(current.subject(name));
+    assert.equal(domain.kind === "complete", true, `${name}: checked readonly alias completes`);
+    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("token")), true,
+      `${name}: a readonly view observes the actual writable alias`);
+    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("independent")), false,
+      `${name}: another allocation cannot provide the indexed value`);
+  }
+  const domain = current.storage.closedOriginsFor(current.subject("readonly"));
+  assert.equal(domain.kind === "complete" && domain.origins.length === 1 &&
+    domain.origins[0].subject.node === current.initializer("backing"), true,
+  "readonly indexed transport retains the one original allocation");
+  assert.equal(current.storage.failureReason() === undefined, true, "property syntax does not require a second graph or raised limit");
+});
+
 test("indexed components require the actual checked view and keep generic and readonly evidence distinct", async () => {
   const current = await checked("source-storage-indexed-admission", `
 interface Values<T> { [key: string]: T; }

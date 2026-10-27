@@ -117,6 +117,40 @@ test("bound pointer accessors execute only at their actual load and store", () =
   current.expect("direct", ["original", "replacement"]);
 });
 
+test("native addressed class fields retain initialized module backing and distinct allocation identity", () => {
+  const current = fixture(`
+    const original = () => 1; const replacement = () => 2; const separate = () => 3;
+    class State { value: () => number; constructor(value: () => number) { this.value = value; } }
+    let state: State;
+    function initialize(value: () => number): void { state = new State(value); }
+    function write(): void { const alias = state; storeptr(addressof(alias.value), replacement); }
+    function read(): () => number { return loadptr(addressof(state.value)); }
+    function directRead(): () => number { return state.value; }
+    const other = new State(separate);
+    initialize(original); write();
+    const result = read(); const direct = directRead(); const untouched = loadptr(addressof(other.value));
+  `);
+  current.expect("result", ["original", "replacement"]);
+  current.expect("direct", ["original", "replacement"]);
+  current.expect("untouched", ["separate"]);
+});
+
+test("unproved addressed class fields retain the real outside backing boundary after a native write", () => {
+  const current = fixture(`
+    const replacement = () => 2;
+    class State { value: () => number; constructor(value: () => number) { this.value = value; } }
+    export function inspect(state: State): void {
+      storeptr(addressof(state.value), replacement);
+      const result = loadptr(addressof(state.value));
+    }
+  `);
+  const selected = current.query("result");
+  assert.equal(selected.kind === "open", true, "a real outside backing location retains its precise open domain");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "a native write never discharges the original caller-owned input witness");
+  assert.equal(current.storage.failureReason() === undefined, true, "unknown backing evidence does not exhaust or bypass the source guard");
+});
+
 test("projected pointer accessors preserve their own conversion direction", () => {
   const current = fixture(`
     const original = () => 1; const replacement = () => 2;
