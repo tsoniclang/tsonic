@@ -421,17 +421,12 @@ export function createSourceStorageDomains(
     return query(subject);
   };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
-    const region = transport.regions.enclosing(subject.node);
-    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
-    const lexical = externalEntry || owner !== undefined && publications.hasCallable(owner)
-      ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
-    if (lexical === undefined) {
+    const bindings = externalEntry ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
+    if (bindings === undefined) {
       budget.reject("Source storage publication requires its completed original lexical creation bindings.");
       return;
     }
-    const scopes = externalEntry || lexical === transport.substitutions.empty
-      ? [lexical] : [transport.substitutions.empty, lexical];
-    for (const bindings of scopes) yield* publicationOriginsIn(subject, bindings) ?? [];
+    yield* publicationOriginsIn(subject, bindings) ?? [];
   };
   // The root scope and a top-level declaration activation are where an outside caller's values enter.
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
