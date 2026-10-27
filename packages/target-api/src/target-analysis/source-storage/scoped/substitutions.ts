@@ -104,11 +104,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const normalize = (term: SourceStorageTerm, witnesses: SourceStorageNormalizationWitness[], temporary: SourceStorageRows,
     contributes: boolean, observesValue: boolean, actual = false): SourceStorageTerm | undefined => {
     while (true) {
-      let witness: SourceStorageRelationWitness | undefined;
+      let witness: SourceStorageNormalizationWitness | undefined;
       if (term.kind === "reference" || term.kind === "leaf") {
         if (!budget.step() || !temporary.add(1)) return undefined;
-        witness = { subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes, observesValue };
-        witnesses.push({ ...witness, actual });
+        witness = { subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes, observesValue, actual };
+        witnesses.push(witness);
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
         if (term.subject.kind === "value" && term.subject.projection.length === 0 &&
