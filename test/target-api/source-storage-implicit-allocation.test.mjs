@@ -72,7 +72,8 @@ for (const footprint of ["mutating", "readonly", "deferred", "receiver", "bound"
     const origins = complete(current, "created");
     assert.equal(origins.length === 1 && origins[0].subject.node === invocation, true, "exact new source instance identity");
     const regions = current.storage.instanceRegionsFor(invocation);
-    assert.equal(regions.kind === "resolved" && regions.regions.length === 1, true, "inherited initializer remains executable");
+    assert.equal(regions.kind === "resolved" && regions.regions.length === 1, true,
+      `inherited initializer remains executable; ${regions.kind}; ${regions.kind === "unresolved" ? regions.reason : regions.regions.length}`);
     assert.equal(regions.regions[0].owner === namedDeclaration(current.source.ast, current.file, "Base"), true,
       "exact inherited initializer owner is retained");
     open(current, "original", "opaque-result");
@@ -118,7 +119,8 @@ test("inherited instance regions retain the exact class-definition creator bindi
     const caller = storage.bindingsForInvocation(create, current.initializer(name));
     assert.equal(caller.kind, "resolved", "the selected outer creator invocation is exact");
     const inherited = storage.bindingsForInvocation(base, invocation, caller.bindings);
-    assert.equal(inherited.kind, "resolved", "an instance initializer is not a callable constructor implementation");
+    assert.equal(inherited.kind, "resolved",
+      `an instance initializer is not a callable constructor implementation; ${inherited.kind === "unresolved" ? inherited.reason : "exact bindings"}`);
     const origins = storage.boundOriginsFor(formal.subject, inherited.bindings);
     assert.equal(origins.kind, "resolved");
     assert.equal(origins.subjects.some(subject => subject.node === current.initializer(expected)), true, name);

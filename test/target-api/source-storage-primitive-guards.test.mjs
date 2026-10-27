@@ -38,7 +38,7 @@ for (const expression of ["undefined", "null", "3", "true", '"text"', "4n", "Sym
     `);
     const selected = current.result();
     assert.equal(selected.kind === (expression === "Symbol()" ? "open" : "complete"), true,
-      `${expression}: ${selected.kind}; ${current.storage.failureReason() ?? "no resource failure"}`);
+      `${expression}: ${selected.kind}; ${selected.kind === "unresolved" ? selected.reason : current.storage.failureReason() ?? "no resource failure"}`);
     assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer("fallback"), true,
       "an impossible nominal member read cannot invent or reject a primitive's field");
     if (expression === "Symbol()") assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true,
@@ -98,7 +98,9 @@ test("an unknown object is not fabricated into a nominal class by primitive excl
     }
     const result = select(external);
   `);
-  assert.equal(current.result().kind === "unresolved", true, "a missing actual class relationship remains unproven");
+  const selected = current.result();
+  assert.equal(selected.kind === "unresolved", true,
+    `a missing actual class relationship remains unproven; ${selected.kind}`);
   assert.equal(current.storage.failureReason() === "Source storage members require exact checked correspondence.", true);
 });
 

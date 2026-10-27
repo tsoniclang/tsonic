@@ -65,7 +65,9 @@ for (const member of ["next", "throw", "return"]) {
     const contexts = [];
     for (const [name, expected, excluded] of [["first", "firstValue", "secondValue"], ["second", "secondValue", "firstValue"]]) {
       const domain = current.storage.storageProducersFor(current.subject(current.initializer(name)));
-      assert.equal(domain.kind === "complete", true, `${name}: checked result allocation`);
+      assert.equal(domain.kind === "complete", true,
+        `${name}: checked result allocation; ${domain.kind}; ${domain.kind === "unresolved" ? domain.reason : domain.kind === "open"
+          ? domain.boundaries.slice(0, 8).map(boundary => boundary.kind).join(",") : "closed"}`);
       assert.equal(domain.producers.length, 1, `${name}: one original creation`);
       const entry = domain.producers[0];
       const selected = current.storage.contributingExecutionsFor(demand, owner, entry);
