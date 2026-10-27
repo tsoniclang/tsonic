@@ -42,7 +42,7 @@ test("recursive structural Error flow retains selected generic property types ev
     destination: { read: "property", declarations: [destination], property: { type: to } } });
   const semantics = { sourceFile: file,
     declarations: { declaredValueType: node => node === roots[0] ? outer[0] : node === roots[1] ? outer[1] : undefined },
-    types: { expressionType: () => undefined, isUnion: () => false, isTuple: () => false, isArrayLike: () => false,
+    types: { expressionType: () => undefined, isUnion: () => false, isTuple: () => false, isArrayLike: () => false, indexInfos: () => [],
       structuralMembers: (from, to, purpose) => {
       assert.equal(purpose, "read", "structural value flow requires readable source members");
       queries += 1;
