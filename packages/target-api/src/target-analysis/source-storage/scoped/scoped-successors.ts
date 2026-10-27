@@ -466,7 +466,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         }
       }
       const contract = transport.invocationDeclarations.get(term.invocation);
-      if (missingBody && transport.isOpaque(term.invocation) && contract !== undefined && ast.body(contract) === undefined) {
+      const nativeAllocation = transport.invocationEffects.get(term.invocation)?.resultAllocation === term.invocation;
+      if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
+        contract !== undefined && ast.body(contract) === undefined) {
         const result = transport.subject(term.invocation, "value", term.projection);
         return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
           ? [leaf(result, term.scope)] : term.mode === "execution" ? []
@@ -480,7 +482,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope,
             reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
       }
-      if (selected.kind !== "resolved") {
+      if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined) {
         budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
       }
       const candidate = selected.implementation.declaration;
@@ -620,6 +622,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection, mode: "value" })] };
       }
     }
+    if (term.subject.kind === "value" && term.subject.projection.length === 0 && ast.is.IsCallExpression(node) &&
+      transport.invocationEffects.get(node)?.resultAllocation === node)
+      return { kind: "replace", terms: [leaf(term.subject, creatorScope(node, term.scope))], dependencies: dispatchDependencies(node, term.scope) };
     if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
       const candidate = transport.invocationDeclarations.get(node);
       if (candidate === undefined) return { kind: "replace", terms: [leaf(term.subject, term.scope)] };

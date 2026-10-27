@@ -616,12 +616,16 @@ export function createSourceStorageTransport(
           const file = sourceFileFor(origin);
           const type = sourceStorageSubjectType(source, origin, file);
           if (file === undefined || type === undefined) continue;
+          let projected = false;
           sourceStorageProjectComponents(origin.projection, type, selected.receiver.type, storage.projection.slice(owner.projection.length),
             semantics.forNode(access), ast, budget, projection => {
               const destination = subject(origin.node, origin.kind, projection);
-              if (destination !== undefined) storedValues.bind(destination, access);
+              if (destination !== undefined) {
+                storedValues.bind(destination, access);
+                projected = true;
+              }
             });
-          continue;
+          if (projected) continue;
         }
         const rest = sourceStorageObjectRestOwner(origin.node, ast) !== undefined;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node) && !rest) continue;
