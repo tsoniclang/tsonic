@@ -1,7 +1,7 @@
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import { createSourceStoragePointerBackings } from "./pointer-backings.js";
 import { createSourceStorageGeneratorResumes } from "./generator-resumes.js";
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceReceiverOwner } from "../../../source-navigation/index.js";
