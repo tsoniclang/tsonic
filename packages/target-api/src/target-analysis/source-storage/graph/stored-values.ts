@@ -545,7 +545,10 @@ export function createSourceStorageStoredValues(
     if (write !== undefined) record(storage, write);
   };
   const storesFor = (storage: SourceStorageSubject): Iterable<SourceStorageStore> | undefined => {
-    if (!storage.projection.some(component => component.kind === "indexed-value")) return locations.get(storage)?.values();
+    if (!storage.projection.some(component => component.kind === "indexed-value")) {
+      const stores = locations.get(storage);
+      return stores === undefined ? undefined : { [Symbol.iterator]: () => stores.values() };
+    }
     const candidates = indexedLocations.get(storage.node)?.get(storage.kind);
     if (candidates === undefined) return undefined;
     return { *[Symbol.iterator]() {
