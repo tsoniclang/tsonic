@@ -468,6 +468,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const contract = transport.invocationDeclarations.get(term.invocation);
       const nativeAllocation = transport.invocationEffects.get(term.invocation)?.resultAllocation === term.invocation;
+      if (missingBody && transport.isOpaque(term.invocation) && contract === undefined) {
+        const result = transport.subject(term.invocation, "value", term.projection);
+        return result === undefined ? undefined : { kind: "replace", terms: [Object.freeze({
+          kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
+          reason: "An invocation has no exact checked selected signature transport.",
+        })], dependencies };
+      }
       if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
         contract !== undefined && ast.body(contract) === undefined) {
         const result = transport.subject(term.invocation, "value", term.projection);

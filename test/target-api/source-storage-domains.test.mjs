@@ -379,6 +379,34 @@ test("unknown callback dispatch stays open globally but closes under the selecte
   complete(current.selection("local"), "actual selected callback");
 });
 
+for (const invoke of ["dispatch(backing)", "dispatch?.(backing)", "dispatch?.create(backing).finish(backing)"]) {
+  test(`an unproved callable retains its operand frontiers without poisoning unrelated storage (${invoke})`, async () => {
+    const current = await fixture(`storage-domain-unproved-operands-${invoke.includes("create") ? "chain" : invoke.includes("?.") ? "optional" : "direct"}`, `
+      declare const dispatch: any;
+      const token = {};
+      const backing = { token };
+      const original = {};
+      const result = ${invoke};
+      const unrelated = original;
+      const selected = backing.token;
+    `);
+    const privateOrigins = complete(current.selection("unrelated"), "unproved dispatch does not poison an independent allocation");
+    assert.equal(privateOrigins.length === 1 && privateOrigins[0].subject.node === current.initializer("original") &&
+      privateOrigins[0].subject.projection.length === 0, true, "the unrelated physical allocation remains exact");
+    const writes = current.selection("selected");
+    open(writes, "opaque-write", "actual unproved call operands retain opaque writes");
+    assert.equal(writes.origins.some(origin => origin.subject.node === current.initializer("token") &&
+      origin.subject.projection.length === 0), true, "unknown dispatch cannot erase the original field producer");
+    const backing = complete(current.selection("backing"), "by-value unknown dispatch cannot replace the container binding");
+    assert.equal(backing.length === 1 && backing[0].subject.node === current.initializer("backing") &&
+      backing[0].subject.projection.length === 0, true, "the original container is not a fabricated call result");
+    const selected = current.selection("result");
+    assert.equal(selected.kind === "unresolved" && selected.reason === "An invocation has no exact checked selected signature transport.",
+      true, "a missing callable contract remains precisely unproved, never a fabricated native implementation");
+    assert.equal(current.storage.failureReason() === undefined, true, "a local unproved call does not poison the finite graph");
+  });
+}
+
 test("opaque calls open writable contained storage without replacing the original immutable identity", async () => {
   const current = await fixture("storage-domain-opaque-write", `
     declare function outside(value: { token: {} }): void;

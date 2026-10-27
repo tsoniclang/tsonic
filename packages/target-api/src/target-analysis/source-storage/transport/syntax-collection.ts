@@ -221,14 +221,14 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       const consumer = semantics.forNode(node);
       const selected = consumer.operations.call(node);
       const signature = selected === undefined ? undefined : consumer.declarations.signatureDeclaration(selected.selectedSignature);
+      if (selected !== undefined) invocationArguments.set(node, Object.freeze([
+        ...selected.sourceArguments.map(argument => argument.expression),
+        ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
+      ]));
       if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
         const target = subjectFor(Node_Expression(ast, node));
         const base = sourceStorageSuperConstructor(node, source, step);
         if (base !== undefined) connect(subjectFor(base.callee), target);
-        invocationArguments.set(node, Object.freeze([
-          ...selected.sourceArguments.map(argument => argument.expression),
-          ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
-        ]));
         const arguments_: SourceStorageArgumentTransport[] = [];
         const input = context.inputSlotsFor(node);
         const selectedSlots = input?.selected.kind === "resolved" ? input.selected.slots : undefined;
