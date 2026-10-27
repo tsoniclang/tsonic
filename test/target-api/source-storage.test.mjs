@@ -17,6 +17,29 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
+function indexedFailure(current, name, selected) {
+  if (selected.kind === "open") return `open; ${JSON.stringify(selected.boundaries.slice(0, 8).map(boundary => ({
+    kind: boundary.kind, exposure: current.source.ast.kindName(boundary.exposure),
+    text: current.source.ast.text(boundary.exposure).slice(0, 80) })))}`;
+  if (selected.kind !== "unresolved" || current.storage.failureReason() !== undefined) return selected.reason ?? selected.kind;
+  const frontier = current.storage.boundValueFrontierFor(current.subject(name), current.storage.emptyBindings, []);
+  if (frontier.kind === "unresolved") return `${selected.reason}; frontier: ${frontier.reason}`;
+  const entries = frontier.frontier.slice(0, 8).map(({ subject }) => {
+    const root = current.storage.subject(subject.node, subject.kind);
+    const type = root.kind === "resolved" ? current.storage.typeFor(root.subject) : root;
+    const semantics = current.source.semantics.forNode(subject.node);
+    return { kind: subject.kind, node: current.source.ast.kindName(subject.node),
+      text: current.source.ast.text(subject.node).slice(0, 80), projectionLength: subject.projection.length,
+      projection: subject.projection.slice(0, 8).map(component =>
+        component.kind !== "indexed-value" ? component.kind : { kind: component.kind,
+          sourceMatches: type.kind === "resolved" && type.type === component.sourceType,
+          sourceIdentical: type.kind === "resolved" && semantics.types.isIdentical(type.type, component.sourceType),
+          ownerMatches: type.kind === "resolved" && type.type === component.ownerType,
+          readonly: component.index.readonly }) };
+  });
+  return `${selected.reason}; exact frontier: ${JSON.stringify(entries)}`;
+}
+
 test("checked indexed views retain one fresh allocation and compatible view writes without mixing allocations", async () => {
   const current = await checked("source-storage-indexed-views", `
 interface First { [key: string]: object | undefined; }
@@ -33,7 +56,7 @@ const missing = absent["item"];
 `);
   for (const [name, included, excluded] of [["selected", "token", "other"], ["isolated", "other", "token"]]) {
     const domain = current.storage.closedOriginsFor(current.subject(name));
-    assert.equal(domain.kind === "complete", true, `${name}: ${domain.reason ?? domain.kind}`);
+    assert.equal(domain.kind === "complete", true, `${name}: ${indexedFailure(current, name, domain)}`);
     assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(included)), true,
       `${name}: its actual checked write remains a producer`);
     assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(excluded)), false,
@@ -69,7 +92,7 @@ const property = readonly.item;
 `);
   for (const name of ["selected", "property"]) {
     const domain = current.storage.closedOriginsFor(current.subject(name));
-    assert.equal(domain.kind === "complete", true, `${name}: checked readonly alias completes`);
+    assert.equal(domain.kind === "complete", true, `${name}: checked readonly alias completes; ${indexedFailure(current, name, domain)}`);
     assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("token")), true,
       `${name}: a readonly view observes the actual writable alias`);
     assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("independent")), false,
