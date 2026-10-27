@@ -5,7 +5,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceStorageInstanceInitializers } from "../model/construction.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
 import { sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-inputs.js";
@@ -13,7 +13,7 @@ import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-in
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
-  }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery) {
+  }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery, subject: SourceStorageSubjectQuery) {
   const { ast, semantics } = source;
   const step = budget.step;
   const lexical = createSourceStorageLexicalSelections(ast, budget);
@@ -61,8 +61,10 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
         continue;
       }
       if (callback !== undefined && invocation !== undefined) {
+        const formal = subject(parameter, "input");
+        if (formal === undefined) return [];
         const inputs = sourceStorageNativeInputSlots(source, declaration,
-          { node: parameter, kind: "input", projection: [] }, inputSlotsFor(declaration, invocation, callback), consumer, step);
+          formal, inputSlotsFor(declaration, invocation, callback), consumer, step);
         if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
           typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
         continue;

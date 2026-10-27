@@ -77,6 +77,36 @@ export function sourceStorageHasOriginalValue(subject: SourceStorageSubject, ast
     (!ast.is.IsArrayLiteralExpression(subject.node) || subject.projection.length === 0);
 }
 
+function sourceStorageDataIndex(input: object): TypeIndexInfo | undefined {
+  const fields = Object.getOwnPropertyDescriptors(input);
+  for (const name of ["keyType", "valueType", "readonly", "declaration", "symbol", "components"]) {
+    const descriptor = fields[name];
+    if (descriptor !== undefined && !("value" in descriptor)) return undefined;
+  }
+  const keyType: unknown = fields.keyType?.value;
+  const valueType: unknown = fields.valueType?.value;
+  const readonly: unknown = fields.readonly?.value;
+  const declaration: unknown = fields.declaration?.value;
+  const symbol: unknown = fields.symbol?.value;
+  const components: unknown = fields.components?.value;
+  if (keyType === null || typeof keyType !== "object" || valueType === null || typeof valueType !== "object" ||
+    typeof readonly !== "boolean" || declaration !== undefined && (declaration === null || typeof declaration !== "object") ||
+    symbol !== undefined && (symbol === null || typeof symbol !== "object") || !Array.isArray(components)) return undefined;
+  const length: unknown = Object.getOwnPropertyDescriptor(components, "length")?.value;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) return undefined;
+  const selected: (Node | undefined)[] = [];
+  for (let ordinal = 0; ordinal < length; ordinal += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(components, ordinal);
+    if (descriptor === undefined || !("value" in descriptor)) return undefined;
+    const value: unknown = descriptor.value;
+    if (value !== undefined && (value === null || typeof value !== "object")) return undefined;
+    selected.push(value as Node | undefined);
+  }
+  if (declaration === undefined && selected.length === 0) return undefined;
+  return Object.freeze({ keyType: keyType as Type, valueType: valueType as Type, readonly,
+    declaration: declaration as Node | undefined, symbol: symbol as TypeIndexInfo["symbol"], components: Object.freeze(selected) });
+}
+
 export function sourceStorageProjectionPath(projection: readonly SourceStorageProjection[]):
   readonly SourceStorageProjection[] | undefined {
   const normalized: SourceStorageProjection[] = [];
@@ -102,9 +132,8 @@ export function sourceStorageProjectionPath(projection: readonly SourceStoragePr
     else if (kind === "indexed-value" && sourceType !== null && typeof sourceType === "object" &&
       ownerType !== null && typeof ownerType === "object" &&
       ordinal !== null && typeof ordinal === "object") {
-      const index = ordinal as TypeIndexInfo;
-      if (index.keyType === undefined || index.valueType === undefined || typeof index.readonly !== "boolean" ||
-        !Array.isArray(index.components) || index.declaration === undefined && index.components.length === 0) valid = false;
+      const index = sourceStorageDataIndex(ordinal);
+      if (index === undefined) valid = false;
       else normalized.push(Object.freeze({ kind, sourceType: sourceType as Type, ownerType: ownerType as Type, index }));
     }
     else valid = false;

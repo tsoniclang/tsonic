@@ -109,6 +109,38 @@ const frozen: Frozen = {};
   const forged = { ...frozen, index: { ...frozen.index, readonly: false } };
   assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [forged]).kind, "unresolved",
     "changing readonly metadata does not create checked write authority");
+  const readonlySubject = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
+  assert.equal(readonlySubject.kind === "resolved", true, "the real checked indexed subject remains canonical");
+  for (const field of ["keyType", "valueType", "readonly", "declaration", "symbol", "components"]) {
+    let getterCalls = 0;
+    const index = { ...frozen.index };
+    Object.defineProperty(index, field, { get() { getterCalls += 1; throw new Error("nested index getters must not execute"); } });
+    const selected = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen, index }]);
+    assert.equal(getterCalls, 0, `${field}: boundary admission never executes nested index accessors`);
+    assert.equal(selected.kind, "unresolved", `${field}: accessor-backed checked evidence is refused`);
+    assert.equal(selected.reason, "A source storage query has no exact checked subject.", `${field}: retain the precise boundary refusal`);
+    const restored = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
+    assert.equal(restored.kind === "resolved" && restored.subject === readonlySubject.subject, true,
+      `${field}: rejected input never poisons a valid canonical subject`);
+  }
+  let componentGetterCalls = 0;
+  const accessorComponents = Object.defineProperty([], "0", { get() {
+    componentGetterCalls += 1; throw new Error("nested index component getters must not execute");
+  } });
+  for (const [label, components] of [["accessor component", accessorComponents], ["sparse component", new Array(1)]]) {
+    const selected = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
+      index: { ...frozen.index, components } }]);
+    assert.equal(componentGetterCalls, 0, `${label}: dense component admission never invokes an entry accessor`);
+    assert.equal(selected.kind, "unresolved", `${label}: non-data components cannot supply index authority`);
+    assert.equal(selected.reason, "A source storage query has no exact checked subject.", `${label}: precise boundary refusal remains`);
+  }
+  const copied = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
+    index: { ...frozen.index, components: [...frozen.index.components] } }]);
+  assert.equal(copied.kind === "resolved" && copied.subject === readonlySubject.subject, true,
+    "data snapshots keep the original checked index and canonical subject identity");
+  assert.equal(copied.subject.projection[0].index.components.length === frozen.index.components.length &&
+    copied.subject.projection[0].index.components.every((component, ordinal) => component === frozen.index.components[ordinal]), true,
+  "data snapshots preserve exact component identities and their original order");
   const foreign = await checked("source-storage-indexed-foreign", `
 interface Values { [key: string]: object | undefined; }
 const foreign: Values = {};
