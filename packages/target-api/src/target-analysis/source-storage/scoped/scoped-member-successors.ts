@@ -183,7 +183,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       const replace = (receiver: SourceStorageTerm): SourceStorageTerm =>
         receiver === term.receiver ? term : Object.freeze({ ...term, receiver });
       return !correlated && term.mode === "value" && declarations.every(passiveMember)
-        ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
+        ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace, { contributes: false });
     }
     const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
       ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined

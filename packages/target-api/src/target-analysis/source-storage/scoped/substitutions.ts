@@ -336,7 +336,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       for (const witness of selected.kind === "replace" ? selected.witnesses ?? [] : []) {
         const reference = { ...witness, bindings: witnessScope(witness.subject, witness.bindings) };
-        if (!budget.step() || !addWitness(relation, reference, false, data, reservation)) return false;
+        if (!budget.step() || !addWitness(relation, reference, reference.contributes, data, reservation)) return false;
       }
       const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current,
         term => select(term, false)) : selected.terms;

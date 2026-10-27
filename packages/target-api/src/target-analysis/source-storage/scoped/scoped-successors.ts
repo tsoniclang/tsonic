@@ -332,7 +332,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition =>
-        condition === term.condition ? term : Object.freeze({ ...term, condition }));
+        condition === term.condition ? term : Object.freeze({ ...term, condition }), { contributes: false });
       const node = term.condition.subject.node;
       if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
         const owner = ast.is.IsConstructorDeclaration(term.capture.owner) ? ast.parent(term.capture.owner) : term.capture.owner;
@@ -361,6 +361,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
         const selected = replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
+          contributes: false,
           independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
         });
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
