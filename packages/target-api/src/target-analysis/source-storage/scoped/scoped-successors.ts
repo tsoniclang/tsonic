@@ -454,7 +454,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         }
         return { kind: "replace", terms, dependencies };
       }
-      if (scopes.isSymbolic(term.callee)) {
+      const selected = navigation.callableImplementation(node);
+      if (scopes.isSymbolic(term.callee) &&
+        (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined)) {
         const owner = sourceStorageFormalOwner(term.callee.subject, source);
         const native = owner === undefined ? undefined : scopes.boundActivation(term.callee.scope, owner)?.nativeEntry;
         if (term.mode === "execution" && native !== undefined) {
@@ -467,7 +469,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope,
             reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
       }
-      const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved") {
         const contract = transport.invocationDeclarations.get(term.invocation);
         if (transport.isOpaque(term.invocation) && contract !== undefined && ast.body(contract) === undefined) {
@@ -658,8 +659,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
       }
     }
+    const ambient = ast.is.IsVariableDeclaration(node) && Node_Initializer(ast, node) === undefined
+      ? transport.declarationIsAmbient(node) : false;
+    if (ambient === undefined) return undefined;
     if (stores !== undefined) {
       const terms: SourceStorageTerm[] = initial === undefined ? [] : [initial];
+      if (ambient) terms.push(leaf(term.subject, creatorScope(node, term.scope)));
       for (const input of parents) {
         if (!budget.step()) return undefined;
         if (input.kind === "input" && input.node === node || ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0)
@@ -738,7 +743,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       return !selectedBody;
     }).map(parent => sourceStorageReference(parent, term.scope));
-    if (sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
+    if (ambient || sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
       terms.unshift(leaf(term.subject, creatorScope(node, term.scope)));
     const qualified = term.subject.kind === "value" && ast.is.IsIdentifier(node) && parents.size !== 0 &&
       transport.guardedValues.appliesTo(node) === true;

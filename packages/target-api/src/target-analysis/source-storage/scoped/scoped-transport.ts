@@ -158,7 +158,7 @@ export function sourceStorageInitializedValue(source: TargetSourceProgram, budge
   const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
   const file = source.ast.getSourceFile(value.subject.node);
   const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);
-  if (type === undefined || file === undefined || value.subject === input.subject) return unresolved(
+  if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
   const types = source.semantics.forFile(file).types;
   if (types.isNullish(type) || types.isVoidLike(type)) return [fallback];

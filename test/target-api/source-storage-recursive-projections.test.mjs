@@ -323,6 +323,34 @@ for (const operation of ["throw original", "raise(original)", "box.current", 'bo
   }
 }
 
+test("writes to checked optional fields of fresh empty storage preserve their actual values and aliases", () => {
+  const current = fixture(`
+    interface Options { value?: object; }
+    const original = {}; const untouched = {};
+    const allocation = {};
+    const alias: Options = allocation;
+    const separate: Options = { value: untouched };
+    alias.value = original;
+    const result = alias.value;
+    const other = separate.value;
+  `);
+  current.expect("result", ["original"]);
+  current.expect("other", ["untouched"]);
+});
+
+test("defaulted formals retain exact values across distinct calls of the same declaration", () => {
+  const current = fixture(`
+    const fallback = {}; const original = {}; const separate = {};
+    function select(value: object = fallback): object { return value; }
+    const first = select(original);
+    const second = select(separate);
+    const defaulted = select();
+  `);
+  current.expect("first", ["original"]);
+  current.expect("second", ["separate"]);
+  current.expect("defaulted", ["fallback"]);
+});
+
 for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
   test(`member-demand analysis preserves independent finite guards ${JSON.stringify(limits)}`, () => {
     const current = fixture(`const value = {}; const owner = { value }; const result = owner.value;`, limits);

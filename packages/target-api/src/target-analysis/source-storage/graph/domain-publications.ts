@@ -22,6 +22,9 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
   const rows = budget.createRows();
   let closed = false;
   return Object.freeze({
+    hasCallable(owner: Node): boolean {
+      return callables.has(owner);
+    },
     callable(owner: Node, exposure: Node): boolean {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return false; }
       if (!budget.step()) return false;

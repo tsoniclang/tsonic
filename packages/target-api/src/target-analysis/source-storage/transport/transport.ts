@@ -504,8 +504,8 @@ export function createSourceStorageTransport(
       for (const declaration of declarations) {
         if (!step()) return false;
         const member = memberFlow.memberFor(origin, declaration, receiverType);
-        if (member?.kind !== "present") return false;
-        for (const original of member.source.declarations) {
+        if (member === undefined || member.kind === "absent" && !member.destination.property.optional) return false;
+        for (const original of member.kind === "present" ? member.source.declarations : member.destination.declarations) {
           if (!step()) return false;
           destinations.add(original);
         }

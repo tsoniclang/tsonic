@@ -375,7 +375,10 @@ export function createSourceStorageDomains(
     return activation?.invocation !== undefined && activation.nativeEntry === undefined;
   };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
-    const bindings = externalEntry ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
+    const region = transport.regions.enclosing(subject.node);
+    const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+    const bindings = externalEntry || owner !== undefined && publications.hasCallable(owner)
+      ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
     if (bindings === undefined) {
       budget.reject("Source storage publication requires its completed original lexical creation bindings.");
       return;
