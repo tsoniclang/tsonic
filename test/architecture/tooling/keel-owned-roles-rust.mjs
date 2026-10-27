@@ -164,7 +164,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
     { file: "src/analysis/operations/members/type-tests.ts", symbol: "selectRustClosedTypeTest",
       bodySha256: "7b348433d1ea5578923be1ed258e4c3b4b8a71eeb20ff22b738ff010780d9bf4", role: "analysis",
       evidence: [{ kind: "parameter", name: "context" }] },
-    { file: "src/analysis/program/records/selected-call.ts", symbol: "selectedRustCallSignature",
+    { file: "src/analysis/program/records/calls/selected-call.ts", symbol: "selectedRustCallSignature",
       bodySha256: "6fed9d0abc913ffa11e28a18c6fa714ffacfe5072faa3c5c591f6b93045af291", role: "analysis",
       evidence: [{ kind: "parameter", name: "request" }] },
     {"file":"src/analysis/callables/calls/producer-errors.ts","symbol":"selectRustProducerError","bodySha256":"87e10de419530211c43ab0965b4070071e8caa400e307024056c775f5f91bc69","role":"analysis","evidence":[{"kind":"parameter","name":"reference"}],"reason":"Resolves the original callable producer identity/channel and complete generic bindings into its analyzed native error region or exact error carrier."},
