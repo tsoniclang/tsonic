@@ -1,6 +1,6 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageSubjectType, sourceStorageProjectionsShareLocation } from "../model/components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -100,5 +100,6 @@ export function createSourceStorageEdges(
 function equalProjection(left: SourceStorageProjection, right: SourceStorageProjection): boolean {
   return left.kind === right.kind && (left.kind === "array-element" ||
     left.kind === "tuple-element" && right.kind === "tuple-element" && left.index === right.index ||
+    left.kind === "indexed-value" && right.kind === "indexed-value" && sourceStorageProjectionsShareLocation([left], [right]) ||
     sourceStorageIsMemberProjection(left) && sourceStorageIsMemberProjection(right) && left.declaration === right.declaration);
 }

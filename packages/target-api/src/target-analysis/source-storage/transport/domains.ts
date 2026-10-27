@@ -3,7 +3,7 @@ import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType } from "../model/components.js";
+import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -172,13 +172,15 @@ export function createSourceStorageDomains(
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
-      if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
-        context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
       for (const owner of publicationOrigins(publication.subject, publication.externalEntry)) {
         if (!budget.step()) return;
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageSubjectType(source, owner, file);
         if (type === undefined || file === undefined) continue;
+        if (publication.kind === "opaque-write" && transport.invocationEffects.get(publication.exposure) === undefined)
+          add(owner, "opaque-write", publication.exposure, publication.inputOwner);
+        if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
+          context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
         const ownerContext = semantics.forFile(file);
         for (const signature of [...ownerContext.types.callSignatures(type), ...ownerContext.types.constructSignatures(type)]) {
           if (!budget.step()) return;
@@ -209,7 +211,7 @@ export function createSourceStorageDomains(
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             const declaringOwner = ast.parent(declaration);
             const objectMethodSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
-              ast.is.IsMethodDeclaration(declaration);
+              ast.is.IsMethodDeclaration(declaration) && navigation.declarationUseSummary(declaration).memberWritten;
             if (publication.writes && (objectMethodSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
               (member.destination.read !== "method" || objectMethodSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
@@ -228,13 +230,13 @@ export function createSourceStorageDomains(
           if (!budget.step()) return;
           const element = sourceStorageComponentType(present, component, context, ast);
           if (element === undefined) continue;
-          const originals = component.kind === "array-element" ? sourceStorageComponents(type, ownerContext)
-            : [ownerContext.types.isTuple(type) ? component : { kind: "array-element" as const }];
+          const originals = sourceStorageOriginalComponents(type, present, component, ownerContext);
           for (const original of originals) {
             if (!budget.step()) return;
             const child = transport.subject(owner.node, owner.kind, [...owner.projection, original]);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
-            if (publication.writes && indexes.some(value => !value.readonly)) add(child, publication.kind, publication.exposure, owner);
+            if (publication.writes && (component.kind === "indexed-value" ? !component.index.readonly
+              : indexes.some(value => !value.readonly))) add(child, publication.kind, publication.exposure, owner);
             publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry, publication.inputOwner, publication);
           }
         }

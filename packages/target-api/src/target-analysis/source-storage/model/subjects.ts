@@ -1,4 +1,4 @@
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { AstReader, Node, Type, TypeIndexInfo } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";
@@ -6,12 +6,13 @@ import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
+  | { readonly kind: "indexed-value"; readonly sourceType: Type; readonly ownerType: Type; readonly index: TypeIndexInfo }
   | { readonly kind: "member"; readonly declaration: Node }
   | { readonly kind: "method-value"; readonly declaration: Node };
 
 export function sourceStorageIsMemberProjection(
   component: SourceStorageProjection,
-): component is Extract<SourceStorageProjection, { readonly declaration: Node }> {
+): component is Extract<SourceStorageProjection, { readonly kind: "member" | "method-value" }> {
   return component.kind === "member" || component.kind === "method-value";
 }
 
@@ -19,6 +20,7 @@ export interface SourceStorageSubject {
   readonly kind: "input" | "value" | "member" | "return" | "receiver";
   readonly node: Node;
   readonly projection: readonly SourceStorageProjection[];
+  readonly projectionKey: string;
 }
 
 export type SourceStorageSubjectQuery = (
@@ -88,11 +90,23 @@ export function sourceStorageProjectionPath(projection: readonly SourceStoragePr
       ? Object.getOwnPropertyDescriptor(component, "index")?.value : undefined;
     const declaration: unknown = component !== null && typeof component === "object"
       ? Object.getOwnPropertyDescriptor(component, "declaration")?.value : undefined;
+    const ownerType: unknown = component !== null && typeof component === "object"
+      ? Object.getOwnPropertyDescriptor(component, "ownerType")?.value : undefined;
+    const sourceType: unknown = component !== null && typeof component === "object"
+      ? Object.getOwnPropertyDescriptor(component, "sourceType")?.value : undefined;
     if (kind === "array-element") normalized.push(Object.freeze({ kind }));
     else if (kind === "tuple-element" && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
       normalized.push(Object.freeze({ kind, index: ordinal }));
     else if ((kind === "member" || kind === "method-value") && declaration !== null && typeof declaration === "object")
       normalized.push(Object.freeze({ kind, declaration: declaration as Node }));
+    else if (kind === "indexed-value" && sourceType !== null && typeof sourceType === "object" &&
+      ownerType !== null && typeof ownerType === "object" &&
+      ordinal !== null && typeof ordinal === "object") {
+      const index = ordinal as TypeIndexInfo;
+      if (index.keyType === undefined || index.valueType === undefined || typeof index.readonly !== "boolean" ||
+        !Array.isArray(index.components) || index.declaration === undefined && index.components.length === 0) valid = false;
+      else normalized.push(Object.freeze({ kind, sourceType: sourceType as Type, ownerType: ownerType as Type, index }));
+    }
     else valid = false;
   }
   return valid ? Object.freeze(normalized) : undefined;
@@ -104,6 +118,15 @@ export function createSourceStorageSubjects(
 ): SourceStorageSubjectQuery {
   const kinds = new Map<SourceStorageSubject["kind"], Map<Node, Map<string, SourceStorageSubject>>>();
   const members = new Map<Node, number>();
+  const indexedTypes = new Map<object, number>();
+  const indexedTypeIdentity = (type: object): number | undefined => {
+    const existing = indexedTypes.get(type);
+    if (existing !== undefined) return existing;
+    if (!admit(1)) return undefined;
+    const identity = indexedTypes.size;
+    indexedTypes.set(type, identity);
+    return identity;
+  };
   return (node, kind = "value", projection = []) => {
     if (node === undefined) return undefined;
     const normalized = sourceStorageProjectionPath(projection);
@@ -123,14 +146,23 @@ export function createSourceStorageSubjects(
           members.set(component.declaration, identity);
         }
         componentsKey.push(`${component.kind === "member" ? "m" : "v"}${identity}`);
-      } else componentsKey.push(component.kind === "array-element" ? "a"
-        : `${component.kind === "tuple-element" ? "t" : "g"}${component.index}`);
+      } else if (component.kind === "indexed-value") {
+        const source = indexedTypeIdentity(component.sourceType);
+        const owner = indexedTypeIdentity(component.ownerType);
+        const key = indexedTypeIdentity(component.index.keyType!);
+        const value = indexedTypeIdentity(component.index.valueType!);
+        if (source === undefined || owner === undefined || key === undefined || value === undefined) return undefined;
+        const evidence = [component.index.declaration, component.index.symbol, ...component.index.components]
+          .map(subject => subject === undefined ? "" : indexedTypeIdentity(subject));
+        if (evidence.some(identity => identity === undefined)) return undefined;
+        componentsKey.push(`i${source}:${owner}:${key}:${value}:${Number(component.index.readonly)}:${evidence.join(":")}`);
+      } else componentsKey.push(component.kind === "array-element" ? "a" : `t${component.index}`);
     }
     const key = componentsKey.join("/");
     let selected = components.get(key);
     if (selected === undefined) {
       if (!admit(1 + normalized.length)) return undefined;
-      selected = Object.freeze({ kind, node, projection: Object.freeze(normalized) });
+      selected = Object.freeze({ kind, node, projection: Object.freeze(normalized), projectionKey: key });
       components.set(key, selected);
       subjects.set(node, components);
       kinds.set(kind, subjects);

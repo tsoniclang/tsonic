@@ -35,6 +35,11 @@ export type SourceStorageForwardSelection<Key, Value> =
 
 type ValueProjection<Key, Value> = ((value: Value) => readonly SourceStorageForwardSelection<Key, Value>[] | undefined) | undefined;
 
+interface SourceStorageFixedPointQuery<Key, Value> {
+  (key: Key): ReadonlySet<Value> | undefined;
+  release(): void;
+}
+
 interface FixedPointTransfer<Key, Value> {
   readonly projections: Set<ValueProjection<Key, Value>>;
   readonly rows: SourceStorageRows;
@@ -271,13 +276,18 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
       };
     },
     fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
-      add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean, family: string): (key: Key) => ReadonlySet<Value> | undefined {
+      add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Key, Value>) => boolean) => boolean, family: string): SourceStorageFixedPointQuery<Key, Value> {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
+      let released = false;
+      const assertLive = (): void => {
+        if (released) throw new Error("Source storage fixed-point values require their live query owner.");
+      };
       const completed = (cell: FixedPointCell<Key, Value>): boolean =>
         typeof cell.complete === "boolean" ? cell.complete : cell.complete.complete === true;
       const settled = (cell: FixedPointCell<Key, Value>): boolean => cell.settled || completed(cell);
       let running = false;
-      return key => {
+      const query = (key: Key): ReadonlySet<Value> | undefined => {
+        assertLive();
         if (!budget.step()) return undefined;
         if (!sealed || running) {
           budget.reject("Source storage fixed-point queries require a sealed graph and cannot expose an unfinished family.");
@@ -346,7 +356,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             const rows = budget.createRows();
             if (!rows.add(2)) { rows.release(); return undefined; }
             const values = new Set<Value>();
-            const cell: FixedPointCell<Key, Value> = { key: input, values, view: readonlyValues(values), rows,
+            const cell: FixedPointCell<Key, Value> = { key: input, values, view: readonlyValues(values, assertLive), rows,
               dependencyRows: budget.createRows(), parents: new Set(), forwardParents: new Map(), forwards: new Map(),
               pendingInputs: 0, pendingDeltas: 0, evaluated: false, dirty: false, settled: false,
               complete: publication ?? false, previousInWave: wave };
@@ -548,6 +558,23 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           }
         })();
       };
+      return Object.assign(query, {
+        release(): void {
+          if (running) throw new Error("Source storage fixed-point queries release only after their active wave drains.");
+          if (released) return;
+          released = true;
+          for (const cell of selections.values()) {
+            for (const transfer of cell.forwards.values()) transfer.rows.release();
+            cell.forwards.clear();
+            cell.forwardParents.clear();
+            cell.parents.clear();
+            cell.values.clear();
+            cell.rows.release();
+            cell.dependencyRows.release();
+          }
+          selections.clear();
+        },
+      });
     },
   });
 }

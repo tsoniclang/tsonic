@@ -455,14 +455,25 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return { kind: "replace", terms, dependencies };
       }
       const selected = navigation.callableImplementation(node);
-      if (scopes.isSymbolic(term.callee) &&
-        (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined)) {
+      const missingBody = selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined;
+      const symbolic = missingBody && scopes.isSymbolic(term.callee);
+      if (symbolic) {
         const owner = sourceStorageFormalOwner(term.callee.subject, source);
         const native = owner === undefined ? undefined : scopes.boundActivation(term.callee.scope, owner)?.nativeEntry;
         if (term.mode === "execution" && native !== undefined) {
           const possible = nativeInputExecutions(term.invocation, term.scope, term.demand, term.deferred);
           return possible === undefined ? undefined : { kind: "replace", terms: possible, dependencies };
         }
+      }
+      const contract = transport.invocationDeclarations.get(term.invocation);
+      if (missingBody && transport.isOpaque(term.invocation) && contract !== undefined && ast.body(contract) === undefined) {
+        const result = transport.subject(term.invocation, "value", term.projection);
+        return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
+          ? [leaf(result, term.scope)] : term.mode === "execution" ? []
+            : [Object.freeze({ kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
+              reason: "An opaque invocation has no completed original thrown-value transport." })], dependencies };
+      }
+      if (symbolic) {
         const result = transport.subject(term.invocation, "value", term.projection);
         if (result === undefined) return undefined;
         return { kind: "replace", terms: [term.mode === "value" ? leaf(result, term.scope)
@@ -470,14 +481,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
       }
       if (selected.kind !== "resolved") {
-        const contract = transport.invocationDeclarations.get(term.invocation);
-        if (transport.isOpaque(term.invocation) && contract !== undefined && ast.body(contract) === undefined) {
-          const result = transport.subject(term.invocation, "value", term.projection);
-          return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
-            ? [leaf(result, term.scope)] : term.mode === "execution" ? []
-              : [Object.freeze({ kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
-                reason: "An opaque invocation has no completed original thrown-value transport." })], dependencies };
-        }
         budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
       }
       const candidate = selected.implementation.declaration;
@@ -636,6 +639,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const parents = transport.incomingFor(term.subject);
     let initial: Extract<SourceStorageTerm, { readonly kind: "empty" }> | undefined;
+    if (parents.size === 0 && ast.is.IsObjectLiteralExpression(node) && ast.properties(node).length === 0 &&
+      term.subject.projection[0]?.kind === "indexed-value")
+      initial = Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
     if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0) {
       const elements = ast.elements(node);
       const component = term.subject.projection[0];

@@ -1,4 +1,4 @@
-import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile, Type, TypeIndexInfo } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
@@ -43,6 +43,62 @@ export function sourceStorageAccessDeclarations(source: TargetSourceProgram, acc
   return declarations.length === 0 ? undefined : Object.freeze(declarations);
 }
 
+export function sourceStorageCheckedIndex(
+  component: Extract<SourceStorageProjection, { readonly kind: "indexed-value" }>,
+  semantics: SourceFileSemantics,
+): TypeIndexInfo | undefined {
+  const indexes = semantics.types.indexInfos(component.ownerType).filter(index =>
+    index.keyType === component.index.keyType && index.valueType === component.index.valueType &&
+    index.readonly === component.index.readonly && index.declaration === component.index.declaration &&
+    index.symbol === component.index.symbol && index.components.length === component.index.components.length &&
+    index.components.every((declaration, ordinal) => declaration === component.index.components[ordinal]));
+  return indexes.length === 1 && indexes[0]!.keyType !== undefined && indexes[0]!.valueType !== undefined
+    ? indexes[0] : undefined;
+}
+
+export function sourceStorageProjectionsShareLocation(
+  left: readonly SourceStorageProjection[],
+  right: readonly SourceStorageProjection[],
+): boolean {
+  return left.length === right.length && left.every((component, ordinal) => {
+    const other = right[ordinal]!;
+    if (component.kind !== other.kind) return false;
+    if (component.kind === "array-element") return true;
+    if (component.kind === "tuple-element") return other.kind === "tuple-element" && component.index === other.index;
+    if (component.kind === "indexed-value") return other.kind === "indexed-value" &&
+      component.sourceType === other.sourceType && component.index.keyType === other.index.keyType &&
+      component.index.valueType === other.index.valueType;
+    return sourceStorageIsMemberProjection(other) && component.declaration === other.declaration;
+  });
+}
+
+export function sourceStorageIndexedCorrespondence(
+  from: Type,
+  component: Extract<SourceStorageProjection, { readonly kind: "indexed-value" }>,
+  semantics: SourceFileSemantics,
+): Extract<SourceStorageProjection, { readonly kind: "indexed-value" }> | undefined {
+  const index = sourceStorageCheckedIndex(component, semantics);
+  const selected = sourcePresentStorageType(from, semantics);
+  if (index === undefined || selected === undefined || semantics.types.isAny(selected) ||
+    semantics.types.isUnknown(selected) || semantics.types.isNonPrimitive(selected) ||
+    sourceStorageIsScalarType(selected, semantics)) return undefined;
+  if (selected === component.sourceType) return component;
+  const selection = semantics.types.selectIndexedAccess(selected, index.keyType!);
+  if (selection?.kind !== "resolved" || selection.members.length !== 1 || selection.members[0]?.kind !== "index") {
+    if (semantics.types.indexInfos(selected).length !== 0 || semantics.types.propertyInfos(selected).length !== 0 ||
+      semantics.types.callSignatures(selected).length !== 0 || semantics.types.constructSignatures(selected).length !== 0)
+      return undefined;
+    const members = semantics.types.structuralMembers(selected, component.ownerType, "correspondence");
+    return members.kind === "available" && members.members.every(member => member.kind === "present")
+      ? Object.freeze({ ...component, sourceType: selected }) : undefined;
+  }
+  const original = selection.members[0].index;
+  if (original.valueType === undefined || original.keyType === undefined ||
+    !semantics.types.isIdentical(original.keyType, index.keyType!) ||
+    !semantics.types.isIdentical(original.valueType, index.valueType!)) return undefined;
+  return Object.freeze({ kind: "indexed-value", sourceType: selected, ownerType: selected, index: original });
+}
+
 export function sourceStorageComponentType(
   type: Type,
   component: SourceStorageProjection,
@@ -51,6 +107,9 @@ export function sourceStorageComponentType(
 ): Type | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
+  if (component.kind === "indexed-value") {
+    return selected === component.sourceType ? sourceStorageCheckedIndex(component, semantics)?.valueType : undefined;
+  }
   if (sourceStorageIsMemberProjection(component)) {
     if (component.kind === "method-value" ? !sourceStorageIsMethodMember(component.declaration, ast)
       : !sourceStorageIsDataMember(component.declaration, ast) && !ast.is.IsGetAccessorDeclaration(component.declaration)) return undefined;
@@ -77,6 +136,10 @@ export function sourceStorageOriginalComponents(
   component: SourceStorageProjection,
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
+  if (component.kind === "indexed-value") {
+    const original = sourceStorageIndexedCorrespondence(from, component, semantics);
+    return original === undefined ? [] : [original];
+  }
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
     const member = semantics.types.structuralMember(from, to, component.declaration, "read");
@@ -106,6 +169,11 @@ export function* sourceStorageComponents(
     for (const index of indexes) yield { kind: "tuple-element", index };
   } else if (sourceArrayElementType(selected, semantics) !== undefined)
     yield { kind: "array-element" };
+  else for (const index of semantics.types.indexInfos(selected)) {
+    if (index.keyType !== undefined && index.valueType !== undefined &&
+      (index.declaration !== undefined || index.components.length !== 0))
+      yield { kind: "indexed-value", sourceType: selected, ownerType: selected, index };
+  }
 }
 
 export function sourceStorageSubjectType(source: TargetSourceProgram, value: SourceStorageSubject, sourceFile?: SourceFile): Type | undefined {
@@ -202,6 +270,12 @@ export function sourceIndexedStorageProjection(
       sourceStorageComponentType(selected, { kind: "tuple-element", index: value }, semantics, ast) !== undefined
       ? Object.freeze({ kind: "tuple-element", index: value }) : undefined;
   }
-  return sourceStorageComponentType(selected, { kind: "array-element" }, semantics, ast) === undefined
-    ? undefined : Object.freeze({ kind: "array-element" });
+  if (sourceStorageComponentType(selected, { kind: "array-element" }, semantics, ast) !== undefined)
+    return Object.freeze({ kind: "array-element" });
+  const indexType = index === undefined ? undefined : semantics.types.expressionType(index);
+  const selection = indexType === undefined ? undefined : semantics.types.selectIndexedAccess(selected, indexType);
+  const member = selection?.kind === "resolved" && selection.members.length === 1 ? selection.members[0] : undefined;
+  return member?.kind === "index" && member.index.keyType !== undefined && member.index.valueType !== undefined &&
+    (member.index.declaration !== undefined || member.index.components.length !== 0)
+    ? Object.freeze({ kind: "indexed-value", sourceType: selected, ownerType: selected, index: member.index }) : undefined;
 }

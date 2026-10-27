@@ -374,7 +374,10 @@ export function createSourceStorageMemberFlow(
     for (const alternative of alternatives) {
       if (!budget.step() || queries.types.isAny(alternative) || queries.types.isUnknown(alternative)) return undefined;
       const indexed = [...sourceStorageComponents(alternative, queries)];
-      if (indexed.length !== 0) { components.push(...indexed); continue; }
+      if (indexed.length !== 0) {
+        components.push(...indexed);
+        if (indexed.every(component => component.kind !== "indexed-value")) continue;
+      }
       for (const property of queries.types.propertyInfos(alternative)) {
         if (!budget.step()) return undefined;
         for (const symbol of [property.symbol, ...property.rootSymbols]) {

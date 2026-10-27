@@ -77,6 +77,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       : value !== null && typeof value === "object" && "kind" in value && value.kind === "key" ? value : encoder.intern(value);
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
+        component.kind === "indexed-value" ? [component.kind, scopes.identity(component.sourceType),
+          scopes.identity(component.ownerType), scopes.identity(component.index.keyType!),
+          scopes.identity(component.index.valueType!), component.index.readonly,
+          component.index.declaration === undefined ? null : scopes.identity(component.index.declaration),
+          ...component.index.components.map(declaration => declaration === undefined ? null : scopes.identity(declaration))] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);

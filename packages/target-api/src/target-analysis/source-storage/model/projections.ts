@@ -30,9 +30,13 @@ export function createSourceStorageProjectionFlow(
       : subject(owner.node, owner.kind, [...owner.projection, component]);
   const indexed = (node: Node, location = false): SourceStorageSubject | undefined => {
     const queries = semantics.forNode(node);
-    const access = queries.operations.elementAccess(node);
-    const component = access === undefined ? undefined
-      : sourceIndexedStorageProjection(access.receiver.type, access.argument.expression, queries, ast);
+    const property = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node) : undefined;
+    const element = ast.is.IsElementAccessExpression(node) ? queries.operations.elementAccess(node) : undefined;
+    const access = property ?? element;
+    const component: SourceStorageProjection | undefined = property?.selectedIndex !== undefined
+      ? { kind: "indexed-value", sourceType: property.receiver.type, ownerType: property.receiver.type, index: property.selectedIndex }
+      : element === undefined ? undefined
+        : sourceIndexedStorageProjection(element.receiver.type, element.argument.expression, queries, ast);
     const declaration = access?.selectedDeclaration;
     if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
@@ -40,7 +44,7 @@ export function createSourceStorageProjectionFlow(
     const value = component === undefined ? subject(node)
       : project((location ? locationFor : subjectFor)(access?.receiver.expression), component);
     if (value !== undefined && component === undefined)
-      unresolved(value, "An indexed value has no exact checked array/tuple storage component.");
+      unresolved(value, "An indexed value has no exact checked storage component.");
     return value;
   };
   const patternComponent = (originalOwner: SourceStorageSubject, reference: Node): SourceStorageWriteProjection | undefined => {

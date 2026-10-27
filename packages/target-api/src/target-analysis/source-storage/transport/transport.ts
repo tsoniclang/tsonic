@@ -132,7 +132,8 @@ export function createSourceStorageTransport(
       connect(receiver, value);
       return value;
     }
-    if (ast.is.IsElementAccessExpression(node)) {
+    if (ast.is.IsElementAccessExpression(node) || ast.is.IsPropertyAccessExpression(node) &&
+      semantics.forNode(node).operations.propertyAccess(node)?.selectedIndex !== undefined) {
       const indexed = projections.indexed(node);
       const value = indexed === undefined ? undefined : subject(node);
       if (value !== undefined) subjects.set(node, value);
@@ -221,7 +222,8 @@ export function createSourceStorageTransport(
       return undefined;
     return declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast))
       ? sourceStorageMemberSubject(declaration, ast, subject)
-      : ast.is.IsElementAccessExpression(node) ? projections.indexed(node, true) : subjectFor(node);
+      : ast.is.IsElementAccessExpression(node) || property?.selectedIndex !== undefined
+        ? projections.indexed(node, true) : subjectFor(node);
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,
     types?: SourceStorageEdgeTypes): void => {
@@ -610,7 +612,7 @@ export function createSourceStorageTransport(
         (physicalOwner === receiver.node || physicalOwner === ast.parent(receiver.node))) return;
       for (const origin of originSubjects(owner) ?? []) {
         if (!step()) break;
-        if (selected !== undefined && property === undefined && storage !== undefined && storage.projection.length > owner.projection.length) {
+        if (selected !== undefined && storage !== undefined && storage.projection.length > owner.projection.length) {
           const file = sourceFileFor(origin);
           const type = sourceStorageSubjectType(source, origin, file);
           if (file === undefined || type === undefined) continue;

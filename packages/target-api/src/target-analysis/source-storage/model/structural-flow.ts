@@ -2,7 +2,7 @@ import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageMemberSubject } from "./subjects.js";
-import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType } from "./components.js";
+import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageOriginalComponents } from "./components.js";
 
 export function createSourceStorageStructuralFlow(
   source: TargetSourceProgram,
@@ -40,9 +40,7 @@ export function createSourceStorageStructuralFlow(
         if (!step()) break;
         const toComponent = sourceStorageComponentType(toPresent, component, semantics, source.ast);
         if (toComponent === undefined) continue;
-        const components: Iterable<SourceStorageProjection> = component.kind === "array-element"
-          ? sourceStorageComponents(fromPresent, semantics)
-          : [semantics.types.isTuple(fromPresent) ? component : { kind: "array-element" }];
+        const components: Iterable<SourceStorageProjection> = sourceStorageOriginalComponents(fromPresent, toPresent, component, semantics);
         for (const originalComponent of components) {
           if (!step()) break;
           const fromComponent = sourceStorageComponentType(fromPresent, originalComponent, semantics, source.ast);

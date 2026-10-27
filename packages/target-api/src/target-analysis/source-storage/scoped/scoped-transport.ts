@@ -11,6 +11,7 @@ import type { createSourceStorageGuardedValues } from "../graph/guarded-values.j
 import type { SourceStorageContextLocation } from "../graph/context-locations.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageInvocationInputQuery, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
+import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
@@ -129,6 +130,16 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   if (initializer === undefined) return bound;
   const fallback = transport.subjectFor(initializer);
   if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
+  const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
+  const native = activation?.nativeEntry;
+  if (owner !== undefined && activation !== undefined && native !== undefined) {
+    const semantics = source.semantics.forNode(native.invocation);
+    const inputs = sourceStorageNativeInputSlots(source, owner, term.subject,
+      transport.inputSlotsFor(owner, native.invocation, native.callback), semantics, budget.step);
+    if (inputs !== undefined && inputs.length !== 0 && inputs.every(input => input.absent || input.type !== undefined &&
+      (semantics.types.isNullish(input.type) || semantics.types.isVoidLike(input.type))))
+      return { kind: "replace", terms: [sourceStorageReference(fallback, activation.scope)] };
+  }
   if (bound === undefined) {
     const inputs = transport.incomingFor(term.subject);
     if (inputs.size === 0) return undefined;
@@ -136,7 +147,6 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
     return { kind: "project", inputs: [...inputs].map(value => sourceStorageReference(value, term.scope)),
       select: value => sourceStorageInitializedValue(source, budget, scopes, term, defaultValue, value) };
   }
-  const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   if (activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
     return bound;
   const defaultValue = sourceStorageReference(fallback, activation.scope);

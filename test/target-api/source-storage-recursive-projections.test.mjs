@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { namedVariable } from "../fixtures/source-navigation.mjs";
+import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, limits = {}) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
@@ -51,6 +51,93 @@ for (const openFirst of [false, true]) {
     current.expect("known", ["original"]);
   });
 }
+
+for (const openFirst of [false, true]) {
+  test(`bounded recursive boundary walks never poison exact closed invocation results (${openFirst})`, () => {
+    const current = fixture(`
+      interface Tree { readonly token: object; readonly children: readonly Tree[]; }
+      declare const outside: Tree;
+      function first(tree: Tree): object { return tree.children[0] ? first(tree.children[0]) : tree.token; }
+      const token = {}; const result = first({ token, children: [] });
+      const external = first(outside);
+    `);
+    const inspect = () => {
+      const selected = current.query("external");
+      assert.equal(selected.kind === "open", true, "an unbound recursive input retains its actual frontier");
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+        "the bounded walk publishes external input, not a fabricated recursive producer");
+    };
+    if (openFirst) inspect();
+    current.expect("result", ["token"]);
+    inspect();
+    current.expect("result", ["token"]);
+  });
+}
+
+test("an unproved inspection retains its exact opaque operand even when the object's checked view has no members", () => {
+  const current = fixture(`
+    declare function inspect(value: object): boolean;
+    const original: object = {};
+    const alias = original;
+    const observed = inspect(alias);
+  `);
+  const selected = current.query("alias");
+  assert.equal(selected.kind === "open", true, "an empty public view cannot certify that an opaque operation preserves its input");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" &&
+    current.source.ast.is.IsCallExpression(boundary.exposure)), true,
+  "the real checked invocation owns the opacity witness");
+  assert.equal(current.storage.failureReason() === undefined, true, "no synthetic effect or new resource ceiling is required");
+});
+
+test("an escaping private callable retains future opaque inputs independently of its observed empty-object call", () => {
+  const current = fixture(`
+    declare function nativeFreeze<T>(value: T): Readonly<T>;
+    function freeze(value: object): object { return nativeFreeze(value); }
+    export function retained(): (value: object) => object { freeze({}); return freeze; }
+  `);
+  const declaration = namedDeclaration(current.source.ast, current.file, "nativeFreeze");
+  const owner = namedDeclaration(current.source.ast, current.file, "freeze");
+  const parameter = current.source.ast.parameters(owner)[0];
+  const storage = createSourceStorageQuery(current.source, [current.file], undefined, {
+    call(node, selected) {
+      const semantics = current.source.semantics.forNode(node);
+      return semantics.declarations.signatureDeclaration(selected.selectedSignature) === declaration
+        ? { resultAlias: selected.sourceArguments[0].expression } : undefined;
+    },
+  });
+  const subject = storage.subjectFor(parameter);
+  const bindings = storage.bindingsForDeclaration(owner);
+  assert.equal(subject.kind === "resolved" && bindings.kind === "resolved", true, "the actual escaping callable owns its declaration entry");
+  const selected = storage.closedOriginsFor(subject.subject, bindings.bindings);
+  assert.equal(selected.kind === "open", true, "one observed local call does not close future callers of the returned function");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    "the retained declaration entry supplies its exact external-input witness");
+  assert.equal(storage.failureReason() === undefined, true, "the shared source owner retains the original finite guards");
+});
+
+test("a returned generic fixed method preserves its captured value without inventing a replaceable method slot", () => {
+  const current = fixture(`
+    export function hold<T>(value: T): { read(): T } { return { read() { return value; } }; }
+    const original = {}; const separate = {};
+    const first = hold(original); const second = hold(separate);
+    const selected = first.read(); const other = second.read();
+  `);
+  current.expect("selected", ["original"]);
+  current.expect("other", ["separate"]);
+});
+
+test("a writable returned function property remains externally replaceable", () => {
+  const current = fixture(`
+    const original = {};
+    export const retained: { read: () => object } = { read: () => original };
+    const selected = retained.read;
+  `);
+  const selected = current.query("selected");
+  assert.equal(selected.kind === "open", true, "a function-valued data property is not a fixed native method");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-write"), true,
+    "the real writable slot retains its outside writer");
+  assert.equal(current.storage.failureReason() === undefined, true, "fixed-method handling does not discharge writable-property evidence");
+});
 
 test("generic nested array calls retain finite checked types and exact scoped origins", () => {
   const current = fixture(`

@@ -15,6 +15,84 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
+test("checked indexed views retain one fresh allocation and compatible view writes without mixing allocations", async () => {
+  const current = await checked("source-storage-indexed-views", `
+interface First { [key: string]: object | undefined; }
+interface Second { [key: string]: object | undefined; }
+const original = {}; const separate = {};
+const first: First = original; const second: Second = first;
+const independent: First = separate;
+const token = {}; const other = {};
+first["item"] = token; independent["item"] = other;
+const selected = second["item"];
+const isolated = independent["item"];
+const absent: First = {};
+const missing = absent["item"];
+`);
+  for (const [name, included, excluded] of [["selected", "token", "other"], ["isolated", "other", "token"]]) {
+    const domain = current.storage.closedOriginsFor(current.subject(name));
+    assert.equal(domain.kind === "complete", true, `${name}: ${domain.reason ?? domain.kind}`);
+    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(included)), true,
+      `${name}: its actual checked write remains a producer`);
+    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(excluded)), false,
+      `${name}: another physical allocation does not supply its contents`);
+  }
+  const backing = current.storage.closedOriginsFor(current.subject("second"));
+  assert.equal(backing.kind === "complete" && backing.origins.length === 1 &&
+    backing.origins[0].subject.node === current.initializer("original"), true,
+  "the view does not allocate or replace the empty original");
+  const missing = current.storage.closedOriginsFor(current.subject("missing"));
+  assert.equal(missing.kind === "complete" && missing.origins.length === 0, true,
+    "an unwritten fresh key contributes absence, not a fabricated element");
+  const original = resolvedSubject(current.storage.subjectFor(current.initializer("original")), "fresh original");
+  const originalType = current.storage.typeFor(original);
+  assert.equal(originalType.kind === "resolved" &&
+    current.source.semantics.forNode(current.initializer("original")).types.indexInfos(originalType.type).length === 0,
+  true, "retaining a checked view never retypes the original empty allocation");
+  assert.equal(current.storage.failureReason() === undefined, true, "the existing finite source guards remain enabled");
+});
+
+test("indexed components require the actual checked view and keep generic and readonly evidence distinct", async () => {
+  const current = await checked("source-storage-indexed-admission", `
+interface Values<T> { [key: string]: T; }
+interface Frozen { readonly [key: string]: object | undefined; }
+const objects: Values<object | undefined> = {};
+const texts: Values<string | undefined> = {};
+const frozen: Frozen = {};
+`);
+  const projection = name => {
+    const type = current.source.semantics.forNode(current.variable(name)).declarations.declaredValueType(current.variable(name));
+    const index = current.source.semantics.forNode(current.variable(name)).types.indexInfos(type)[0];
+    assert.equal(index !== undefined, true, `${name}: actual checked index metadata`);
+    return { kind: "indexed-value", sourceType: type, ownerType: type, index };
+  };
+  const objects = projection("objects"); const texts = projection("texts"); const frozen = projection("frozen");
+  const first = current.storage.storageSubjectFor(current.variable("objects"), [objects]);
+  const second = current.storage.storageSubjectFor(current.variable("texts"), [texts]);
+  assert.equal(first.kind === "resolved" && second.kind === "resolved" &&
+    first.subject.projectionKey !== second.subject.projectionKey, true,
+  "distinct instantiated key/value evidence cannot share a projection identity");
+  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), [texts]).kind, "unresolved",
+    "an unrelated generic view cannot be appended to another checked root");
+  assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [frozen]).kind, "resolved",
+    "the actual readonly index is representable without inventing a writer");
+  const forged = { ...frozen, index: { ...frozen.index, readonly: false } };
+  assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [forged]).kind, "unresolved",
+    "changing readonly metadata does not create checked write authority");
+  const foreign = await checked("source-storage-indexed-foreign", `
+interface Values { [key: string]: object | undefined; }
+const foreign: Values = {};
+`);
+  const foreignType = foreign.source.semantics.forNode(foreign.variable("foreign")).declarations.declaredValueType(foreign.variable("foreign"));
+  const foreignIndex = foreign.source.semantics.forNode(foreign.variable("foreign")).types.indexInfos(foreignType)[0];
+  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), [{ kind: "indexed-value",
+    sourceType: foreignType, ownerType: foreignType, index: foreignIndex }]).kind, "unresolved",
+  "another checker session cannot lend index ownership to this graph");
+  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), element).kind, "unresolved",
+    "a native indexed record is never disguised as an array");
+  assert.equal(current.storage.failureReason() === undefined, true, "refused views do not poison a valid graph");
+});
+
 test("array component transport follows exact inherited numeric indexes rather than interface arguments", async () => {
   const { source, storage, variable, initializer } = await checked("source-storage-array-facades", `
 const firstToken = {};

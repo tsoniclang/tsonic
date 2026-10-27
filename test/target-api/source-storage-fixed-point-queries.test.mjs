@@ -15,6 +15,43 @@ function copy(values, add) {
   return true;
 }
 
+test("query-owned fixed points release completed rows without invalidating a separate canonical family", () => {
+  const { budget, graph } = fixture({ maximumTransportRows: 128 });
+  const original = {};
+  const canonical = graph.fixedPoint((_key, _read, add) => add(original), "canonical-owner");
+  graph.seal();
+  const stable = canonical("root");
+  const retained = budget.usage().rows;
+  const local = graph.fixedPoint((key, read, add) => key === "root" ? copy(read("leaf"), add) : add(original), "bounded-owner");
+  const selected = local("root");
+  assert.equal(selected?.size === 1 && selected.has(original), true, "the bounded query computes the exact producer");
+  assert.equal(budget.usage().rows > retained, true, "its live evidence remains charged");
+  const escaped = selected.values();
+  local.release();
+  local.release();
+  assert.equal(budget.usage().rows === retained, true, "only the bounded owner's cells and views are retired");
+  assert.throws(() => selected.size, /live query owner/u);
+  assert.throws(() => escaped.next(), /live query owner/u);
+  assert.throws(() => local("root"), /live query owner/u);
+  assert.equal(canonical("root") === stable && stable.has(original), true,
+    "releasing a local boundary policy never clears an independent canonical result");
+  assert.equal(budget.failure() === undefined, true, "lifetime misuse does not fabricate a completed result");
+});
+
+test("a fixed-point query cannot release evidence from inside its own running collector", () => {
+  const { budget, graph } = fixture();
+  const select = graph.fixedPoint((key, _read, add) => {
+    assert.throws(() => select.release(), /active wave drains/u);
+    return add(key);
+  }, "running-release");
+  graph.seal();
+  const selected = select("root");
+  assert.equal(selected?.has("root") && budget.failure() === undefined, true,
+    "the rejected release leaves the exact active wave intact");
+  select.release();
+  assert.equal(budget.usage().rows === 0, true, "the drained owner's complete evidence is released once");
+});
+
 test("sealed fixed-point families complete cyclic storage dependencies before publishing stable cached identities", () => {
   const { budget, graph } = fixture();
   const first = {}; const second = {};
