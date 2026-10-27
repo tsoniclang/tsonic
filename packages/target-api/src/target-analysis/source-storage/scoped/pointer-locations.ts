@@ -31,9 +31,11 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
         scope: queries.creatorScope(subject.node, scope) })];
     }
     const receiver = transport.subjectFor(selected.receiver.expression);
-    const component = ast.is.IsElementAccessExpression(operation.storageExpression) && !property
-      ? sourceIndexedStorageProjection(selected.receiver.type,
-        context.operations.elementAccess(operation.storageExpression)?.argument.expression, context, ast) : undefined;
+    const component = property?.selectedIndex !== undefined
+      ? { kind: "indexed-value" as const, sourceType: property.receiver.type, ownerType: property.receiver.type, index: property.selectedIndex }
+      : ast.is.IsElementAccessExpression(operation.storageExpression) && !property
+        ? sourceIndexedStorageProjection(selected.receiver.type,
+          context.operations.elementAccess(operation.storageExpression)?.argument.expression, context, ast) : undefined;
     const declaration = property?.selectedWriteDeclaration ?? selected.selectedDeclaration;
     if (receiver === undefined || component === undefined && declaration === undefined) return undefined;
     const originals = queries.read(sourceStorageReference(receiver, scope));
