@@ -222,8 +222,13 @@ export function createSourceStorageDomains(
               callable(setter, publication.exposure);
             }
             if (member.destination.read === "method" && !sourceStorageIsDataMember(declaration, ast)) callable(declaration, publication.exposure);
-            else publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
-              publication.externalEntry, publication.inputOwner, publication);
+            else {
+              const value = transport.subject(owner.node, owner.kind, [...owner.projection, {
+                kind: sourceStorageIsMethodMember(declaration, ast) ? "method-value" : "member", declaration,
+              }]);
+              publish(value, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
+                publication.externalEntry, publication.inputOwner, publication);
+            }
           }
         }
         const indexes = exposedContext.types.indexInfos(exposed);

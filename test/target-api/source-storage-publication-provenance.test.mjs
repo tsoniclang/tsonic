@@ -22,6 +22,27 @@ function fixture(body, extraFiles = {}) {
   return { source, storage, subject, initializer: name => Node_Initializer(source.ast, variable(name)) };
 }
 
+test("published readonly class fields retain their actual receiver allocations", () => {
+  const current = fixture(`
+    class Box { constructor(readonly backing: { readonly token: object }) {} }
+    const left = {}; const right = {};
+    export const first = new Box({ token: left });
+    export const second = new Box({ token: right });
+    const one = first.backing.token;
+    const two = second.backing.token;
+  `);
+  for (const [name, original, excluded] of [["one", "left", "right"], ["two", "right", "left"]]) {
+    const selected = current.storage.closedOriginsFor(current.subject(name));
+    assert.equal(selected.kind === "complete", true, `${name}: readonly publication remains closed; ${selected.reason ?? selected.kind}`);
+    assert.equal(selected.origins.length === 1 &&
+      selected.origins[0].subject.node === current.initializer(original) &&
+      selected.origins[0].subject.projection.length === 0, true, `${name}: exact receiver-owned original allocation`);
+    assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer(excluded)), false,
+      `${name}: another instance cannot contribute its field payload`);
+  }
+  assert.equal(current.storage.failureReason() === undefined, true, "receiver publication retains the existing finite proof limits");
+});
+
 for (const recursive of [false, true]) for (const access of ["value.items", 'value["items"]']) {
   test(`opaque narrowed publication cannot poison independent private provenance (${recursive}; ${access})`, () => {
     const current = fixture(`
