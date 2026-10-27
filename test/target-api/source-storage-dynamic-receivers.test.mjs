@@ -29,7 +29,7 @@ function exactOrigins(current, name, expected, excluded = []) {
   const domain = current.domain(name);
   assert.equal(domain.kind === "complete" || domain.kind === "open", true,
     `${name}: actual receiver domain; ${domain.reason ?? domain.kind}`);
-  assert.equal(expected.every(node => domain.origins.some(origin => origin.subject.kind === "value" &&
+  assert.equal(domain.origins.length === expected.length && expected.every(node => domain.origins.some(origin => origin.subject.kind === "value" &&
     origin.subject.node === node && origin.subject.projection.length === 0)), true,
   `${name}: every original allocation remains unprojected`);
   assert.equal(domain.origins.some(origin => excluded.includes(origin.subject.node)), false,
