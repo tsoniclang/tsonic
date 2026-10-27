@@ -19,8 +19,7 @@ const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
 function indexedFailure(current, name, selected) {
   if (selected.kind === "open") return `open; ${JSON.stringify(selected.boundaries.slice(0, 8).map(boundary => ({
-    kind: boundary.kind, exposure: current.source.ast.kindName(boundary.exposure),
-    text: current.source.ast.text(boundary.exposure).slice(0, 80) })))}`;
+    kind: boundary.kind, exposure: current.source.ast.kindName(boundary.exposure) })))}`;
   if (selected.kind !== "unresolved" || current.storage.failureReason() !== undefined) return selected.reason ?? selected.kind;
   const frontier = current.storage.boundValueFrontierFor(current.subject(name), current.storage.emptyBindings, []);
   if (frontier.kind === "unresolved") return `${selected.reason}; frontier: ${frontier.reason}`;
@@ -28,8 +27,7 @@ function indexedFailure(current, name, selected) {
     const root = current.storage.subject(subject.node, subject.kind);
     const type = root.kind === "resolved" ? current.storage.typeFor(root.subject) : root;
     const semantics = current.source.semantics.forNode(subject.node);
-    return { kind: subject.kind, node: current.source.ast.kindName(subject.node),
-      text: current.source.ast.text(subject.node).slice(0, 80), projectionLength: subject.projection.length,
+    return { kind: subject.kind, node: current.source.ast.kindName(subject.node), projectionLength: subject.projection.length,
       projection: subject.projection.slice(0, 8).map(component =>
         component.kind !== "indexed-value" ? component.kind : { kind: component.kind,
           sourceMatches: type.kind === "resolved" && type.type === component.sourceType,
