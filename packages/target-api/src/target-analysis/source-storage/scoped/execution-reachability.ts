@@ -224,7 +224,6 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
-  const { ast } = source;
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
   const conditionalExecutions = (roots: Iterable<SourceStorageTerm>, demand: Node, exposure: Node,
     reasons: { readonly value: { readonly reason: string; readonly executionOnly: boolean };
