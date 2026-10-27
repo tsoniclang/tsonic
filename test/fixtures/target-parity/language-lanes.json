@@ -259,7 +259,7 @@
     "source": "try { run(); } catch (error) { recover(error); } finally { close(); }",
     "classification": "implemented",
     "action": "retain explicit result and completion-flow lowering",
-    "rustReference": "tsonic-rust/test/backend/planner/expressions/error-and-callbacks.test.mjs"
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/error-and-callbacks-part-01.test.mjs"
   },
   {
     "id": "iteration.sync-async",
@@ -308,7 +308,7 @@
     "source": "return value?.item?.count ?? 0;",
     "classification": "implemented",
     "action": "retain selected Option projections",
-    "rustReference": "tsonic-rust/test/backend/planner/expressions/optional-chaining-parity.test.mjs"
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/optional-chaining-parity-part-01.test.mjs"
   },
   {
     "id": "expressions.assertions-narrowing",
