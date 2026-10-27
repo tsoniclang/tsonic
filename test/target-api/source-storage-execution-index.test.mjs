@@ -40,6 +40,9 @@ test("one execution index retains module, unused-result, nested-closure and defa
   const closure = Node_Initializer(ast, deferred);
   const closureBody = ast.body(closure);
   const file = ast.getSourceFile(outer);
+  const indexedRegions = [...current.transport.regions.invocationRegions()];
+  assert.equal(indexedRegions.length === 4 && [file, body, initializer, closureBody].every(region => indexedRegions.includes(region)), true,
+    "the canonical region inventory contains each exact module, body, default and nested closure once");
   for (const region of [file, body, initializer, closureBody]) {
     const invocations = [...current.transport.regions.invocationsIn(region) ?? []];
     assert.equal(invocations.length === 1, true, "one original checked invocation belongs to exactly its authored region");

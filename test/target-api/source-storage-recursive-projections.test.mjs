@@ -20,7 +20,7 @@ function fixture(body, limits = {}) {
   const expect = (name, expected) => {
     const result = query(name);
     const detail = result.kind === "open" ? result.boundaries.slice(0, 8).map(boundary =>
-      `${boundary.kind}:${source.ast.text(boundary.subject.node).slice(0, 120)}@${source.ast.text(boundary.exposure).slice(0, 120)}`).join("; ") : "";
+      `${boundary.kind}:${boundary.subject.kind}`).join("; ") : "";
     assert.equal(result.kind === "complete", true, `${name}: ${storage.failureReason() ?? result.reason ?? result.kind}; ${detail}`);
     assert.equal(result.origins.length === expected.length && expected.every(original =>
       result.origins.some(origin => origin.subject.node === initializer(original))), true,

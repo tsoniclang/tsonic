@@ -39,6 +39,17 @@ function callableSource(owners) {
     } } };
 }
 
+function executionRegions(invocations) {
+  const regions = new Map();
+  for (const invocation of invocations) {
+    const entries = regions.get(invocation.region) ?? new Set();
+    entries.add(invocation);
+    regions.set(invocation.region, entries);
+  }
+  return { enclosing: node => node.region, invocationRegions: () => regions.keys(),
+    invocationsIn: region => regions.get(region)?.values() };
+}
+
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
@@ -49,16 +60,17 @@ function fixture(limits = {}) {
   const firstCall = { region: first.body }; const secondCall = { region: second.body };
   const source = callableSource([first, second]);
   let calls = 0; let inspect = () => {}; let context = "caller";
+  const regions = executionRegions([firstCall, secondCall]);
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([firstCall, secondCall]), accessorTargets: new Map(),
     callbackEntriesFor: () => [],
-    regions: { enclosing: node => node.region }, invocationImplementations: node => {
+    regions, invocationImplementations: node => {
       calls += 1; inspect(node);
       return new Set([node === firstCall ? second : first]);
     },
   }, (_formal, _candidate, invocation) => ({ context,
     subjects: new Set([subject(invocation === firstCall ? firstInput : secondInput, "input")]) }));
-  return { budget, subject, recursion, first, second, firstInput, secondInput, firstCall, secondCall,
+  return { budget, subject, recursion, regions, first, second, firstInput, secondInput, firstCall, secondCall,
     calls: () => calls, inspect: callback => { inspect = callback; }, context: value => { context = value; } };
 }
 
@@ -71,6 +83,46 @@ test("recursive call graph publishes one exact complete SCC only after every ori
     current.recursion.incomingFor(current.second)[0].caller === current.first, true, "exact checked edge identities survive");
   assert.equal(Object.isFrozen(current.recursion.incomingFor(current.second)), true);
   assert.equal(current.calls() === 2 && current.budget.failure() === undefined, true, "a complete immutable index is reused");
+});
+
+test("recursive discovery consumes the canonical callable regions without rescanning module calls", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 64 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const first = { parameters: [] }; const second = { parameters: [] };
+  first.body = { parent: first }; second.body = { parent: second };
+  const moduleRegion = {};
+  const firstCall = { region: first.body };
+  const accessor = { region: second.body };
+  const callback = { invocation: accessor };
+  let selections = 0;
+  const source = callableSource([first, second]);
+  const recursion = createSourceStorageScopedRecursion(source, budget, {
+    subject,
+    get invocations() { throw new Error("The canonical region index owns all checked call sites."); },
+    get accessorTargets() { throw new Error("The canonical region index already contains accessor invocations."); },
+    regions: {
+      invocationRegions: () => [moduleRegion, first.body, second.body],
+      invocationsIn(region) {
+        assert.equal(region !== moduleRegion, true, "module invocations cannot form a callable recursion component");
+        return [region === first.body ? firstCall : accessor];
+      },
+      enclosing() { throw new Error("Indexed sites must not repeat lexical ancestry selection."); },
+    },
+    invocationImplementations(invocation) {
+      selections += 1;
+      return new Set(invocation === firstCall ? [second] : []);
+    },
+    callbackEntriesFor: invocation => invocation === accessor ? [callback] : [],
+    callbackImplementationsFor: selected => new Set(selected === callback ? [first] : []),
+  }, () => ({ context: "caller", subjects: new Set() }));
+  const component = recursion.componentFor(first);
+  assert.equal(component?.size === 2 && component.has(first) && component.has(second), true,
+    "the indexed accessor and callback edges close the same exact cycle");
+  const incoming = recursion.incomingFor(first);
+  assert.equal(incoming.length === 1 && incoming[0].invocation === accessor && incoming[0].caller === second &&
+    incoming[0].callback === callback, true, "the original callback edge retains its actual checked identity");
+  assert.equal(selections === 2 && budget.failure() === undefined, true,
+    "only the two callable-owned sites need implementation selection within the finite work ceiling");
 });
 
 test("selected incoming sites preserve complete recursive rings, self calls and external entry identity within linear work", () => {
@@ -90,7 +142,7 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),
     callbackEntriesFor: () => [],
-    regions: { enclosing: node => node.region }, invocationImplementations: node => {
+    regions: executionRegions([...calls, self, entry]), invocationImplementations: node => {
       selections += 1;
       return new Set([node.candidate]);
     },
@@ -123,6 +175,15 @@ test("recursive incoming-index discovery preserves independent finite row and wo
     assert.equal(current.recursion.incomingFor(current.second) === undefined, true,
       "an unavailable graph cannot masquerade as a complete empty call-site relation");
   }
+});
+
+test("an indexed callable region cannot become an invented empty invocation relation", () => {
+  const current = fixture();
+  current.regions.invocationsIn = () => undefined;
+  assert.equal(current.recursion.componentFor(current.first) === undefined, true, "missing indexed sites never publish an acyclic proof");
+  assert.equal(current.budget.failure() === "Source storage recursion requires the exact invocations of every indexed execution region.", true,
+    "the unavailable inverse index has one precise owner refusal");
+  assert.equal(current.recursion.incomingFor(current.second) === undefined, true, "failure remains sticky across later requests");
 });
 
 test("a throwing recursive index releases unpublished rows and retries the entire graph instead of a partial component", () => {

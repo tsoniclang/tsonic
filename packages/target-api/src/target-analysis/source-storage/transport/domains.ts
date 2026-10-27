@@ -285,7 +285,7 @@ export function createSourceStorageDomains(
       if (boundary.creationBindings === undefined) return true;
       const owner = boundary.owner ?? boundary.subject;
       const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
-      const observed = transport.substitutions.creationKeyFor(owner, bindings);
+      const observed = boundary.creationBindings === bindings ? exposed : transport.substitutions.creationKeyFor(owner, bindings);
       if (exposed === undefined || observed === undefined) {
         budget.reject("Source storage writer evidence requires its exact original creation correspondence.");
         return false;

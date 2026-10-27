@@ -119,6 +119,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       retained.add(invocation);
       invocations.set(region, retained);
     },
+    invocationRegions: (): Iterable<Node> => invocations.keys(),
     invocationsIn(region: Node): Iterable<Node> | undefined {
       if (!step()) return undefined;
       return invocations.get(region)?.values();

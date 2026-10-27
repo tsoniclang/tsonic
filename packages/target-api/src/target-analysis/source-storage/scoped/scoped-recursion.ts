@@ -40,26 +40,34 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
       const incoming = new Map<Node, SourceStorageIncomingCallSite[]>();
       const vertices = new Set<Node>();
       const recursive = new Map<Node, ReadonlySet<Node>>();
-      for (const invocations of [transport.invocations, transport.accessorTargets.keys()]) for (const invocation of invocations) {
+      for (const region of transport.regions.invocationRegions()) {
         if (!budget.step()) return undefined;
-        const owner = ownerFor(invocation);
+        const owner = sourceStorageRegionOwner(source.ast, region);
         if (owner === undefined) continue;
-        if (!vertices.has(owner)) { if (!owned.add(1)) return undefined; vertices.add(owner); }
-        for (const candidate of transport.invocationImplementations(invocation)) {
-          if (!budget.step()) return undefined;
-          if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
-          const callers = incoming.get(candidate) ?? [];
-          if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
-          callers.push(Object.freeze({ invocation, caller: owner }));
-          incoming.set(candidate, callers);
+        const invocations = transport.regions.invocationsIn(region);
+        if (invocations === undefined) {
+          budget.reject("Source storage recursion requires the exact invocations of every indexed execution region.");
+          return undefined;
         }
-        for (const callback of transport.callbackEntriesFor(invocation)) for (const candidate of transport.callbackImplementationsFor(callback)) {
+        for (const invocation of invocations) {
           if (!budget.step()) return undefined;
-          if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
-          const callers = incoming.get(candidate) ?? [];
-          if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
-          callers.push(Object.freeze({ invocation, caller: owner, callback }));
-          incoming.set(candidate, callers);
+          if (!vertices.has(owner)) { if (!owned.add(1)) return undefined; vertices.add(owner); }
+          for (const candidate of transport.invocationImplementations(invocation)) {
+            if (!budget.step()) return undefined;
+            if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
+            const callers = incoming.get(candidate) ?? [];
+            if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
+            callers.push(Object.freeze({ invocation, caller: owner }));
+            incoming.set(candidate, callers);
+          }
+          for (const callback of transport.callbackEntriesFor(invocation)) for (const candidate of transport.callbackImplementationsFor(callback)) {
+            if (!budget.step()) return undefined;
+            if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
+            const callers = incoming.get(candidate) ?? [];
+            if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
+            callers.push(Object.freeze({ invocation, caller: owner, callback }));
+            incoming.set(candidate, callers);
+          }
         }
       }
       const resolved = budget.withRows(temporary => {
