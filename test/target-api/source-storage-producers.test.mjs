@@ -66,7 +66,7 @@ for (const reverse of [false, true]) test(`fixed authored callees retain separat
 test("a rewritten authored function binding cannot prove its later callee closed", async () => {
   const current = await fixture("storage-producer-rewritten-callee", `
     declare function native(value: object): object;
-    function retain(value: object): object { return value; }
+    let retain = function (value: object): object { return value; };
     retain = native;
     const original = {}; const selected = retain(original);
   `);
