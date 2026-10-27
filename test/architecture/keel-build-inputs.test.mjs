@@ -52,7 +52,8 @@ test("only the exact registry task acquires the Rust provider build; the full ce
   assert.equal(heavy.length, 0, "the removed full census has no provisional routine-bank weight");
   assert.equal(inventory.files.some(entry => entry.path === "test/architecture/keel-violations.test.mjs"), false);
   for (const path of ["test/architecture/keel-check-contract.test.mjs", "test/architecture/keel-certification-checks.test.mjs",
-    "test/architecture/keel-structure-checks.test.mjs", "test/architecture/keel-layer-checks.test.mjs"]) {
+    "test/architecture/keel-structure-checks.test.mjs", "test/architecture/keel-layer-checks-part-1.test.mjs",
+    "test/architecture/keel-layer-checks-part-2.test.mjs", "test/architecture/keel-layer-checks-part-3.test.mjs"]) {
     assert.equal(inventory.files.filter(entry => entry.scope === "tsonic" && entry.path === path).length, 1,
       `${path} retains its one cheap contract owner`);
   }

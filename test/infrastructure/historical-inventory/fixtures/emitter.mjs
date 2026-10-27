@@ -479,7 +479,7 @@ const oldEmitterPortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
     oldExpectedPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
-    newPath: "test/cli-build/core/object-shapes/basic.test.mjs",
+    newPath: "test/cli-build/core/object-shapes/basic-part-2.test.mjs",
     status: "replaced-by-stronger-test",
     featureArea: "object-shapes",
     owner: "current TSTS/provider/C# AST pipeline",
