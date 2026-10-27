@@ -5,6 +5,32 @@ import { createTargetSourceProgram, Node_Initializer } from "../../packages/targ
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { namedVariable } from "../fixtures/source-navigation.mjs";
+
+test("referenced native declarations retain ambient context without becoming collected project nodes", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/native.d.ts": "declare const NativeStorageGlobal: object;",
+    "/src/index.ts": "export {}; const alias = NativeStorageGlobal;",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const native = checked.getSourceFile("/src/native.d.ts");
+  const declaration = namedVariable(source.ast, native, "NativeStorageGlobal");
+  const transport = createSourceStorageTransport(source, [file], createSourceStorageBudget(defaultSourceStorageLimits));
+  assert.equal(transport.declarationIsAmbient(declaration), true, "the checked external declaration inherits its actual declare statement");
+  assert.equal(transport.hasNode(declaration), false, "context evidence does not admit a native declaration as collected project source");
+  const storage = createSourceStorageQuery(source, [file]);
+  const subject = storage.subjectFor(namedVariable(source.ast, file, "alias"));
+  assert.equal(subject.kind === "resolved", true, "the source alias is owned");
+  const selected = storage.closedOriginsFor(subject.subject);
+  assert.equal(selected.kind === "open", true, selected.kind === "unresolved" ? selected.reason : "the external value is not a new empty binding");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" && boundary.subject.node === declaration), true,
+    "the actual external declaration owns the input frontier");
+  const collected = createSourceStorageTransport(source, [native, file], createSourceStorageBudget(defaultSourceStorageLimits));
+  assert.equal(collected.hasNode(declaration), true, "context cached from a reference does not skip later authorized collection");
+  assert.equal(collected.declarationIsAmbient(declaration), true, "both source orders share the one ambient-context producer");
+});
 
 function fixture(text, limits = {}) {
   const checked = createCompilerSessionFromFiles({

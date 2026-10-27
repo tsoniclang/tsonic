@@ -69,9 +69,26 @@ export function createSourceStorageTransport(
   const visitedNodes: Node[] = [];
   const callableDeclarations: Node[] = [];
   const callableDeclarationRows = budget.createRows();
-  const admittedAmbient = new Map<Node, boolean>();
+  const admittedAmbient = new Map<Node, { readonly ambient: boolean; collected: boolean }>();
   const declarationIsAmbient = (declaration: Node): boolean | undefined =>
-    budget.step() ? admittedAmbient.get(declaration) : undefined;
+    budget.step() ? admittedAmbient.get(declaration)?.ambient : undefined;
+  const retainAmbientContext = (node: Node): boolean => budget.withRows(temporary => {
+    const pending: Node[] = [];
+    let current: Node | undefined = node;
+    while (current !== undefined && !admittedAmbient.has(current)) {
+      if (!budget.step() || !temporary.add(1)) return false;
+      pending.push(current);
+      current = ast.parent(current);
+    }
+    let ambient = current === undefined ? false : admittedAmbient.get(current)!.ambient;
+    while (pending.length !== 0) {
+      if (!budget.node()) return false;
+      const selected = pending.pop()!;
+      ambient = sourceDeclarationAmbientContext(ast, selected, ambient);
+      admittedAmbient.set(selected, { ambient, collected: false });
+    }
+    return budget.failure() === undefined;
+  });
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
@@ -84,6 +101,7 @@ export function createSourceStorageTransport(
   const retainCheckedContext = (node: Node, sourceFile: SourceFile): boolean => {
     if (!semantics.includes(sourceFile)) return false;
     const file = ast.getSourceFile(node);
+    if (!sealed && file !== undefined && semantics.includes(file) && !retainAmbientContext(node)) return false;
     if (file !== undefined && semantics.includes(file) || checkedSourceFiles.has(node)) return true;
     if (!budget.row()) return false;
     checkedSourceFiles.set(node, sourceFile);
@@ -284,8 +302,12 @@ export function createSourceStorageTransport(
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
   const pendingNodes: Node[] = [];
   const admitNode = (node: Node, inheritedAmbient: boolean): boolean => {
-    if (admittedAmbient.has(node) || !budget.node()) return false;
-    admittedAmbient.set(node, sourceDeclarationAmbientContext(ast, node, inheritedAmbient));
+    const existing = admittedAmbient.get(node);
+    if (existing?.collected === true) return false;
+    if (existing === undefined) {
+      if (!budget.node()) return false;
+      admittedAmbient.set(node, { ambient: sourceDeclarationAmbientContext(ast, node, inheritedAmbient), collected: true });
+    } else existing.collected = true;
     return true;
   };
   for (const file of sourceFiles) {
@@ -294,7 +316,7 @@ export function createSourceStorageTransport(
   }
   while (pendingNodes.length !== 0 && budget.failure() === undefined) {
     const node = pendingNodes.pop()!;
-    const ambient = admittedAmbient.get(node)!;
+    const ambient = admittedAmbient.get(node)!.ambient;
     syntax.visit(node);
     const children: Node[] = [];
     ast.forEachChild(node, child => { if (child !== undefined && admitNode(child, ambient)) children.push(child); });
@@ -861,7 +883,7 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, pointerInvocations, pointerAccessors, resumedImplementations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
-    accessorTargets, visitedNodes, hasNode: (node: Node): boolean => admittedAmbient.has(node),
+    accessorTargets, visitedNodes, hasNode: (node: Node): boolean => admittedAmbient.get(node)?.collected === true,
     regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };
