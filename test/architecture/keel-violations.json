@@ -292,7 +292,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/adapters.ts",
+      "file": "src/analysis/callables/native/adapters.ts",
       "subject": "selectCsharpCallableParameterAdapters",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -305,7 +305,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/adapters.ts",
+      "file": "src/analysis/callables/native/adapters.ts",
       "subject": "selectCsharpCallableResultAdapter",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -318,7 +318,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/adapters.ts",
+      "file": "src/analysis/callables/native/adapters.ts",
       "subject": "selectCsharpCallableValueAdapter",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -331,7 +331,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/capture-closures.ts",
+      "file": "src/analysis/callables/values/capture-closures.ts",
       "subject": "selectCsharpFrameClosures",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -357,7 +357,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/generic-closures.ts",
+      "file": "src/analysis/callables/generics/generic-closures.ts",
       "subject": "selectCsharpGenericFrameClosures",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -370,7 +370,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-csharp",
-      "file": "src/analysis/callables/named-self.ts",
+      "file": "src/analysis/callables/values/named-self.ts",
       "subject": "selectCsharpNamedSelfBinding",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1826,7 +1826,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/adapters.ts",
+      "file": "src/analysis/callables/native/adapters.ts",
       "subject": "selectRustCallableParameterAdapters",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1839,7 +1839,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/adapters.ts",
+      "file": "src/analysis/callables/native/adapters.ts",
       "subject": "selectRustCallableValueAdapter",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1852,7 +1852,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/async-results.ts",
+      "file": "src/analysis/callables/async/async-results.ts",
       "subject": "selectRustAsyncBodyPromise",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1878,7 +1878,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/generic-dispatch.ts",
+      "file": "src/analysis/callables/generics/generic-dispatch.ts",
       "subject": "selectRustGenericCallableInvocationStorage",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1891,7 +1891,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/generic-errors.ts",
+      "file": "src/analysis/callables/generics/generic-errors.ts",
       "subject": "selectRustGenericCallableErrors",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1904,7 +1904,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/generic-identities.ts",
+      "file": "src/analysis/callables/generics/generic-identities.ts",
       "subject": "selectRustGenericCallableIdentity",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1917,7 +1917,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/inferred-return.ts",
+      "file": "src/analysis/callables/calls/inferred-return.ts",
       "subject": "selectRustInferredReturn",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1930,7 +1930,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/module-aliases.ts",
+      "file": "src/analysis/callables/values/module-aliases.ts",
       "subject": "selectRustInlineModuleCallableAliases",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1943,7 +1943,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/native-storage-generics.ts",
+      "file": "src/analysis/callables/storage/native-storage-generics.ts",
       "subject": "selectRustNativeStorageGenericBindings",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1956,7 +1956,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/ownership-carriers.ts",
+      "file": "src/analysis/callables/ownership/ownership-carriers.ts",
       "subject": "selectRustCallableOwnershipCarrier",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1969,7 +1969,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/producer-errors.ts",
+      "file": "src/analysis/callables/calls/producer-errors.ts",
       "subject": "selectRustProducerError",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {
@@ -1982,7 +1982,7 @@
     {
       "check": "AC1",
       "repo": "tsonic-rust",
-      "file": "src/analysis/callables/signatures.ts",
+      "file": "src/analysis/callables/calls/signatures.ts",
       "subject": "selectedSourceCallableReturn",
       "reason": "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.",
       "evidence": {

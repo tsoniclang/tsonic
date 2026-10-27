@@ -82,21 +82,21 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.owner" },
       { file: "src/analysis/storage/local-aliases.ts", symbol: "RustLocalStorageAliasPlan.requiresMutableOwner" },
       { file: "src/analysis/declarations/generic-requirements.ts", symbol: "RustDeclarationGenericRequirementIndex.contractForCarrier" },
-      { file: "src/analysis/callables/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
+      { file: "src/analysis/callables/storage/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
       ...["contractFor", "parameterFor", "resolve", "allContracts"].map(name => ({
         file: "src/target-model/lifetimes/model.ts", symbol: `RustLifetimeIndex.${name}`,
       })),
     ],
     lazyQueries: [
       ...["callsFor", "bindingFor"].map(name => ({
-        file: "src/analysis/callables/lexical-bindings.ts", symbol: `createRustSourceLexicalCallableQueries.${name}`,
+        file: "src/analysis/callables/values/lexical-bindings.ts", symbol: `createRustSourceLexicalCallableQueries.${name}`,
       })),
-      { file: "src/analysis/callables/borrowed-returns.ts", symbol: "createRustSourceCallableQueries.borrowedReturnParameter" },
+      { file: "src/analysis/callables/ownership/borrowed-returns.ts", symbol: "createRustSourceCallableQueries.borrowedReturnParameter" },
       ...["suspendedParametersFor", "lexicalFor", "environmentFor"].map(name => ({
-        file: "src/analysis/callables/retained-environment-shapes.ts", symbol: `createRustRetainedEnvironmentQueries.${name}`,
+        file: "src/analysis/callables/ownership/retained-environment-shapes.ts", symbol: `createRustRetainedEnvironmentQueries.${name}`,
       })),
       ...["canUseSharedBorrow", "resolveParameterAbi"].map(name => ({
-        file: "src/analysis/callables/source-callable-abi.ts", symbol: `createRustSourceCallableAbiResolver.${name}`,
+        file: "src/analysis/callables/calls/source-callable-abi.ts", symbol: `createRustSourceCallableAbiResolver.${name}`,
       })),
     ],
     ...keelOwnedRustResponsibilities,
