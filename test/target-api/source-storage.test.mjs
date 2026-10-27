@@ -581,6 +581,25 @@ const [binding] = values;
   const component = Object.defineProperty({}, "kind", { get: () => assert.fail("projection component getter executed") });
   assert.equal(storage.storageSubjectFor(variable("values"), [component]).kind, "unresolved", "owner projection reads data-only components");
   assert.equal(storage.storageSubjectFor(variable("values"), null).kind, "unresolved", "null is not an omitted component path");
+  let lengthReads = 0;
+  const observed = new Proxy([...slot(0)], { get(target, key, receiver) {
+    if (key === "length") { lengthReads += 1; throw new Error("projection length reads must not execute"); }
+    return Reflect.get(target, key, receiver);
+  } });
+  const expected = storage.storageSubjectFor(variable("values"), slot(0));
+  const selected = storage.storageSubjectFor(variable("values"), observed);
+  assert.equal(expected.kind === "resolved" && selected.kind === "resolved" && selected.subject === expected.subject, true,
+    "checked data-only entries retain the one canonical tuple location");
+  assert.equal(lengthReads, 0, "the source boundary reads the owned length descriptor, never an ordinary property getter");
+  let entryVisits = 0;
+  const oversized = new Proxy(new Array(257), { getOwnPropertyDescriptor(target, key) {
+    if (key !== "length") entryVisits += 1;
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  } });
+  assert.equal(storage.storageSubjectFor(variable("values"), oversized).kind, "unresolved",
+    "the unchanged finite projection ceiling rejects oversized input before entry admission");
+  assert.equal(entryVisits, 0, "a refused path causes no input-sized descriptor walk");
+  assert.equal(storage.failureReason(), undefined, "rejected public evidence does not poison the checked graph");
 });
 
 test("structural correspondence uses checked generic property identities rather than property-name matching", async () => {

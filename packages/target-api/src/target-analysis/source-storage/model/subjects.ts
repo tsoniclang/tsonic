@@ -129,9 +129,12 @@ function sourceStorageDataIndex(input: object, ownerType: Type, indexes: SourceS
 
 export function sourceStorageProjectionPath(projection: readonly SourceStorageProjection[], indexes: SourceStorageIndexReader):
   readonly SourceStorageProjection[] | undefined {
+  if (!Array.isArray(projection)) return undefined;
+  const length: unknown = Object.getOwnPropertyDescriptor(projection, "length")?.value;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 || length > 256) return undefined;
   const normalized: SourceStorageProjection[] = [];
-  let valid = Array.isArray(projection) && projection.length <= 256;
-  for (let index = 0; valid && index < projection.length; index += 1) {
+  let valid = true;
+  for (let index = 0; valid && index < length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(projection, index);
     const component: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
     const kind: unknown = component !== null && typeof component === "object"
