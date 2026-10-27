@@ -16,6 +16,7 @@ function fixture(length = 16, maximumTransportRows = 128) {
     regions: { enclosing: node => node.region, callable: node => [node.region], instance: () => ({ regions: [], exact: true }) },
     callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],
     invocationImplementations: node => { inspected += 1; inspect(node); return new Set([node.candidate]); },
+    hasOnlySourceImplementations: () => true,
   });
   return { query, budget, calls, regions, inspected: () => inspected, inspect: callback => { inspect = callback; } };
 }
@@ -77,6 +78,7 @@ test("forward execution retains calls, accessors, constructor initializers and c
       instance: node => ({ regions: [{ node: node.initialize }], exact: true }) },
     callbackEntriesFor: () => [], callbackInputFrontiersFor: () => [],
     invocationImplementations: node => new Set([node.target]),
+    hasOnlySourceImplementations: () => true,
   });
   const reachable = query.reachableFrom(entry);
   assert.equal(reachable !== undefined && reachable.size === 5 &&

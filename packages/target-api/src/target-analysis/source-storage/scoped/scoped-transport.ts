@@ -49,6 +49,7 @@ export interface SourceStorageScopedTransport {
   storesFor(subject: SourceStorageSubject): Iterable<SourceStorageStore> | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
+  hasOnlySourceImplementations(invocation: Node): boolean;
   callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
   callbackImplementationsFor(entry: SourceStorageCallbackEntry): ReadonlySet<Node>;
   callbackInputFrontiersFor(invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings"> & {

@@ -27,18 +27,20 @@ export function createSourceStorageDomains(
   const { ast, navigation, semantics } = source;
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, (ancestor, current) => {
+    const ancestorSubject = ancestor.receiver?.subject ?? ancestor.subject;
+    const currentSubject = current.receiver?.subject ?? current.subject;
     if (!semantics.forFile(current.sourceFile).types.isIdentical(ancestor.type, current.type) ||
-      ancestor.subject.node !== current.subject.node || ancestor.subject.kind !== current.subject.kind ||
-      ancestor.subject.projection.length >= current.subject.projection.length ||
-      transport.subject(current.subject.node, current.subject.kind,
-        current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;
-    if (boundariesFor(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
+      ancestorSubject.node !== currentSubject.node || ancestorSubject.kind !== currentSubject.kind ||
+      ancestorSubject.projection.length >= currentSubject.projection.length ||
+      transport.subject(currentSubject.node, currentSubject.kind,
+        currentSubject.projection.slice(0, ancestorSubject.projection.length)) !== ancestorSubject) return false;
+    if (boundariesFor(ancestorSubject).some(boundary => boundary.exposure === current.exposure &&
       (boundary.kind === "external-input" && (boundary.owner === current.inputOwner ||
-        boundary.owner === undefined && ancestor.subject === current.inputOwner) ||
+        boundary.owner === undefined && ancestorSubject === current.inputOwner) ||
         boundary.kind === "external-write" || boundary.kind === "opaque-write"))) return true;
     const types = semantics.forFile(current.sourceFile).types;
-    const original = sourceStorageSubjectType(source, ancestor.subject, transport.sourceFileFor(ancestor.subject));
-    const repeated = sourceStorageSubjectType(source, current.subject, transport.sourceFileFor(current.subject));
+    const original = sourceStorageSubjectType(source, ancestorSubject, transport.sourceFileFor(ancestorSubject));
+    const repeated = sourceStorageSubjectType(source, currentSubject, transport.sourceFileFor(currentSubject));
     if (original === undefined || repeated === undefined || !types.isIdentical(original, repeated) ||
       types.isAny(original) || types.isUnknown(original) || types.couldContainTypeVariables(original)) return false;
     const alternatives = types.isUnion(current.type) ? types.unionOrIntersectionTypes(current.type) : [current.type];
@@ -55,18 +57,25 @@ export function createSourceStorageDomains(
           semantics.forFile(current.sourceFile).declarations.symbolDeclarations(symbol).every(declaration =>
             sourceStorageIsDataMember(declaration, ast))));
     });
-  });
+  }, transport.substitutions.empty);
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
   let initialized = false;
   const add = domainInputs.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
     kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
-    inputOwner?: SourceStorageSubject, parent?: SourceStoragePublication): void => {
+    inputOwner?: SourceStorageSubject, parent?: SourceStoragePublication, receiver?: SourceStorageScopedSubject,
+    bindings?: SourceStorageScope): void => {
     if (subject === undefined) return;
     const file = sourceFile ?? transport.sourceFileFor(subject);
     const selected = type ?? sourceStorageSubjectType(source, subject, file);
-    if (selected !== undefined && file !== undefined)
-      publications.add(subject, selected, file, exposure, writes, kind, externalEntry, inputOwner, parent);
+    if (selected === undefined || file === undefined) return;
+    const context = receiver?.bindings ?? bindings ?? (externalEntry
+      ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty);
+    if (context === undefined) {
+      budget.reject("Source storage publication requires its completed original lexical creation bindings.");
+      return;
+    }
+    publications.add(subject, selected, file, exposure, writes, kind, externalEntry, inputOwner, parent, receiver, context);
   };
   const callable = (declaration: Node, exposure: Node): void => {
     const selected = navigation.callableImplementation(declaration);
@@ -173,8 +182,11 @@ export function createSourceStorageDomains(
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
-      for (const owner of publicationOrigins(publication.subject, publication.externalEntry)) {
+      const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
+        : transport.substitutions.memberValues(publication.receiver, publication.subject.node) ?? [];
+      for (const selectedOwner of origins) {
         if (!budget.step()) return;
+        const owner = selectedOwner.subject;
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageSubjectType(source, owner, file);
         if (type === undefined || file === undefined) continue;
@@ -223,8 +235,10 @@ export function createSourceStorageDomains(
               callable(setter, publication.exposure);
             }
             if (member.destination.read === "method" && !sourceStorageIsDataMember(declaration, ast)) callable(declaration, publication.exposure);
-            else publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
-              publication.externalEntry, publication.inputOwner, publication);
+            else if (sourceStorageIsDataMember(declaration, ast))
+              publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
+                publication.externalEntry, publication.inputOwner, publication, selectedOwner);
+            else if (ast.is.IsGetAccessorDeclaration(declaration)) callable(declaration, publication.exposure);
           }
         }
         const indexes = exposedContext.types.indexInfos(exposed);
@@ -239,7 +253,8 @@ export function createSourceStorageDomains(
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             if (publication.writes && (component.kind === "indexed-value" ? !component.index.readonly
               : indexes.some(value => !value.readonly))) add(child, publication.kind, publication.exposure, owner);
-            publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry, publication.inputOwner, publication);
+            publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry,
+              publication.inputOwner, publication, undefined, selectedOwner.bindings);
           }
         }
       }
@@ -399,9 +414,9 @@ export function createSourceStorageDomains(
     const activation = transport.substitutions.boundActivation(bindings, implementation.implementation.declaration);
     return activation?.invocation !== undefined && activation.nativeEntry === undefined;
   };
-  const publicationQueries = new Map<SourceStorageScope, (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined>();
+  const publicationQueries = new Map<SourceStorageScope, (subject: SourceStorageSubject) => ReadonlySet<SourceStorageScopedSubject> | undefined>();
   const publicationRows = budget.createRows();
-  const publicationOriginsIn = (subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
+  const publicationOriginsIn = (subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined => {
     let query = publicationQueries.get(bindings);
     if (query === undefined) {
       if (!publicationRows.add(1)) return undefined;
@@ -425,22 +440,19 @@ export function createSourceStorageDomains(
           return domainInputs.has(current.subject);
         });
         if (budget.failure() !== undefined) return undefined;
-        const origins = new Set(selected?.origins);
+        const origins = new Set<SourceStorageScopedSubject>();
+        for (const current of selected?.subjects ?? []) {
+          if (!budget.step()) return undefined;
+          if (current.contributes && selected?.origins.has(current.subject))
+            origins.add(Object.freeze({ subject: current.subject, bindings: current.bindings }));
+        }
         if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0))
-          origins.add(subject);
+          origins.add(Object.freeze({ subject, bindings }));
         return origins;
       });
       publicationQueries.set(bindings, query);
     }
     return query(subject);
-  };
-  const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
-    const bindings = externalEntry ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
-    if (bindings === undefined) {
-      budget.reject("Source storage publication requires its completed original lexical creation bindings.");
-      return;
-    }
-    yield* publicationOriginsIn(subject, bindings) ?? [];
   };
   // The root scope and a top-level declaration activation are where an outside caller's values enter.
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||

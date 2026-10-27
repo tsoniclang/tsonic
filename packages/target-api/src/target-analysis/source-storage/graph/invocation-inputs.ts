@@ -266,7 +266,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
     componentFor(value: SourceStorageClassValue<Bindings>, component: SourceStorageProjection): SourceStorageSubject | undefined;
     componentsFor(value: SourceStorageSubject): readonly SourceStorageProjection[] | undefined;
     callbackEntriesFor(invocation: Node): readonly SourceStorageCallbackEntry[];
-    hasSourceImplementation(invocation: Node): boolean;
+    hasOnlySourceImplementations(invocation: Node): boolean;
   }): { readonly values: readonly SourceStorageClassValue<Bindings>[];
     readonly uncertain: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean } | undefined {
   return budget.withRows(rows => {
@@ -353,7 +353,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
           }
         }
         if (producer.subject.projection.length !== 0) continue;
-        if ((ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node)) && !queries.hasSourceImplementation(node) &&
+        if ((ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node)) && !queries.hasOnlySourceImplementations(node) &&
           !inputs(node, producer.bindings)) return undefined;
       }
     }

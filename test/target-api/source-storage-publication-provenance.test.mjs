@@ -44,6 +44,54 @@ test("published readonly class fields retain their actual receiver allocations",
 });
 
 for (const reverse of [false, true]) {
+  for (const sharedCreation of [false, true]) {
+    test(`readonly receiver publication keeps mutable descendants private (${reverse}; shared creation ${sharedCreation})`, () => {
+      const current = fixture(`
+        class Box { constructor(readonly backing: { token: object }) {} }
+        declare function consume(value: Box): void;
+        ${sharedCreation ? "function make(backing: { token: object }): Box { return new Box(backing); }" : ""}
+        const publicToken = {}; const privateToken = {};
+        const publicBacking = { token: publicToken };
+        const privateBacking = { token: privateToken };
+        const exposed = ${sharedCreation ? "make" : "new Box"}(publicBacking);
+        const isolated = ${sharedCreation ? "make" : "new Box"}(privateBacking);
+        consume(exposed);
+        const changed = exposed.backing.token;
+        const unchanged = isolated.backing.token;
+      `);
+      const { ast } = current.source;
+      const file = ast.getSourceFile(current.initializer("changed"));
+      const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+        ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+        ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+      const inspectChanged = () => {
+        const selected = current.storage.closedOriginsFor(current.subject("changed"));
+        assert.equal(selected.kind === "open", true, `the exposed mutable descendant stays open; ${selected.reason ?? selected.kind}`);
+        assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure),
+          true, "the actual consume invocation retains its physical writer");
+        assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("publicToken") &&
+          origin.subject.projection.length === 0), true, "the actual exposed original value is retained");
+        assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("privateToken")), false,
+          "the exposed value never acquires another receiver's private producer");
+      };
+      const inspectPrivate = () => {
+        const selected = current.storage.closedOriginsFor(current.subject("unchanged"));
+        assert.equal(selected.kind === "complete", true, `the private descendant remains closed; ${selected.reason ?? selected.kind}`);
+        assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === current.initializer("privateToken") &&
+          selected.origins[0].subject.projection.length === 0, true, "only the exact private original is reachable");
+      };
+      for (const inspect of reverse ? [inspectPrivate, inspectChanged] : [inspectChanged, inspectPrivate]) inspect();
+      for (const name of ["exposed", "isolated"]) {
+        const selected = current.storage.closedOriginsFor(current.subject(name));
+        const allocation = sharedCreation ? requiredNode(ast, file, node => ast.is.IsNewExpression(node)) : current.initializer(name);
+        assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+          selected.origins[0].subject.node === allocation && selected.origins[0].subject.projection.length === 0,
+        true, `${name}: publication does not replace the original Box allocation`);
+      }
+      assert.equal(current.storage.failureReason(), undefined, "both receiver and activation inverses retain the existing finite owner");
+    });
+  }
+
   test(`a stable guarded receiver retains its written member publication (${reverse})`, () => {
     const current = fixture(`
       class Box { constructor(public items: { token: object }) {} }

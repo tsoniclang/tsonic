@@ -351,6 +351,50 @@ test("producer queries reject forged and foreign subjects and bindings using the
   assert.equal(first.storage.storageProducersFor(Object.freeze({ ...formal })).kind === "unresolved", true);
 });
 
+for (const reverse of [false, true]) for (const mode of ["source", "native", "mixed"]) {
+  test(`nested native callback payloads preserve actual mixed dispatch effects (${mode}; ${reverse})`, async () => {
+    const current = await fixture(`storage-producer-nested-payload-${mode}-${reverse}`, `
+      declare const choose: boolean;
+      declare function nativeWrap(value: object): object;
+      declare function nativeDeliver(value: object, callback: (actual: () => void) => void): void;
+      const initial = {}; const changed = {};
+      let selected = initial;
+      const retained = (): void => { selected = changed; };
+      const input = { retained };
+      let wrap = function (_value: object): object { return {}; };
+      ${mode === "source" ? "" : `wrap = ${mode === "mixed" ? "choose ? wrap : nativeWrap" : "nativeWrap"};`}
+      const wrapped = wrap(input);
+      nativeDeliver(wrapped, actual => { actual(); });
+      const observed = selected;
+    `);
+    const { ast } = current.source;
+    const delivery = requiredNode(ast, current.file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "nativeDeliver");
+    const inspectCapture = () => {
+      const selected = current.storage.storageProducersFor(current.subject(current.variable("observed")));
+      assert.equal(selected.kind === "complete" || selected.kind === "open", true,
+        `actual captured storage is represented, not an unresolved or empty success; ${selected.reason ?? selected.kind}`);
+      assert.equal(selected.producers.some(value => value.subject.node === current.initializer("initial")), true,
+        "possible native execution never removes the original stored value");
+      const hasWrite = selected.producers.some(value => value.subject.node === current.initializer("changed"));
+      if (mode === "source") assert.equal(hasWrite, false, "a source wrapper returning an empty object cannot deliver its input's callback");
+      else assert.equal(hasWrite || selected.kind === "open" && selected.boundaries.some(boundary => boundary.exposure === delivery ||
+        boundary.exposure === current.initializer("wrapped")), true,
+      "a native alternative retains the actual captured write or its exact opaque uncertainty, never initial-only completeness");
+    };
+    const inspectResult = () => {
+      const selected = current.storage.closedOriginsFor(current.subject(current.variable("wrapped")));
+      if (mode === "source") assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        ast.is.IsObjectLiteralExpression(selected.origins[0].subject.node), true, "the source-only wrapper retains its actual empty result");
+      else assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === "opaque-result" &&
+        boundary.exposure === current.initializer("wrapped")), true, "the native branch's result remains explicitly opaque");
+    };
+    for (const inspect of reverse ? [inspectResult, inspectCapture] : [inspectCapture, inspectResult]) inspect();
+    assert.equal(current.storage.failureReason(), undefined, "payload and capture discovery stay within the unchanged finite limits");
+  });
+}
+
 test("producer queries retain every finite accounting limit and malformed-selection rejection", async () => {
   for (const key of Object.keys(defaultSourceStorageLimits)) {
     for (const value of [1, 0, Infinity, defaultSourceStorageLimits[key] + 1]) {

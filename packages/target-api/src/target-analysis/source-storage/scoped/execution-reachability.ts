@@ -300,7 +300,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
         const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
           subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
           componentsFor: transport.memberFlow.componentsFor,
-          hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
+          hasOnlySourceImplementations: transport.hasOnlySourceImplementations,
           componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
           valuesFor: (subject, bindings) => {
             const selected = readRelation(sourceStorageReference(subject, bindings));

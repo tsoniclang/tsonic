@@ -383,8 +383,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   };
   const results = graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>(evaluateRelation, "storage-relations");
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
-  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
-    const root = selectRoot(origin, scope);
+  const termValues = (term: SourceStorageTerm): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
+    const root = intern(term);
     const selected = root === undefined ? undefined : results(root);
     if (selected === undefined) return undefined;
     const values = new Set<SourceStorageScopedSubject>();
@@ -397,6 +397,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return values;
   });
+  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined =>
+    termValues(sourceStorageReference(origin, scope));
+  const memberValues = (receiver: SourceStorageScopedSubject, declaration: Node): ReadonlySet<SourceStorageScopedSubject> | undefined =>
+    termValues(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: receiver.subject,
+      declaration, evaluation: undefined, before: undefined }),
+      receiver: Object.freeze({ kind: "leaf", subject: receiver.subject, scope: receiver.bindings }),
+      scope: receiver.bindings, projection: Object.freeze([]), mode: "value" }));
   const provenance = (origin: SourceStorageSubject, scope: SourceStorageScope) => withQuery(() => {
     const root = selectRoot(origin, scope);
     const selected = root === undefined ? undefined : results(root);
@@ -687,7 +694,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return parent;
   });
-  return Object.freeze({ empty: scopes.empty, withQuery, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
+  return Object.freeze({ empty: scopes.empty, withQuery, values, memberValues, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
