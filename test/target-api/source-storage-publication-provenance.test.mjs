@@ -50,6 +50,37 @@ for (const recursive of [false, true]) for (const access of ["value.items", 'val
   });
 }
 
+for (const reverse of [false, true]) for (const access of ["value.items", 'value["items"]']) {
+  test(`actual backing publication survives a separate unknown receiver (${reverse}; ${access})`, () => {
+    const current = fixture(`
+      class Base {}
+      class Selected extends Base { constructor(readonly items: { token: {} }) { super(); } }
+      declare function lookup(): Base;
+      declare function consume(value: { token: {} }): void;
+      function inspect(value: Base): void {
+        if (value instanceof Selected) consume(${access});
+      }
+      const token = {}; const isolated = {};
+      const backing = { token }; const privateBacking = { token: isolated };
+      const actual = new Selected(backing);
+      ${reverse ? "inspect(lookup()); inspect(actual);" : "inspect(actual); inspect(lookup());"}
+      const read = actual.items.token; const privateRead = privateBacking.token;
+    `);
+    const selected = current.storage.closedOriginsFor(current.subject("read"));
+    assert.equal(selected.kind === "open", true,
+      `the real physical call retains its exposure; ${selected.reason ?? selected.kind}`);
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+      "the actual opaque invocation is not erased by the unrelated unknown alternative");
+    assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true,
+      "the actual initial producer remains known beside its writer");
+    const privateRead = current.storage.closedOriginsFor(current.subject("privateRead"));
+    assert.equal(privateRead.kind === "complete" && privateRead.origins.length === 1 &&
+      privateRead.origins[0].subject.node === current.initializer("isolated"), true,
+    "a same-shaped private allocation never borrows the exposed backing's writer");
+    assert.equal(current.storage.failureReason(), undefined, "observational failures remain local and finite");
+  });
+}
+
 test("observational checked-member refusal leaves private evidence intact and refuses the same demanded domain", () => {
   const current = fixture(`
     class Base {}
