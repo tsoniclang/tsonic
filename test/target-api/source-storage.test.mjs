@@ -54,6 +54,30 @@ const missing = alias["item"];
   assert.equal(current.storage.failureReason(), undefined, "the original finite owner is not bypassed");
 });
 
+for (const access of ["values.answer", 'values["answer"]']) {
+  test(`an unanchored checked mapped index remains a local unresolved storage demand (${access})`, async () => {
+    const current = await checked(`source-storage-mapped-index-${access.includes("[") ? "element" : "property"}`, `
+type Dictionary<Value> = { [Key in string]: Value };
+export function read(values: Dictionary<number>): number {
+  const selected = ${access};
+  return selected;
+}
+const original = {}; const unrelated = original;
+`);
+    const selected = current.storage.closedOriginsFor(current.subject("selected"));
+    assert.equal(selected.kind === "unresolved" &&
+      selected.reason === "An indexed value has no exact checked storage component.", true,
+    `an absent physical index anchor is not a complete storage certificate; ${selected.reason ?? selected.kind}`);
+    const unrelated = current.storage.closedOriginsFor(current.subject("unrelated"));
+    assert.equal(unrelated.kind === "complete" && unrelated.origins.length === 1 &&
+      unrelated.origins[0].subject.node === current.initializer("original") &&
+      unrelated.origins[0].subject.projection.length === 0, true,
+    "an unsupported index does not erase an unrelated original allocation");
+    assert.equal(current.storage.failureReason() === undefined, true,
+      "local indexed evidence does not poison the finite checked graph");
+  });
+}
+
 test("checked indexed views retain one fresh allocation and compatible view writes without mixing allocations", async () => {
   const current = await checked("source-storage-indexed-views", `
 interface First { [key: string]: object | undefined; }

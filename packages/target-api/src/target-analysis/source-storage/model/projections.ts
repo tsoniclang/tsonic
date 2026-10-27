@@ -34,12 +34,13 @@ export function createSourceStorageProjectionFlow(
     const property = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node) : undefined;
     const element = ast.is.IsElementAccessExpression(node) ? queries.operations.elementAccess(node) : undefined;
     const access = property ?? element;
-    const component: SourceStorageProjection | undefined = property?.selectedIndex !== undefined
+    const component: SourceStorageProjection | undefined = property?.selectedIndex !== undefined &&
+      (property.selectedIndex.declaration !== undefined || property.selectedIndex.components.length !== 0)
       ? { kind: "indexed-value", sourceType: property.receiver.type, ownerType: property.receiver.type, index: property.selectedIndex }
       : element === undefined ? undefined
         : sourceIndexedStorageProjection(element.receiver.type, element.argument.expression, queries, ast);
     const declaration = access?.selectedDeclaration;
-    if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
+    if (component === undefined && property?.selectedIndex === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
       return subject(node);
     if (component === undefined && sourceStorageDynamicMemberKey(source, node) !== undefined)

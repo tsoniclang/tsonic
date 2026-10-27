@@ -31,6 +31,8 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
         scope: queries.creatorScope(subject.node, scope) })];
     }
     const receiver = transport.subjectFor(selected.receiver.expression);
+    if (property?.selectedIndex !== undefined && property.selectedIndex.declaration === undefined &&
+      property.selectedIndex.components.length === 0) return undefined;
     const component = property?.selectedIndex !== undefined
       ? { kind: "indexed-value" as const, sourceType: property.receiver.type, ownerType: property.receiver.type, index: property.selectedIndex }
       : ast.is.IsElementAccessExpression(operation.storageExpression) && !property
