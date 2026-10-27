@@ -28,6 +28,30 @@ function fixture(body, limits = {}) {
   return { expect, query, storage, initializer, source, file };
 }
 
+for (const openFirst of [false, true]) {
+  test(`boundary frontiers retain activation and query-order independence (${openFirst ? "open first" : "closed first"})`, () => {
+    const current = fixture(`
+      declare const external: object[];
+      function first(values: object[]): object { return values[0]; }
+      const original = {};
+      const known = first([original]);
+      const unknown = first(external);
+    `);
+    const checkOpen = () => {
+      const selected = current.query("unknown");
+      assert.equal(selected.kind === "open", true, "the exact outside activation remains open");
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
+        "the contributing outside component retains its boundary");
+      assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("original")), false,
+        "the separate closed activation does not become an outside producer");
+    };
+    if (openFirst) checkOpen();
+    current.expect("known", ["original"]);
+    checkOpen();
+    current.expect("known", ["original"]);
+  });
+}
+
 test("generic nested array calls retain finite checked types and exact scoped origins", () => {
   const current = fixture(`
     function first<T>(values: T[], fallback: T): T { return values.length === 0 ? fallback : values[0]!; }

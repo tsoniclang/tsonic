@@ -38,6 +38,14 @@ type SourceStorageRelation = SourceStorageTerm & {
   };
 };
 
+interface SourceStorageWalkDemand {
+  readonly relation: SourceStorageRelation;
+  readonly children: Set<SourceStorageWalkDemand>;
+  boundary: boolean;
+  terminal: boolean;
+  coverage?: { readonly complete: boolean; readonly boundary: boolean };
+}
+
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
@@ -456,6 +464,56 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     const emptyDemands: SourceStorageTerm[] = [];
+    const demands = new Map<SourceStorageRelation, Map<string, SourceStorageWalkDemand>>();
+    const deferredDemands = new Set<SourceStorageWalkDemand>();
+    const demandFor = (relation: SourceStorageRelation, guards: SourceStorageValueGuards | undefined):
+      SourceStorageWalkDemand | undefined => {
+      const key = guards?.key ?? "";
+      const variants = demands.get(relation);
+      const existing = variants?.get(key);
+      if (existing !== undefined) return existing;
+      if (!temporary.add(variants === undefined ? 3 : 2)) return undefined;
+      const selected: SourceStorageWalkDemand = { relation, children: new Set(), boundary: false,
+        terminal: relation.kind === "leaf" || relation.kind === "empty" };
+      const states = variants ?? new Map<string, SourceStorageWalkDemand>();
+      states.set(key, selected);
+      demands.set(relation, states);
+      return selected;
+    };
+    const coveredByBoundary = (root: SourceStorageWalkDemand): boolean | undefined => {
+      const pending: { readonly demand: SourceStorageWalkDemand; readonly complete: boolean }[] = [{ demand: root, complete: false }];
+      const active = new Set<SourceStorageWalkDemand>();
+      while (pending.length !== 0) {
+        if (!budget.step()) return undefined;
+        const { demand, complete } = pending.pop()!;
+        if (demand.coverage !== undefined) continue;
+        if (demand.boundary || demand.terminal) {
+          demand.coverage = { complete: true, boundary: demand.boundary };
+          continue;
+        }
+        if (complete) {
+          active.delete(demand);
+          let proved = demand.children.size !== 0;
+          let boundary = false;
+          for (const child of demand.children) {
+            if (!budget.step()) return undefined;
+            proved &&= child.coverage?.complete === true;
+            boundary ||= child.coverage?.boundary === true;
+          }
+          demand.coverage = { complete: proved, boundary: proved && boundary };
+          continue;
+        }
+        if (active.has(demand)) {
+          demand.coverage = { complete: false, boundary: false };
+          continue;
+        }
+        if (!temporary.add(1 + demand.children.size)) return undefined;
+        active.add(demand);
+        pending.push({ demand, complete: true });
+        for (const child of demand.children) pending.push({ demand: child, complete: false });
+      }
+      return root.coverage?.complete === true && root.coverage.boundary;
+    };
     let reason: string | undefined;
     let fatalReason: string | undefined;
     let absence = false;
@@ -529,32 +587,23 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const stopped = collectWitnesses(relation, entry.collect, entry.observesValue, entry.guards);
       if (stopped === undefined) return undefined;
-      if (stopped) continue;
+      const demand = entry.collect ? demandFor(relation, entry.guards) : undefined;
+      if (entry.collect && demand === undefined) return undefined;
+      if (stopped) { if (demand !== undefined) demand.boundary = true; continue; }
       const data = relation[sourceStorageRelationData];
       if (!data.complete) {
         if (!derive(relation, results, () => true, project)) return undefined;
         data.complete = true;
         const completed = collectWitnesses(relation, entry.collect, entry.observesValue, entry.guards);
         if (completed === undefined) return undefined;
-        if (completed) continue;
+        if (completed) { if (demand !== undefined) demand.boundary = true; continue; }
       }
       if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
         const present = hasStaticValue(relation);
         if (present === undefined) return undefined;
         if (!present) {
-          const completed = results(relation);
-          if (completed === undefined) return undefined;
-          if (completed.size === 0) {
-            const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
-              : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
-              : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
-                : transport.subject(current.selection.node) : undefined;
-            const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
-            if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
-              if (!temporary.add(1)) return undefined;
-              emptyDemands.push(current);
-            }
-          }
+          if (demand === undefined || !deferredDemands.has(demand) && !temporary.add(1)) return undefined;
+          deferredDemands.add(demand);
         }
       }
       if (entry.collect && current.kind === "leaf" && admitted(current.subject, entry.guards)) origins.add(current.subject);
@@ -568,13 +617,45 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (filter !== undefined) {
         const guards = transport.guardedValues.conjoin(entry.guards, filter.reference);
         if (budget.failure() !== undefined) return undefined;
-        if (guards !== null) pending.push({ relation: filter.input, collect: entry.collect, observesValue: entry.observesValue, guards });
+        if (guards !== null) {
+          if (demand !== undefined) {
+            const child = demandFor(filter.input, guards);
+            if (child === undefined || !demand.children.has(child) && !temporary.add(1)) return undefined;
+            demand.children.add(child);
+          }
+          pending.push({ relation: filter.input, collect: entry.collect, observesValue: entry.observesValue, guards });
+        } else if (demand !== undefined) demand.terminal = true;
         continue;
       }
       for (const [child, mode] of data) {
         if (!budget.step()) return undefined;
-        if (child.kind !== "execution-root") pending.push({ relation: child, collect: entry.collect && (mode & 2) !== 0,
-          observesValue: entry.observesValue && (mode & 6) !== 0, guards: entry.guards });
+        if (child.kind !== "execution-root") {
+          if (demand !== undefined && (mode & 2) !== 0) {
+            const selected = demandFor(child, entry.guards);
+            if (selected === undefined || !demand.children.has(selected) && !temporary.add(1)) return undefined;
+            demand.children.add(selected);
+          }
+          pending.push({ relation: child, collect: entry.collect && (mode & 2) !== 0,
+            observesValue: entry.observesValue && (mode & 6) !== 0, guards: entry.guards });
+        }
+      }
+    }
+    for (const demand of deferredDemands) {
+      const covered = coveredByBoundary(demand);
+      if (covered === undefined) return undefined;
+      if (covered) continue;
+      const completed = results(demand.relation);
+      if (completed === undefined) return undefined;
+      if (completed.size !== 0) continue;
+      const current = demand.relation;
+      const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
+        : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
+        : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
+          : transport.subject(current.selection.node) : undefined;
+      const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
+      if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
+        if (!temporary.add(1)) return undefined;
+        emptyDemands.push(current);
       }
     }
     const selected: (SourceStorageRelationWitness & { readonly original: boolean })[] = [];
