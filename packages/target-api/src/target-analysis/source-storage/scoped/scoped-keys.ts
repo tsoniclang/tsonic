@@ -79,7 +79,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "indexed-value" ? [component.kind, scopes.identity(component.sourceType),
           scopes.identity(component.ownerType), scopes.identity(component.index.keyType!),
-          scopes.identity(component.index.valueType!), component.index.readonly,
+          scopes.identity(component.index.valueType!), component.index.readonly ? 1 : 0,
           component.index.declaration === undefined ? null : scopes.identity(component.index.declaration),
           ...component.index.components.map(declaration => declaration === undefined ? null : scopes.identity(declaration))] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);

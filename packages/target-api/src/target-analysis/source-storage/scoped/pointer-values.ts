@@ -78,7 +78,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;
         const entry = pending.pop()!;
-        if (entry.pointer.kind === "unresolved") { result.push(entry.pointer); continue; }
+        if (entry.pointer.kind === "unresolved" || entry.pointer.kind === "empty") { result.push(entry.pointer); continue; }
         if (entry.pointer.kind !== "leaf") return undefined;
         const selected = source.sourceFacts.getFact(entry.pointer.subject.node, pointerOperationFactKey);
         if (selected?.operation === "bind-pointer") continue;
@@ -100,6 +100,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
         if (values === undefined) return undefined;
         for (const receiver of identities) {
           if (!budget.step()) return undefined;
+          if (receiver.kind === "empty" || receiver.kind === "unresolved") { result.push(receiver); continue; }
           const root = transport.subject(destination.subject.node, destination.subject.kind,
             destination.subject.projection.slice(0, receiver.subject.projection.length));
           if (root !== receiver.subject) continue;

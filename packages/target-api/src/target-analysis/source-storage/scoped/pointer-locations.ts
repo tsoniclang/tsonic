@@ -13,10 +13,12 @@ interface SourceStoragePointerLocationQueries {
   creatorScope(node: Node, scope: SourceStorageScope): SourceStorageScope;
 }
 
+type SourceStoragePointerLocation = SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" | "unresolved" }>;
+
 export function createSourceStoragePointerLocations(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerLocationQueries) {
   const address = (operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
-    scope: SourceStorageScope): readonly SourceStorageReference[] | undefined => budget.withRows(rows => {
+    scope: SourceStorageScope): readonly SourceStoragePointerLocation[] | undefined => budget.withRows(rows => {
     const { ast, semantics } = source;
     const context = semantics.forNode(operation.storageExpression);
     const property = ast.is.IsPropertyAccessExpression(operation.storageExpression)
@@ -36,9 +38,14 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
     if (receiver === undefined || component === undefined && declaration === undefined) return undefined;
     const originals = queries.read(sourceStorageReference(receiver, scope));
     if (originals === undefined) return undefined;
-    const result: SourceStorageReference[] = [];
+    const result: SourceStoragePointerLocation[] = [];
     for (const original of originals) {
       if (!budget.step()) return undefined;
+      if (original.kind === "empty" || original.kind === "unresolved") {
+        if (!rows.add(1)) return undefined;
+        result.push(original);
+        continue;
+      }
       if (original.kind !== "leaf") return undefined;
       const type = sourceStorageSubjectType(source, original.subject);
       if (type === undefined) return undefined;
@@ -50,13 +57,14 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
     }
     return budget.failure() === undefined ? result : undefined;
   });
-  const identities = (pointer: SourceStorageReference): readonly SourceStorageReference[] | undefined => budget.withRows(rows => {
-    const pending = [pointer];
+  const identities = (pointer: SourceStorageReference): readonly SourceStoragePointerLocation[] | undefined => budget.withRows(rows => {
+    const pending: SourceStoragePointerLocation[] = [pointer];
     const seen = new Map<SourceStorageScope, Set<SourceStorageReference["subject"]>>();
-    const result: SourceStorageReference[] = [];
+    const result: SourceStoragePointerLocation[] = [];
     while (pending.length !== 0) {
       if (!budget.step()) return undefined;
       const original = pending.pop()!;
+      if (original.kind === "empty" || original.kind === "unresolved") { result.push(original); continue; }
       const visited = seen.get(original.scope);
       if (visited?.has(original.subject)) continue;
       if (!rows.add(visited === undefined ? 3 : 2)) return undefined;
@@ -78,6 +86,7 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
       if (selected === undefined) return undefined;
       for (const value of selected) {
         if (!budget.step() || !rows.add(1)) return undefined;
+        if (value.kind === "empty" || value.kind === "unresolved") { result.push(value); continue; }
         if (value.kind !== "leaf") return undefined;
         if (operation?.operation === "bind-pointer") result.push(value);
         else pending.push(value);
