@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { namedVariable } from "../fixtures/source-navigation.mjs";
+import { namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, extraFiles = {}) {
   const files = { "/src/index.ts": `export {}; ${body}`, ...extraFiles };
@@ -42,6 +42,46 @@ test("published readonly class fields retain their actual receiver allocations",
   }
   assert.equal(current.storage.failureReason() === undefined, true, "receiver publication retains the existing finite proof limits");
 });
+
+for (const reverse of [false, true]) {
+  test(`a reassigned guarded entry retains its physical publication (${reverse})`, () => {
+    const current = fixture(`
+      class Box { constructor(readonly items: { token: object }) {} }
+      declare function consume(value: { token: object }): void;
+      const token = {};
+      const backing = { token };
+      const original = new Box(backing);
+      export function publish(value: unknown): void {
+        value = original;
+        if (value instanceof Box) consume(value.items);
+      }
+      publish(0);
+      const selected = original.items.token;
+      const container = original.items;
+    `);
+    const { ast } = current.source;
+    const file = ast.getSourceFile(current.initializer("selected"));
+    const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+    const inspectValue = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("selected"));
+      assert.equal(selected.kind === "open", true, `the actual opaque writer remains; ${selected.reason ?? selected.kind}`);
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure),
+        true, "the exact consume call remains the physical writer");
+      assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token") &&
+        origin.subject.projection.length === 0), true, "the local reassignment preserves its original token producer");
+    };
+    const inspectContainer = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("container"));
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("backing") &&
+        selected.origins[0].subject.projection.length === 0, true, "by-value publication cannot replace the original container");
+    };
+    for (const inspect of reverse ? [inspectContainer, inspectValue] : [inspectValue, inspectContainer]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "both query orders retain finite exact source proof");
+  });
+}
 
 for (const recursive of [false, true]) for (const access of ["value.items", 'value["items"]']) {
   test(`opaque narrowed publication cannot poison independent private provenance (${recursive}; ${access})`, () => {

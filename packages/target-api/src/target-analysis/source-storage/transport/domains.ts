@@ -1,4 +1,5 @@
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
@@ -418,7 +419,10 @@ export function createSourceStorageDomains(
               ? transport.subject(declaration, "input") : undefined;
             if (input !== undefined && !transport.substitutions.isBound(input, current.bindings)) {
               domainInputs.read(input);
-              if (domainInputs.has(input)) return true;
+              if (domainInputs.has(input)) {
+                const summary = navigation.declarationUseSummary(input.node);
+                if (!summary.bindingWritten && !sourceBindingHasMutableExposure(source, summary, budget.step)) return true;
+              }
             }
           }
           if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
