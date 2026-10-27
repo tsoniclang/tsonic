@@ -99,7 +99,8 @@ test("unknown publication alternatives retain known exposed physical backing and
   `);
   const selected = current.storage.closedOriginsFor(current.subject("read"));
   assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
-    "a symbolic alternative cannot erase an admitted physical writer");
+    `a symbolic alternative cannot erase an admitted physical writer; ${selected.kind}; ${selected.kind === "unresolved"
+      ? selected.reason : selected.kind === "open" ? selected.boundaries.map(boundary => boundary.kind).join(",") : ""}`);
   assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true,
     "the real constructor and backing origin survive beside unknown alternatives");
   assert.equal(current.storage.failureReason() === undefined, true);

@@ -37,6 +37,7 @@ export function createSourceStorageDomainInputs(
   return Object.freeze({
     query: queries.query,
     owners,
+    hasInputs: witnesses.hasInputs,
     has(subject: SourceStorageSubject): boolean {
       return owners(subject)[Symbol.iterator]().next().done !== true;
     },

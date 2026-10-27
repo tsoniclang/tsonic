@@ -463,7 +463,7 @@ export function createSourceStorageDomains(
         (boundary.owner === undefined || stores === undefined) &&
         !closedSourceInvocation(boundary.exposure, current.bindings));
     };
-    const selected = transport.substitutions.walk(subject, bindings, isExternalInput, false);
+    const selected = transport.substitutions.walk(subject, bindings, domainInputs.hasInputs() ? isExternalInput : undefined, false);
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageScope>[]),

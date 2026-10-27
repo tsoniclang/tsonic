@@ -12,9 +12,11 @@ interface WitnessGroup {
 export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) {
   const groups = new Map<SourceStorageSubject, WitnessGroup>();
   const rows = budget.createRows();
+  let hasInputs = false;
   const empty: readonly Omit<SourceStorageDomainBoundary, "bindings">[] = Object.freeze([]);
   const noInputs: ReadonlySet<SourceStorageSubject | undefined> = new Set();
   return Object.freeze({
+    hasInputs: (): boolean => hasInputs,
     add(subject: SourceStorageSubject | undefined, kind: SourceStorageDomainBoundary["kind"], exposure: Node,
       owner?: SourceStorageSubject): void {
       if (subject === undefined || !budget.step()) return;
@@ -36,6 +38,7 @@ export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) 
       if (newInput) {
         selected.inputs ??= new Set();
         selected.inputs.add(owner);
+        hasInputs = true;
       }
       groups.set(subject, selected);
     },

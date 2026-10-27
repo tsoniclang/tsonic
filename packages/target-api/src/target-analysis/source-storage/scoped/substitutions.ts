@@ -476,7 +476,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const root = selectRoot(origin, scope);
     if (root === undefined) return undefined;
     const localStates = stopAt === undefined ? undefined : new Map<SourceStorageRelation, SourceStorageRelationState>();
-    const stoppedRelations = new Set<SourceStorageRelation>();
+    const stoppedRelations = new Map<SourceStorageRelation, readonly SourceStorageRelation[]>();
     const stateFor = (relation: SourceStorageRelation): SourceStorageRelationState | undefined => {
       if (localStates === undefined) return relation[sourceStorageRelationData];
       const existing = localStates.get(relation);
@@ -487,30 +487,41 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       localStates.set(relation, state);
       return state;
     };
-    const stops = (relation: SourceStorageRelation): boolean | undefined => {
-      if (stopAt === undefined) return false;
-      if (stoppedRelations.has(relation)) return true;
-      const inspect = (subject: SourceStorageSubject, bindings: SourceStorageScope, original: boolean): boolean =>
-        stopAt({ subject, bindings, original });
-      const stopped = (relation.kind === "reference" || relation.kind === "leaf") &&
-        inspect(relation.subject, witnessScope(relation.subject, relation.scope), relation.kind === "leaf");
-      if (stopped) {
-        if (!temporary.add(1)) return undefined;
-        stoppedRelations.add(relation);
+    const stops = (relation: SourceStorageRelation): readonly SourceStorageRelation[] | undefined => {
+      if (stopAt === undefined) return [];
+      const existing = stoppedRelations.get(relation);
+      if (existing !== undefined) return existing;
+      const terminals = new Set<SourceStorageRelation>();
+      const inspect = (subject: SourceStorageSubject, bindings: SourceStorageScope, original: boolean): boolean => {
+        if (!budget.step()) return false;
+        if (!stopAt({ subject, bindings, original })) return budget.failure() === undefined;
+        const terminal = intern(Object.freeze({ kind: "leaf", subject, scope: bindings }));
+        if (terminal === undefined || !terminals.has(terminal) && !temporary.add(1)) return false;
+        terminals.add(terminal);
+        return true;
+      };
+      if ((relation.kind === "reference" || relation.kind === "leaf") &&
+        !inspect(relation.subject, witnessScope(relation.subject, relation.scope), relation.kind === "leaf")) return undefined;
+      for (const [bindings, inputs] of relation[sourceStorageRelationData].witnesses ?? []) for (const [subject, mode] of inputs) {
+        if (!budget.step()) return undefined;
+        if ((mode & 10) === 10 && !inspect(subject, bindings, false)) return undefined;
       }
-      return stopped;
+      if (terminals.size === 0) return [];
+      if (!temporary.add(1 + terminals.size)) return undefined;
+      const selected = Object.freeze([...terminals]);
+      stoppedRelations.set(relation, selected);
+      return selected;
     };
     const boundedResults = stopAt === undefined ? undefined
       : graphQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>((relation, read, emit, forward) => {
         const stopped = stops(relation);
         if (stopped === undefined) return false;
-        if (stopped) {
+        if (stopped.length !== 0) {
           const state = stateFor(relation);
           if (state === undefined) return false;
           state.complete = true;
-          if (relation.kind !== "reference" && relation.kind !== "leaf") return false;
-          const terminal = intern(Object.freeze({ kind: "leaf", subject: relation.subject, scope: relation.scope }));
-          return terminal !== undefined && emit(terminal);
+          for (const terminal of stopped) if (!budget.step() || !emit(terminal)) return false;
+          return true;
         }
         return evaluateRelation(relation, read, emit, forward, stateFor, temporary);
       }, "storage-boundary-relations");

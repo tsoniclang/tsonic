@@ -33,7 +33,8 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
     const subject = storage.subject(declaration);
     assert.equal(subject.kind === "resolved", true, "selected declaration has a graph-owned subject");
     const selected = storage.storageProducersFor(subject.subject);
-    assert.equal(selected.kind !== "unresolved", true, "recursive callable publication converges without poisoning the graph");
+    assert.equal(selected.kind !== "unresolved", true,
+      `recursive callable publication converges without poisoning the graph; ${selected.kind}; ${selected.reason ?? ""}`);
     assert.equal(selected.producers.length > 0, true, "publication retains actual checked producers");
   }
   assert.equal(storage.failureReason(), undefined, "finite source storage keeps all budget guards intact");

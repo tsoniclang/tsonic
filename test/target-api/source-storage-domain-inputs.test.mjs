@@ -22,9 +22,12 @@ test("domain input relationships preserve every exposure while reusing duplicate
   const secondExposure = {};
   const query = inputs.query(key => { inputs.read(key); return new Set(inputs.owners(key)); });
   const empty = query(selected);
+  assert.equal(inputs.hasInputs(), false, "an empty input owner cannot require a boundary-local solver");
   inputs.add(selected, "external-write", firstExposure, owner);
+  assert.equal(inputs.hasInputs(), false, "a possible writer is not a fabricated outside input");
   assert.equal(query(selected) === empty, true, "a writer is not an input relationship");
   inputs.add(selected, "external-input", firstExposure, owner);
+  assert.equal(inputs.hasInputs(), true, "only a successfully admitted actual input enables boundary selection");
   const admitted = query(selected);
   assert.equal(admitted !== empty && admitted?.has(owner), true, "the first actual input changes presence");
   inputs.add(selected, "external-input", secondExposure, owner);
@@ -108,12 +111,14 @@ test("input-owner admission and sealed mutation reject atomically under the exis
   inputs.add(selected, "external-input", {}, subject({}));
   assert.equal(witnesses.forSubject(selected).length, 0);
   assert.equal(witnesses.inputOwners(selected).size, 0);
+  assert.equal(inputs.hasInputs(), false, "failed admission cannot create an input-presence certificate");
   assert.equal(budget.failure() !== undefined, true);
   const sealed = fixture();
   const key = sealed.subject({});
   sealed.inputs.seal();
   sealed.inputs.add(key, "external-input", {}, sealed.subject({}));
   assert.equal(sealed.witnesses.forSubject(key).length, 0, "the rejected write changes no immutable witness");
+  assert.equal(sealed.inputs.hasInputs(), false, "a refused post-seal input leaves presence unchanged");
   assert.match(sealed.budget.failure(), /live construction owner/u);
 });
 
