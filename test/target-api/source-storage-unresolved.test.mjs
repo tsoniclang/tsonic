@@ -6,7 +6,7 @@ import { createSourceStorageSubjects } from "../../packages/target-api/dist/targ
 
 const fixture = (limits = defaultSourceStorageLimits) => {
   const budget = createSourceStorageBudget(limits);
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const selected = () => subject({});
   return { budget, subject, selected };
 };

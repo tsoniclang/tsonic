@@ -8,7 +8,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../pac
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const inputs = createSourceStorageDomainInputs({ subject }, witnesses, budget);
   return { budget, subject, witnesses, inputs };

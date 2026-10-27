@@ -41,7 +41,7 @@ function callableSource(owners) {
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const first = { parameters: [] }; const second = { parameters: [] };
   first.body = { parent: first }; second.body = { parent: second };
   const firstInput = { parent: first }; const secondInput = { parent: second };
@@ -75,7 +75,7 @@ test("recursive call graph publishes one exact complete SCC only after every ori
 
 test("selected incoming sites preserve complete recursive rings, self calls and external entry identity within linear work", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 8192 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const owners = Array.from({ length: 128 }, () => ({ parameters: [] }));
   const external = { parameters: [] };
   for (const owner of [...owners, external]) {

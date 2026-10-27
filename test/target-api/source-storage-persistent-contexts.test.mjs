@@ -7,7 +7,7 @@ import { createSourceStorageSubjects } from "../../packages/target-api/dist/targ
 
 function chain(size) {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const nodes = Array.from({ length: size }, () => subject({}));
   const port = subject({}, "input");
   let reads = 0;

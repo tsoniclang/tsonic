@@ -95,7 +95,7 @@ for (const name of ["record", "array", "tuple"]) {
     assert.equal(Object.isFrozen(type) && Object.isFrozen(selected) && Object.isFrozen(selected.binding), true);
     if (name !== "record") {
       const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-      const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+      const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
       const formal = subject(selected.formal.node);
       const actual = subject(selected.actual.node);
       const context = owner => owner.node === formal.node ? type.sourceFile : source.ast.getSourceFile(owner.node);

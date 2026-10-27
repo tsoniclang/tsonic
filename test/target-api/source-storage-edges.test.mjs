@@ -20,7 +20,7 @@ function fixture(limits = defaultSourceStorageLimits, selectSource = source => s
   const source = selectSource(createTargetSourceProgram(checked));
   const file = projectSourceFile(source, "/src/index.ts");
   const budget = createSourceStorageBudget(limits);
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const selected = name => subject(namedVariable(source.ast, file, name));
   const pair = selected("pair");
   const values = selected("values");

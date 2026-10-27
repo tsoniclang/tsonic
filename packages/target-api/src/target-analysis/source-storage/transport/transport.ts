@@ -8,7 +8,7 @@ import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceR
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { createSourceStorageSubjects, type SourceStorageSubject } from "../model/subjects.js";
+import { createSourceStorageSubjects, sourceStorageIndexReader, type SourceStorageSubject } from "../model/subjects.js";
 import { createSourceStorageProjectionFlow } from "../model/projections.js";
 import { createSourceStorageStructuralFlow } from "../model/structural-flow.js";
 import { createSourceStorageEdges } from "../graph/edges.js";
@@ -90,7 +90,7 @@ export function createSourceStorageTransport(
     return budget.failure() === undefined;
   });
   let sealed = false;
-  const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const internSubject = createSourceStorageSubjects(budget.subject, budget.reject, sourceStorageIndexReader(source));
   const subject: typeof internSubject = (node, kind, projection) => {
     const selectedKind = kind ?? (node !== undefined && !ast.is.IsParameterDeclaration(node) && sourceStorageIsDataMember(node, ast) ? "member" : "value");
     const selected = internSubject(node, selectedKind, projection);

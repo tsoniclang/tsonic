@@ -196,7 +196,7 @@ test("row scope unwind preserves thrown identity and never resets row or work fa
 test("source storage subjects retain dense data-only projections and reject malformed paths without executing accessors", () => {
   const root = {};
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSubjectRows: 5 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const first = subject(root, "value", [{ kind: "tuple-element", index: 0 }]);
   const second = subject(root, "value", [{ kind: "tuple-element", index: 1 }]);
   assert.equal(first !== undefined && second !== undefined && first !== second, true);
@@ -211,7 +211,7 @@ test("source storage subjects retain dense data-only projections and reject malf
   ];
   for (const projection of malformed) {
     const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-    const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+    const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
     assert.equal(subject(root, "value", projection) === undefined, true, "invalid component path rejected");
     assert.equal(budget.failure() !== undefined, true, "cannot manufacture immutable evidence");
   }

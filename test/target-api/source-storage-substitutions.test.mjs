@@ -12,7 +12,7 @@ import { sourceStorageActivationOwner } from "../../packages/target-api/dist/tar
 
 function fixture(limits = {}, length = 50) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
   const file = {};
   const signatures = new Map();
   const parameterOwners = new Map();

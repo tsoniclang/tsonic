@@ -22,11 +22,11 @@ test("checked indexed views retain one fresh allocation and compatible view writ
 interface First { [key: string]: object | undefined; }
 interface Second { [key: string]: object | undefined; }
 const original = {}; const separate = {};
-const first: First = original; const second: Second = first;
+const firstView: First = original; const secondView: Second = firstView;
 const independent: First = separate;
 const token = {}; const other = {};
-first["item"] = token; independent["item"] = other;
-const selected = second["item"];
+firstView["item"] = token; independent["item"] = other;
+const selected = secondView["item"];
 const isolated = independent["item"];
 const absent: First = {};
 const missing = absent["item"];
@@ -39,7 +39,7 @@ const missing = absent["item"];
     assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(excluded)), false,
       `${name}: another physical allocation does not supply its contents`);
   }
-  const backing = current.storage.closedOriginsFor(current.subject("second"));
+  const backing = current.storage.closedOriginsFor(current.subject("secondView"));
   assert.equal(backing.kind === "complete" && backing.origins.length === 1 &&
     backing.origins[0].subject.node === current.initializer("original"), true,
   "the view does not allocate or replace the empty original");
@@ -86,9 +86,12 @@ test("indexed components require the actual checked view and keep generic and re
   const current = await checked("source-storage-indexed-admission", `
 interface Values<T> { [key: string]: T; }
 interface Frozen { readonly [key: string]: object | undefined; }
+interface Objects { [key: string]: object | undefined; }
+interface Strings { [key: string]: string | undefined; }
 const objects: Values<object | undefined> = {};
 const texts: Values<string | undefined> = {};
 const frozen: Frozen = {};
+const objectRecord: Objects = {}; const stringRecord: Strings = {};
 `);
   const projection = name => {
     const type = current.source.semantics.forNode(current.variable(name)).declarations.declaredValueType(current.variable(name));
@@ -104,6 +107,16 @@ const frozen: Frozen = {};
   "distinct instantiated key/value evidence cannot share a projection identity");
   assert.equal(current.storage.storageSubjectFor(current.variable("objects"), [texts]).kind, "unresolved",
     "an unrelated generic view cannot be appended to another checked root");
+  for (const [sourceName, ownerName] of [["objects", "texts"], ["texts", "objects"],
+    ["objectRecord", "stringRecord"], ["stringRecord", "objectRecord"]]) {
+    const source = projection(sourceName);
+    const owner = projection(ownerName);
+    const hybrid = { ...owner, sourceType: source.sourceType };
+    const selected = current.storage.storageSubjectFor(current.variable(sourceName), [hybrid]);
+    assert.equal(selected.kind, "unresolved", `${sourceName}: another owner cannot lend a different indexed payload`);
+    const restored = current.storage.storageSubjectFor(current.variable(sourceName), [source]);
+    assert.equal(restored.kind, "resolved", `${sourceName}: refusing a hybrid preserves valid checked evidence`);
+  }
   assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [frozen]).kind, "resolved",
     "the actual readonly index is representable without inventing a writer");
   const forged = { ...frozen, index: { ...frozen.index, readonly: false } };
@@ -141,6 +154,21 @@ const frozen: Frozen = {};
   assert.equal(copied.subject.projection[0].index.components.length === frozen.index.components.length &&
     copied.subject.projection[0].index.components.every((component, ordinal) => component === frozen.index.components[ordinal]), true,
   "data snapshots preserve exact component identities and their original order");
+  let nestedEntriesRead = 0;
+  const oversizedComponents = new Proxy(Array.from({ length: frozen.index.components.length + 32 },
+    () => frozen.index.declaration), {
+    getOwnPropertyDescriptor(target, key) {
+      if (key !== "length") nestedEntriesRead += 1;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const oversized = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
+    index: { ...frozen.index, components: oversizedComponents } }]);
+  assert.equal(oversized.kind, "unresolved", "a mismatched vector cannot supply checked indexed evidence");
+  assert.equal(nestedEntriesRead, 0, "checked vector length is compared before traversing or copying supplied entries");
+  const restored = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
+  assert.equal(restored.kind === "resolved" && restored.subject === readonlySubject.subject, true,
+    "oversized metadata refusal preserves the original canonical subject without exhausting its graph");
   const foreign = await checked("source-storage-indexed-foreign", `
 interface Values { [key: string]: object | undefined; }
 const foreign: Values = {};

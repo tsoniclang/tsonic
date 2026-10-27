@@ -43,6 +43,30 @@ export function sourceStorageAccessDeclarations(source: TargetSourceProgram, acc
   return declarations.length === 0 ? undefined : Object.freeze(declarations);
 }
 
+function sourceStorageIndexCorrespondence(
+  sourceType: Type,
+  ownerType: Type,
+  index: TypeIndexInfo,
+  semantics: SourceFileSemantics,
+): TypeIndexInfo | undefined {
+  const selected = sourcePresentStorageType(sourceType, semantics);
+  if (selected === undefined || semantics.types.isAny(selected) || semantics.types.isUnknown(selected) ||
+    semantics.types.isNonPrimitive(selected) || sourceStorageIsScalarType(selected, semantics)) return undefined;
+  if (selected === ownerType) return index;
+  const selection = semantics.types.selectIndexedAccess(selected, index.keyType!);
+  if (selection?.kind === "resolved" && selection.members.length === 1 && selection.members[0]?.kind === "index") {
+    const original = selection.members[0].index;
+    return original.valueType !== undefined && original.keyType !== undefined &&
+      semantics.types.isIdentical(original.keyType, index.keyType!) &&
+      semantics.types.isIdentical(original.valueType, index.valueType!) ? original : undefined;
+  }
+  if (semantics.types.indexInfos(selected).length !== 0 || semantics.types.propertyInfos(selected).length !== 0 ||
+    semantics.types.callSignatures(selected).length !== 0 || semantics.types.constructSignatures(selected).length !== 0)
+    return undefined;
+  const members = semantics.types.structuralMembers(selected, ownerType, "correspondence");
+  return members.kind === "available" && members.members.every(member => member.kind === "present") ? index : undefined;
+}
+
 export function sourceStorageCheckedIndex(
   component: Extract<SourceStorageProjection, { readonly kind: "indexed-value" }>,
   semantics: SourceFileSemantics,
@@ -52,8 +76,10 @@ export function sourceStorageCheckedIndex(
     index.readonly === component.index.readonly && index.declaration === component.index.declaration &&
     index.symbol === component.index.symbol && index.components.length === component.index.components.length &&
     index.components.every((declaration, ordinal) => declaration === component.index.components[ordinal]));
-  return indexes.length === 1 && indexes[0]!.keyType !== undefined && indexes[0]!.valueType !== undefined
-    ? indexes[0] : undefined;
+  const index = indexes.length === 1 ? indexes[0] : undefined;
+  return index?.keyType !== undefined && index.valueType !== undefined &&
+    sourceStorageIndexCorrespondence(component.sourceType, component.ownerType, index, semantics) !== undefined
+    ? index : undefined;
 }
 
 export function sourceStorageProjectionsShareLocation(
@@ -83,20 +109,10 @@ export function sourceStorageIndexedCorrespondence(
     semantics.types.isUnknown(selected) || semantics.types.isNonPrimitive(selected) ||
     sourceStorageIsScalarType(selected, semantics)) return undefined;
   if (selected === component.sourceType) return component;
-  const selection = semantics.types.selectIndexedAccess(selected, index.keyType!);
-  if (selection?.kind !== "resolved" || selection.members.length !== 1 || selection.members[0]?.kind !== "index") {
-    if (semantics.types.indexInfos(selected).length !== 0 || semantics.types.propertyInfos(selected).length !== 0 ||
-      semantics.types.callSignatures(selected).length !== 0 || semantics.types.constructSignatures(selected).length !== 0)
-      return undefined;
-    const members = semantics.types.structuralMembers(selected, component.ownerType, "correspondence");
-    return members.kind === "available" && members.members.every(member => member.kind === "present")
-      ? Object.freeze({ ...component, sourceType: selected }) : undefined;
-  }
-  const original = selection.members[0].index;
-  if (original.valueType === undefined || original.keyType === undefined ||
-    !semantics.types.isIdentical(original.keyType, index.keyType!) ||
-    !semantics.types.isIdentical(original.valueType, index.valueType!)) return undefined;
-  return Object.freeze({ kind: "indexed-value", sourceType: selected, ownerType: selected, index: original });
+  const original = sourceStorageIndexCorrespondence(selected, component.ownerType, index, semantics);
+  if (original === undefined) return undefined;
+  return Object.freeze({ kind: "indexed-value", sourceType: selected,
+    ownerType: original === index ? component.ownerType : selected, index: original });
 }
 
 export function sourceStorageComponentType(

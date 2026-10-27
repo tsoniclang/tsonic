@@ -7,7 +7,7 @@ import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIndexReader, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
@@ -22,6 +22,7 @@ export function createSourceStorageQuery(
   effects: SourceStorageEffects = {},
 ): SourceStorageQueries {
   const budget = createSourceStorageBudget(limits);
+  const indexes = sourceStorageIndexReader(source);
   const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
   const domains = createSourceStorageDomains(source, transport, budget);
   const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>();
@@ -270,7 +271,7 @@ export function createSourceStorageQuery(
     subject(node, kind, projection) {
       if (kind !== undefined && kind !== "input" && kind !== "value" && kind !== "member" && kind !== "return" && kind !== "receiver")
         return unresolved("A source storage subject requires an exact input, value, member, return or receiver kind.");
-      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection, indexes);
       return selectedSubject(checkedNode(node) && components !== undefined && components.every(checkedProjection)
         ? transport.subject(node, kind, components) : undefined);
     },
@@ -284,7 +285,7 @@ export function createSourceStorageQuery(
       return selectedSubject(member ? sourceStorageMemberSubject(node, ast, transport.subject) : undefined);
     },
     storageSubjectFor(node, projection) {
-      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection, indexes);
       return selectedSubject(checkedNode(node) && components !== undefined && components.every(checkedProjection)
         ? transport.storageSubject(node, components) : undefined);
     },

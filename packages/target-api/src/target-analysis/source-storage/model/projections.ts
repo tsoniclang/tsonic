@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
+import { sourceStorageIndexReader, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export interface SourceStorageWriteProjection {
@@ -25,6 +25,7 @@ export function createSourceStorageProjectionFlow(
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
 ) {
   const { ast, semantics } = source;
+  const indexes = sourceStorageIndexReader(source);
   const project = (owner: SourceStorageSubject | undefined, component: SourceStorageProjection):
     SourceStorageSubject | undefined => owner === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, component]);
@@ -222,7 +223,7 @@ export function createSourceStorageProjectionFlow(
       node = parent;
     }
     const owner = ast.body(node) === undefined ? subjectFor(node) : subject(node, "return");
-    const components = sourceStorageProjectionPath(projection === undefined ? syntaxProjection : projection);
+    const components = sourceStorageProjectionPath(projection === undefined ? syntaxProjection : projection, indexes);
     return owner === undefined || components === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, ...components]);
   };
