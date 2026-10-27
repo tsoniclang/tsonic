@@ -11,7 +11,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageStoredValue } from "./scoped-transport.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
-import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -168,14 +168,44 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
     const selected = access === undefined ? undefined : property ?? (ast.is.IsElementAccessExpression(access)
       ? semantics.forNode(access).operations.elementAccess(access) : undefined);
-    const selections = term.selection.kind === "projection" ? [{ target: term.selection.declaration, read: true }]
+    let selections = term.selection.kind === "projection" ? [{ target: term.selection.declaration, read: true }]
       : access === undefined ? undefined : term.mode === "execution" ? [
         ...(sourceStorageAccessDeclarations(source, access, "read") ?? []).map(target => ({ target, read: true })),
         ...(sourceStorageAccessDeclarations(source, access, "write") ?? []).map(target => ({ target, read: false })),
       ] : sourceStorageAccessDeclarations(source, access, "read")?.map(target => ({ target, read: true }));
-    const declarations = selections?.map(selection => selection.target);
-    const receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
-    const receiverView = term.selection.kind === "projection" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
+    let declarations = selections?.map(selection => selection.target);
+    let receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
+    let receiverView = term.selection.kind === "projection" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
+    const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
+      ? undefined : sourceStorageDynamicMemberKey(source, access);
+    if (dynamicKey !== undefined) {
+      if (term.receiver.kind !== "leaf") return materializeChild(term.receiver, receiver =>
+        [Object.freeze({ ...term, receiver })]);
+      receiverView = term.receiver.subject;
+      receiverType = sourceStorageSubjectType(source, receiverView);
+      const context = semantics.forNode(receiverView.node);
+      const originals = new Set<Node>();
+      if (receiverType !== undefined && !context.types.isAny(receiverType) && !context.types.isUnknown(receiverType)) {
+        for (const property of context.types.propertyInfos(receiverType)) {
+          if (!budget.step()) return undefined;
+          if (property.name !== dynamicKey) continue;
+          for (const symbol of [property.symbol, ...property.rootSymbols]) {
+            for (const declaration of context.declarations.symbolDeclarations(symbol)) {
+              if (!budget.step()) return undefined;
+              if (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) ||
+                ast.is.IsGetAccessorDeclaration(declaration)) originals.add(declaration);
+            }
+          }
+        }
+      }
+      if (originals.size === 0) {
+        const subject = transport.subject(access, "value", term.projection);
+        return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
+          subject, scope: term.scope, reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
+      }
+      declarations = [...originals];
+      selections = declarations.map(target => ({ target, read: true }));
+    }
     if (receiverType === undefined || receiverView === undefined || declarations === undefined || declarations.length === 0) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }

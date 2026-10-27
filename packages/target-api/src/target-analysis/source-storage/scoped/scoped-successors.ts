@@ -15,7 +15,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -616,7 +616,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.subject.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))) {
       const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
       const declarations = sourceStorageAccessDeclarations(source, node, "read");
-      if (selected !== undefined && declarations !== undefined && declarations.length !== 0) {
+      if (selected !== undefined && (declarations !== undefined && declarations.length !== 0 ||
+        sourceStorageDynamicMemberKey(source, node) !== undefined)) {
         const receiver = transport.subjectFor(selected.receiver.expression);
         if (receiver === undefined) return undefined;
         return { kind: "replace", terms: [Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node }), scope: term.scope,

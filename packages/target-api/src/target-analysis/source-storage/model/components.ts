@@ -43,6 +43,25 @@ export function sourceStorageAccessDeclarations(source: TargetSourceProgram, acc
   return declarations.length === 0 ? undefined : Object.freeze(declarations);
 }
 
+export function sourceStorageDynamicMemberKey(source: TargetSourceProgram, access: Node): string | undefined {
+  const { ast } = source;
+  const semantics = source.semantics.forNode(access);
+  const property = ast.is.IsPropertyAccessExpression(access) ? semantics.operations.propertyAccess(access) : undefined;
+  const element = ast.is.IsElementAccessExpression(access) ? semantics.operations.elementAccess(access) : undefined;
+  const selected = property ?? element;
+  if (selected === undefined || !semantics.types.isAny(selected.receiver.type)) return undefined;
+  if (property !== undefined) {
+    const name = ast.name(access);
+    if (name === undefined || !ast.is.IsIdentifier(name)) return undefined;
+    return semantics.operations.propertyName(name)?.name;
+  }
+  if (element === undefined) return undefined;
+  const text = semantics.types.stringLiteralValue(element.argument.type);
+  if (text !== undefined) return text;
+  const numeric = semantics.types.numericLiteralValue(element.argument.type);
+  return numeric === undefined ? undefined : String(numeric);
+}
+
 function sourceStorageIndexCorrespondence(
   sourceType: Type,
   ownerType: Type,
