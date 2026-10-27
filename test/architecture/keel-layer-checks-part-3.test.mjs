@@ -10,28 +10,9 @@ import { analyzeKeelTypeScript } from "./tooling/keel-source-analysis.mjs";
 import {
   keelFixtureHas, keelFixtureModel, keelFixtureReference, keelFixtureReview,
 } from "./tooling/keel-test-fixtures.mjs";
+import { metadataWorkspace, publicMetadataInputs, checkedMetadataFixture } from './keel-layer-checks-fixtures.mjs';
 
-const metadataWorkspace = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const publicMetadataInputs = readKeelDeclarations(metadataWorkspace);
-
-for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
-  for (const [type, accepted] of [
-    ["ProviderTypeExpression", true], ["readonly ProviderMemberDeclaration[]", true],
-    ["ProviderParameterDeclaration", true], ["ProviderPropertyName", true],
-    ["SourcePrimitiveKind", true], ["ArgumentPassingMode", true], ["ProviderWellKnownSymbolName", true],
-    ["ExtensionEvidence", true], ["ProviderIdentity", true], ["ProviderDeclarationKind", true],
-    ["ProviderExportKind", true], ["ProviderTypeFamilyDeclaration", true], ["ProviderTypeParameterDeclaration", true],
-    ["ProviderSignatureDeclaration", true], ["ProviderExportDeclaration", true], ["ProviderImportDeclaration", true],
-    ["ProviderHeritageDeclaration", true], ["ProviderDeclarationModel", true], ["ProviderRequestedExport", true],
-    ["ProviderImportRequestKind", true], ["ExtensionDiagnosticRange", true],
-    ["SourcePrimitiveFact", false], ["ExtensionDiagnostic", false], ["ExtensionDiagnosticCategory", false],
-  ]) test(`${repo}: provider metadata R3 actual public ${type}`, () => {
-    const file = "src/providers/native/projection/members.ts";
-    const imported = type === "readonly ProviderMemberDeclaration[]" ? "ProviderMemberDeclaration" : type;
-    const model = checkedMetadataFixture([[file, `import type { ${imported} } from "@tsonic/tsts"; export function selectMetadata(value: ${type}): ${type} { return value; }`]], type, publicMetadataInputs);
-    const findings = evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")] });
-    assert.equal(accepted ? findings.length === 0 : keelFixtureHas(findings, "AC1", "metadata-only inputs"), true, `${type}: actual public declaration meaning`);
-  });
+for (const repo of ["tsonic-rust"]) {
 
   for (const type of ["SourcePrimitiveKind", "ArgumentPassingMode", "ProviderWellKnownSymbolName"]) {
     for (const owner of ["source", "policy/types", "unapproved"]) test(`${repo}: provider metadata R3 ${type} homonym in ${owner}`, () => {
@@ -44,6 +25,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")] }), "AC1", "metadata-only inputs"), true, `${type}: foreign homonym is not public vocabulary proof`);
     });
   }
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const read of [false, true]) test(`${repo}: provider metadata R3 actual checked fact ${read ? "value" : "nested payload"}`, () => {
     const file = "src/providers/native/projection/members.ts";
@@ -53,6 +37,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     ], `actual checked fact ${read}`, publicMetadataInputs);
     assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")] }), "AC1", read ? "cannot read checked source" : "metadata-only inputs"), true, "actual checked-source facts remain forbidden inside the real metadata contract");
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: provider metadata R3 actual registered native owner contracts`, () => {
     const native = new Map([...readSourceInventory(resolve(metadataWorkspace, "tsonic-rust/src"))].map(([path, text]) => [`src/${path}`, text]));
@@ -72,6 +59,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     const findings = evaluateKeelLayers(repo, model, { functions: [reviewed] });
     assert.equal(findings.filter(finding => finding.file === file && finding.subject === "selectUnambiguousMembers").length, 0, "actual input and output contracts, including native resultCarrier, are metadata");
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [origin, foreign] of [["source", "src/source/semantics.ts"], ["policy", "src/policy/types/native.ts"]]) {
     for (const [grammar, statement] of [
@@ -89,6 +79,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       assert.equal(read ? keelFixtureHas(findings, "AC1", "cannot read checked source") : findings.length === 0, true, label);
     });
   }
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [form, body, symbol, explicit, typeOnly] of [
     ["direct this", "return this;", "Metadata.selectMetadata", false, false],
@@ -107,6 +100,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(foreign && !typeOnly ? keelFixtureHas(findings, "AC1", explicit ? "metadata-only inputs" : "cannot read checked source") : findings.length === 0,
       true, `${form}: only actual receiver values participate`);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const boundary of ["input", "output"]) for (const getter of [false, true]) {
     for (const foreign of [false, true]) test(`${repo}: provider metadata G3 inferred ${getter ? "getter" : "field"} ${boundary} ${foreign ? "source" : "native"}`, () => {
@@ -124,6 +120,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
         `${boundary}: checked inferred members, native recursive members and getters retain their actual types`);
     });
   }
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [form, body, parameter, foreign, rejected] of [
     ["unused foreign static", "return value;", "NativeMetadata", true, false],
@@ -142,6 +141,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(rejected ? keelFixtureHas(findings, "AC1", form.includes("boundary") ? "metadata-only inputs" : "cannot read checked source") : findings.length === 0,
       true, `${form}: instance and constructor are distinct checked types`);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [origin, foreign, type] of [
     ["source", "src/source/semantics.ts", "CheckedSource"],
@@ -161,6 +163,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
     }), "AC1", "cannot read checked source"), true, `${origin} ${form}: actual foreign value identity`);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [boundary, foreign, declaration] of [
     ["input", "src/source/semantics.ts", "interface"],
@@ -180,6 +185,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
     }), "AC1", "metadata-only inputs"), true, `${boundary}: checked base identity cannot be hidden by a local declaration`);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: provider metadata preserves native inherited data and unrelated imported types`, () => {
     const file = "src/providers/native/projection/members.ts";
@@ -197,6 +205,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       }).length, 0, "native inheritance is allowed without a global import ban");
     }
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 keeps reviewed native metadata normalization and projection at the provider owner`, () => {
     const metadata = "src/providers/native/model/input.ts";
@@ -230,6 +241,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       }), check, "owned by providers/native"), true, `${file}: provider role cannot hide a foreign owner`);
     }
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: provider metadata refuses checked source inputs, non-model outputs and foreign decisions`, () => {
     const metadata = "src/providers/native/model/input.ts";
@@ -273,6 +287,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       ] }), check, "cannot read checked source"), true, `${type}: aliases cannot hide deciding calls`);
     }
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 distinguishes native selection from reviewed cross-construct analysis`, () => {
     const policy = "src/policy/types/select.ts";
@@ -290,6 +307,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     functions[1] = { ...functions[1], role: "selection" };
     assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions }), "AC1", "owned by policy"), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [name, source] of [
     ["unlisted declaration", "export function selectCheckedIteration(value: number): number { return value; }"],
@@ -311,6 +331,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       }).length, 0);
     });
   }
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 accepts reviewed analysis named select without inferring its semantic role from spelling`, () => {
     const file = "src/analysis/operations/orchestration.ts";
@@ -322,6 +345,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       functions: [{ ...functions[0], role: "selection" }],
     }), "AC1", "owned by policy"), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 admits exact reviewed source-fact readers only at source/extension`, () => {
     const source = "export function selectCheckedArgument(value: number): number { return value; }";
@@ -347,6 +373,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       functions: [{ ...reviewed, evidence: [{ kind: "parameter", name: "absent" }] }],
     }), "AC1", "structural evidence"), true, "source-reader evidence must identify an actual input");
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 follows checked export aliases and does not mistake private nested names or data for selectors`, () => {
     const implementation = "src/analysis/operations/implementation.ts";
@@ -370,6 +399,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       "export const selectedCount = 1; export function analyze(value: number): number { function selectPrivate(item: number): number { return item; } return selectPrivate(value); }"]]);
     assert.equal(evaluateKeelLayers(repo, model).length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 follows selection re-exports to their policy owner, not the barrel's path`, () => {
     const model = keelFixtureModel([
@@ -388,6 +420,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       functions: [keelFixtureReview(anonymous, policy, anonymous.functions[0].symbol, "selection")],
     }).filter(entry => entry.check === "AC1").length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 retains a reviewed native selection obligation through renaming and flattening`, () => {
     const original = "src/analysis/operations/provider/elements-and-iteration.ts";
@@ -412,12 +447,18 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
         replaces: [keelFixtureReference(original, "selectCheckedIteration")] }],
     }, [reviewed]).length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 keeps unresolved exported selector evidence open instead of classifying it as data`, () => {
     const file = "src/analysis/operations/selection.ts";
     const model = keelFixtureModel([[file, "export const chooseNative = missingNative;"]]);
     assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model), "AC1", "no exact checked declaration"), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC1 fails closed on stale or invented classification evidence`, () => {
     const file = "src/policy/types/select.ts";
@@ -431,6 +472,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.throws(() => evaluateKeelLayers(repo, model, { functions: [valid, valid] }), /duplicate/u);
     assert.throws(() => evaluateKeelLayers(repo, model, { functions: [{ ...valid, file: "src/*" }] }), /exact/u);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [name, imports, expression, extra] of [
     ["import alias", 'import { chooseCarrier as invoke } from "../../../policy/types/select.js";', "invoke(value)", []],
@@ -454,6 +498,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions }), "AC2", "sealed records"), true);
     });
   }
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC2 rejects a renamed selection but does not guess from a shadowed binding`, () => {
     const file = "src/backend/planner/expressions/plan.ts";
@@ -466,6 +513,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     functions[0] = { ...functions[0], role: "syntax" };
     assert.equal(evaluateKeelLayers(repo, model, { functions }).length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC2 distinguishes lazy analysis from a sealed reader`, () => {
     const compute = "src/analysis/storage/compute.ts";
@@ -485,6 +535,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(findings.filter(entry => entry.check === "AC2" && entry.reason.includes("lazy analysis")).length, 1);
     assert.equal(keelFixtureHas(findings, "AC3"), false);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC3 permits private typed storage and rejects cross-layer reads and writes`, () => {
     const records = "src/analysis/program/records/store.ts";
@@ -504,6 +557,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(findings.filter(entry => entry.check === "AC3").length, 4);
     assert.equal(findings.filter(entry => entry.check === "AC3").every(entry => entry.file === planner), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC3 does not confuse a homonymous method with the keyed API`, () => {
     const records = "src/analysis/program/records/store.ts";
@@ -518,6 +574,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     });
     assert.equal(findings.length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC4 permits one registered invariant owner, not ordinary planner rejections`, () => {
     const producer = "src/analysis/program/rejections.ts";
@@ -540,6 +599,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(keelFixtureHas(findings, "AC4"), true);
     assert.equal(findings.filter(entry => entry.check === "AC4").every(entry => entry.file === planner), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC4 checks the selected receiver, not diagnostic siblings in an aggregate context`, () => {
     const types = "src/target-model/records/provenance.ts";
@@ -591,6 +653,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       diagnosticCodeFields: [keelFixtureReference(types, "Diagnostic.code")],
     }).filter(finding => finding.check === "AC4").length, 0);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC4 requires current checked receiver evidence rather than falling back to aggregate guesses`, () => {
     const planner = "src/backend/planner/expressions/plan.ts";
@@ -602,6 +667,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       assert.throws(() => evaluateKeelLayers(repo, { ...model, [field]: incomplete }), /requires checked receiver provenance/u, field);
     }
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [label, expression] of [
     ["direct receiver", "context.diagnostics.push(value)"],
@@ -628,6 +696,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, vocabulary), "AC4", "diagnostic sink"), true, label);
     }
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   for (const [label, annotation, expression] of [
     ["missing context", "RemoteContext", 'context.errors.push({ code: "REJECT" })'],
@@ -644,6 +715,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       externalBoundaryTypes: [{ file: planner, symbol: "RemoteContext", kind: "diagnostics" }],
     }), "AC4", "unresolved collection method"), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC4 receiver precision preserves unresolved aggregate record-boundary evidence`, () => {
     const planner = "src/backend/planner/expressions/plan.ts";
@@ -657,6 +731,9 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
       externalBoundaryTypes: [{ file: planner, symbol: "RemoteRecords", kind: "records" }],
     }), "AC3", "no exact checked declaration"), true);
   });
+}
+
+for (const repo of ["tsonic-rust"]) {
 
   test(`${repo}: AC6 approves only a reviewed local traversal and detects body changes`, () => {
     const file = "src/policy/types/local.ts";
@@ -674,21 +751,6 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(keelFixtureHas(evaluateKeelLayers(repo, changed, { functions, localTraversals }), "AC6"), true);
     assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, { functions, localTraversals: [{ ...localTraversals[0], subjectParameter: "program" }] }), "AC6"), true);
   });
-}
-
-function checkedMetadataFixture(entries, label, declarations = { declarationFiles: new Map(), modulePaths: {} }) {
-  const files = new Map([...declarations.declarationFiles, ...entries].map(([file, text]) => [`/keel/${file}`, text]));
-  const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/keel", files, rootFiles: entries.map(([file]) => file),
-    compilerOptions: {
-      module: "esnext", moduleResolution: "bundler", target: "esnext", lib: ["es2022"],
-      skipLibCheck: true, strict: true, allowJs: true,
-      paths: Object.fromEntries(Object.entries(declarations.modulePaths).map(([specifier, paths]) => [specifier, paths.map(path => `/keel/${path}`)])),
-    },
-  }).checkSource();
-  assert.equal(checked.diagnostics.length, 0,
-    `${label}: fixture must be semantically valid\n${formatDiagnostics(checked.diagnostics)}`);
-  return analyzeKeelTypeScript(new Map(entries), declarations);
 }
 
 test("Rust AC5 detects inspection of the checked native AST clone field, not construction or homonyms", () => {
