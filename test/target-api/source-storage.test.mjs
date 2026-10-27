@@ -40,6 +40,22 @@ function indexedFailure(current, name, selected) {
   return `${selected.reason}; exact frontier: ${JSON.stringify(entries)}`;
 }
 
+for (const readonly of [false, true]) test(`an unwritten fresh indexed ${readonly ? "readonly" : "mutable"} view retains absence`, async () => {
+  const current = await checked(`source-storage-indexed-absence-${readonly}`, `
+interface View { ${readonly ? "readonly " : ""}[key: string]: object | undefined; }
+const original = {}; const view: View = original; const alias: View = view;
+const missing = alias["item"];
+`);
+  const missing = current.storage.closedOriginsFor(current.subject("missing"));
+  assert.equal(missing.kind === "complete" && missing.origins.length === 0, true,
+    `an absent slot is not its container allocation; ${missing.reason ?? missing.kind}`);
+  const backing = current.storage.closedOriginsFor(current.subject("alias"));
+  assert.equal(backing.kind === "complete" && backing.origins.length === 1 &&
+    backing.origins[0].subject.node === current.initializer("original") && backing.origins[0].subject.projection.length === 0,
+  true, "the whole allocation identity remains original and unprojected");
+  assert.equal(current.storage.failureReason(), undefined, "the original finite owner is not bypassed");
+});
+
 test("checked indexed views retain one fresh allocation and compatible view writes without mixing allocations", async () => {
   const current = await checked("source-storage-indexed-views", `
 interface First { [key: string]: object | undefined; }

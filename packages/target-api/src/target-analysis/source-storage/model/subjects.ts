@@ -74,7 +74,7 @@ export function sourceStorageHasOriginalCallableValue(subject: SourceStorageSubj
 
 export function sourceStorageHasOriginalValue(subject: SourceStorageSubject, ast: AstReader, hasIncoming: boolean): boolean {
   return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming &&
-    (!ast.is.IsArrayLiteralExpression(subject.node) || subject.projection.length === 0);
+    (!ast.is.IsArrayLiteralExpression(subject.node) && !ast.is.IsObjectLiteralExpression(subject.node) || subject.projection.length === 0);
 }
 
 export type SourceStorageIndexReader = (ownerType: Type, declaration: Node) => readonly TypeIndexInfo[];
