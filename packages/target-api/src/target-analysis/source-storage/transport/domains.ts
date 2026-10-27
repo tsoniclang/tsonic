@@ -180,6 +180,7 @@ export function createSourceStorageDomains(
         const ownerContext = semantics.forFile(file);
         const emptyView = context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
           context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0;
+        if (emptyView && transport.contextLocation(owner) !== "allocation") continue;
         const exposed = emptyView ? type : present;
         const exposedContext = emptyView ? ownerContext : context;
         for (const signature of [...ownerContext.types.callSignatures(type), ...ownerContext.types.constructSignatures(type)]) {
