@@ -13,6 +13,7 @@ export function createSourceStorageDomainInputs(
   const queries = createSourceStorageGraphQueries(budget);
   const channels = new Map<SourceStorageSubject["kind"], Map<SourceStorageSubject | undefined, symbol>>();
   const rows = budget.createRows();
+  let presence: { readonly node: SourceStorageSubject["node"]; readonly kind: symbol } | undefined;
   let sealed = false;
   const input = (subject: SourceStorageSubject, owner?: SourceStorageSubject) => {
     const root = owner === undefined || owner.projection.length === 0 ? owner : transport.subject(owner.node, owner.kind);
@@ -39,6 +40,17 @@ export function createSourceStorageDomainInputs(
     query: queries.query,
     owners,
     hasInputs: witnesses.hasInputs,
+    readPresence(subject: SourceStorageSubject): boolean {
+      const hasInputs = witnesses.hasInputs();
+      if (!sealed && !hasInputs) {
+        if (presence === undefined) {
+          if (!rows.add(2)) return false;
+          presence = Object.freeze({ node: subject.node, kind: Symbol("source-storage-input-presence") });
+        }
+        queries.read(presence);
+      }
+      return hasInputs;
+    },
     has(subject: SourceStorageSubject): boolean {
       return owners(subject)[Symbol.iterator]().next().done !== true;
     },
@@ -54,8 +66,10 @@ export function createSourceStorageDomainInputs(
       const previous = witnesses.inputOwners(subject);
       const known = previous.has(owner);
       const present = previous.size !== 0;
+      const hadInputs = witnesses.hasInputs();
       witnesses.add(subject, kind, exposure, owner, creationBindings);
       if (kind !== "external-input" || known || !witnesses.inputOwners(subject).has(owner)) return;
+      if (!hadInputs && presence !== undefined) queries.invalidate(presence);
       if (owner !== undefined) {
         const selected = input(subject, owner);
         if (selected !== undefined) queries.invalidate(selected);
@@ -69,6 +83,7 @@ export function createSourceStorageDomainInputs(
       queries.seal();
       sealed = true;
       channels.clear();
+      presence = undefined;
       rows.release();
     },
   });

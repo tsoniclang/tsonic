@@ -56,6 +56,62 @@ test("domain input handoff retains writer context without fabricating an externa
   assert.equal(budget.failure(), undefined, "only construction-owned dependency rows are released");
 });
 
+test("input absence is one live dependency until the first admitted external input", () => {
+  const { budget, subject, witnesses, inputs } = fixture();
+  const first = subject({});
+  const second = subject({});
+  const unrelated = subject({});
+  const owner = subject({});
+  const computations = new Map();
+  const query = inputs.query(key => {
+    computations.set(key, 1 + (computations.get(key) ?? 0));
+    if (!inputs.readPresence(key)) return new Set();
+    inputs.read(key);
+    return new Set(inputs.owners(key));
+  });
+  const firstAbsent = query(first);
+  const secondAbsent = query(second);
+  assert.equal(query(first) === firstAbsent && query(second) === secondAbsent, true, "one exact absence result per source demand");
+  inputs.add(unrelated, "opaque-write", {}, owner);
+  assert.equal(query(first) === firstAbsent && query(second) === secondAbsent, true, "a writer cannot fabricate input presence");
+  inputs.add(unrelated, "external-input", {}, owner);
+  const firstPresent = query(first);
+  const secondPresent = query(second);
+  assert.equal(firstPresent !== firstAbsent && secondPresent !== secondAbsent && firstPresent.size === 0 && secondPresent.size === 0,
+    true, "the first real input invalidates every previously read global absence, even for another source node");
+  inputs.add(first, "external-input", {}, owner);
+  const selected = query(first);
+  assert.equal(selected !== firstPresent && selected.has(owner), true, "subsequent inputs use the exact subject dependency");
+  assert.equal(query(second) === secondPresent, true, "later unrelated inputs do not revive a second global invalidation path");
+  assert.equal(computations.get(first) === 3 && computations.get(second) === 2, true, "only justified absence or owner changes recompute a demand");
+  inputs.seal();
+  assert.equal(query(first) === selected && inputs.readPresence(first), true, "sealing retires dependency cells, not the completed input fact");
+  assert.equal(witnesses.inputOwners(unrelated).has(owner), true, "the original input witness stays exact after dependency release");
+  assert.equal(budget.failure(), undefined, "presence and individual dependencies share the unchanged finite owner");
+});
+
+test("a failed first-input admission cannot invalidate the live absence certificate", () => {
+  const { budget, subject, inputs } = fixture({ maximumTransportRows: 2 });
+  const selected = subject({});
+  assert.equal(inputs.readPresence(selected), false, "the original absence is observable before input admission");
+  inputs.add(selected, "external-input", {});
+  assert.equal(inputs.hasInputs(), false, "an incompletely reserved input creates no presence fact");
+  assert.equal(budget.failure() !== undefined, true, "the original finite admission refusal remains sticky");
+});
+
+test("input-presence sealing releases only its own construction evidence", () => {
+  const { budget, subject, inputs } = fixture({ maximumTransportRows: 4 });
+  const selected = subject({});
+  assert.equal(budget.row(), true, "independent retained evidence");
+  assert.equal(inputs.readPresence(selected), false, "the two-cell presence dependency fits before sealing");
+  assert.equal(budget.usage().rows, 3, "the dependency key and its symbol are charged alongside the independent cell");
+  inputs.seal();
+  assert.equal(budget.usage().rows, 1, "only the construction-owned presence evidence is released");
+  assert.equal(budget.createRows().add(3), true, "the released cells are available without erasing independent evidence");
+  assert.equal(inputs.readPresence(selected), false, "a sealed absence read allocates no second dependency path");
+  assert.equal(budget.failure(), undefined, "the unchanged finite reservation owner stays healthy");
+});
+
 test("domain input dependencies distinguish exact binding owners and source subject kinds", () => {
   const { budget, subject, inputs } = fixture();
   const node = {};
