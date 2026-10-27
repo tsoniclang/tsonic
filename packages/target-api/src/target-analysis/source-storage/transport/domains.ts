@@ -390,6 +390,34 @@ export function createSourceStorageDomains(
     const activation = transport.substitutions.boundActivation(bindings, implementation.implementation.declaration);
     return activation?.invocation !== undefined && activation.nativeEntry === undefined;
   };
+  const publicationQueries = new Map<SourceStorageScope, (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined>();
+  const publicationRows = budget.createRows();
+  const publicationOriginsIn = (subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
+    let query = publicationQueries.get(bindings);
+    if (query === undefined) {
+      if (!publicationRows.add(1)) return undefined;
+      query = domainInputs.query((subject: SourceStorageSubject) => {
+        const selected = transport.substitutions.walk(subject, bindings, current => {
+          if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
+            const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
+            const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
+            if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
+              transport.guardedValues.appliesTo(current.subject.node) === true) return true;
+          }
+          if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
+          domainInputs.read(current.subject);
+          return domainInputs.has(current.subject);
+        });
+        if (budget.failure() !== undefined) return undefined;
+        const origins = new Set(selected?.origins);
+        if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0))
+          origins.add(subject);
+        return origins;
+      });
+      publicationQueries.set(bindings, query);
+    }
+    return query(subject);
+  };
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
     const region = transport.regions.enclosing(subject.node);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
@@ -401,22 +429,7 @@ export function createSourceStorageDomains(
     }
     const scopes = externalEntry || lexical === transport.substitutions.empty
       ? [lexical] : [transport.substitutions.empty, lexical];
-    for (const bindings of scopes) {
-      const selected = transport.substitutions.walk(subject, bindings, current => {
-        if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
-          const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
-          const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
-          if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
-            transport.guardedValues.appliesTo(current.subject.node) === true) return true;
-        }
-        if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
-        domainInputs.read(current.subject);
-        return domainInputs.has(current.subject);
-      });
-      yield* selected?.origins ?? [];
-      if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) &&
-        !selected.origins.has(subject)) yield subject;
-    }
+    for (const bindings of scopes) yield* publicationOriginsIn(subject, bindings) ?? [];
   };
   // The root scope and a top-level declaration activation are where an outside caller's values enter.
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
