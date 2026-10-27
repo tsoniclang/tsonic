@@ -120,14 +120,14 @@ test("execution index reservations reject atomically and cannot resume after con
   const file = current.source.ast.getSourceFile(invocation);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
   const regions = createSourceStorageExecutionRegions(current.source, budget,
-    current.transport.constructionLineagesFor, current.transport.inputSlotsFor);
+    current.transport.constructionLineagesFor, current.transport.inputSlotsFor, current.transport.subject);
   assert.equal(regions.enclosing(invocation) === file, true, "one row is retained by the canonical lexical cache");
   regions.recordInvocation(invocation);
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(regions.invocationsIn(file) === undefined, true, "no partial region-to-invocation index is published");
   const sealedBudget = createSourceStorageBudget(defaultSourceStorageLimits);
   const sealed = createSourceStorageExecutionRegions(current.source, sealedBudget,
-    current.transport.constructionLineagesFor, current.transport.inputSlotsFor);
+    current.transport.constructionLineagesFor, current.transport.inputSlotsFor, current.transport.subject);
   sealed.recordInvocation(invocation);
   sealed.recordInvocation(invocation);
   assert.equal([...sealed.invocationsIn(file)].length === 1, true, "repeated evidence is indexed once");
@@ -158,13 +158,13 @@ test("selected defaults and failed region resolution cannot manufacture executed
   const file = ast.getSourceFile(invocation);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 1 });
   const regions = createSourceStorageExecutionRegions(current.source, budget,
-    current.transport.constructionLineagesFor, current.transport.inputSlotsFor);
+    current.transport.constructionLineagesFor, current.transport.inputSlotsFor, current.transport.subject);
   regions.recordInvocation(invocation);
   assert.match(budget.failure(), /analysis-work/u);
   assert.equal(regions.invocationsIn(file) === undefined, true, "failed lexical selection cannot publish a partial inverse region entry");
   const unresolvedBudget = createSourceStorageBudget(defaultSourceStorageLimits);
   const unresolved = createSourceStorageExecutionRegions(current.source, unresolvedBudget,
-    current.transport.constructionLineagesFor, current.transport.inputSlotsFor);
+    current.transport.constructionLineagesFor, current.transport.inputSlotsFor, current.transport.subject);
   unresolved.recordInvocation(file);
   assert.equal(unresolvedBudget.failure() === "Source storage execution requires its exact checked invocation region.", true);
   assert.equal(unresolved.invocationsIn(file) === undefined, true, "a source file cannot be guessed to be its own invocation region");

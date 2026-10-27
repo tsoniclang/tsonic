@@ -238,7 +238,7 @@ export function createSourceStorageTransport(
   const projections = createSourceStorageProjectionFlow(source, step, subject, subjectFor, locationFor, connect,
     (subject, reason) => unresolvedSubjects.set(subject, reason), sourceFileFor);
   const regions = createSourceStorageExecutionRegions(source, budget, invocation => constructionLineagesFor(invocation),
-    (candidate, invocation, callback) => inputSlotsFor(candidate, invocation, callback));
+    (candidate, invocation, callback) => inputSlotsFor(candidate, invocation, callback), subject);
   const memberAccessors = createSourceStorageMemberAccessors(source, budget, {
     subject, subjectFor, incomingFor, connect, recordInvocation: regions.recordInvocation,
     spreadMembersFor: (expression, evaluation) => memberFlow.spreadMembersFor(expression, evaluation),

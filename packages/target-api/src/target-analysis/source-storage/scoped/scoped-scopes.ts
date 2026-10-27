@@ -61,7 +61,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     variables.set(key, selected);
     return selected;
   };
-  const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit, forward) => {
+  const variablesFor: (scope: SourceStorageScope) => ReadonlySet<SourceStorageVariable> | undefined =
+    graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit, forward) => {
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
