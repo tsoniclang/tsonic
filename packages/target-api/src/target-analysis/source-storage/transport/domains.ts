@@ -177,17 +177,17 @@ export function createSourceStorageDomains(
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageSubjectType(source, owner, file);
         if (type === undefined || file === undefined) continue;
-        if (publication.kind === "opaque-write" && transport.invocationEffects.get(publication.exposure) === undefined)
-          add(owner, "opaque-write", publication.exposure, publication.inputOwner);
-        if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
-          context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
         const ownerContext = semantics.forFile(file);
+        const emptyView = context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
+          context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0;
+        const exposed = emptyView ? type : present;
+        const exposedContext = emptyView ? ownerContext : context;
         for (const signature of [...ownerContext.types.callSignatures(type), ...ownerContext.types.constructSignatures(type)]) {
           if (!budget.step()) return;
           const declaration = ownerContext.declarations.signatureDeclaration(signature);
           if (declaration !== undefined) callable(declaration, publication.exposure);
         }
-        const members = transport.memberFlow.membersFor(owner, present);
+        const members = transport.memberFlow.membersFor(owner, exposed);
         if (members === undefined) {
           const components = transport.memberFlow.componentsFor(owner);
           if (components === undefined) add(owner, "unclassified-exposure", publication.exposure, publication.inputOwner);
@@ -211,7 +211,7 @@ export function createSourceStorageDomains(
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             const declaringOwner = ast.parent(declaration);
             const objectMethodSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
-              ast.is.IsMethodDeclaration(declaration) && navigation.declarationUseSummary(declaration).memberWritten;
+              ast.is.IsMethodDeclaration(declaration);
             if (publication.writes && (objectMethodSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
               (member.destination.read !== "method" || objectMethodSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
@@ -225,12 +225,12 @@ export function createSourceStorageDomains(
               publication.externalEntry, publication.inputOwner, publication);
           }
         }
-        const indexes = context.types.indexInfos(present);
-        for (const component of sourceStorageComponents(present, context)) {
+        const indexes = exposedContext.types.indexInfos(exposed);
+        for (const component of sourceStorageComponents(exposed, exposedContext)) {
           if (!budget.step()) return;
-          const element = sourceStorageComponentType(present, component, context, ast);
+          const element = sourceStorageComponentType(exposed, component, exposedContext, ast);
           if (element === undefined) continue;
-          const originals = sourceStorageOriginalComponents(type, present, component, ownerContext);
+          const originals = sourceStorageOriginalComponents(type, exposed, component, ownerContext);
           for (const original of originals) {
             if (!budget.step()) return;
             const child = transport.subject(owner.node, owner.kind, [...owner.projection, original]);
@@ -379,26 +379,30 @@ export function createSourceStorageDomains(
   const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
     const region = transport.regions.enclosing(subject.node);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
-    const bindings = externalEntry || owner !== undefined && publications.hasCallable(owner)
+    const lexical = externalEntry || owner !== undefined && publications.hasCallable(owner)
       ? transport.substitutions.forLexicalOwner(subject.node) : transport.substitutions.empty;
-    if (bindings === undefined) {
+    if (lexical === undefined) {
       budget.reject("Source storage publication requires its completed original lexical creation bindings.");
       return;
     }
-    const selected = transport.substitutions.walk(subject, bindings, current => {
-      if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
-        const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
-        const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
-        if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
-          transport.guardedValues.appliesTo(current.subject.node) === true) return true;
-      }
-      if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
-      domainInputs.read(current.subject);
-      return domainInputs.has(current.subject);
-    });
-    yield* selected?.origins ?? [];
-    if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) &&
-      !selected.origins.has(subject)) yield subject;
+    const scopes = externalEntry || lexical === transport.substitutions.empty
+      ? [lexical] : [transport.substitutions.empty, lexical];
+    for (const bindings of scopes) {
+      const selected = transport.substitutions.walk(subject, bindings, current => {
+        if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
+          const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
+          const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
+          if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
+            transport.guardedValues.appliesTo(current.subject.node) === true) return true;
+        }
+        if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
+        domainInputs.read(current.subject);
+        return domainInputs.has(current.subject);
+      });
+      yield* selected?.origins ?? [];
+      if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) &&
+        !selected.origins.has(subject)) yield subject;
+    }
   };
   // The root scope and a top-level declaration activation are where an outside caller's values enter.
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
