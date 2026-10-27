@@ -77,9 +77,9 @@ export function sourceStorageCheckedIndex(
     index.symbol === component.index.symbol && index.components.length === component.index.components.length &&
     index.components.every((declaration, ordinal) => declaration === component.index.components[ordinal]));
   const index = indexes.length === 1 ? indexes[0] : undefined;
-  return index?.keyType !== undefined && index.valueType !== undefined &&
-    sourceStorageIndexCorrespondence(component.sourceType, component.ownerType, index, semantics) !== undefined
-    ? index : undefined;
+  if (index?.keyType === undefined || index.valueType === undefined) return undefined;
+  const source = sourceStorageIndexCorrespondence(component.sourceType, component.ownerType, index, semantics);
+  return source === undefined || source.readonly && !index.readonly ? undefined : index;
 }
 
 export function sourceStorageProjectionsShareLocation(

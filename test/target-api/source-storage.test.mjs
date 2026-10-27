@@ -124,6 +124,12 @@ const objectRecord: Objects = {}; const stringRecord: Strings = {};
     "changing readonly metadata does not create checked write authority");
   const readonlySubject = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
   assert.equal(readonlySubject.kind === "resolved", true, "the real checked indexed subject remains canonical");
+  const mutableHybrid = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...objects,
+    sourceType: frozen.sourceType }]);
+  assert.equal(mutableHybrid.kind, "unresolved", "a genuine mutable owner cannot lend write authority to a readonly source");
+  const readonlyView = current.storage.storageSubjectFor(current.variable("objects"), [{ ...frozen,
+    sourceType: objects.sourceType }]);
+  assert.equal(readonlyView.kind, "resolved", "a mutable source may be read through an exactly corresponding readonly view");
   for (const field of ["keyType", "valueType", "readonly", "declaration", "symbol", "components"]) {
     let getterCalls = 0;
     const index = { ...frozen.index };
