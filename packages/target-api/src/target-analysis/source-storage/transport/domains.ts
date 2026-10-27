@@ -412,7 +412,7 @@ export function createSourceStorageDomains(
       if (!publicationRows.add(1)) return undefined;
       query = domainInputs.query((subject: SourceStorageSubject) => {
         const selected = transport.substitutions.walk(subject, bindings, current => {
-          if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node) &&
+          if (current.subject.kind === "value" && current.subject.projection.length === 0 && ast.is.IsIdentifier(current.subject.node) &&
             transport.guardedValues.appliesTo(current.subject.node) === true) {
             const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
             const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration)

@@ -44,6 +44,46 @@ test("published readonly class fields retain their actual receiver allocations",
 });
 
 for (const reverse of [false, true]) {
+  test(`a stable guarded receiver retains its written member publication (${reverse})`, () => {
+    const current = fixture(`
+      class Box { constructor(public items: { token: object }) {} }
+      declare function consume(value: { token: object }): void;
+      const initial = {}; const token = {};
+      const backing = { token: initial };
+      const original = new Box(backing);
+      export function publish(value: Box): void {
+        if (value instanceof Box) {
+          value.items = { token };
+          consume(value.items);
+        }
+      }
+      publish(original);
+      const selected = original.items.token;
+      const container = original;
+    `);
+    const { ast } = current.source;
+    const file = ast.getSourceFile(current.initializer("selected"));
+    const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+    const inspectValue = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("selected"));
+      assert.equal(selected.kind === "open", true, `the written member retains its opaque writer; ${selected.reason ?? selected.kind}`);
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure),
+        true, "the exact call still writes the assigned member payload");
+      assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token") &&
+        origin.subject.projection.length === 0), true, "an unchanged receiver binding cannot hide its actual member write");
+    };
+    const inspectContainer = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("container"));
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("original") &&
+        selected.origins[0].subject.projection.length === 0, true, "member writes cannot replace the original receiver allocation");
+    };
+    for (const inspect of reverse ? [inspectContainer, inspectValue] : [inspectValue, inspectContainer]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "member publication preserves the existing finite proof");
+  });
+
   test(`a reassigned guarded entry retains its physical publication (${reverse})`, () => {
     const current = fixture(`
       class Box { constructor(readonly items: { token: object }) {} }
