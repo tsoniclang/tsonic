@@ -265,7 +265,9 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
-  const closedSourceInvocation = (invocation: Node, bindings: SourceStorageScope): boolean => {
+  const closedInvocations = new Map<Node, Map<SourceStorageScope, boolean>>();
+  const invocationRows = budget.createRows();
+  const computeClosedSourceInvocation = (invocation: Node, bindings: SourceStorageScope): boolean => {
     if (transport.unresolvedInvocations.has(invocation)) return false;
     if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
       const target = transport.invocationTargets.get(invocation);
@@ -310,6 +312,18 @@ export function createSourceStorageDomains(
     });
     return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete &&
       lineage.classes.length !== 0 && lineage.classes.every(value => navigation.isProjectDeclaration(value.subject.node)));
+  };
+  const closedSourceInvocation = (invocation: Node, bindings: SourceStorageScope): boolean => {
+    if (!budget.step()) return false;
+    const states = closedInvocations.get(invocation);
+    const existing = states?.get(bindings);
+    if (existing !== undefined) return existing;
+    const selected = computeClosedSourceInvocation(invocation, bindings);
+    if (budget.failure() !== undefined || !invocationRows.add(states === undefined ? 2 : 1)) return false;
+    const retained = states ?? new Map<SourceStorageScope, boolean>();
+    retained.set(bindings, selected);
+    closedInvocations.set(invocation, retained);
+    return selected;
   };
   const selectedMembers = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageScope) => {
     const bound = transport.substitutions.selection(owner, bindings);

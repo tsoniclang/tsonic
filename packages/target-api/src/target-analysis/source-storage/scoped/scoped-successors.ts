@@ -622,9 +622,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection, mode: "value" })] };
       }
     }
-    if (term.subject.kind === "value" && term.subject.projection.length === 0 && ast.is.IsCallExpression(node) &&
-      transport.invocationEffects.get(node)?.resultAllocation === node)
-      return { kind: "replace", terms: [leaf(term.subject, creatorScope(node, term.scope))], dependencies: dispatchDependencies(node, term.scope) };
     if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
       const candidate = transport.invocationDeclarations.get(node);
       if (candidate === undefined) return { kind: "replace", terms: [leaf(term.subject, term.scope)] };
