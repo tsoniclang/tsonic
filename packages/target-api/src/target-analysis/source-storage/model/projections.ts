@@ -42,7 +42,7 @@ export function createSourceStorageProjectionFlow(
     if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
       return subject(node);
-    if (component === undefined && access?.accessMode === "read" && sourceStorageDynamicMemberKey(source, node) !== undefined)
+    if (component === undefined && sourceStorageDynamicMemberKey(source, node) !== undefined)
       return subject(node);
     const value = component === undefined ? subject(node)
       : project((location ? locationFor : subjectFor)(access?.receiver.expression), component);

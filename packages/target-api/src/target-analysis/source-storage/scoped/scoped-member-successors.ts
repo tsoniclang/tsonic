@@ -11,7 +11,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageStoredValue } from "./scoped-transport.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
-import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -191,29 +191,19 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       if (term.receiver.kind !== "leaf") return materializeChild(term.receiver, receiver =>
         [Object.freeze({ ...term, receiver })]);
       receiverView = term.receiver.subject;
-      receiverType = sourceStorageSubjectType(source, receiverView);
-      const context = semantics.forNode(receiverView.node);
-      const originals = new Set<Node>();
-      if (receiverType !== undefined && !context.types.isAny(receiverType) && !context.types.isUnknown(receiverType)) {
-        for (const property of context.types.propertyInfos(receiverType)) {
-          if (!budget.step()) return undefined;
-          if (property.name !== dynamicKey) continue;
-          for (const symbol of [property.symbol, ...property.rootSymbols]) {
-            for (const declaration of context.declarations.symbolDeclarations(symbol)) {
-              if (!budget.step()) return undefined;
-              if (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) ||
-                ast.is.IsGetAccessorDeclaration(declaration)) originals.add(declaration);
-            }
-          }
-        }
-      }
-      if (originals.size === 0) {
+      const read = term.mode !== "execution" || selected?.accessMode !== "write"
+        ? sourceStorageDynamicMemberDeclarations(source, receiverView, dynamicKey, "read", budget.step) : undefined;
+      const write = term.mode === "execution" && selected?.accessMode !== "read"
+        ? sourceStorageDynamicMemberDeclarations(source, receiverView, dynamicKey, "write", budget.step) : undefined;
+      if (read === undefined && write === undefined) {
         const subject = transport.subject(access, "value", term.projection);
         return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
           subject, scope: term.scope, reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
       }
-      declarations = [...originals];
-      selections = declarations.map(target => ({ target, read: true }));
+      receiverType = read?.type ?? write?.type;
+      selections = [...(read?.declarations ?? []).map(target => ({ target, read: true })),
+        ...(write?.declarations ?? []).map(target => ({ target, read: false }))];
+      declarations = selections.map(selection => selection.target);
     }
     if (receiverType === undefined || receiverView === undefined || declarations === undefined || declarations.length === 0) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;

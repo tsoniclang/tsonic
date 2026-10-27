@@ -98,10 +98,54 @@ for (const value of ["null", "undefined"]) for (const read of ["value?.child", '
   });
 }
 
+test("unproven dynamic write cannot become an invented complete dynamic member domain", () => {
+  const current = fixture("const value: any = { child: {} }; value.child = {}; const selected = value.child;");
+  const literals = current.storage.nodes.filter(current.source.ast.is.IsObjectLiteralExpression);
+  const children = literals.filter(node => current.source.ast.properties(node).length === 0);
+  const enclosing = literals.find(node => current.source.ast.properties(node).length === 1);
+  assert.equal(children.length === 2 && enclosing !== undefined, true, "the exact initial and assigned child allocations");
+  assert.equal(current.domain("selected").kind, "complete", "a known receiver and existing constant field preserve complete evidence");
+  exactOrigins(current, "selected", children, [enclosing]);
+});
+
+for (const [name, write, read] of [
+  ["property", "value.child = replacement", "alias.child"],
+  ["literal element", 'value["child"] = replacement', 'alias["child"]'],
+  ["constant element", "value[key] = replacement", "alias[key]"],
+]) test(`a known dynamic ${name} write binds its original occurrence to the exact existing field`, () => {
+  const current = fixture(`
+    const initial = {}; const replacement = {}; const untouched = {};
+    const original = { child: initial }; const separate = { child: untouched };
+    const value: any = original; const alias: any = value; const key = "child";
+    ${write}; const selected = ${read}; const other = separate.child;
+  `);
+  assert.equal(current.domain("selected").kind, "complete", "an actual known-field write has no opaque receiver");
+  exactOrigins(current, "selected", [current.initializer("initial"), current.initializer("replacement")],
+    [current.initializer("original"), current.initializer("separate"), current.initializer("untouched")]);
+  exactOrigins(current, "other", [current.initializer("untouched")],
+    [current.initializer("initial"), current.initializer("replacement")]);
+});
+
+test("a captured dynamic write keeps its actual receiver and does not mutate a separate allocation", () => {
+  const current = fixture(`
+    const initial = {}; const replacement = {}; const untouched = {};
+    const original = { child: initial }; const separate = { child: untouched };
+    const value: any = original;
+    function replace(): void { value.child = replacement; }
+    replace(); const selected = value.child; const other = separate.child;
+  `);
+  assert.equal(current.domain("selected").kind, "complete", "a real captured store remains closed at its original occurrence");
+  exactOrigins(current, "selected", [current.initializer("initial"), current.initializer("replacement")],
+    [current.initializer("original"), current.initializer("separate"), current.initializer("untouched")]);
+  exactOrigins(current, "other", [current.initializer("untouched")],
+    [current.initializer("initial"), current.initializer("replacement")]);
+});
+
 for (const [name, body] of [
   ["external receiver", "declare const value: any; const selected = value.child;"],
   ["nonconstant key", 'declare const key: string; const value: any = { child: {} }; const selected = value[key];'],
-  ["unproven dynamic write", "const value: any = { child: {} }; value.child = {}; const selected = value.child;"],
+  ["external dynamic write", "declare const value: any; value.child = {}; const selected = value.child;"],
+  ["nonconstant dynamic write", 'declare const key: string; const value: any = { child: {} }; value[key] = {}; const selected = value.child;'],
 ]) test(`${name} cannot become an invented complete dynamic member domain`, () => {
   const current = fixture(body);
   const domain = current.domain("selected");

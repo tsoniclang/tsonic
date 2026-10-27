@@ -62,6 +62,28 @@ export function sourceStorageDynamicMemberKey(source: TargetSourceProgram, acces
   return numeric === undefined ? undefined : String(numeric);
 }
 
+export function sourceStorageDynamicMemberDeclarations(source: TargetSourceProgram, receiver: SourceStorageSubject,
+  key: string, mode: "read" | "write", step: () => boolean):
+  { readonly type: Type; readonly declarations: readonly Node[] } | undefined {
+  const type = sourceStorageSubjectType(source, receiver);
+  const context = source.semantics.forNode(receiver.node);
+  if (type === undefined || context.types.isAny(type) || context.types.isUnknown(type)) return undefined;
+  const originals = new Set<Node>();
+  for (const property of context.types.propertyInfos(type)) {
+    if (!step()) return undefined;
+    if (property.name !== key) continue;
+    for (const symbol of [property.symbol, ...property.rootSymbols]) {
+      for (const declaration of context.declarations.symbolDeclarations(symbol)) {
+        if (!step()) return undefined;
+        if (sourceStorageIsDataMember(declaration, source.ast) || sourceStorageIsMethodMember(declaration, source.ast) ||
+          (mode === "read" ? source.ast.is.IsGetAccessorDeclaration(declaration) : source.ast.is.IsSetAccessorDeclaration(declaration)))
+          originals.add(declaration);
+      }
+    }
+  }
+  return originals.size === 0 ? undefined : Object.freeze({ type, declarations: Object.freeze([...originals]) });
+}
+
 function sourceStorageIndexCorrespondence(
   sourceType: Type,
   ownerType: Type,

@@ -33,7 +33,8 @@ import { createSourceStorageGraphQueries, type SourceStorageReconciliation } fro
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
-import { sourceStorageAccessDeclarations, sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations } from "../model/components.js";
+import { createSourceStorageMutationDestinations } from "./mutation-destinations.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
 import { createSourceStorageSyntaxCollection } from "./syntax-collection.js";
@@ -524,44 +525,8 @@ export function createSourceStorageTransport(
     invocationEffects, subjectFor, originsFor: originSubjects,
     implementationsFor: invocation => pointerInvocations.has(invocation) ? pointerAccessors(invocation) : invocationImplementations(invocation),
   }));
-  const physicalMemberDestinationsFor = (origin: SourceStorageSubject, declarations: readonly Node[],
-    receiverType: Type): ReadonlySet<Node> | undefined => {
-    const destinations = new Set<Node>();
-    const ordinary = (): boolean => {
-      if (memberFlow.excludes(origin, receiverType)) return true;
-      for (const declaration of declarations) {
-        if (!step()) return false;
-        const member = memberFlow.memberFor(origin, declaration, receiverType);
-        if (member === undefined || member.kind === "absent" && !member.destination.property.optional) return false;
-        for (const original of member.kind === "present" ? member.source.declarations : member.destination.declarations) {
-          if (!step()) return false;
-          destinations.add(original);
-        }
-      }
-      return true;
-    };
-    if (!ast.is.IsNewExpression(origin.node)) return ordinary() ? destinations : undefined;
-    const lineages = constructionLineagesFor(origin.node, originSubjects, "heritage");
-    if (lineages === undefined || lineages.length === 0) return undefined;
-    for (const lineage of lineages) {
-      if (!step()) return undefined;
-      if (lineage.classes.length === 0) {
-        if (!ordinary()) return undefined;
-        continue;
-      }
-      if (!lineage.complete) return undefined;
-      for (const declaration of declarations) {
-        if (!step()) return undefined;
-        const selected = memberFlow.membersInLineage(lineage, declaration, receiverType);
-        if (selected === undefined || selected.absent) return undefined;
-        for (const member of selected.members) {
-          if (!step()) return undefined;
-          destinations.add(member.declaration);
-        }
-      }
-    }
-    return destinations;
-  };
+  const physicalMemberDestinationsFor = createSourceStorageMutationDestinations(source, budget, memberFlow,
+    origin => constructionLineagesFor(origin.node, originSubjects, "heritage"));
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const invocation of invocations)
       yield once => { if (once(invocation)) syntax.publishInvocationInputs(invocation); };
@@ -658,9 +623,13 @@ export function createSourceStorageTransport(
         if (!once(origin)) continue;
         const file = sourceFileFor(origin);
         const type = sourceStorageSubjectType(source, origin, file);
-        const matching = selected === undefined || type === undefined || declarations === undefined || declarations.length === 0
-          ? undefined : physicalMemberDestinationsFor(origin, declarations, selected.receiver.type);
-        if (selected === undefined || matching === undefined) {
+        const key = (declarations?.length ?? 0) === 0 ? sourceStorageDynamicMemberKey(source, access) : undefined;
+        const dynamic = key === undefined ? undefined : sourceStorageDynamicMemberDeclarations(source, origin, key, "write", step);
+        const selectedDeclarations = dynamic?.declarations ?? declarations;
+        const receiverType = dynamic?.type ?? selected?.receiver.type;
+        const matching = receiverType === undefined || type === undefined || selectedDeclarations === undefined || selectedDeclarations.length === 0
+          ? undefined : physicalMemberDestinationsFor(origin, selectedDeclarations, receiverType);
+        if (selected === undefined || receiverType === undefined || matching === undefined) {
           const reason = "Source member writes require exact checked physical destination correspondence.";
           unresolvedSubjects.set(origin, reason);
           for (const pair of type === undefined ? [] : memberFlow.membersFor(origin, type) ?? []) {
@@ -676,7 +645,7 @@ export function createSourceStorageTransport(
         }
         for (const member of matching) {
           if (!step()) break;
-          const storageKind = memberFlow.memberStorageKindFor(origin, member, selected.receiver.type);
+          const storageKind = memberFlow.memberStorageKindFor(origin, member, receiverType);
           if (storageKind === undefined) {
             unresolvedSubjects.set(origin, budget.failure() ?? "Source member writes require exact checked physical copy correspondence.");
             continue;
