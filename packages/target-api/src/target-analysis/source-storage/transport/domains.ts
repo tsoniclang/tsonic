@@ -455,9 +455,9 @@ export function createSourceStorageDomains(
     const activation = transport.substitutions.boundActivation(bindings, implementation.implementation.declaration);
     return activation?.invocation !== undefined && activation.nativeEntry === undefined;
   };
-  const aggregateInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
+  const aggregateInput = (current: SourceStorageScopedSubject & { readonly original: boolean }, exposure: Node): boolean => {
     const owner = !current.original && current.subject.kind === "input" ? sourceStorageFormalOwner(current.subject, source) : undefined;
-    return owner !== undefined && ast.body(owner) !== undefined;
+    return owner === exposure && ast.body(owner) !== undefined;
   };
   const writtenMember = (subject: SourceStorageSubject): boolean => {
     const last = subject.projection[subject.projection.length - 1];
@@ -468,12 +468,11 @@ export function createSourceStorageDomains(
   const isExternalInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
     const boundaries = boundariesFor(current.subject, current.bindings, "external-input");
     if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
-    if (aggregateInput(current)) return false;
     if (transport.substitutions.isBound(current.subject, current.bindings) ||
       receiverBinding(current.subject, current.bindings)) return false;
     if (writtenMember(current.subject)) return false;
     const stores = transport.storedInputsFor(current.subject);
-    return boundaries.some(boundary => boundary.kind === "external-input" &&
+    return boundaries.some(boundary => boundary.kind === "external-input" && !aggregateInput(current, boundary.exposure) &&
       (boundary.owner === undefined || stores === undefined) &&
       !closedSourceInvocation(boundary.exposure, current.bindings));
   };
@@ -607,7 +606,7 @@ export function createSourceStorageDomains(
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
           closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
-          if (aggregateInput(current) && (current.contributes || purpose === "storage-producers")) continue;
+          if (aggregateInput(current, boundary.exposure) && (current.contributes || purpose === "storage-producers")) continue;
           if (purpose === "storage-producers" && !current.contributes) {
             if (!closedSourceInvocation(boundary.exposure, current.bindings) && !transport.substitutions.isBound(current.subject, current.bindings))
               for (const member of declaredMembers.get(current.subject) ?? [])
