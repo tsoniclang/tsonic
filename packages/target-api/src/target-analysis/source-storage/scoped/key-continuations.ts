@@ -7,32 +7,31 @@ export type SourceStorageKeyContinuation = Generator<SourceStorageKeyContinuatio
 export function completeSourceStorageKeyEncoding(budget: SourceStorageBudget,
   initial: SourceStorageKeyContinuation): SourceStorageKeyValue | undefined {
   const pending: { readonly continuation: SourceStorageKeyContinuation; readonly rows: SourceStorageRows }[] = [];
-  const enter = (continuation: SourceStorageKeyContinuation): boolean => {
-    const rows = budget.createRows();
-    if (!rows.add(1)) { rows.release(); return false; }
-    pending.push({ continuation, rows });
-    return true;
-  };
+  let current = initial;
   let value: SourceStorageKeyValue | undefined;
   try {
-    if (!enter(initial)) return undefined;
-    while (pending.length !== 0) {
-      const current = pending[pending.length - 1]!;
-      const next = current.continuation.next(value);
+    while (true) {
+      const next = current.next(value);
       if (next.done) {
+        const parent = pending.pop();
+        if (parent === undefined) return next.value;
+        parent.rows.release();
+        current = parent.continuation;
         value = next.value;
-        current.rows.release();
-        pending.pop();
       } else {
+        const rows = budget.createRows();
+        if (!rows.add(1)) { rows.release(); return undefined; }
+        pending.push({ continuation: current, rows });
+        current = next.value;
         value = undefined;
-        if (!enter(next.value)) return undefined;
       }
     }
-    return value;
   } finally {
-    while (pending.length !== 0) {
-      const current = pending.pop()!;
-      try { current.continuation.return(undefined); } finally { current.rows.release(); }
+    try { current.return(undefined); } finally {
+      while (pending.length !== 0) {
+        const parent = pending.pop()!;
+        try { parent.continuation.return(undefined); } finally { parent.rows.release(); }
+      }
     }
   }
 }
