@@ -37,7 +37,8 @@ async function fixture(name, body, options = {}) {
 }
 
 function complete(selected, label) {
-  assert.equal(selected.kind === "complete", true, label);
+  assert.equal(selected.kind === "complete", true,
+    `${label}: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.origins) && selected.origins.every(Object.isFrozen), true);
   assert.equal(selected.origins.length > 0, true, "nonempty exact origin proof");
   return selected.origins;
@@ -379,8 +380,8 @@ test("unknown callback dispatch stays open globally but closes under the selecte
   complete(current.selection("local"), "actual selected callback");
 });
 
-for (const invoke of ["dispatch(backing)", "dispatch?.(backing)", "dispatch?.create(backing).finish(backing)"]) {
-  test(`an unproved callable retains its operand frontiers without poisoning unrelated storage (${invoke})`, async () => {
+for (const invoke of ["dispatch(backing)", "dispatch?.(backing)", "dispatch?.create(backing).finish(backing)"]) for (const resultFirst of [false, true]) {
+  test(`an unproved callable retains its operand frontiers without poisoning unrelated storage (${invoke}${resultFirst ? ", result first" : ""})`, async () => {
     const current = await fixture(`storage-domain-unproved-operands-${invoke.includes("create") ? "chain" : invoke.includes("?.") ? "optional" : "direct"}`, `
       declare const dispatch: any;
       const token = {};
@@ -390,6 +391,12 @@ for (const invoke of ["dispatch(backing)", "dispatch?.(backing)", "dispatch?.cre
       const unrelated = original;
       const selected = backing.token;
     `);
+    const checkResult = () => {
+      const selected = current.selection("result");
+      assert.equal(selected.kind === "unresolved" && selected.reason === "An invocation has no exact checked selected signature transport.",
+        true, `a missing callable contract remains precisely unproved, never a fabricated native implementation: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
+    };
+    if (resultFirst) checkResult();
     const privateOrigins = complete(current.selection("unrelated"), "unproved dispatch does not poison an independent allocation");
     assert.equal(privateOrigins.length === 1 && privateOrigins[0].subject.node === current.initializer("original") &&
       privateOrigins[0].subject.projection.length === 0, true, "the unrelated physical allocation remains exact");
@@ -400,9 +407,7 @@ for (const invoke of ["dispatch(backing)", "dispatch?.(backing)", "dispatch?.cre
     const backing = complete(current.selection("backing"), "by-value unknown dispatch cannot replace the container binding");
     assert.equal(backing.length === 1 && backing[0].subject.node === current.initializer("backing") &&
       backing[0].subject.projection.length === 0, true, "the original container is not a fabricated call result");
-    const selected = current.selection("result");
-    assert.equal(selected.kind === "unresolved" && selected.reason === "An invocation has no exact checked selected signature transport.",
-      true, "a missing callable contract remains precisely unproved, never a fabricated native implementation");
+    checkResult();
     assert.equal(current.storage.failureReason() === undefined, true, "a local unproved call does not poison the finite graph");
   });
 }

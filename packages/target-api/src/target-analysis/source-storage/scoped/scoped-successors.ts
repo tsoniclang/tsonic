@@ -632,6 +632,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection, mode: "value" })] };
       }
     }
+    if (ast.is.IsCallExpression(node) && transport.invocations.has(node) && transport.isOpaque(node) &&
+      !transport.invocationDeclarations.has(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
+      return { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject: term.subject,
+        scope: term.scope, exposure: node, reason: "An invocation has no exact checked selected signature transport." })] };
+    }
     if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
       const candidate = transport.invocationDeclarations.get(node);
       if (candidate === undefined) return { kind: "replace", terms: [leaf(term.subject, term.scope)] };

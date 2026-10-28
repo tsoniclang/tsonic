@@ -36,7 +36,8 @@ function fixture(text, options = {}) {
 
 function exactResult(current, expression, expected, kind = "complete") {
   const selected = current.storage.closedOriginsFor(current.subject(expression));
-  assert.equal(selected.kind === kind, true, `exact ${kind} selected result`);
+  assert.equal(selected.kind === kind, true,
+    `exact ${kind} selected result: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
   assert.equal(selected.origins.length === 1 && selected.origins[0].subject.node === expected, true,
     "only the selected caller's original result remains");
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.origins), true);
