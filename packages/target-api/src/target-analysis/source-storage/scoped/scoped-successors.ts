@@ -300,16 +300,18 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return { kind: "replace", terms };
     }
     if (term.kind === "store") {
-      if (term.destination.kind === "input-frontier" && term.receiver.kind === "input-frontier") {
-        const sameInput = term.destination.input.subject === term.receiver.input.subject &&
-          term.destination.input.scope === term.receiver.input.scope;
-        return { kind: "replace", terms: sameInput ? [term.destination, term.value] : [term.destination] };
+      if ((term.destination.kind === "leaf" || term.destination.kind === "input-frontier") &&
+        (term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier")) {
+        const frontier = term.destination.kind === "input-frontier" ? term.destination
+          : term.receiver.kind === "input-frontier" ? Object.freeze({ ...term.receiver, subject: term.destination.subject,
+            scope: term.destination.scope, preservesInput: false }) : undefined;
+        if (frontier !== undefined) {
+          const sameLocation = term.destination.subject === term.receiver.subject && term.destination.scope === term.receiver.scope;
+          const sameInput = term.destination.kind === "input-frontier" && term.receiver.kind === "input-frontier" &&
+            term.destination.input.subject === term.receiver.input.subject && term.destination.input.scope === term.receiver.input.scope;
+          return { kind: "replace", terms: sameLocation || sameInput ? [frontier, term.value] : [frontier] };
+        }
       }
-      if (term.destination.kind === "input-frontier" && term.receiver.kind === "leaf")
-        return { kind: "replace", terms: [term.destination] };
-      if (term.receiver.kind === "input-frontier" && term.destination.kind === "leaf")
-        return { kind: "replace", terms: [Object.freeze({ ...term.receiver, subject: term.destination.subject,
-          scope: term.destination.scope, preservesInput: false })] };
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination =>
         destination === term.destination ? term : Object.freeze({ ...term, destination }), { contributes: false });
       if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver =>
