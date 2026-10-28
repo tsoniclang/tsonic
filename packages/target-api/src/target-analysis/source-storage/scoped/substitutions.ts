@@ -10,7 +10,7 @@ import { createSourceStorageScopedKeys } from "./scoped-keys.js";
 import { createSourceStorageEquations } from "./scoped-equations.js";
 import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
 import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
-import { walkSourceStorageExecution } from "./execution-reachability.js";
+import { createSourceStorageExecutionReachability, walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInputBinding } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageProjectionReceiver, SourceStorageRelationWitness,
@@ -83,6 +83,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       keys.releaseReferenceMemo();
     }
   };
+  const reachability = createSourceStorageExecutionReachability(source, budget, transport);
   const createEvaluation = (evaluationQueries: ReturnType<typeof createSourceStorageGraphQueries>,
     boundary?: SourceStorageInputWalkBoundary) => {
     const relations = new Map<string, SourceStorageRelation>();
@@ -102,7 +103,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return input !== undefined && boundary.admits({ subject: input, bindings: scope, original: true })
         ? sourceStorageReference(input, scope) : undefined;
     };
-    const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, keys.birth, keys.closed,
+    const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, reachability, keys.birth, keys.closed,
       term => currentRead === undefined ? undefined : currentRead(term), outside);
     const addWitness = (relation: SourceStorageRelation, reference: SourceStorageRelationWitness,
       actual = false): boolean => {
