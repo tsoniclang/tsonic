@@ -538,6 +538,36 @@ test("bodyless native API parameters retain outside inputs without publishing a 
   assert.equal(current.storage.failureReason() === undefined, true, "all original projection and work limits remain enabled");
 });
 
+test("an inherited bodyless native constructor does not become a source implementation through its derived class", async () => {
+  const current = await fixture("storage-domain-inherited-native-constructor", `
+    interface Input<Value> { readonly value: Value; readonly next: Input<Input<Value>>; }
+    declare class Native { constructor(input: Input<object>); }
+    class Derived extends Native {}
+    declare const outside: Input<object>;
+    export const api = new Derived(outside);
+    const original = {};
+    const selected = original;
+  `, { effectsFactory(source, file) {
+    const native = namedDeclaration(source.ast, file, "Native");
+    const constructor = source.ast.members(native).find(node => source.ast.is.IsConstructorDeclaration(node));
+    return { call(node, selected) {
+      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === constructor
+        ? { resultAllocation: selected.call } : undefined;
+    } };
+  } });
+  const origins = complete(current.selection("selected"), "an inherited native signature has no authored recursive execution");
+  assert.equal(origins.length === 1 && origins[0].subject.node === current.initializer("original"), true,
+    "the exact unrelated source allocation remains private");
+  const native = namedDeclaration(current.source.ast, current.file, "Native");
+  const constructor = current.source.ast.members(native).find(node => current.source.ast.is.IsConstructorDeclaration(node));
+  const formal = current.storage.subjectFor(current.source.ast.parameters(constructor)[0]);
+  assert.equal(formal.kind === "resolved", true, "the native constructor keeps its actual declared input");
+  const domain = current.storage.closedOriginsFor(formal.subject);
+  assert.equal(domain.kind === "open" && domain.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    `native constructor storage stays externally supplied: ${domain.reason ?? domain.kind}`);
+  assert.equal(current.storage.failureReason() === undefined, true, "the original finite resource limits remain enabled");
+});
+
 test("an exported opaque constructor result does not require a concrete allocation for unrelated storage", async () => {
   const current = await fixture("storage-domain-opaque-constructor-publication", `
     declare class Native { readonly token: object; }

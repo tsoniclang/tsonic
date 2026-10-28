@@ -87,11 +87,15 @@ export function createSourceStorageDomains(
       const constructors = navigation.classConstructors(owner);
       if (constructors.kind === "resolved") for (const signature of constructors.signatures) {
         if (!budget.step()) return;
+        const implementation = signature.declaration === undefined ? undefined : navigation.callableImplementation(signature.declaration);
+        const sourceConstructor = sourceClass && implementation?.kind === "resolved" &&
+          navigation.isProjectDeclaration(implementation.implementation.declaration) &&
+          ast.body(implementation.implementation.declaration) !== undefined;
         for (const parameter of signature.parameters) {
           if (!budget.step()) return;
           const formal = transport.subject(parameter.parameterDeclaration, "input");
           add(formal, "external-input", exposure);
-          if (sourceClass) publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
+          if (sourceConstructor) publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
         }
       }
       const receiver = transport.subject(owner, "receiver");
