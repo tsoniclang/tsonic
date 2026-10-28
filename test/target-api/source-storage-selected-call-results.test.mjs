@@ -114,6 +114,22 @@ for (const reverse of [false, true]) test(`generic callback tuple transport reta
     exactResult(current, current.initializer(name), current.initializer(`${name}Value`));
 });
 
+for (const reverse of [false, true]) test(`returned generic tuple callback arguments retain both caller identities (${reverse})`, () => {
+  const current = fixture(`
+    function identity<Value>(value: Value): Value { return value; }
+    function invoke(callback: () => object): object { return callback(); }
+    function relay<Left, Right>(left: Left, right: Right): readonly [Left, Right] {
+      return identity(([left, right] as const));
+    }
+    const leftValue = {}; const rightValue = {};
+    const leftCallback = () => leftValue; const rightCallback = () => rightValue;
+    const left = invoke(relay(leftCallback, rightCallback)[0]);
+    const right = invoke(relay(leftCallback, rightCallback)[1]);
+  `);
+  for (const name of reverse ? ["right", "left"] : ["left", "right"])
+    exactResult(current, current.initializer(name), current.initializer(`${name}Value`));
+});
+
 test("selected returned closure retains captured mutable locations rather than only normalized original values", () => {
   const current = fixture(`
     function retain<Value>(value: Value): () => Value { return () => value; }
