@@ -1,3 +1,4 @@
+import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
 import { beginSelectedCallEvidenceFrame, commitSelectedCallEvidenceFrame, journalSelectedCallEvidence, rollbackSelectedCallEvidenceFrame, } from "./selected-call-evidence-transaction.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
@@ -923,6 +924,8 @@ export function Checker_checkFunctionOrConstructorSymbolWorker(receiver, symbol_
     let previousDeclaration = undefined;
     const declarations = symbol_.Declarations ?? [];
     const isConstructor = ((symbol_.Flags & SymbolFlagsConstructor) !== 0);
+    const providerConstructors = isConstructor &&
+        hasExactProviderConstructorDeclarations(receiver.program, declarations);
     let duplicateFunctionDeclaration = false;
     let multipleConstructorImplementation = false;
     let hasNonAmbientClass = false;
@@ -960,7 +963,7 @@ export function Checker_checkFunctionOrConstructorSymbolWorker(receiver, symbol_
                     else if ((deviationInFile & ModifierFlagsAmbient) !== 0) {
                         Checker_error(receiver, GetNameOfDeclaration(overload), Overload_signatures_must_all_be_ambient_or_non_ambient);
                     }
-                    else if ((deviation & (ModifierFlagsPrivate | ModifierFlagsProtected)) !== 0) {
+                    else if ((deviation & (ModifierFlagsPrivate | ModifierFlagsProtected)) !== 0 && !providerConstructors) {
                         Checker_error(receiver, core.OrElse(GetNameOfDeclaration(overload), overload), Overload_signatures_must_all_be_public_private_or_protected);
                     }
                     else if ((deviation & ModifierFlagsAbstract) !== 0) {
