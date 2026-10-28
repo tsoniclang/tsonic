@@ -100,12 +100,6 @@ export function createSourceErrorStorageDemandQuery(
   const recordWrite = (subject: SourceStorageSubject | undefined, write: Node): void => {
     if (subject === undefined) { reject("An admitted Error write has no exact source storage subject."); return; }
     recordStorageWrite(subject, write, subject);
-    const reason = storage.unresolvedFor(subject);
-    if (reason !== undefined) {
-      if (storage.failureReason() !== undefined) reject(storage.failureReason()!);
-      else unresolvedWrites.set(subject, reason);
-      return;
-    }
     const selected = storage.boundValueFrontierFor(subject, storage.emptyBindings, noBoundaries);
     if (selected.kind === "unresolved") {
       if (storage.failureReason() !== undefined) reject(storage.failureReason()!);
@@ -157,8 +151,6 @@ export function createSourceErrorStorageDemandQuery(
   const storageFor: SourceErrorStorageDemandQueries["storageFor"] = subject => {
     const failure = failureReason();
     if (failure !== undefined) return Object.freeze({ kind: "unresolved", reason: failure });
-    const reason = storage.unresolvedFor(subject);
-    if (reason !== undefined) return Object.freeze({ kind: "unresolved", reason });
     if (unresolvedWrites.size !== 0) {
       const ancestors = storage.ancestorsFor(subject);
       if (ancestors.kind === "unresolved") return ancestors;

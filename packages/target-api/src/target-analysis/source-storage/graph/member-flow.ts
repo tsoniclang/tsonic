@@ -180,8 +180,16 @@ export function createSourceStorageMemberFlow(
     if (nativeBase === undefined || nativeBase.constructors.length === 0) return undefined;
     let originals: readonly Node[] | undefined;
     for (const constructor of nativeBase.constructors) {
-      if (!budget.step() || !source.ast.is.IsConstructSignatureDeclaration(constructor)) return undefined;
-      const receiver = subject(constructor, "return");
+      if (!budget.step()) return undefined;
+      let receiver: SourceStorageSubject | undefined;
+      if (source.ast.is.IsConstructSignatureDeclaration(constructor)) receiver = subject(constructor, "return");
+      else if (source.ast.is.IsConstructorDeclaration(constructor)) {
+        const owner = source.ast.parent(constructor);
+        if (owner === undefined || owner !== nativeBase.subject.node || source.ast.body(constructor) !== undefined ||
+          !source.ast.is.IsClassDeclaration(owner) && !source.ast.is.IsClassExpression(owner) ||
+          source.navigation.isProjectDeclaration(owner)) return undefined;
+        receiver = subject(owner, "receiver");
+      } else return undefined;
       const member = receiver === undefined ? undefined : memberFor(receiver, declaration, destinationType);
       if (member?.kind !== "present") return undefined;
       const physical: Node[] = [];
