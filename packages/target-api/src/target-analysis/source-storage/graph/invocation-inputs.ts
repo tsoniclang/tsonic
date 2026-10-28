@@ -1,7 +1,7 @@
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import type { Node, Signature, Type } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -260,6 +260,7 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
 export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings, queries: {
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+    inputsFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
     valuesFor(subject: SourceStorageSubject, bindings: Bindings): {
       readonly values: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
     } | undefined;
@@ -308,6 +309,16 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
     while (pending.length !== 0) {
       if (!budget.step()) return undefined;
       const selected = pending.pop()!;
+      if (selected.subject.kind === "value" && selected.subject.projection.length === 0) {
+        const node = selected.subject.node;
+        if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
+          if (!queries.hasOnlySourceImplementations(node) && !inputs(node, selected.bindings)) return undefined;
+        } else if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node) ||
+          sourceTransparentExpressionOperand(ast, node) !== undefined) {
+          for (const original of queries.inputsFor(selected.subject))
+            if (!schedule(original, selected.bindings)) return undefined;
+        }
+      }
       const producers = queries.valuesFor(selected.subject, selected.bindings);
       if (producers === undefined) {
         if (budget.failure() !== undefined) return undefined;
@@ -354,7 +365,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
         }
         if (producer.subject.projection.length !== 0) continue;
         if ((ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node)) && !queries.hasOnlySourceImplementations(node) &&
-          !inputs(node, producer.bindings)) return undefined;
+          !schedule(producer.subject, producer.bindings)) return undefined;
       }
     }
     return budget.failure() === undefined ? Object.freeze({ values: Object.freeze(values), uncertain: Object.freeze(uncertain), complete }) : undefined;

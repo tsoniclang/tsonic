@@ -766,7 +766,7 @@ export function createSourceStorageTransport(
     readonly values: readonly SourceStorageSubject[]; readonly complete: boolean;
   }> | undefined => {
     const selected = sourceStorageNativeCallablePayloads(source, budget, invocation, undefined, {
-      subjectFor, callbackEntriesFor, componentsFor: memberFlow.componentsFor,
+      subjectFor, inputsFor: incomingFor, callbackEntriesFor, componentsFor: memberFlow.componentsFor,
       hasOnlySourceImplementations,
       valuesFor: selected => {
         const values = originSubjects(selected);

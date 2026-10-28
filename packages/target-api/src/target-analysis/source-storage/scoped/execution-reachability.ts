@@ -297,7 +297,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
         covered = true;
         if (native.callback.timing === "deferred" && !deferred) continue;
         const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
-          subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
+          subjectFor: transport.subjectFor, inputsFor: transport.incomingFor, callbackEntriesFor: transport.callbackEntriesFor,
           componentsFor: transport.memberFlow.componentsFor,
           hasOnlySourceImplementations: transport.hasOnlySourceImplementations,
           componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),

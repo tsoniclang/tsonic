@@ -395,6 +395,48 @@ for (const reverse of [false, true]) for (const mode of ["source", "native", "mi
   });
 }
 
+for (const reverse of [false, true]) for (const native of [false, true]) {
+  test(`transparent payload aliases retain native inputs without inventing source-only delivery (${native}; ${reverse})`, async () => {
+    const current = await fixture(`storage-producer-transparent-payload-${native}-${reverse}`, `
+      declare function nativeWrap(value: object): object;
+      declare function nativeDeliver(value: object, callback: (actual: () => void) => void): void;
+      const initial = {}; const changed = {};
+      let selected = initial;
+      const retained = (): void => { selected = changed; };
+      const input = { retained };
+      const wrap = ${native ? "nativeWrap" : "(_value: object): object => ({})"};
+      const raw = wrap(input);
+      const wrapped = raw as object;
+      const alias = wrapped;
+      nativeDeliver(alias, actual => { actual(); });
+      const observed = selected;
+    `);
+    const { ast } = current.source;
+    const delivery = requiredNode(ast, current.file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "nativeDeliver");
+    const inspectCapture = () => {
+      const selected = current.storage.storageProducersFor(current.subject(current.variable("observed")));
+      assert.equal(selected.kind === "complete" || selected.kind === "open", true, selected.reason ?? selected.kind);
+      assert.equal(selected.producers.some(value => value.subject.node === current.initializer("initial")), true,
+        "the exact original producer is retained");
+      const hasWrite = selected.producers.some(value => value.subject.node === current.initializer("changed"));
+      assert.equal(native ? hasWrite || selected.kind === "open" && selected.boundaries.some(boundary =>
+        boundary.exposure === delivery || boundary.exposure === current.initializer("raw")) : !hasWrite, true,
+      "only the native alternative can deliver or retain uncertainty about the nested source callback");
+    };
+    const inspectAlias = () => {
+      const result = current.storage.closedOriginsFor(current.subject(current.variable("alias")));
+      assert.equal(native ? result.kind === "open" && result.boundaries.some(boundary =>
+        boundary.kind === "opaque-result" && boundary.exposure === current.initializer("raw")) :
+        result.kind === "complete" && result.origins.length === 1 && ast.is.IsObjectLiteralExpression(result.origins[0].subject.node),
+      true, "aliases preserve the actual result producer and native boundary");
+    };
+    for (const inspect of reverse ? [inspectAlias, inspectCapture] : [inspectCapture, inspectAlias]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "all original finite limits remain unchanged");
+  });
+}
+
 test("producer queries retain every finite accounting limit and malformed-selection rejection", async () => {
   for (const key of Object.keys(defaultSourceStorageLimits)) {
     for (const value of [1, 0, Infinity, defaultSourceStorageLimits[key] + 1]) {

@@ -1,4 +1,4 @@
-import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 
 
@@ -172,7 +172,7 @@ test("CLI emits object-shape spread from finalized subset facts plus explicit me
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapePartialSpread.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI rejects object-shape spread members without finalized target carriers", async () => {
+test("CLI retains all spread members through a narrower return interface", async () => {
   const projectDirectory = resolve(tempRoot, "object-shape-spread-extra-member");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -190,9 +190,74 @@ test("CLI rejects object-shape spread members without finalized target carriers"
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal spread source member 'label' requires a finalized target object-shape member carrier/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), true);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const signature = /public static (?<narrow>ObjectShape_[a-f0-9]{12})<double> shrink\((?<wide>ObjectShape_[a-f0-9]{12})<string, double> input\)/u.exec(generatedSource);
+  assert.equal(signature !== null, true, "exact double-only return interface and string/double input interface");
+  const allocation = /return new (?<shape>ObjectShape_[a-f0-9]{12})\s*\{\s*value = (?<value>[A-Za-z_][A-Za-z0-9_]*),\s*label = (?<label>[A-Za-z_][A-Za-z0-9_]*),\s*\};/u.exec(generatedSource);
+  assert.equal(allocation !== null, true, "one spread allocation retains both physical fields");
+  assert.equal((generatedSource.match(/\bnew ObjectShape_/gu) ?? []).length, 1, "no second narrowing copy drops label");
+  assert.match(generatedSource, new RegExp(`double ${allocation.groups.value} = [A-Za-z_][A-Za-z0-9_]*\\.value;`, "u"));
+  assert.match(generatedSource, new RegExp(`string ${allocation.groups.label} = [A-Za-z_][A-Za-z0-9_]*\\.label;`, "u"));
+  assert.match(shapes, new RegExp(`public class ${allocation.groups.shape} : ${signature.groups.narrow}<double>`, "u"));
+  assert.match(shapes, /public required string label\s*\{/u);
+  assert.match(shapes, /public required double value\s*\{/u);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|Activator|GetProperty/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, "TsonicGenerated", [
+    "using System;",
+    `public sealed class Input : Tsonic.Generated.${signature.groups.wide}<string, double>`,
+    "{",
+    "    public string label { get; set; } = \"kept\";",
+    "    public double value { get; set; } = 7;",
+    "}",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        var input = new Input();",
+    "        var narrowed = Tsonic.Generated.Index.shrink(input);",
+    `        if (narrowed is not Tsonic.Generated.${allocation.groups.shape} copy) throw new Exception("physical spread class lost");`,
+    "        if (copy.value != 7 || copy.label != \"kept\" || ReferenceEquals(copy, input)) throw new Exception(\"spread identity or fields\");",
+    "        input.label = \"changed\";",
+    "        if (copy.label != \"kept\") throw new Exception(\"narrowing changed the original spread value\");",
+    "        Console.WriteLine(\"7:kept\");",
+    "    }",
+    "}",
+  ]), "7:kept\n");
+});
+test("object spread admission rejects an actually missing finalized member carrier", async () => {
+  const { checkedSource, requiredNode } = await import("../../../fixtures/source-navigation.mjs");
+  const { createTargetSourceProgram } = await import("../../../../packages/target-api/dist/public/source.js");
+  const { analyzeCsharpObjectLiterals } = await import("../../../../../tsonic-csharp/dist/analysis/objects/object-literals.js");
+  const checked = await checkedSource("object-spread-missing-finalized-carrier", { "src/index.ts":
+    "export function shrink(input: { value: number; label: string }): { value: number } { return { ...input }; }" });
+  assert.equal(checked.diagnostics.length, 0, "the original spread source is valid TypeScript");
+  const source = createTargetSourceProgram(checked);
+  const file = source.sourceFiles.find(candidate => source.ast.getFileName(candidate).endsWith("/src/index.ts"));
+  assert.equal(file !== undefined, true, "exact checked source file");
+  const literal = requiredNode(source.ast, file, node => source.ast.is.IsObjectLiteralExpression(node));
+  const spread = requiredNode(source.ast, literal, node => source.ast.is.IsSpreadAssignment(node));
+  const operand = source.ast.as.AsSpreadAssignment(spread).Expression;
+  const member = (name, type) => Object.freeze({ sourceKey: Object.freeze({ kind: "property", name }),
+    sourceName: name, targetName: name, memberKind: "property", type });
+  const value = member("value", Object.freeze({ kind: "source-primitive", name: "number" }));
+  const label = member("label", Object.freeze({ kind: "source-primitive", name: "string" }));
+  const target = Object.freeze({ targetType: Object.freeze({ kind: "target-named", id: "MissingLabelCarrier" }), members: Object.freeze([value]) });
+  const original = Object.freeze({ targetType: Object.freeze({ kind: "target-named", id: "CompleteSpreadSource" }), members: Object.freeze([value, label]) });
+  const child = Object.freeze({ kind: "value", expression: operand, children: Object.freeze([]),
+    completion: Object.freeze({ kind: "value", type: original.targetType }) });
+  const use = Object.freeze({ kind: "value", expression: literal, objectShape: target, children: Object.freeze([operand]),
+    completion: Object.freeze({ kind: "value", type: target.targetType }) });
+  const selected = analyzeCsharpObjectLiterals({ source, demand: { entries: [{ use }], nativeUse: { get: node => node === operand ? child : undefined } },
+    shapes: { resolveNode: node => node === operand ? original : undefined }, methods: { objectCaptures: { get: () => Object.freeze([]) } },
+    members: { objectMember: { get: () => undefined } }, storage: { requiredStorageType: { get: () => undefined } }, callables: { get: () => undefined } });
+  assert.equal(selected.issues.length, 1, "one admission refusal for the actually absent target member");
+  assert.equal(selected.issues[0].code, "CSHARP_UNSUPPORTED_AST");
+  assert.equal(selected.issues[0].sourceNode === spread, true, "the exact spread admission owns the rejection");
+  assert.equal(selected.issues[0].message,
+    "Object literal spread source member 'label' requires a finalized target object-shape member carrier before C# emission.");
 });
 test("CLI emits structural type-literal methods as authored object-shape methods", async () => {
   const projectDirectory = resolve(tempRoot, "structural-object-methods");
