@@ -270,12 +270,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const entry = pending.pop()!; const relation = entry.relation;
       const current = mappedTerm(relation, entry.path);
       if (current === undefined) return undefined;
-      let visited = entry.path === undefined ? directVisits : visits.get(entry.path);
-      if (visited === undefined && entry.path !== undefined) {
-        if (!temporary.add(1)) return undefined;
-        visited = new Map(); visits.set(entry.path, visited);
+      let visited = directVisits;
+      if (entry.path !== undefined) {
+        const mapped = visits.get(entry.path);
+        if (mapped === undefined) {
+          if (!temporary.add(1)) return undefined;
+          visited = new Map(); visits.set(entry.path, visited);
+        } else visited = mapped;
       }
-      if (visited === undefined) return undefined;
       const flag = (entry.collect ? 2 : 1) | (entry.observesValue ? 4 : 0);
       const guardsKey = entry.guards?.key ?? "";
       const visitedGuards = visited.get(relation);
