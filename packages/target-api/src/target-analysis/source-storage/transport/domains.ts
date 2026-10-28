@@ -290,6 +290,10 @@ export function createSourceStorageDomains(
     return selected.filter(boundary => {
       if (boundary.creationBindings === undefined) return true;
       const owner = boundary.owner ?? boundary.subject;
+      if (owner.kind === "value" && owner.projection.length === 0 && transport.contextLocation(owner) === "allocation") {
+        const region = transport.regions.enclosing(owner.node);
+        if (region !== undefined && ast.is.IsSourceFile(region)) return true;
+      }
       const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
       const observed = boundary.creationBindings === bindings ? exposed : transport.substitutions.creationKeyFor(owner, bindings);
       if (exposed === undefined || observed === undefined) {
