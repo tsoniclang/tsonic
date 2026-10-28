@@ -1,3 +1,4 @@
+import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import { Contains as slicesContains } from "../../../go/slices.js";
 import { AsBinaryExpression, AsSyntheticExpression, AsIfStatement, AsForStatement, AsForInOrOfStatement, AsSwitchStatement, AsTryStatement, AsCatchClause, AsLabeledStatement, AsCaseOrDefaultClause, AsCaseBlock, AsVariableStatement, AsVariableDeclarationList, AsPrefixUnaryExpression, AsPostfixUnaryExpression, AsYieldExpression, AsConditionalExpression, AsNumericLiteral, AsBigIntLiteral, } from "../../ast/generated/casts.js";
@@ -1725,7 +1726,8 @@ export function Checker_resolveNewExpressionWithEvidence(receiver, node, candida
     }
     const constructSignatures = Checker_getSignaturesOfType(receiver, expressionType, SignatureKindConstruct);
     if (constructSignatures.length !== 0) {
-        if (!Checker_isConstructorAccessible(receiver, node, constructSignatures[0])) {
+        const providerConstructors = hasExactProviderConstructorDeclarations(receiver.program, constructSignatures.map(signature => signature?.declaration));
+        if (!providerConstructors && !Checker_isConstructorAccessible(receiver, node, constructSignatures[0])) {
             return Checker_resolveErrorCall(receiver, node);
         }
         if (someSignature(constructSignatures, (signature) => (signature.flags & SignatureFlagsAbstract) !== 0)) {
@@ -1740,9 +1742,14 @@ export function Checker_resolveNewExpressionWithEvidence(receiver, node, candida
             }
         }
         if (selectedOutput === undefined) {
-            return Checker_resolveCall(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+            const selected = Checker_resolveCall(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+            return providerConstructors && !Checker_isConstructorAccessible(receiver, node, selected)
+                ? Checker_resolveErrorCall(receiver, node) : selected;
         }
         const resolved = Checker_resolveCallWithEvidence(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined, sourceCalleeType);
+        if (providerConstructors && !Checker_isConstructorAccessible(receiver, node, resolved.signature)) {
+            return Checker_resolveErrorCall(receiver, node);
+        }
         if (resolved.evidence !== undefined) {
             selectedOutput.evidence = resolved.evidence;
         }

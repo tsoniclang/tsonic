@@ -4831,7 +4831,9 @@ function renderProviderSignatures(name, signatures, context, constructor = false
         const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
         const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
         const returnType = constructor ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
-        return `${name}${typeParameters}(${parameters})${returnType};`;
+        const accessibility = constructor && (signature.accessibility === "protected" ||
+            signature.accessibility === "protected-internal") ? "protected " : "";
+        return `${accessibility}${name}${typeParameters}(${parameters})${returnType};`;
     });
 }
 function renderProviderTypeParameters(typeParameters, context) {
@@ -5476,7 +5478,7 @@ function isValidProviderExportDeclaration(value) {
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
         && (value.heritage ?? []).every(isValidProviderHeritageDeclaration)
-        && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
+        && (value.signatures ?? []).every(signature => signature.accessibility === undefined && isValidProviderSignatureDeclaration(signature))
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
             : value.kind === "namespace" || value.kind === "function"
@@ -5674,6 +5676,7 @@ function hasRequiredProviderExportShape(value) {
 function isValidProviderMemberDeclaration(value) {
     return value.id.length > 0
         && (value.kind === "constructor" || isValidProviderPropertyName(value.name))
+        && (value.kind === "constructor" || (value.signatures ?? []).every(signature => signature.accessibility === undefined))
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
@@ -5696,7 +5699,7 @@ function isValidProviderNamespaceMemberDeclaration(value) {
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderNamespaceMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
-        && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
+        && (value.signatures ?? []).every(signature => signature.accessibility === undefined && isValidProviderSignatureDeclaration(signature));
 }
 function hasNoUnrenderedProviderMemberShape(value) {
     switch (value.kind) {
@@ -5744,6 +5747,8 @@ function hasRequiredProviderMemberShape(value) {
 function isValidProviderSignatureDeclaration(value) {
     return value.id.length > 0
         && (value.name === undefined || isIdentifierText(value.name))
+        && (value.accessibility === undefined || value.accessibility === "public" ||
+            value.accessibility === "protected" || value.accessibility === "protected-internal")
         && value.parameters.every(isValidProviderParameterDeclaration)
         && (value.returnType === undefined || isValidProviderTypeExpression(value.returnType))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration);

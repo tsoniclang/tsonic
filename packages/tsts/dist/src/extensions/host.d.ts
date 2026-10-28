@@ -389,6 +389,7 @@ export interface ProviderParameterDeclaration {
 export interface ProviderSignatureDeclaration {
     readonly id: string;
     readonly name?: string;
+    readonly accessibility?: "public" | "protected" | "protected-internal";
     readonly parameters: readonly ProviderParameterDeclaration[];
     readonly returnType?: ProviderTypeExpression;
     readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
