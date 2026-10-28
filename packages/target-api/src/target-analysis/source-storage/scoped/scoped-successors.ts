@@ -17,10 +17,12 @@ import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, source
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
-import { createSourceStorageMemberSuccessors, type SourceStorageChildContext } from "./scoped-member-successors.js";
+import { createSourceStorageMemberSuccessors } from "./scoped-member-successors.js";
 import { createSourceStoragePointerValues } from "./pointer-values.js";
 import { createSourceStorageScopedRejections } from "./rejections.js";
 import { createSourceStorageExecutionContext } from "./execution-context.js";
+import { completeSourceStorageChildReduction, sourceStorageChildDependencies,
+  type SourceStorageChildContext, type SourceStoragePendingReduction } from "./child-reduction.js";
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -67,24 +69,18 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     pointerThrows: (invocation, scope) => pointerValues.execution(invocation, scope, invocation, scopes.isDeferred(scope), "throw"),
   });
   const replaceChild = (child: SourceStorageTerm,
-    replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
-    if (child.kind === "unresolved" || child.kind === "empty") return { kind: "replace", terms: [child] };
-    if (child.kind === "input-frontier") return { kind: "replace", terms: [replace(child)] };
+    replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStoragePendingReduction | undefined => {
+    if (child.kind === "unresolved" || child.kind === "empty")
+      return sourceStorageChildDependencies({ kind: "replace", terms: [child] }, context.dependencies);
+    if (child.kind === "input-frontier")
+      return sourceStorageChildDependencies({ kind: "replace", terms: [replace(child)] }, context.dependencies);
     if (child.kind === "reference" || child.kind === "application" || child.kind === "member" || child.kind === "guarded") {
       const independent = closed(child);
       if (independent === undefined) return undefined;
       if (independent || context.independentCallee !== undefined)
         return materializeChild(child, value => [replace(value)], independent ? undefined : context.independentCallee);
     }
-    const selected = reduce(child, context.correlated ?? true);
-    if (selected?.kind === "project") return { kind: "project", inputs: selected.inputs,
-      select: value => selected.select(value)?.map(child => child.kind === "empty" ? child : replace(child)) };
-    return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(child => child.kind === "empty" ? child : replace(child)), dependencies: selected.dependencies,
-      witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness
-        : { ...witness, contributes: false, observesValue: false }),
-        ...child.kind === "reference" || child.kind === "leaf"
-        ? [{ subject: child.subject, bindings: child.scope, contributes: context.contributes !== false,
-          observesValue: context.contributes !== false }] : []] } : selected;
+    return { kind: "child-reduction", child, replace, context };
   };
   const guardedLeaf = (reference: Node, value: SourceStorageReference | SourceStorageInputFrontier): readonly SourceStorageTerm[] | undefined => {
     if (value.kind === "input-frontier") {
@@ -100,7 +96,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return budget.failure() !== undefined ? undefined : guards === null ? [empty]
       : guards === value.guards ? [value] : [Object.freeze({ ...value, guards })];
   };
-  const reduce = (term: SourceStorageTerm, correlated = false): SourceStorageReduction | undefined => {
+  const reduceStep = (term: SourceStorageTerm, correlated: boolean): SourceStoragePendingReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "input-frontier" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "input-projection") return symbolicProjection(term.subject, term.scope, term.value);
@@ -263,11 +259,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
       const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf" && term.callee.kind !== "input-frontier") {
-        const selected = replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
+        return replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
           contributes: false,
           independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
+          dependencies,
         });
-        return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
       }
       const node = term.callee.subject.node;
       if (term.activation.kind === "provided") {
@@ -692,5 +688,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
       ? dispatchDependencies(node, term.scope) : undefined };
   };
+  const reduce = (term: SourceStorageTerm, correlated = false): SourceStorageReduction | undefined =>
+    completeSourceStorageChildReduction(budget, reduceStep(term, correlated), reduceStep);
   return Object.freeze({ reduce });
 }

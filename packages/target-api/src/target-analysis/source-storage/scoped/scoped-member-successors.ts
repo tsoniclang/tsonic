@@ -19,11 +19,7 @@ import { createSourceStoragePhysicalMembers } from "./member-selection.js";
 import { sourceStorageProjectionSubject, sourceStorageProjectionType, sourceStorageWithProjectionView } from "./projection-views.js";
 import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 
-export interface SourceStorageChildContext {
-  readonly contributes?: boolean;
-  readonly independentCallee?: Node;
-  readonly correlated?: boolean;
-}
+import type { SourceStorageChildContext, SourceStoragePendingReduction } from "./child-reduction.js";
 
 /** A read of one store's effects from a demand, as the scoped successors select it. */
 export type SourceStorageEffectSelection =
@@ -58,7 +54,7 @@ export interface SourceStorageMemberSuccessorContext {
   materializeChild(child: SourceStorageTerm, select: (child: SourceStorageReference | SourceStorageInputFrontier) => readonly SourceStorageTerm[] | undefined,
     independentCallee?: Node): Extract<SourceStorageReduction, { readonly kind: "project" }>;
   replaceChild(child: SourceStorageTerm, replace: (child: SourceStorageTerm) => SourceStorageTerm,
-    context?: SourceStorageChildContext): SourceStorageReduction | undefined;
+    context?: SourceStorageChildContext): SourceStoragePendingReduction | undefined;
 }
 
 /** Member reads and symbolic projections of the scoped successors. */
@@ -170,7 +166,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
   const physicalMembers = createSourceStoragePhysicalMembers(source, budget, transport,
     { read: readRelation, symbolic: scopes.isSymbolic,
       lineages: value => classLineages(value, "heritage") });
-  const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
+  const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStoragePendingReduction | undefined => {
     const access = term.selection.kind === "access" ? term.selection.node
       : term.selection.kind === "projection" ? term.selection.evaluation : undefined;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
