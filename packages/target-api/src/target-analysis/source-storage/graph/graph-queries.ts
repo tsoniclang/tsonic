@@ -35,7 +35,7 @@ export type SourceStorageForwardSelection<Key, Value> =
 
 type ValueProjection<Key, Value> = ((value: Value) => readonly SourceStorageForwardSelection<Key, Value>[] | undefined) | undefined;
 
-interface SourceStorageFixedPointQuery<Key, Value> {
+export interface SourceStorageFixedPointQuery<Key, Value> {
   (key: Key): ReadonlySet<Value> | undefined;
   release(): void;
 }
