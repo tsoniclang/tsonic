@@ -470,6 +470,28 @@ export function createSourceStorageDomains(
     const activation = transport.substitutions.boundActivation(bindings, implementation.implementation.declaration);
     return activation?.invocation !== undefined && activation.nativeEntry === undefined;
   };
+  const aggregateInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
+    const owner = !current.original && current.subject.kind === "input" ? sourceStorageFormalOwner(current.subject, source) : undefined;
+    return owner !== undefined && ast.body(owner) !== undefined;
+  };
+  const writtenMember = (subject: SourceStorageSubject): boolean => {
+    const last = subject.projection[subject.projection.length - 1];
+    const member = last !== undefined && sourceStorageIsMemberProjection(last)
+      ? sourceStorageMemberSubject(last.declaration, ast, transport.subject) : subject.kind === "member" ? subject : undefined;
+    return member !== undefined && (transport.storedValuesFor(member)?.length ?? 0) !== 0;
+  };
+  const isExternalInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
+    const boundaries = boundariesFor(current.subject, current.bindings, "external-input");
+    if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
+    if (aggregateInput(current)) return false;
+    if (transport.substitutions.isBound(current.subject, current.bindings) ||
+      receiverBinding(current.subject, current.bindings)) return false;
+    if (writtenMember(current.subject)) return false;
+    const stores = transport.storedInputsFor(current.subject);
+    return boundaries.some(boundary => boundary.kind === "external-input" &&
+      (boundary.owner === undefined || stores === undefined) &&
+      !closedSourceInvocation(boundary.exposure, current.bindings));
+  };
   const publicationQueries = new Map<SourceStorageScope, (subject: SourceStorageSubject) => ReadonlySet<SourceStorageScopedSubject> | undefined>();
   const publicationRows = budget.createRows();
   const publicationOriginsIn = (subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined => {
@@ -481,7 +503,7 @@ export function createSourceStorageDomains(
         const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : current => {
           if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
           domainInputs.read(current.subject);
-          return domainInputs.has(current.subject);
+          return domainInputs.has(current.subject) && isExternalInput(current);
         });
         if (budget.failure() !== undefined) return undefined;
         const origins = new Set<SourceStorageScopedSubject>();
@@ -502,33 +524,9 @@ export function createSourceStorageDomains(
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
     bindings.kind === "frame" && bindings.boundary === "declaration" && bindings.parents.length === 1 &&
     bindings.parents[0] === transport.substitutions.empty;
-  // A member location reached from outside the program that the program also writes holds those writes as well.
-  const writtenMember = (subject: SourceStorageSubject): boolean => {
-    const last = subject.projection[subject.projection.length - 1];
-    const member = last !== undefined && sourceStorageIsMemberProjection(last)
-      ? sourceStorageMemberSubject(last.declaration, ast, transport.subject) : subject.kind === "member" ? subject : undefined;
-    return member !== undefined && (transport.storedValuesFor(member)?.length ?? 0) !== 0;
-  };
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const aggregateInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
-      const owner = !current.original && current.subject.kind === "input" ? sourceStorageFormalOwner(current.subject, source) : undefined;
-      return owner !== undefined && ast.body(owner) !== undefined;
-    };
-    const isExternalInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
-      const boundaries = boundariesFor(current.subject, current.bindings, "external-input");
-      if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
-      if (aggregateInput(current)) return false;
-      if (transport.substitutions.isBound(current.subject, current.bindings) ||
-        receiverBinding(current.subject, current.bindings)) return false;
-      // A location with stored writes holds them as well as its outside value, so the walk continues into its stores.
-      if (writtenMember(current.subject)) return false;
-      const stores = transport.storedInputsFor(current.subject);
-      return boundaries.some(boundary => boundary.kind === "external-input" &&
-        (boundary.owner === undefined || stores === undefined) &&
-        !closedSourceInvocation(boundary.exposure, current.bindings));
-    };
     const selected = transport.substitutions.walk(subject, bindings, domainInputs.hasInputs() ? isExternalInput : undefined, false);
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
