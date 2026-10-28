@@ -547,6 +547,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
     }
     const initializer = term.subject.kind === "input" ? Node_Initializer(ast, term.subject.node) : undefined;
+    if (term.views !== undefined && scopes.isSymbolic(Object.freeze({ ...term, kind: "leaf" })))
+      return symbolicProjection(term.subject, term.scope, undefined, term.views);
     const bound = term.subject.kind === "input" || term.subject.kind === "receiver"
       ? sourceStorageInputBinding(source, budget, transport, scopes, term, initializer) : scopes.lookup(term.subject, term.scope);
     if (bound !== undefined) return bound;
@@ -571,7 +573,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return budget.failure() === undefined ? { kind: "replace", terms } : undefined;
     }
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
-      sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
+      sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope, undefined, term.views);
     const node = term.subject.node;
     if (term.subject.kind === "value" && ast.is.IsElementAccessExpression(node) &&
       ast.as.AsElementAccessExpression(node)?.QuestionDotToken !== undefined) {

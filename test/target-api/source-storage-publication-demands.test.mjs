@@ -88,7 +88,7 @@ test("publication admission preserves union, intersection and nested argument co
     current.source.semantics.forFile(current.file).declarations.declaredValueType(current.variable(name)));
   assert.equal(types.every(type => type !== undefined) && new Set(types).size === 4, true, "four exact checked types");
   const exposure = current.variable("union");
-  const receiver = Object.freeze({ subject, bindings, type: types[0] });
+  const receiver = Object.freeze({ subject, view: subject, component: { kind: "member", declaration: exposure }, bindings, type: types[0] });
   for (const type of types) {
     publications.add(subject, type, current.file, exposure, true, "opaque-write", false, subject, receiver, bindings);
   }

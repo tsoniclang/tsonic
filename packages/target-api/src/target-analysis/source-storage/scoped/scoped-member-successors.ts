@@ -16,6 +16,8 @@ import { sourceStorageProjectComponents } from "../graph/component-projections.j
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { createSourceStoragePhysicalMembers } from "./member-selection.js";
+import { sourceStorageProjectionSubject, sourceStorageProjectionType, sourceStorageWithProjectionView } from "./projection-views.js";
+import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 
 export interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -86,7 +88,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     return original !== undefined && original.key === birth(allocation.subject, allocation.scope)?.key ? scope : undefined;
   };
   const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope,
-    frontier?: SourceStorageInputFrontier): SourceStorageReduction | undefined => {
+    frontier?: SourceStorageInputFrontier, views = frontier?.views): SourceStorageReduction | undefined => {
     const component = subject.projection[0];
     const declaration = component !== undefined && sourceStorageIsMemberProjection(component) ? component.declaration : undefined;
     const memberOwner = declaration === undefined ? undefined : sourceMemberOwner(ast, declaration);
@@ -100,10 +102,10 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         witnesses: [{ subject, bindings: scope, contributes: false, observesValue: true }] };
     }
     const boundary = frontier?.input ?? outside(subject, scope);
-    const terms: SourceStorageTerm[] = [boundary === undefined ? leaf(subject, scope)
+    const terms: SourceStorageTerm[] = [boundary === undefined ? Object.freeze({ ...leaf(subject, scope), views })
       : Object.freeze({ kind: "input-frontier", input: boundary,
         preservesInput: subject === boundary.subject && frontier?.preservesInput !== false,
-        subject, scope, guards: frontier?.guards })];
+        subject, scope, guards: frontier?.guards, views })];
     const owner = sourceStorageFormalOwner(subject, source);
     const region = owner === undefined ? undefined : ast.body(owner);
     if (region === undefined || subject.projection.length === 0) return { kind: "replace", terms };
@@ -121,13 +123,15 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
           const receiverFile = receiver === undefined ? undefined : transport.sourceFileFor(receiver);
-          const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver, receiverFile);
+          const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views);
           if (receiver === undefined || receiverType === undefined || receiverFile === undefined) return undefined;
           const receiverSemantics = semantics.forFile(receiverFile);
           if (sourceStorageIsMemberProjection(component)) {
             const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
               : semantics.forNode(store.reference).operations.elementAccess(store.reference);
-            const members = access === undefined ? undefined : transport.memberFlow.declarationsFor(receiver, store.storage.node, access.receiver.type);
+            const checkedReceiver = sourceStorageProjectionSubject(receiver, views, transport.subject);
+            const members = access === undefined || checkedReceiver === undefined ? undefined
+              : transport.memberFlow.declarationsFor(checkedReceiver, store.storage.node, access.receiver.type);
             if (members === undefined || !members.includes(component.declaration)) continue;
           }
           const selectedType = sourceStorageComponentType(receiverType, component, receiverSemantics, ast);
@@ -188,9 +192,13 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         ...(sourceStorageAccessDeclarations(source, access, "write") ?? []).map(target => ({ target, read: false })),
       ] : sourceStorageAccessDeclarations(source, access, "read")?.map(target => ({ target, read: true }));
     let declarations = selections?.map(selection => selection.target);
+    const receiverViews: readonly SourceStorageProjectionView[] | undefined = term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier"
+      ? term.receiver.views : undefined;
     let receiverType = term.selection.kind === "physical" ? term.selection.receiverType : term.selection.kind === "projection"
-      ? sourceStorageSubjectType(source, term.selection.subject, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
-    let receiverView = term.selection.kind !== "access" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
+      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews) : selected?.receiver.type;
+    let receiverView = term.selection.kind !== "access"
+      ? sourceStorageProjectionSubject(term.selection.subject, receiverViews, transport.subject)
+      : transport.subjectFor(selected?.receiver.expression);
     const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
       ? undefined : sourceStorageDynamicMemberKey(source, access);
     if (dynamicKey !== undefined) {
@@ -318,8 +326,9 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",
             declaration: original }, ...term.projection]);
         if (projected === undefined) return undefined;
+        const views = sourceStorageWithProjectionView(term.receiver.views, term.receiver.subject, receiverView, receiverType);
         const selected = symbolicProjection(projected, term.receiver.scope,
-          term.receiver.kind === "input-frontier" ? term.receiver : undefined);
+          term.receiver.kind === "input-frontier" ? term.receiver : undefined, views);
         if (selected?.kind !== "replace") return selected;
         terms.push(...selected.terms);
         continue;

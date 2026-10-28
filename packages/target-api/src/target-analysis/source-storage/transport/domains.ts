@@ -18,6 +18,7 @@ import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { createSourceStoragePublicationDemands } from "./publication-demands.js";
+import { sourceStorageProjectionSubject, sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -169,28 +170,35 @@ export function createSourceStorageDomains(
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
       const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
-        : transport.substitutions.memberValues(publication.receiver, publication.subject.node) ?? [];
+        : transport.substitutions.projectedValues(publication.receiver) ?? [];
       for (const selectedOwner of origins) {
         if (!budget.step()) return;
         const owner = selectedOwner.subject;
         if (witnesses.forSubject(owner).some(boundary => boundary.kind === "opaque-result")) continue;
         const file = transport.sourceFileFor(owner);
-        const type = sourceStorageSubjectType(source, owner, file);
+        const type = sourceStorageProjectionType(source, owner, selectedOwner.views);
         if (type === undefined || file === undefined) continue;
         const ownerContext = semantics.forFile(file);
         const emptyView = context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
           context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0;
-        if (emptyView && (owner.projection.length !== 0 || transport.contextLocation(owner) !== "allocation")) continue;
-        const exposed = emptyView ? type : present;
-        const exposedContext = emptyView ? ownerContext : context;
         const physicalContents = transport.contextLocation(owner) === "allocation" || owner.kind === "receiver" &&
           owner.projection.length === 0 && (ast.is.IsClassDeclaration(owner.node) || ast.is.IsClassExpression(owner.node));
+        if (!physicalContents) for (const demand of publicationDemands.values(owner, selectedOwner.bindings)) {
+          if (!budget.step()) return;
+          publish(demand.subject, publication.exposure, publication.writes, publication.kind, demand.type, undefined,
+            publication.externalEntry, publication.inputOwner, demand.receiver, demand.bindings);
+        }
+        if (emptyView && !physicalContents) continue;
+        const exposed = emptyView ? type : present;
+        const exposedContext = emptyView ? ownerContext : context;
+        const checkedOwner = sourceStorageProjectionSubject(owner, selectedOwner.views, transport.subject);
+        if (checkedOwner === undefined) continue;
         for (const signature of [...ownerContext.types.callSignatures(type), ...ownerContext.types.constructSignatures(type)]) {
           if (!budget.step()) return;
           const declaration = ownerContext.declarations.signatureDeclaration(signature);
           if (declaration !== undefined) callable(declaration, publication.exposure);
         }
-        const members = transport.memberFlow.membersFor(owner, exposed);
+        const members = transport.memberFlow.membersFor(checkedOwner, exposed);
         if (members === undefined) {
           const components = transport.memberFlow.componentsFor(owner);
           if (components === undefined) add(owner, "unclassified-exposure", publication.exposure, publication.inputOwner);
@@ -227,7 +235,8 @@ export function createSourceStorageDomains(
             else if (sourceStorageIsDataMember(declaration, ast) && physicalContents)
               publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
                 publication.externalEntry, publication.inputOwner,
-                Object.freeze({ ...selectedOwner, type: member.source.receiverType }));
+                Object.freeze({ ...selectedOwner, type: member.source.receiverType, view: checkedOwner,
+                  component: Object.freeze({ kind: "member", declaration }) }));
             else if (ast.is.IsGetAccessorDeclaration(declaration)) callable(declaration, publication.exposure);
           }
         }
@@ -246,11 +255,6 @@ export function createSourceStorageDomains(
               publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry,
                 publication.inputOwner, undefined, selectedOwner.bindings);
           }
-        }
-        if (!physicalContents) for (const demand of publicationDemands.values(owner, selectedOwner.bindings)) {
-          if (!budget.step()) return;
-          publish(demand.subject, publication.exposure, publication.writes, publication.kind, undefined, undefined,
-            publication.externalEntry, publication.inputOwner, undefined, demand.bindings);
         }
       }
     }
@@ -503,7 +507,7 @@ export function createSourceStorageDomains(
         for (const current of selected?.subjects ?? []) {
           if (!budget.step()) return undefined;
           if (current.contributes && selected?.origins.has(current.subject))
-            origins.add(Object.freeze({ subject: current.subject, bindings: current.bindings }));
+            origins.add(Object.freeze({ subject: current.subject, bindings: current.bindings, views: current.views }));
         }
         if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0))
           origins.add(Object.freeze({ subject, bindings }));

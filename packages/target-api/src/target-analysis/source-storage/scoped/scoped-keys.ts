@@ -88,6 +88,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
+    const encodeViews = (value: SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "input-frontier" }>): Encoded =>
+      value.views?.map(view => [scopes.identity(view.receiver), scopes.identity(view.source), scopes.identity(view.type)]) ?? null;
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
       if (selected !== undefined && !selected.closed) closed = false;
@@ -143,13 +145,18 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       if (selected.kind === "input-frontier") {
         closed = false;
         return [selected.kind, scopes.identity(selected.input.subject), scopes.identity(selected.input.scope),
-          scopes.identity(selected.subject), scopes.identity(selected.scope), selected.preservesInput ? 1 : 0, selected.guards?.key ?? null];
+          scopes.identity(selected.subject), scopes.identity(selected.scope), selected.preservesInput ? 1 : 0, selected.guards?.key ?? null,
+          encodeViews(selected)];
       }
       if (selected.kind === "input-projection") {
         closed = false;
         return [selected.kind, scopes.identity(selected.value.input.subject), scopes.identity(selected.value.input.scope),
           scopes.identity(selected.subject), scopes.identity(selected.scope), selected.value.preservesInput ? 1 : 0,
-          selected.value.guards?.key ?? null];
+          selected.value.guards?.key ?? null, encodeViews(selected.value)];
+      }
+      if ((selected.kind === "leaf" || selected.kind === "reference") && selected.views !== undefined) {
+        const value = encodeTerm({ ...selected, views: undefined });
+        return value === undefined ? undefined : ["viewed", encodeViews(selected), value];
       }
       if (selected.kind === "leaf" && selected.guards !== undefined) {
         const value = encodeTerm({ kind: "leaf", subject: selected.subject, scope: selected.scope });
@@ -339,6 +346,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return [selected.kind, scopes.identity(selected.subject), birth, context];
     };
     const encodeBinding = (selected: SourceStorageTerm): Encoded | undefined => {
+      if ((selected.kind === "reference" || selected.kind === "leaf") && selected.views !== undefined) return encodeTerm(selected);
       if (selected.kind !== "reference" || selected.subject.kind !== "value") return encodeTerm(selected);
       return budget.withRows(rows => {
         let subject = selected.subject;
@@ -358,6 +366,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encodeTerm = (selected: SourceStorageTerm): SourceStorageKey | undefined => {
       if (!budget.step()) return undefined;
+      if ((selected.kind === "reference" || selected.kind === "leaf") && selected.views !== undefined)
+        return encodedKey(encodeUncachedTerm(selected));
       if (selected.kind === "reference" && selected.subject.kind === "value") {
         const input = sourceStorageTransparentInput(selected.subject, source.ast, transport);
         if (input !== undefined) return encodeTerm(sourceStorageReference(input, selected.scope));

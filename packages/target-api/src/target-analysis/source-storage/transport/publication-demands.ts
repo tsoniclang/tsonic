@@ -1,17 +1,23 @@
 import type { Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { ElementAccessExpression_ArgumentExpression } from "../../../source-navigation/index.js";
-import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageOriginalComponents,
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
   sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageScope, SourceStorageScopedSubject } from "../graph/scoped-model.js";
+import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
+import type { SourceStorageScope, SourceStorageScopedSubject, SourceStorageProjectionReceiver } from "../graph/scoped-model.js";
 import type { createSourceStorageTransport } from "./transport.js";
+
+interface SourceStoragePublicationDemand extends SourceStorageScopedSubject {
+  readonly type: Type;
+  readonly receiver: SourceStorageProjectionReceiver;
+}
 
 export function createSourceStoragePublicationDemands(source: TargetSourceProgram,
   transport: ReturnType<typeof createSourceStorageTransport>, budget: SourceStorageBudget,
   origins: (subject: SourceStorageSubject, bindings: SourceStorageScope) => ReadonlySet<SourceStorageScopedSubject> | undefined) {
-  const demands = new Map<SourceStorageSubject, Map<SourceStorageScope, SourceStorageScopedSubject[]>>();
+  const demands = new Map<SourceStorageSubject, Map<SourceStorageScope, SourceStoragePublicationDemand[]>>();
   const rows = budget.createRows();
   let initialized = false;
   const retain = (receiver: SourceStorageSubject, type: Type, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
@@ -19,22 +25,20 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
     if (scope === undefined) return;
     const selected = origins(receiver, scope);
     if (selected === undefined) return;
-    const values: SourceStorageScopedSubject[] = [];
+    const values: SourceStoragePublicationDemand[] = [];
     for (const current of selected) {
       if (!budget.step()) return;
-      const file = transport.sourceFileFor(current.subject);
-      const actual = sourceStorageSubjectType(source, current.subject, file);
-      if (file === undefined || actual === undefined) continue;
-      const semantics = source.semantics.forFile(file);
+      const semantics = source.semantics.forNode(receiver.node);
       for (const component of components) {
         if (!budget.step()) return;
-        for (const original of sourceStorageOriginalComponents(actual, type, component, semantics)) {
-          if (!budget.step()) return;
-          const subject = transport.subject(current.subject.node, current.subject.kind, [...current.subject.projection, original]);
-          if (subject !== undefined) {
-            if (!temporary.add(1)) return;
-            values.push(Object.freeze({ subject, bindings: current.bindings }));
-          }
+        const memberType = sourceStorageComponentType(type, component, semantics, source.ast);
+        const subject = sourceStorageIsMemberProjection(component)
+          ? sourceStorageMemberSubject(component.declaration, source.ast, transport.subject)
+          : transport.subject(current.subject.node, current.subject.kind, [...current.subject.projection, component]);
+        if (subject !== undefined && memberType !== undefined) {
+          if (!temporary.add(1)) return;
+          values.push(Object.freeze({ subject, bindings: current.bindings, type: memberType,
+            receiver: Object.freeze({ ...current, type, view: receiver, component }) }));
         }
       }
     }
@@ -44,11 +48,13 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
         if (!budget.step()) return;
         const contexts = demands.get(current.subject);
         const known = contexts?.get(current.bindings);
-        if (known?.some(previous => previous.subject === value.subject && previous.bindings === value.bindings)) continue;
+        if (known?.some(previous => previous.subject === value.subject && previous.bindings === value.bindings &&
+          previous.receiver.subject === value.receiver.subject && previous.receiver.view === value.receiver.view &&
+          previous.receiver.type === value.receiver.type)) continue;
         if (!rows.add(1 + (contexts === undefined ? 1 : 0) + (known === undefined ? 1 : 0))) return;
         const retained = known ?? [];
         retained.push(value);
-        const retainedContexts = contexts ?? new Map<SourceStorageScope, SourceStorageScopedSubject[]>();
+        const retainedContexts = contexts ?? new Map<SourceStorageScope, SourceStoragePublicationDemand[]>();
         retainedContexts.set(current.bindings, retained);
         demands.set(current.subject, retainedContexts);
       }
@@ -92,7 +98,7 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
     }
   };
   return Object.freeze({
-    *values(receiver: SourceStorageSubject, bindings: SourceStorageScope): Iterable<SourceStorageScopedSubject> {
+    *values(receiver: SourceStorageSubject, bindings: SourceStorageScope): Iterable<SourceStoragePublicationDemand> {
       initialize();
       for (const [scope, values] of demands.get(receiver) ?? []) {
         if (!budget.step()) return;

@@ -6,6 +6,7 @@ import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageProjectionType } from "./projection-views.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
 import { sourceStorageSelectedInputSlots, type SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
@@ -239,12 +240,12 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (entry.kind === "input-frontier") {
       const root = selectedRoot ?? subject(origin.node, origin.kind);
       const selected = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...origin.projection]);
-      if (selected === undefined || sourceStorageSubjectType(source, selected) === undefined || !retain(1)) return undefined;
+      if (selected === undefined || sourceStorageProjectionType(source, selected, entry.views) === undefined || !retain(1)) return undefined;
       return origin.projection.length === 0 ? [Object.freeze({ ...entry, subject: selected, scope: selectionScope })]
         : [Object.freeze({ kind: "input-projection", value: entry, subject: selected, scope: selectionScope })];
     }
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
-    const from = sourceStorageSubjectType(source, entry.subject);
+    const from = sourceStorageProjectionType(source, entry.subject, entry.views);
     if (from === undefined) return undefined;
     const context = source.semantics.forNode(entry.subject.node);
     if (context.types.isNullish(from) || context.types.isVoidLike(from))
@@ -444,7 +445,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const scope = frameForActuals(candidate, term.invocation, term.scope, callee.scope, actuals);
       if (scope === undefined) return undefined;
       const actualTypes = Object.freeze(actuals.map(value => {
-        const type = value.kind === "empty" ? undefined : sourceStorageSubjectType(source, value.subject);
+        const type = value.kind === "empty" ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
         return type === undefined ? undefined : Object.freeze([type]);
       }));
       return Object.freeze({ ...term, callee, activation: Object.freeze({ kind: "entered", scope, actualTypes }) });

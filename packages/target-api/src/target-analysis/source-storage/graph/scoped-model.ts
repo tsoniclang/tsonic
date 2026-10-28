@@ -62,6 +62,13 @@ export interface SourceStorageReference {
   readonly subject: SourceStorageSubject;
   readonly scope: SourceStorageScope;
   readonly guards?: SourceStorageValueGuards;
+  readonly views?: readonly SourceStorageProjectionView[];
+}
+
+export interface SourceStorageProjectionView {
+  readonly receiver: SourceStorageSubject;
+  readonly source: SourceStorageSubject;
+  readonly type: Type;
 }
 
 export interface SourceStorageInputFrontier {
@@ -71,6 +78,7 @@ export interface SourceStorageInputFrontier {
   readonly subject: SourceStorageSubject;
   readonly scope: SourceStorageScope;
   readonly guards?: SourceStorageValueGuards;
+  readonly views?: readonly SourceStorageProjectionView[];
 }
 
 export type SourceStorageOperation =
@@ -141,10 +149,13 @@ export type SourceStorageReduction =
 export interface SourceStorageScopedSubject {
   readonly subject: SourceStorageSubject;
   readonly bindings: SourceStorageScope;
+  readonly views?: readonly SourceStorageProjectionView[];
 }
 
-export interface SourceStoragePhysicalMemberReceiver extends SourceStorageScopedSubject {
+export interface SourceStorageProjectionReceiver extends SourceStorageScopedSubject {
   readonly type: Type;
+  readonly view: SourceStorageSubject;
+  readonly component: SourceStorageProjection;
 }
 
 export interface SourceStorageRelationWitness extends SourceStorageScopedSubject {
@@ -152,6 +163,7 @@ export interface SourceStorageRelationWitness extends SourceStorageScopedSubject
   readonly observesValue: boolean;
 }
 
-export function sourceStorageReference(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference {
-  return Object.freeze({ kind: "reference", subject, scope });
+export function sourceStorageReference(subject: SourceStorageSubject, scope: SourceStorageScope,
+  views?: readonly SourceStorageProjectionView[]): SourceStorageReference {
+  return Object.freeze({ kind: "reference", subject, scope, ...(views === undefined ? {} : { views }) });
 }

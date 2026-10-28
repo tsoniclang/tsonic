@@ -16,7 +16,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageProjectionType } from "./projection-views.js";
 
 export interface SourceStorageScopedTransport {
   declarationIsAmbient(declaration: Node): boolean | undefined;
@@ -186,7 +186,7 @@ export function sourceStorageInitializedValue(source: TargetSourceProgram, budge
   }
   const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
   const file = source.ast.getSourceFile(value.subject.node);
-  const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);
+  const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
   if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
   const types = source.semantics.forFile(file).types;

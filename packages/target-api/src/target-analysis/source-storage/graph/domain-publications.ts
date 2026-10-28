@@ -1,7 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStoragePhysicalMemberReceiver, SourceStorageScope } from "./scoped-model.js";
+import type { SourceStorageProjectionReceiver, SourceStorageScope } from "./scoped-model.js";
 
 export interface SourceStoragePublication {
   readonly subject: SourceStorageSubject;
@@ -12,14 +12,15 @@ export interface SourceStoragePublication {
   readonly kind: "external-write" | "opaque-write" | "unclassified-exposure";
   readonly externalEntry: boolean;
   readonly inputOwner?: SourceStorageSubject;
-  readonly receiver: SourceStoragePhysicalMemberReceiver | undefined;
+  readonly receiver: SourceStorageProjectionReceiver | undefined;
   readonly bindings: SourceStorageScope;
 }
 
 export function createSourceStorageDomainPublications(budget: SourceStorageBudget, emptyBindings: SourceStorageScope) {
   const pending: SourceStoragePublication[] = [];
   const admitted = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, Map<Node, number>>>>();
-  const scopedAdmissions = new Map<SourceStorageSubject, Map<SourceStorageScope, Map<Type | undefined, typeof admitted>>>();
+  type ViewAdmissions = Map<SourceStorageSubject | undefined, Map<Type | undefined, typeof admitted>>;
+  const scopedAdmissions = new Map<SourceStorageSubject, Map<SourceStorageScope, ViewAdmissions>>();
   const callables = new Map<Node, Set<Node>>();
   const rows = budget.createRows();
   let closed = false;
@@ -36,14 +37,15 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
     },
     add(subject: SourceStorageSubject, type: Type, sourceFile: SourceFile, exposure: Node, writes: boolean,
       kind: SourceStoragePublication["kind"], externalEntry: boolean, inputOwner: SourceStorageSubject | undefined,
-      receiver: SourceStoragePhysicalMemberReceiver | undefined,
+      receiver: SourceStorageProjectionReceiver | undefined,
       bindings: SourceStorageScope): void {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return; }
       if (!budget.step()) return;
       const scoped = receiver !== undefined || bindings !== emptyBindings;
       const contextSubject = receiver?.subject ?? subject;
       const contexts = scoped ? scopedAdmissions.get(contextSubject) : undefined;
-      const contracts = contexts?.get(bindings);
+      const views = contexts?.get(bindings);
+      const contracts = views?.get(receiver?.view);
       const existingAdmissions = scoped ? contracts?.get(receiver?.type) : admitted;
       const types = existingAdmissions?.get(subject);
       const owners = types?.get(type);
@@ -56,7 +58,8 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
         ...(inputOwner === undefined ? {} : { inputOwner }), receiver, bindings });
       if (!rows.add(2 + (types === undefined ? 1 : 0) +
         (owners === undefined ? 1 : 0) + (exposures === undefined ? 1 : 0) + (previous === undefined ? 1 : 0) +
-        (scoped ? (contexts === undefined ? 1 : 0) + (contracts === undefined ? 1 : 0) + (existingAdmissions === undefined ? 1 : 0) +
+        (scoped ? (contexts === undefined ? 1 : 0) + (views === undefined ? 1 : 0) +
+          (contracts === undefined ? 1 : 0) + (existingAdmissions === undefined ? 1 : 0) +
           (receiver === undefined ? 0 : 1) : 0))) return;
       const selectedTypes = types ?? new Map<Type, Map<SourceStorageSubject | undefined, Map<Node, number>>>();
       const selectedOwners = owners ?? new Map<SourceStorageSubject | undefined, Map<Node, number>>();
@@ -67,10 +70,12 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
       const retainedAdmissions: typeof admitted = existingAdmissions ?? new Map();
       retainedAdmissions.set(subject, selectedTypes);
       if (scoped) {
-        const retainedContexts = contexts ?? new Map<SourceStorageScope, Map<Type | undefined, typeof admitted>>();
+        const retainedContexts = contexts ?? new Map<SourceStorageScope, ViewAdmissions>();
+        const retainedViews = views ?? new Map<SourceStorageSubject | undefined, Map<Type | undefined, typeof admitted>>();
         const retainedContracts = contracts ?? new Map<Type | undefined, typeof admitted>();
         retainedContracts.set(receiver?.type, retainedAdmissions);
-        retainedContexts.set(bindings, retainedContracts);
+        retainedViews.set(receiver?.view, retainedContracts);
+        retainedContexts.set(bindings, retainedViews);
         scopedAdmissions.set(contextSubject, retainedContexts);
       }
       pending.push(publication);

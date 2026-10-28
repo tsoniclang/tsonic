@@ -113,10 +113,10 @@ test("publication handoffs retain physical receivers and their exact creation bi
   const file = {};
   const exposure = {};
   const receivers = [
-    { subject: first, bindings: firstBindings, type },
-    { subject: second, bindings: firstBindings, type },
-    { subject: first, bindings: secondBindings, type },
-    { subject: first, bindings: firstBindings, type: {} },
+    { subject: first, view: first, component: { kind: "member", declaration: member.node }, bindings: firstBindings, type },
+    { subject: second, view: second, component: { kind: "member", declaration: member.node }, bindings: firstBindings, type },
+    { subject: first, view: first, component: { kind: "member", declaration: member.node }, bindings: secondBindings, type },
+    { subject: first, view: first, component: { kind: "member", declaration: member.node }, bindings: firstBindings, type: {} },
   ];
   for (const receiver of receivers) {
     publications.add(member, type, file, exposure, true, "opaque-write", false,
