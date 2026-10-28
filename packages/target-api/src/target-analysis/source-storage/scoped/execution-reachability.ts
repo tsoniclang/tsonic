@@ -243,7 +243,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
       } else if (result.kind === "effect" && result.store.region === demand) {
         if (retainProducers) terms.push(result);
         if (reasons.effect !== undefined) terms.push(Object.freeze({ kind: "unresolved", subject: result.store.storage,
-          scope: result.scope, exposure, reason: reasons.effect }));
+          scope: result.scope, exposure, reason: reasons.effect, effectOnly: true }));
       }
     }
     return budget.failure() === undefined ? Object.freeze(terms) : undefined;

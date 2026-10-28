@@ -482,6 +482,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     const emptyDemands: SourceStorageTerm[] = [];
+    const effectFrontiers: Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[] = [];
     let reason: string | undefined;
     let fatalReason: string | undefined;
     let absence = false;
@@ -587,8 +588,15 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (entry.collect && current.kind === "empty" && current.absence !== undefined &&
         admitted(current.absence.subject, entry.guards)) absence = true;
       if (current.kind === "unresolved" && current.executionOnly !== true) {
-        reason ??= current.reason;
-        if (current.exposure === undefined) fatalReason ??= current.reason;
+        if (current.effectOnly === true && current.exposure !== undefined) {
+          if (entry.collect) {
+            if (!temporary.add(1)) return undefined;
+            effectFrontiers.push(current);
+          }
+        } else {
+          reason ??= current.reason;
+          if (current.exposure === undefined) fatalReason ??= current.reason;
+        }
       }
       const filter = preserveValuePath ? data.filter : undefined;
       if (filter !== undefined) {
@@ -610,11 +618,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         observesValue: (mode & 128) !== 0, original: (mode & 16) !== 0 }));
     }
     return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, absence,
+      effectFrontiers: Object.freeze(effectFrontiers),
       emptyDemands: Object.freeze(emptyDemands) });
   })));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined => {
     const selected = walk(origin, scope);
-    return selected?.reason === undefined && selected?.fatalReason === undefined && selected?.emptyDemands.length === 0
+    return selected?.reason === undefined && selected?.fatalReason === undefined && selected?.emptyDemands.length === 0 &&
+      selected.effectFrontiers.length === 0
       ? selected.subjects : undefined;
   };
   const frontier = (origin: SourceStorageSubject, scope: SourceStorageScope,
@@ -631,9 +641,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       stopped.set(current.bindings, subjects);
       return true;
     }, true);
-    if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0)
+    if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0 ||
+      selected.effectFrontiers.length !== 0)
       return selected === undefined ? undefined
-        : { reason: selected.fatalReason ?? selected.reason ?? sourceStorageMissingProducerReason, subjects: [] };
+        : { reason: selected.fatalReason ?? selected.reason ?? selected.effectFrontiers[0]?.reason ?? sourceStorageMissingProducerReason, subjects: [] };
     const subjects: (SourceStorageScopedSubject & { readonly kind: "boundary" | "origin" })[] = [];
     for (const current of selected.subjects) {
       if (!budget.step()) return undefined;

@@ -301,7 +301,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const exposure = selected.exposure === undefined ? null : scopes.identity(selected.exposure);
         if (exposure === undefined) return undefined;
         return [selected.kind, scopes.identity(selected.subject), birth, context, selected.reason,
-          selected.executionOnly === true ? 1 : 0, ...(exposure === null ? [] : [exposure])];
+          selected.executionOnly === true ? 1 : 0, selected.effectOnly === true ? 1 : 0,
+          ...(exposure === null ? [] : [exposure])];
       }
       return [selected.kind, scopes.identity(selected.subject), birth, context];
     };

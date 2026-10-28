@@ -194,6 +194,7 @@ export function createSourceStorageDomains(
       for (const selectedOwner of origins) {
         if (!budget.step()) return;
         const owner = selectedOwner.subject;
+        if (witnesses.forSubject(owner).some(boundary => boundary.kind === "opaque-result")) continue;
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageSubjectType(source, owner, file);
         if (type === undefined || file === undefined) continue;
@@ -510,6 +511,11 @@ export function createSourceStorageDomains(
       if (rows.add(1)) boundaries.push(Object.freeze({ kind: boundary.kind, subject: boundary.subject, exposure: boundary.exposure,
         ...(boundary.owner === undefined ? {} : { owner: boundary.owner }), bindings: context }));
     };
+    for (const frontier of selected.effectFrontiers) {
+      if (!budget.step()) break;
+      if (frontier.exposure !== undefined)
+        retainBoundary({ kind: "opaque-write", subject: frontier.subject, exposure: frontier.exposure }, frontier.scope);
+    }
     let reason: string | undefined;
     for (const demand of selected.emptyDemands) {
       if (!budget.step()) break;

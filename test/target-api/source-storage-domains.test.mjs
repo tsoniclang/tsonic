@@ -490,6 +490,27 @@ for (const marker of ["mutableborrow", "readwriteref"]) {
   });
 }
 
+test("an exported opaque constructor result does not require a concrete allocation for unrelated storage", async () => {
+  const current = await fixture("storage-domain-opaque-constructor-publication", `
+    declare class Native { readonly token: object; }
+    export function construct(factory: new () => Native): Native { return new factory(); }
+    const original = {};
+    const selected = original;
+  `);
+  const selected = complete(current.selection("selected"), "an unknown exported constructor does not poison an independent allocation");
+  assert.equal(selected.length === 1 && selected[0].subject.node === current.initializer("original"), true,
+    "the exact private producer is retained");
+  const construct = namedDeclaration(current.source.ast, current.file, "construct");
+  const returned = current.storage.subject(construct, "return");
+  assert.equal(returned.kind === "resolved", true, "the original opaque return has an exact checked subject");
+  const external = current.storage.closedOriginsFor(returned.subject);
+  assert.equal(external.kind === "open" && external.boundaries.some(boundary =>
+    boundary.kind === "external-input" || boundary.kind === "opaque-result"), true,
+  `outside constructor storage stays open rather than inventing a native allocation: ${external.reason ?? external.kind}`);
+  complete(current.selection("selected"), "opaque return query order preserves the private producer");
+  assert.equal(current.storage.failureReason() === undefined, true, "the exact native opacity uses unchanged finite guards");
+});
+
 test("checked construction result closure is separate from fresh allocation, opaque calls and constructor dispatch", async () => {
   const current = await fixture("storage-domain-native-construction", `
     declare class Native { constructor(); readonly token: {}; }
