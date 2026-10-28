@@ -542,7 +542,7 @@ test("an inherited bodyless native constructor does not become a source implemen
   const current = await fixture("storage-domain-inherited-native-constructor", `
     interface Input<Value> { readonly value: Value; readonly next: Input<Input<Value>>; }
     declare class Native { constructor(input: Input<object>); }
-    class Derived extends Native {}
+    export class Derived extends Native {}
     declare const outside: Input<object>;
     export const api = new Derived(outside);
     const original = {};
