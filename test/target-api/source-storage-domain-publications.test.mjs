@@ -8,7 +8,7 @@ const emptyBindings = Object.freeze({});
 
 test("publication admission preserves all exact demand flags and their first ordered evidence", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
+  const publications = createSourceStorageDomainPublications(budget, emptyBindings);
   const selected = subject();
   const type = {};
   const sourceFile = {};
@@ -16,9 +16,9 @@ test("publication admission preserves all exact demand flags and their first ord
   const expected = [];
   for (const kind of ["external-write", "opaque-write", "unclassified-exposure"]) {
     for (const externalEntry of [false, true]) for (const writes of [false, true]) {
-      publications.add(selected, type, sourceFile, exposure, writes, kind, externalEntry, undefined, undefined, undefined, emptyBindings);
+      publications.add(selected, type, sourceFile, exposure, writes, kind, externalEntry, undefined, undefined, emptyBindings);
       expected.push({ exposure, writes, kind, externalEntry });
-      publications.add(selected, type, {}, exposure, writes, kind, externalEntry, undefined, undefined, undefined, emptyBindings);
+      publications.add(selected, type, {}, exposure, writes, kind, externalEntry, undefined, undefined, emptyBindings);
     }
   }
   assert.equal(publications.size(), 12, "all independent kind/entry/write combinations, with no duplicate record");
@@ -31,7 +31,7 @@ test("publication admission preserves all exact demand flags and their first ord
     assert.equal(Object.isFrozen(actual) && !Object.hasOwn(actual, "inputOwner"), true);
   }
   const otherExposure = {};
-  publications.add(selected, type, sourceFile, otherExposure, true, "external-write", false, undefined, undefined, undefined, emptyBindings);
+  publications.add(selected, type, sourceFile, otherExposure, true, "external-write", false, undefined, undefined, emptyBindings);
   assert.equal(publications.size() === 13 && publications.at(12).exposure === otherExposure, true,
     "a distinct exposure retains its own exact publication rather than becoming a duplicate");
   assert.equal(budget.failure() === undefined, true);
@@ -39,7 +39,7 @@ test("publication admission preserves all exact demand flags and their first ord
 
 test("publication keys keep subjects, native type identities and every exact input owner independent", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
+  const publications = createSourceStorageDomainPublications(budget, emptyBindings);
   const selected = subject();
   const returned = subject(selected.node, "return");
   const projected = subject(selected.node, "value", [{ kind: "array-element" }]);
@@ -50,7 +50,7 @@ test("publication keys keep subjects, native type identities and every exact inp
   const keys = [[selected, type, undefined], [returned, type, undefined], [projected, type, undefined],
     [selected, otherType, undefined], [selected, type, owner], [selected, type, projectedOwner]];
   for (const [current, currentType, inputOwner] of keys)
-    publications.add(current, currentType, {}, {}, true, "external-write", false, inputOwner, undefined, undefined, emptyBindings);
+    publications.add(current, currentType, {}, {}, true, "external-write", false, inputOwner, undefined, emptyBindings);
   assert.equal(publications.size(), keys.length);
   for (let index = 0; index < keys.length; index += 1) {
     const actual = publications.at(index);
@@ -62,10 +62,10 @@ test("publication keys keep subjects, native type identities and every exact inp
 
 test("repeat publication admission remains bounded without allocating another queued or indexed cell", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 6, maximumSteps: 128 });
-  const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
+  const publications = createSourceStorageDomainPublications(budget, emptyBindings);
   const selected = subject();
   const type = {};
-  const args = [selected, type, {}, {}, true, "external-write", false, undefined, undefined, undefined, emptyBindings];
+  const args = [selected, type, {}, {}, true, "external-write", false, undefined, undefined, emptyBindings];
   for (let index = 0; index < 128; index += 1) publications.add(...args);
   const original = publications.at(0);
   assert.equal(publications.size() === 1 && budget.failure() === undefined, true);
@@ -80,16 +80,16 @@ test("repeat publication admission remains bounded without allocating another qu
 test("publication admission is atomic, and completion releases only its own construction rows", () => {
   for (const maximumTransportRows of [1, 2, 3, 4, 5]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows });
-    const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
-    publications.add(subject(), {}, {}, {}, true, "external-write", false, undefined, undefined, undefined, emptyBindings);
+    const publications = createSourceStorageDomainPublications(budget, emptyBindings);
+    publications.add(subject(), {}, {}, {}, true, "external-write", false, undefined, undefined, emptyBindings);
     assert.equal(publications.size() === 0 && budget.failure() !== undefined, true, "no incomplete admission");
     publications.finish();
     assert.equal(budget.failure() !== undefined, true, "release retains the shared failure");
   }
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 8 });
   assert.equal(budget.row(), true, "independent retained evidence");
-  const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
-  const args = [subject(), {}, {}, {}, true, "external-write", false, undefined, undefined, undefined, emptyBindings];
+  const publications = createSourceStorageDomainPublications(budget, emptyBindings);
+  const args = [subject(), {}, {}, {}, true, "external-write", false, undefined, undefined, emptyBindings];
   publications.add(...args);
   publications.finish();
   publications.finish();
@@ -103,7 +103,7 @@ test("publication admission is atomic, and completion releases only its own cons
 
 test("publication handoffs retain physical receivers and their exact creation bindings independently", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const publications = createSourceStorageDomainPublications(budget, () => false, emptyBindings);
+  const publications = createSourceStorageDomainPublications(budget, emptyBindings);
   const member = subject();
   const first = subject();
   const second = subject();
@@ -116,12 +116,13 @@ test("publication handoffs retain physical receivers and their exact creation bi
     { subject: first, bindings: firstBindings, type },
     { subject: second, bindings: firstBindings, type },
     { subject: first, bindings: secondBindings, type },
+    { subject: first, bindings: firstBindings, type: {} },
   ];
   for (const receiver of receivers) {
     publications.add(member, type, file, exposure, true, "opaque-write", false,
-      undefined, undefined, receiver, receiver.bindings);
+      undefined, receiver, receiver.bindings);
     publications.add(member, type, file, exposure, true, "opaque-write", false,
-      undefined, undefined, receiver, receiver.bindings);
+      undefined, receiver, receiver.bindings);
   }
   assert.equal(publications.size(), receivers.length, "only exact receiver/creation duplicates share admission");
   for (const [index, receiver] of receivers.entries()) {

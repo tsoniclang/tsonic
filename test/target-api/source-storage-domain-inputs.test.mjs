@@ -197,7 +197,7 @@ test("input-owner admission and sealed mutation reject atomically under the exis
 test("callable publication admission retains every distinct declaration and exposure with one scoped owner", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 6 });
   assert.equal(budget.row(), true);
-  const publications = createSourceStorageDomainPublications(budget, () => false, Object.freeze({}));
+  const publications = createSourceStorageDomainPublications(budget, Object.freeze({}));
   const first = {};
   const second = {};
   const exposure = {};
@@ -217,7 +217,7 @@ test("callable publication admission retains every distinct declaration and expo
 test("callable publication admission preserves finite storage and charged repeat-work rejection", () => {
   for (const limits of [{ maximumTransportRows: 1 }, { maximumSteps: 1 }]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const publications = createSourceStorageDomainPublications(budget, () => false, Object.freeze({}));
+    const publications = createSourceStorageDomainPublications(budget, Object.freeze({}));
     const owner = {};
     const exposure = {};
     const first = publications.callable(owner, exposure);
