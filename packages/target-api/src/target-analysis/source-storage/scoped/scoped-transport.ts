@@ -15,7 +15,7 @@ import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import { sourceStorageFormalOwner } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageScopedTransport {
@@ -62,11 +62,12 @@ export interface SourceStorageScopedTransport {
 
 export function sourceStorageTransparentInput(subject: SourceStorageSubject, ast: AstReader,
   transport: Pick<SourceStorageScopedTransport, "incomingFor">): SourceStorageSubject | undefined {
-  if (subject.kind !== "value" || subject.projection.length !== 0) return undefined;
+  if (subject.kind !== "value" || subject.projection.some(sourceStorageIsMemberProjection)) return undefined;
   const parents = transport.incomingFor(subject);
   const input = parents.size === 1 ? parents.values().next().value : undefined;
-  if (input?.kind === "input" && input.node === subject.node) return input;
-  return ast.is.IsVariableDeclaration(subject.node) && ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
+  if (input?.kind === "input" && input.node === subject.node && input.projectionKey === subject.projectionKey) return input;
+  return subject.projection.length === 0 && ast.is.IsVariableDeclaration(subject.node) &&
+    ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
 }
 
 export function createSourceStorageBindingInputs(ast: AstReader,
@@ -76,7 +77,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
   const retained = budget.createRows();
   return subject => {
     if (!budget.step()) return undefined;
-    if (subject.projection.length !== 0) return undefined;
+    if (subject.projection.some(sourceStorageIsMemberProjection)) return undefined;
     const transparent = sourceStorageTransparentInput(subject, ast, transport);
     if (transparent !== undefined) return transparent;
     if (subject.kind !== "value" || !ast.is.IsIdentifier(subject.node) && ast.kindName(subject.node) !== "KindThisKeyword")
@@ -89,7 +90,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
       const visited = new Set<SourceStorageSubject>();
       while (current.kind === "value") {
         if (!budget.step()) return undefined;
-        if (current.projection.length !== 0) return undefined;
+        if (current.projection.some(sourceStorageIsMemberProjection)) return undefined;
         if (visited.has(current)) {
           budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
         }
