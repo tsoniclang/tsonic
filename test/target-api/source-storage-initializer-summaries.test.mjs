@@ -65,3 +65,19 @@ test("initializer summaries retain parameter aliases and independent captured st
       `${name}: actual source input and alias identity`);
   }
 });
+
+for (const deferred of [false, true])
+  test(`initializer summaries bind the actual this input${deferred ? " inside a retained closure" : ""}`, () => {
+    const current = fixture(`class Holder { token = ${deferred ? "() => this" : "this"}; }
+      export const published = new Holder();
+      const privateHolder = new Holder();
+      const publicValue = published.token${deferred ? "()" : ""};
+      const privateValue = privateHolder.token${deferred ? "()" : ""};`);
+    const hidden = current.select("privateValue");
+    const original = current.source.ast.as.AsVariableDeclaration(namedVariable(current.source.ast, current.file, "privateHolder")).Initializer;
+    assert.equal(hidden.kind, "complete", "a private creation keeps its exact receiver input");
+    assert.equal(hidden.origins.length === 1 && hidden.origins[0].subject.node === original, true,
+      "the template receiver is instantiated, never reused as the first physical receiver");
+    assert.equal(current.select("publicValue").kind, "open", "the published instance retains its actual outside boundary");
+    assert.equal(current.storage.failureReason(), undefined, "no parameterized receiver or closure consumes an invented context");
+  });
