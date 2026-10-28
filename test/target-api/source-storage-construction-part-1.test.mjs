@@ -1,12 +1,73 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { analyzeSourceConstructorResults, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { fixture, constructorResultFixture } from './source-storage-construction-fixtures.mjs';
+import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
+
+test("native class construction retains only the checked provider-owned constructor identity", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src", compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: {
+      "/src/native.d.ts": "export declare class Native { constructor(value: object); } export declare class Foreign { constructor(value: object); } export declare function choose(): typeof Native;",
+      "/src/index.ts": `import { Native, Foreign, choose } from "./native.js";
+        class Local { constructor(value: object) {} }
+        const value = {};
+        const native = new Native(value);
+        const foreign = new Foreign(value);
+        const local = new Local(value);
+        const factory = new (choose())(value);`,
+    },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const declarations = checked.getSourceFile("/src/native.d.ts");
+  assert.equal(file !== undefined && declarations !== undefined, true, "both actual checked files exist");
+  const native = namedDeclaration(source.ast, declarations, "Native");
+  const foreign = namedDeclaration(source.ast, declarations, "Foreign");
+  const local = namedDeclaration(source.ast, file, "Local");
+  const constructor = source.ast.members(native).find(member => member !== undefined && source.ast.is.IsConstructorDeclaration(member));
+  assert.equal(constructor !== undefined && !source.navigation.isProjectDeclaration(native), true,
+    "the actual native class and its declared constructor are nonproject checked evidence");
+  const requests = [];
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget, {
+    nativeConstructorsFor(declaration) {
+      requests.push(declaration);
+      return declaration === native ? [constructor] : undefined;
+    },
+  });
+  const target = name => {
+    const initializer = Node_Initializer(source.ast, namedVariable(source.ast, file, name));
+    const construction = source.ast.as.AsNewExpression(initializer);
+    assert.equal(construction !== undefined, true, `${name}: the original construction is retained`);
+    return transport.subjectFor(construction.Expression);
+  };
+  const nativeSubject = target("native");
+  const constructors = nativeSubject === undefined ? undefined : transport.nativeConstructorsFor(nativeSubject);
+  assert.equal(constructors?.length === 1 && constructors[0] === constructor && Object.isFrozen(constructors), true,
+    "the exact provider-selected native constructor is retained without a substitute allocation");
+  const lineages = sourceStorageClassLineages(source, budget,
+    new Set([{ subject: nativeSubject, bindings: transport.substitutions.empty }]), {
+      subjectFor: transport.subjectFor, nativeConstructorsFor: transport.nativeConstructorsFor, valuesFor: () => undefined,
+    }, "heritage");
+  assert.equal(lineages?.length === 1 && lineages[0].complete && lineages[0].nativeBase?.constructors[0] === constructor, true,
+    "the canonical lineage carries the same native base identity");
+  for (const name of ["foreign", "factory"]) {
+    const selected = target(name);
+    assert.equal(selected !== undefined && transport.nativeConstructorsFor(selected) === undefined, true,
+      `${name}: an unproved class or factory cannot manufacture native evidence`);
+  }
+  assert.equal(requests.includes(native) && requests.includes(foreign) && !requests.includes(local), true,
+    "the native owner decides nonproject class evidence and never receives a project class as native");
+  assert.equal(budget.failure() === undefined, true, "ordinary finite resource guards remain unchanged");
+});
 
 test("construction storage follows exact immutable and parenthesized copies through its canonical finite domain", () => {
   const current = fixture();
