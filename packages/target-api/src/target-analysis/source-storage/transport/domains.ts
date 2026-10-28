@@ -1,5 +1,4 @@
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
@@ -144,6 +143,14 @@ export function createSourceStorageDomains(
         if (ast.is.IsClassDeclaration(node) || ast.is.IsFunctionDeclaration(node)) callable(node, node);
       }
       if (summary.hasUnclassifiedValueUse) publish(transport.subjectFor(node), node, true, "unclassified-exposure");
+    }
+    for (const node of transport.checkedDeclarations.keys()) {
+      if (!budget.step()) return;
+      if (!ast.is.IsPropertyDeclaration(node) || !ast.hasModifierKind(node, "static") ||
+        transport.declarationIsAmbient(node) !== true) continue;
+      const subject = transport.subject(node, "member");
+      add(subject, "external-input", node);
+      publish(subject, node, false, "external-write", undefined, undefined, true, subject);
     }
     for (const boundary of transport.boundaries) {
       if (!budget.step()) return;
@@ -433,19 +440,6 @@ export function createSourceStorageDomains(
       query = domainInputs.query((subject: SourceStorageSubject) => {
         const hasInputs = domainInputs.readPresence(subject);
         const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : current => {
-          if (current.subject.kind === "value" && current.subject.projection.length === 0 && ast.is.IsIdentifier(current.subject.node) &&
-            transport.guardedValues.appliesTo(current.subject.node) === true) {
-            const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
-            const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration)
-              ? transport.subject(declaration, "input") : undefined;
-            if (input !== undefined && !transport.substitutions.isBound(input, current.bindings)) {
-              domainInputs.read(input);
-              if (domainInputs.has(input)) {
-                const summary = navigation.declarationUseSummary(input.node);
-                if (!summary.bindingWritten && !sourceBindingHasMutableExposure(source, summary, budget.step)) return true;
-              }
-            }
-          }
           if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
           domainInputs.read(current.subject);
           return domainInputs.has(current.subject);

@@ -16,6 +16,7 @@ interface SourceStoragePointerQueries {
   readEffects(store: SourceStorageStore, selection: { readonly kind: "general" }, deferred: boolean,
     scope: SourceStorageScope): Iterable<SourceStorageTerm>;
   deferred(scope: SourceStorageScope): boolean;
+  isSymbolic(value: SourceStorageReference): boolean;
   creatorScope(node: SourceStorageReference["subject"]["node"], scope: SourceStorageScope): SourceStorageScope;
 }
 
@@ -34,8 +35,9 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
   const locations = createSourceStoragePointerLocations(source, budget, transport, queries);
   const operationFor = (selected: SourceStorageOperation): SourceStorageOperation => selected.mode === "execution"
     ? { mode: "execution", demand: selected.demand, deferred: selected.deferred } : { mode: selected.mode };
-  const unresolved = (original: SourceStorageReference, reason: string): SourceStorageTerm =>
-    Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope, reason });
+  const unresolved = (original: SourceStorageReference, reason: string, invocation: Node): SourceStorageTerm =>
+    Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope, reason,
+      ...(queries.isSymbolic(original) ? { exposure: invocation } : {}) });
   const accessor = (expression: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
     argument: SourceStorageTerm | undefined, operation: SourceStorageOperation,
     projection: readonly SourceStorageProjection[] = []): SourceStorageTerm | undefined => {
@@ -93,7 +95,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
         }
         const identities = locations.identities(entry.pointer);
         if (identities === undefined) {
-          result.push(unresolved(entry.pointer, "A native pointer write requires its exact scoped backing location."));
+          result.push(unresolved(entry.pointer, "A native pointer write requires its exact scoped backing location.", operation.call));
           continue;
         }
         const values = queries.read(entry.value);
@@ -173,7 +175,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
       return { kind: "replace", terms: [called, pointer(term.invocation, underlying, converted, term.scope, term)] };
     }
     return { kind: "replace", terms: [unresolved(original,
-      "A native pointer invocation requires its completed original scoped pointee transport.")] };
+      "A native pointer invocation requires its completed original scoped pointee transport.", term.invocation)] };
   };
   const reduce = (term: SourceStorageReference): SourceStorageReduction | undefined => {
     if (term.subject.kind !== "value") return undefined;

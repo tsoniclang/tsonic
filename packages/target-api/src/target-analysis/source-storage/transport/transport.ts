@@ -102,7 +102,7 @@ export function createSourceStorageTransport(
   const retainCheckedContext = (node: Node, sourceFile: SourceFile): boolean => {
     if (!semantics.includes(sourceFile)) return false;
     const file = ast.getSourceFile(node);
-    if (!sealed && file !== undefined && semantics.includes(file) && !retainAmbientContext(node)) return false;
+    if (!sealed && file !== undefined && !retainAmbientContext(node)) return false;
     if (file !== undefined && semantics.includes(file) || checkedSourceFiles.has(node)) return true;
     if (!budget.row()) return false;
     checkedSourceFiles.set(node, sourceFile);
@@ -366,13 +366,15 @@ export function createSourceStorageTransport(
     membersInLineage: memberFlow.membersInLineage, excludes: memberFlow.excludes, memberStorageKindFor: memberFlow.memberStorageKindFor,
     storesFor: storedValues.storesFor, constructionLineagesFor, contracts: memberImplementations, accessorTargets,
   });
-  const ownedImplementations = (nodes: ReadonlySet<Node>, exact: boolean, implicitSourceConstruction = false) => Object.freeze({
+  const ownedImplementations = (nodes: ReadonlySet<Node>, exact: boolean, implicitSourceConstruction = false,
+    sourceConstruction = false) => Object.freeze({
     nodes, exact, sourceOwned: exact && nodes.size !== 0 &&
       (implicitSourceConstruction || [...nodes].every(candidate => ast.body(candidate) !== undefined)),
+    sourceConstruction: exact && nodes.size !== 0 && sourceConstruction,
   });
   const collectInvocationImplementations = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects):
-      { readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean } => {
+      { readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly sourceConstruction: boolean } => {
     graphQueries.read({ node: invocation, kind: accessorTargets });
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
@@ -393,7 +395,8 @@ export function createSourceStorageTransport(
         }
       }
       return ownedImplementations(implementations, exact, lineages !== undefined && lineages.length !== 0 &&
-        lineages.every(lineage => lineage.complete && lineage.nativeBase === undefined));
+        lineages.every(lineage => lineage.complete && lineage.nativeBase === undefined),
+        lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete && lineage.classes.length !== 0));
     }
     const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
@@ -422,14 +425,14 @@ export function createSourceStorageTransport(
   };
   let invocationSelectionsSealed = false;
   const selectedInvocationImplementations: (key: SourceStorageInvocationSelectionKey) => ReadonlySet<{
-    readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly inputs: readonly SourceStorageInvocationInputSlots[];
+    readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly sourceConstruction: boolean; readonly inputs: readonly SourceStorageInvocationInputSlots[];
   }> | undefined = graphQueries.query((key: SourceStorageInvocationSelectionKey, retain): ReadonlySet<{
-    readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly inputs: readonly SourceStorageInvocationInputSlots[];
+    readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly sourceConstruction: boolean; readonly inputs: readonly SourceStorageInvocationInputSlots[];
   }> | undefined => {
     if (invocationSelectionsSealed) throw new Error("Source storage invocation inputs were not published before their consumers.");
     const entry = "kind" in key && (key.kind === "source-storage-callback-entry" || key.kind === "source-storage-accessor-entry") ? key : undefined;
     const invocation = "invocation" in key ? key.invocation : key;
-    let selected: { readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean };
+    let selected: { readonly nodes: ReadonlySet<Node>; readonly exact: boolean; readonly sourceOwned: boolean; readonly sourceConstruction: boolean };
     if (entry?.kind === "source-storage-callback-entry") {
       const nodes = new Set<Node>();
       const producers = originSubjects(entry.argument.actual);
@@ -809,7 +812,7 @@ export function createSourceStorageTransport(
     const reason = unresolvedInvocations.get(invocation);
     if (reason === undefined && pointerInvocations.has(invocation)) continue;
     const implementations = invocationImplementationSelection(invocation);
-    if (reason === undefined && implementations?.sourceOwned === true) continue;
+    if (reason === undefined && (implementations?.sourceOwned === true || implementations?.sourceConstruction === true)) continue;
     const selected = new Set<SourceStorageSubject>();
     const result = subject(invocation);
     if (result !== undefined) {
@@ -857,7 +860,7 @@ export function createSourceStorageTransport(
     invocationImplementationSelection, inputSlotsFor,
     callbackImplementationSelection: (entry: SourceStorageCallbackEntry) => selectedInvocationImplementations(entry)?.values().next().value,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
-    sourceFileFor, retainCheckedContext, invocationTargets,
+    sourceFileFor, retainCheckedContext, checkedDeclarations: checkedSourceFiles, invocationTargets,
     invocations, pointerInvocations, pointerAccessors, resumedImplementations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     callbackEntriesFor, callbackImplementationsFor, invocationInputs,
     accessorTargets, visitedNodes, hasNode: (node: Node): boolean => admittedAmbient.get(node)?.collected === true,

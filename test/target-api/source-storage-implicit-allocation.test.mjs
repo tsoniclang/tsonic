@@ -170,6 +170,8 @@ test("foreign and externally selected constructors do not acquire source allocat
   `, { "foreign.d.ts": `declare class Foreign extends Error {}` });
   open(current, "dynamic", "external-write");
   open(current, "foreign", "opaque-result");
+  assert.equal(current.storage.boundaries.some(boundary => boundary.invocation === current.initializer("foreign")), true,
+    "a foreign constructor does not acquire a source-construction exemption from its class syntax");
   const construct = namedDeclaration(current.source.ast, current.file, "construct");
   const returned = current.storage.subject(construct, "return");
   assert.equal(returned.kind === "resolved", true);

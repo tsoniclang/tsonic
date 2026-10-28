@@ -166,7 +166,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return select(value);
     } });
   const pointerValues = createSourceStoragePointerValues(source, budget, transport, {
-    readEffects, read: readRelation, deferred: scopes.isDeferred, creatorScope,
+    readEffects, read: readRelation, deferred: scopes.isDeferred, isSymbolic: scopes.isSymbolic, creatorScope,
   });
   const rejections = createSourceStorageScopedRejections(source, budget, transport, scopes, reachability, {
     application, read: readRelation,
