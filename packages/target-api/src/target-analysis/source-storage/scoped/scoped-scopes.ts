@@ -92,7 +92,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return true;
   }, includeFrames ? "scope-parameters" : "scope-variables");
-  const variableParameters = scopeParameters(false);
+  const variablesFor = scopeParameters(false);
   const frameParameters = scopeParameters(true);
   const views = new Map<SourceStorageScope, Map<string, SourceStorageScope>>();
   interface TraversalMemo {
@@ -112,7 +112,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (scope === empty || replacements.size === 0) return scope;
     const direct = replacements.get(scope);
     if (direct !== undefined || scope.kind === "variable") return direct ?? scope;
-    const parameters = [...replacements.keys()].some(input => input.kind !== "variable") ? frameParameters : variableParameters;
+    const parameters = [...replacements.keys()].some(input => input.kind !== "variable") ? frameParameters : variablesFor;
     const inputs = parameters(scope);
     if (inputs === undefined) return undefined;
     const selected = new Map<SourceStorageScopeParameter, SourceStorageScope>();
@@ -636,7 +636,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   });
-  return Object.freeze({ empty, identity, callbackKey, variable, applyScope, applyTerm, lookup, inputBase, frameFor, enterApplication, declarationFor,
+  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, inputBase, frameFor, enterApplication, declarationFor,
     executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];
