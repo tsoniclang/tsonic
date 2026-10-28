@@ -12,7 +12,6 @@ import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
 import { createSourceStorageDomainWitnesses, type SourceStorageDomainWitness } from "../graph/domain-witnesses.js";
-import { createSourceStorageDomainBoundarySelection } from "../graph/domain-boundary-selection.js";
 import { createSourceStorageDomainPublications, type SourceStoragePublication } from "../graph/domain-publications.js";
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
 import { sourceStorageClassLineages } from "../model/construction.js";
@@ -531,9 +530,14 @@ export function createSourceStorageDomains(
       absence: false,
       reason: budget.failure() ?? selected?.reason ?? "Source storage requires one completed scoped relation.",
     });
-    const boundarySelection = createSourceStorageDomainBoundarySelection(rows);
-    const boundaries = boundarySelection.values;
-    const retainBoundary = boundarySelection.retain;
+    const boundaries: SourceStorageDomainBoundary<SourceStorageScope>[] = [];
+    const retainBoundary = (boundary: SourceStorageDomainWitness, bindings: SourceStorageScope): void => {
+      const context = boundary.creationBindings ?? bindings;
+      if (boundaries.some(selected => selected.kind === boundary.kind && selected.subject === boundary.subject &&
+        selected.owner === boundary.owner && selected.exposure === boundary.exposure && selected.bindings === context)) return;
+      if (rows.add(1)) boundaries.push(Object.freeze({ kind: boundary.kind, subject: boundary.subject, exposure: boundary.exposure,
+        ...(boundary.owner === undefined ? {} : { owner: boundary.owner }), bindings: context }));
+    };
     for (const frontier of selected.effectFrontiers) {
       if (!budget.step()) break;
       if (frontier.exposure !== undefined)
@@ -592,33 +596,6 @@ export function createSourceStorageDomains(
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }
     }
-    const declarationInventory = subject.kind === "member" && subject.projection.length === 0 &&
-      bindings === transport.substitutions.empty;
-    const contextualBoundaries = new Map<SourceStorageSubject, readonly SourceStorageDomainWitness[]>();
-    const relevantBoundaries = (current: SourceStorageScopedSubject): readonly SourceStorageDomainWitness[] => {
-      if (!declarationInventory) return boundariesFor(current.subject, current.bindings);
-      let dependent = contextualBoundaries.get(current.subject);
-      if (dependent === undefined) {
-        const retained: SourceStorageDomainWitness[] = [];
-        if (!rows.add(1)) return retained;
-        for (const boundary of boundariesFor(current.subject)) {
-          if (!budget.step()) break;
-          const owner = boundary.owner;
-          const region = owner === undefined ? undefined : transport.regions.enclosing(owner.node);
-          if (boundary.kind === "external-write" && boundary.creationBindings !== undefined &&
-            owner?.kind === "value" && owner.projection.length === 0 && region !== undefined &&
-            ast.is.IsSourceFile(region) && transport.contextLocation(owner) === "allocation") {
-            retainBoundary(boundary, boundary.creationBindings);
-          } else {
-            if (!rows.add(1)) break;
-            retained.push(boundary);
-          }
-        }
-        dependent = retained;
-        contextualBoundaries.set(current.subject, dependent);
-      }
-      return dependent.filter(boundary => matchesCreation(boundary, current.bindings));
-    };
     const pending: (SourceStorageRelationWitness & { readonly original: boolean })[] = [...selected.subjects];
     const visited = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
@@ -632,7 +609,7 @@ export function createSourceStorageDomains(
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       reason = transport.directlyUnresolvedFor(current.subject) ?? transport.unresolvedStoredInputsFor(current.subject);
       if (reason !== undefined) break;
-      for (const boundary of relevantBoundaries(current)) {
+      for (const boundary of boundariesFor(current.subject, current.bindings)) {
         if (!budget.step()) break;
         if (separateExportedCreation(boundary, current.bindings)) continue;
         if (boundary.kind === "opaque-result" && !current.observesValue) continue;
