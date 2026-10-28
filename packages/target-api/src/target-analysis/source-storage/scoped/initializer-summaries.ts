@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageReference, type SourceStorageFrame, type SourceStorageScope,
-  type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
+  type SourceStorageTerm } from "../graph/scoped-model.js";
 import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { createSourceStorageScopedKeys } from "./scoped-keys.js";
@@ -13,23 +13,6 @@ interface SourceStorageInitializer {
   readonly ports: readonly SourceStorageSubject[];
   readonly captures: readonly { readonly subject: SourceStorageSubject; readonly owner: Node | undefined }[];
   readonly contexts: Map<string | undefined, SourceStorageFrame>;
-}
-
-export function reduceSourceStorageInitializer(term: Extract<SourceStorageTerm, { readonly kind: "instantiation" }>,
-  budget: SourceStorageBudget, scopes: SourceStorageScopes,
-  read: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined): SourceStorageReduction | undefined {
-  const values = read(term.value);
-  if (values === undefined) return undefined;
-  const substitutions = new Map([[term.parameter, term.scope]]);
-  const terms: SourceStorageTerm[] = [];
-  for (const value of values) {
-    if (!budget.step()) return undefined;
-    if (value.kind !== "leaf" && value.kind !== "input-frontier" && value.kind !== "empty" && value.kind !== "unresolved") continue;
-    const selected = value.kind === "unresolved" ? value : scopes.applyTerm(value, substitutions);
-    if (selected === undefined) return undefined;
-    terms.push(selected);
-  }
-  return { kind: "replace", terms };
 }
 
 export function createSourceStorageInitializerSummaries(source: TargetSourceProgram, budget: SourceStorageBudget,

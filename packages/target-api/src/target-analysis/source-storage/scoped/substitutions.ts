@@ -179,7 +179,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
     type Visits = Map<SourceStorageRelation, number | Map<string, number>>;
-    const visits = new Map<SourceStorageSubstitutionPath | undefined, Visits>();
+    const directVisits: Visits = new Map();
+    const visits = new Map<SourceStorageSubstitutionPath, Visits>();
     const paths = new Map<ReadonlyMap<SourceStorageScope, SourceStorageScope>,
       Map<SourceStorageSubstitutionPath | undefined, SourceStorageSubstitutionPath>>();
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly observesValue: boolean;
@@ -269,11 +270,12 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const entry = pending.pop()!; const relation = entry.relation;
       const current = mappedTerm(relation, entry.path);
       if (current === undefined) return undefined;
-      let visited = visits.get(entry.path);
-      if (visited === undefined) {
+      let visited = entry.path === undefined ? directVisits : visits.get(entry.path);
+      if (visited === undefined && entry.path !== undefined) {
         if (!temporary.add(1)) return undefined;
         visited = new Map(); visits.set(entry.path, visited);
       }
+      if (visited === undefined) return undefined;
       const flag = (entry.collect ? 2 : 1) | (entry.observesValue ? 4 : 0);
       const guardsKey = entry.guards?.key ?? "";
       const visitedGuards = visited.get(relation);

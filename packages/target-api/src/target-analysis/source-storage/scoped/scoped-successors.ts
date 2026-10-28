@@ -21,7 +21,6 @@ import { createSourceStorageMemberSuccessors } from "./scoped-member-successors.
 import { createSourceStoragePointerValues } from "./pointer-values.js";
 import { createSourceStorageScopedRejections } from "./rejections.js";
 import { createSourceStorageExecutionContext } from "./execution-context.js";
-import { reduceSourceStorageInitializer } from "./initializer-summaries.js";
 import { completeSourceStorageChildReduction, sourceStorageChildDependencies,
   type SourceStorageChildContext, type SourceStoragePendingReduction } from "./child-reduction.js";
 
@@ -101,7 +100,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const reduceStep = (term: SourceStorageTerm, correlated: boolean): SourceStoragePendingReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "input-frontier" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
-    if (term.kind === "instantiation") return reduceSourceStorageInitializer(term, budget, scopes, readRelation);
+    if (term.kind === "instantiation") return { kind: "project", inputs: [term.value], select: value => {
+      const instantiated = scopes.applyTerm(value, new Map([[term.parameter, term.scope]]));
+      return instantiated === undefined ? undefined : [instantiated];
+    } };
     if (term.kind === "input-projection") return symbolicProjection(term.subject, term.scope, term.value);
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf" && term.value.kind !== "input-frontier") {

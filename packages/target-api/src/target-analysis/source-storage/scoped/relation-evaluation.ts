@@ -299,18 +299,18 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
         if ((mode & 2) !== 0 && !emit(child, sourceStorageIsTerminalValue(child))) return false;
       }
       if (sourceStorageIsTerminalValue(current) || current.kind === "effect") return emit(relation, true);
-      if (current.kind === "instantiation" && data.instantiation === undefined) {
-        const input = intern(current.value);
-        if (input === undefined || !rows.add(2)) return false;
-        data.instantiation = { input, substitutions: new Map([[current.parameter, current.scope]]) };
-      }
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
         for (const term of selected.inputs) {
-          const input = retain(term, false);
+          const input = current.kind === "instantiation" ? intern(term) : retain(term, false);
           if (input === undefined) return false;
-          children.set(input, children.get(input)! | 4);
+          if (current.kind === "instantiation") {
+            if (data.instantiation === undefined) {
+              if (!rows.add(2)) return false;
+              data.instantiation = { input, substitutions: new Map([[current.parameter, current.scope]]) };
+            }
+          } else children.set(input, children.get(input)! | 4);
           if (selected.valueFilter !== undefined) {
             if (selected.inputs.length !== 1) { budget.reject("A guarded storage projection requires one exact original value."); return false; }
             if (data.filter === undefined && !rows.add(1)) return false;
