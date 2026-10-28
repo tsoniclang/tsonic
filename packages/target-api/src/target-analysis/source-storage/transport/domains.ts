@@ -279,6 +279,11 @@ export function createSourceStorageDomains(
   };
   const matchesCreation = (boundary: SourceStorageDomainWitness, bindings: SourceStorageScope,
     readActivation: () => ReturnType<typeof memberActivation>): boolean => {
+    if (boundary.kind === "external-input" && boundary.owner !== undefined) {
+      const owner = sourceStorageFormalOwner(boundary.owner, source);
+      if (owner !== undefined && readActivation()?.invocation !== undefined &&
+        transport.substitutions.ownerScope(bindings, owner) === undefined) return false;
+    }
     if (boundary.creationBindings === undefined) return true;
     const owner = boundary.owner ?? boundary.subject;
     if (boundary.subject.kind === "member" && owner.kind === "value" && owner.projection.length === 0 &&

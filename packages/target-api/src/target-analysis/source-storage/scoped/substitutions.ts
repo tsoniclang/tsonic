@@ -270,6 +270,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const entry = pending.pop()!; const relation = entry.relation;
       const current = mappedTerm(relation, entry.path);
       if (current === undefined) return undefined;
+      if (current.kind === "store") {
+        const values = results(relation);
+        if (values === undefined) return undefined;
+        if (values.size === 1 && [...values].every(value => value.kind === "empty" && value.absence === undefined)) continue;
+      }
       let visited = directVisits;
       if (entry.path !== undefined) {
         const mapped = visits.get(entry.path);
