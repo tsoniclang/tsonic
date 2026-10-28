@@ -791,7 +791,7 @@ export function createSourceStorageTransport(
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, locationFor, nativeConstructorsFor, bindingInputFor, declarationIsAmbient, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
+    subject, subjectFor, sourceFileFor, locationFor, nativeConstructorsFor, bindingInputFor, declarationIsAmbient, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, visitedNodes, pointerInvocations, pointerAccessors, resumedImplementations, thrownOrigins, unresolvedThrows,
     accessorTargets, invocationInputs, inputSlotsFor, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,

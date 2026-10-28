@@ -178,3 +178,36 @@ test("virtual variable aliases retain exact declaration symbols and checked memb
   assert.equal(result.kind !== "complete", true, "provider contracts do not imply authored physical producers");
   assert.equal(storage.failureReason() === undefined, true, "exact member contract does not poison unrelated source analysis");
 });
+
+for (const queryFirst of [false, true]) {
+  test(`native static member projections retain the checked consumer without admitting native syntax (${queryFirst})`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+      "/src/index.ts": 'import { Native } from "./native.js"; const alias = Native; const selected = alias.field;',
+      "/src/native.ts": "export declare class Native { static field: { token: object }; }",
+    }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+    assert.equal(checked.diagnostics.length === 0, true, "the real native declaration and member reference check");
+    const file = checked.getSourceFile("/src/index.ts");
+    assert.equal(file !== undefined, true, "the actual consumer is present");
+    const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([file]) });
+    const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+    const alias = storage.subjectFor(namedVariable(source.ast, file, "alias"));
+    const selected = storage.subjectFor(namedVariable(source.ast, file, "selected"));
+    assert.equal(alias.kind === "resolved" && selected.kind === "resolved", true, "authored references retain their subjects");
+    if (queryFirst) storage.storageProducersFor(selected.subject);
+    const origins = storage.originSubjectsFor(alias.subject);
+    assert.equal(origins.kind === "resolved" && origins.subjects.length === 1, true, "the alias retains its one actual native class");
+    const native = origins.subjects[0];
+    assert.equal(source.ast.is.IsClassDeclaration(native.node), true, "the retained receiver is the native class declaration");
+    const owner = source.ast.getSourceFile(native.node);
+    assert.equal(owner !== undefined && !source.semantics.includes(owner), true, "native ownership does not publish an authored file");
+    const type = storage.typeFor(native);
+    assert.equal(type.kind === "resolved" && type.sourceFile === file, true, "the exact checked consumer owns the type query");
+    assert.equal(type.type === source.semantics.forFile(file).declarations.declaredValueType(native.node), true,
+      "the type is the retained checked declaration type, not a replacement receiver type");
+    const producers = storage.storageProducersFor(selected.subject);
+    assert.equal(producers.kind !== "complete", true, "an ambient static field does not invent an authored producer");
+    assert.equal(storage.failureReason() === undefined, true, "member reduction preserves the known checked receiver context");
+    assert.equal(storage.subjectFor(native.node).kind === "unresolved", true, "the internal receiver does not bypass public syntax ownership");
+    assert.equal(storage.typeFor({ ...native }).kind === "unresolved", true, "matching shape does not forge an owned storage subject");
+  });
+}

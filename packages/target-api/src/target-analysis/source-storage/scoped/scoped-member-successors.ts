@@ -114,7 +114,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const writeComponent = store.storage.projection[store.storage.projection.length - 1];
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
-          const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver);
+          const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver, transport.sourceFileFor(receiver));
           if (receiver === undefined || receiverType === undefined) return undefined;
           if (sourceStorageIsMemberProjection(component)) {
             const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
@@ -123,7 +123,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
             if (members === undefined || !members.includes(component.declaration)) continue;
           }
           const selectedType = sourceStorageComponentType(receiverType, component, context, ast);
-          const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value);
+          const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value, transport.sourceFileFor(store.value));
           const absent = store.value === undefined ? sourceStorageStoredValue(ast, store, undefined, scope) : undefined;
           if (selectedType === undefined || valueType === undefined && absent === undefined || store.reason !== undefined) {
             terms.push(Object.freeze({ kind: "unresolved", subject, scope,
@@ -166,7 +166,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
       : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
     if (optional && term.receiver.kind === "leaf") {
-      const type = sourceStorageSubjectType(source, term.receiver.subject);
+      const type = sourceStorageSubjectType(source, term.receiver.subject, transport.sourceFileFor(term.receiver.subject));
       const types = semantics.forNode(term.receiver.subject.node).types;
       if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
         return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: term.receiver })] };
@@ -177,7 +177,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         ...(sourceStorageAccessDeclarations(source, access, "write") ?? []).map(target => ({ target, read: false })),
       ] : sourceStorageAccessDeclarations(source, access, "read")?.map(target => ({ target, read: true }));
     let declarations = selections?.map(selection => selection.target);
-    let receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
+    let receiverType = term.selection.kind === "projection"
+      ? sourceStorageSubjectType(source, term.selection.subject, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
     let receiverView = term.selection.kind === "projection" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
     const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
       ? undefined : sourceStorageDynamicMemberKey(source, access);

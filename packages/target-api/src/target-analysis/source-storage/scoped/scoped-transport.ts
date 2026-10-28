@@ -39,6 +39,7 @@ export interface SourceStorageScopedTransport {
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
   readonly guardedValues: ReturnType<typeof createSourceStorageGuardedValues>;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+  sourceFileFor(subject: SourceStorageSubject): SourceFile | undefined;
   locationFor(node: Node | undefined): SourceStorageSubject | undefined;
   nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
   bindingInputFor(subject: SourceStorageSubject): SourceStorageSubject | undefined;
