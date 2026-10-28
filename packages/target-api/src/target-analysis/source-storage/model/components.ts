@@ -2,7 +2,7 @@ import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
-import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable } from "../../../source-navigation/index.js";
+import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
 
 export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
@@ -149,6 +149,21 @@ export function* sourceStorageComponents(
     yield { kind: "array-element" };
 }
 
+export function sourceStorageArrayLiteralType(source: TargetSourceProgram, node: Node, step?: () => boolean): Type | undefined {
+  const semantics = source.semantics.forNode(node);
+  let selected = semantics.types.expressionType(node) ?? semantics.types.contextualType(node)?.selectedType;
+  let expression = node;
+  while (selected === undefined || !semantics.types.isTuple(selected)) {
+    if (step !== undefined && !step()) return undefined;
+    const parent = source.ast.parent(expression);
+    if (parent === undefined || sourceTransparentExpressionOperand(source.ast, parent) !== expression) break;
+    expression = parent;
+    const checked = source.semantics.forNode(expression).types.expressionType(expression);
+    if (checked !== undefined && semantics.types.isTuple(checked)) selected = checked;
+  }
+  return selected;
+}
+
 export function sourceStorageSubjectType(source: TargetSourceProgram, value: SourceStorageSubject, sourceFile?: SourceFile): Type | undefined {
   const file = sourceFile ?? source.ast.getSourceFile(value.node);
   if (file === undefined || !source.semantics.includes(file)) return undefined;
@@ -163,6 +178,8 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
       : undefined;
   } else if (value.kind === "receiver") {
     selected = sourceStorageReceiverType(source, value.node, semantics);
+  } else if (value.kind === "value" && source.ast.is.IsArrayLiteralExpression(value.node)) {
+    selected = sourceStorageArrayLiteralType(source, value.node);
   } else if (value.kind === "value" && source.ast.is.IsSpreadElement(value.node)) {
     const operand = Node_Expression(source.ast, value.node);
     selected = operand === undefined ? undefined : semantics.types.expressionType(operand);
