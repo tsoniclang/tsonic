@@ -17,7 +17,7 @@ import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js
 import { createSourceStorageActivationKeys } from "./activation-keys.js";
 import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
-import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference, SourceStorageInputFrontier, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference, SourceStorageInputFrontier, SourceStorageReduction, SourceStorageScope, SourceStorageScopeParameter, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
   let active: Memo | undefined;
@@ -62,9 +62,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     variables.set(key, selected);
     return selected;
   };
-  const variablesFor: (scope: SourceStorageScope) => ReadonlySet<SourceStorageVariable> | undefined =
-    graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit, forward) => {
+  const scopeParameters = (includeFrames: boolean) =>
+    graphQueries.fixedPoint<SourceStorageScope, SourceStorageScopeParameter>((scope, read, emit, forward) => {
     if (scope.kind === "variable") return emit(scope);
+    if (includeFrames && !emit(scope)) return false;
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
         ...[...scope.entries.values()].flatMap(entry => entry.values.flatMap(value =>
@@ -90,7 +91,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       }
     }
     return true;
-  }, "scope-variables");
+  }, includeFrames ? "scope-parameters" : "scope-variables");
+  const variableParameters = scopeParameters(false);
+  const frameParameters = scopeParameters(true);
   const views = new Map<SourceStorageScope, Map<string, SourceStorageScope>>();
   interface TraversalMemo {
     readonly add: (cost: number) => boolean;
@@ -101,16 +104,18 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const withTraversal = scopedMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
   const withQueryMemo = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
     lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageScopeBinding | null>>() }));
-  const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
+  const substitutionKey = (substitutions: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>): string =>
     [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
       .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
-  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => withQueryMemo(memo => {
+  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>): SourceStorageScope | undefined => withQueryMemo(memo => {
     if (!budget.step()) return undefined;
     if (scope === empty || replacements.size === 0) return scope;
-    if (scope.kind === "variable") return replacements.get(scope) ?? scope;
-    const inputs = variablesFor(scope);
+    const direct = replacements.get(scope);
+    if (direct !== undefined || scope.kind === "variable") return direct ?? scope;
+    const parameters = [...replacements.keys()].some(input => input.kind !== "variable") ? frameParameters : variableParameters;
+    const inputs = parameters(scope);
     if (inputs === undefined) return undefined;
-    const selected = new Map<SourceStorageVariable, SourceStorageScope>();
+    const selected = new Map<SourceStorageScopeParameter, SourceStorageScope>();
     const candidates = replacements.size < inputs.size ? replacements.keys() : inputs;
     for (const input of candidates) {
       if (!budget.step()) return undefined;
@@ -131,13 +136,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       return result;
     };
     const base = scope.kind === "substitution" ? scope.scope : scope;
-    const substitutions = new Map<SourceStorageVariable, SourceStorageScope>();
+    const substitutions = new Map<SourceStorageScopeParameter, SourceStorageScope>();
     if (scope.kind === "substitution") for (const [input, replacement] of scope.substitutions) {
       const applied = applyScope(replacement, selected);
       if (applied === undefined) return undefined;
       substitutions.set(input, applied);
     }
-    const originals = variablesFor(base);
+    const originals = parameters(base);
     if (originals === undefined) return undefined;
     for (const [input, replacement] of selected) {
       if (!budget.step()) return undefined;
@@ -154,7 +159,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     views.set(base, selections);
     return remember(result);
   });
-  const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
+  const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
     if (replacements.size === 0) return term;
     if (term.kind === "execution-root") return term;
@@ -172,7 +177,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const condition = applyTerm(term.condition, replacements);
       if (condition === undefined) return undefined;
       return budget.withRows(temporary => {
-        const free = new Map<SourceStorageVariable, SourceStorageScope>();
+        const free = new Map<SourceStorageScopeParameter, SourceStorageScope>();
         for (const [input, replacement] of replacements) {
           if (!budget.step()) return undefined;
           if (input === term.capture) continue;
@@ -194,6 +199,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     const scope = applyScope(term.scope, replacements);
     if (scope === undefined) return undefined;
+    if (term.kind === "instantiation") {
+      const value = applyTerm(term.value, replacements);
+      const parameter = applyScope(term.parameter, replacements);
+      if (value === undefined || value.kind !== "reference" && value.kind !== "leaf" || parameter === undefined) return undefined;
+      return value === term.value && parameter === term.parameter && scope === term.scope ? term
+        : Object.freeze({ ...term, value, parameter, scope });
+    }
     if (term.kind === "input-frontier") {
       const inputScope = applyScope(term.input.scope, replacements);
       return inputScope === undefined ? undefined : scope === term.scope && inputScope === term.input.scope ? term
@@ -624,7 +636,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   });
-  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, inputBase, frameFor, enterApplication, declarationFor,
+  return Object.freeze({ empty, identity, callbackKey, variable, applyScope, applyTerm, lookup, inputBase, frameFor, enterApplication, declarationFor,
     executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];

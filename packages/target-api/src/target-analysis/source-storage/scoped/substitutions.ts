@@ -22,6 +22,7 @@ import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
 import { sourceStorageWithProjectionView } from "./projection-views.js";
 import { createSourceStorageRelationEvaluation, sourceStorageIsTerminalValue, sourceStorageRelationData,
   type SourceStorageRelation, type SourceStorageInputWalkBoundary } from "./relation-evaluation.js";
+import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
 
 export const sourceStorageMissingProducerReason = "A demanded source storage relation has no completed correlated producer or absence proof.";
 
@@ -56,7 +57,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
   };
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
-  const evaluation = createSourceStorageRelationEvaluation(source, budget, transport, scopes, equations, reachability, keys, graphQueries);
+  const evaluation = createSourceStorageRelationEvaluation(source, budget, transport, scopes, equations, reachability, keys, graphQueries, creation);
   const { intern, results, witnessScope } = evaluation;
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
   const termValues = (term: SourceStorageTerm): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
@@ -170,16 +171,20 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const isolatedQueries = inputBoundary === undefined ? undefined : createSourceStorageGraphQueries(budget);
     isolatedQueries?.seal();
     const isolated = isolatedQueries === undefined ? undefined : createSourceStorageRelationEvaluation(
-      source, budget, transport, scopes, equations, reachability, keys, isolatedQueries, inputBoundary);
+      source, budget, transport, scopes, equations, reachability, keys, isolatedQueries, creation, inputBoundary);
     const { intern, derive, results, witnessScope } = isolated ?? evaluation;
     const stopAt = typeof boundary === "function" ? boundary : undefined;
     try {
     const root = intern(sourceStorageReference(origin, scope));
     if (root === undefined) return undefined;
     if (stopAt === undefined && results(root) === undefined) return undefined;
-    const visited = new Map<SourceStorageRelation, number | Map<string, number>>();
+    type Visits = Map<SourceStorageRelation, number | Map<string, number>>;
+    const visits = new Map<SourceStorageSubstitutionPath | undefined, Visits>();
+    const paths = new Map<ReadonlyMap<SourceStorageScope, SourceStorageScope>,
+      Map<SourceStorageSubstitutionPath | undefined, SourceStorageSubstitutionPath>>();
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly observesValue: boolean;
-      readonly guards?: SourceStorageValueGuards }[] = [{ relation: root, collect: true, observesValue: true }];
+      readonly guards?: SourceStorageValueGuards; readonly path?: SourceStorageSubstitutionPath }[] =
+      [{ relation: root, collect: true, observesValue: true }];
     type WitnessState = { mode: number; readonly views: Set<readonly SourceStorageProjectionView[]> };
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, WitnessState>>();
     const origins = new Set<SourceStorageSubject>();
@@ -201,8 +206,20 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       return budget.failure() === undefined;
     };
-    const collectWitnesses = (current: SourceStorageRelation, collect: boolean, observesValue: boolean,
-      guards: SourceStorageValueGuards | undefined): boolean | undefined => {
+    const mappedScope = (scope: SourceStorageScope, path: SourceStorageSubstitutionPath | undefined): SourceStorageScope | undefined => {
+      let selected: SourceStorageScope | undefined = scope;
+      for (let current = path; current !== undefined && selected !== undefined; current = current.parent)
+        selected = scopes.applyScope(selected, current.replacements);
+      return selected;
+    };
+    const mappedTerm = (term: SourceStorageTerm, path: SourceStorageSubstitutionPath | undefined): SourceStorageTerm | undefined => {
+      let selected: SourceStorageTerm | undefined = term;
+      for (let current = path; current !== undefined && selected !== undefined; current = current.parent)
+        selected = scopes.applyTerm(selected, current.replacements);
+      return selected;
+    };
+    const collectWitnesses = (current: SourceStorageRelation, term: SourceStorageTerm, collect: boolean, observesValue: boolean,
+      guards: SourceStorageValueGuards | undefined, path: SourceStorageSubstitutionPath | undefined): boolean | undefined => {
       let stopped = false;
       const retain = (scope: SourceStorageScope, input: SourceStorageSubject, mode: number,
         views?: readonly SourceStorageProjectionView[]): boolean => {
@@ -235,7 +252,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         retained.set(input, entry); subjects.set(scope, retained);
         return true;
       };
-      const term = current;
       if (term.kind === "reference" && !retain(witnessScope(term.subject, term.scope), term.subject, 2)) return undefined;
       if (term.kind === "leaf" && !retain(term.scope, term.subject, 2 | 16, term.views)) return undefined;
       if (term.kind === "input-frontier") {
@@ -243,13 +259,21 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (sourceStorageIsProjectedInput(term) && !retain(term.scope, term.subject, 2 | 16, term.views)) return undefined;
       }
       for (const [scope, inputs] of current[sourceStorageRelationData].witnesses ?? []) for (const [input, mode] of inputs) {
-        if (!retain(scope, input, mode)) return undefined;
+        const selected = mappedScope(scope, path);
+        if (selected === undefined || !retain(selected, input, mode)) return undefined;
       }
       return stopped;
     };
     while (pending.length !== 0) {
       if (!budget.step()) return undefined;
-      const entry = pending.pop()!; const relation = entry.relation; const current = relation;
+      const entry = pending.pop()!; const relation = entry.relation;
+      const current = mappedTerm(relation, entry.path);
+      if (current === undefined) return undefined;
+      let visited = visits.get(entry.path);
+      if (visited === undefined) {
+        if (!temporary.add(1)) return undefined;
+        visited = new Map(); visits.set(entry.path, visited);
+      }
       const flag = (entry.collect ? 2 : 1) | (entry.observesValue ? 4 : 0);
       const guardsKey = entry.guards?.key ?? "";
       const visitedGuards = visited.get(relation);
@@ -269,14 +293,14 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         retainedGuards.set(guardsKey, previous | flag);
         visited.set(relation, retainedGuards);
       }
-      const stopped = collectWitnesses(relation, entry.collect, entry.observesValue, entry.guards);
+      const stopped = collectWitnesses(relation, current, entry.collect, entry.observesValue, entry.guards, entry.path);
       if (stopped === undefined) return undefined;
       if (stopped) continue;
       const data = relation[sourceStorageRelationData];
       if (!data.complete) {
         if (!derive(relation, results, () => true, project)) return undefined;
         data.complete = true;
-        const completed = collectWitnesses(relation, entry.collect, entry.observesValue, entry.guards);
+        const completed = collectWitnesses(relation, current, entry.collect, entry.observesValue, entry.guards, entry.path);
         if (completed === undefined) return undefined;
         if (completed) continue;
       }
@@ -322,13 +346,26 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (filter !== undefined) {
         const guards = transport.guardedValues.conjoin(entry.guards, filter.reference);
         if (budget.failure() !== undefined) return undefined;
-        if (guards !== null) pending.push({ relation: filter.input, collect: entry.collect, observesValue: entry.observesValue, guards });
+        if (guards !== null) pending.push({ relation: filter.input, collect: entry.collect, observesValue: entry.observesValue, guards, path: entry.path });
+        continue;
+      }
+      if (data.instantiation !== undefined) {
+        const { substitutions, input } = data.instantiation;
+        const parents = paths.get(substitutions);
+        let path = parents?.get(entry.path);
+        if (path === undefined) {
+          if (!temporary.add(parents === undefined ? 3 : 2)) return undefined;
+          path = { replacements: substitutions, parent: entry.path };
+          const selected = parents ?? new Map<SourceStorageSubstitutionPath | undefined, SourceStorageSubstitutionPath>();
+          selected.set(entry.path, path); paths.set(substitutions, selected);
+        }
+        pending.push({ relation: input, collect: entry.collect, observesValue: entry.observesValue, guards: entry.guards, path });
         continue;
       }
       for (const [child, mode] of data) {
         if (!budget.step()) return undefined;
         if (child.kind !== "execution-root") pending.push({ relation: child, collect: entry.collect && (mode & 2) !== 0,
-          observesValue: entry.observesValue && (mode & 6) !== 0, guards: entry.guards });
+          observesValue: entry.observesValue && (mode & 6) !== 0, guards: entry.guards, path: entry.path });
       }
     }
     const selected: (SourceStorageRelationWitness & { readonly original: boolean })[] = [];

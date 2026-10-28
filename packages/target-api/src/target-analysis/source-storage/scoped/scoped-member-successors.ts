@@ -35,6 +35,7 @@ export interface SourceStorageMemberSuccessorContext {
   readonly reachability: ReturnType<typeof createSourceStorageExecutionReachability>;
   birth(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageActivation | undefined;
   readRelation(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
+  initialize(value: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined;
   pointerWrites(destination: SourceStorageReference, store: SourceStorageStore,
     projection: readonly SourceStorageProjection[], invocation: Node,
     scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
@@ -70,16 +71,17 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     return parent !== undefined && ast.is.IsObjectLiteralExpression(parent) ? transport.subject(parent) : undefined;
   };
   const initializationScope = (store: SourceStorageStore, receiver: SourceStorageSubject,
-    allocation: SourceStorageReference): SourceStorageScope | undefined => {
+    allocation: SourceStorageReference, bindings: SourceStorageScope): SourceStorageScope | undefined => {
     if (store.kind !== "initialization") return undefined;
     if (receiver === allocation.subject) return allocation.scope;
     const owner = sourceStorageRegionOwner(ast, store.region);
     if (owner === undefined) return undefined;
-    const scope = scopes.owningScope(allocation.scope, owner);
+    const scope = scopes.owningScope(bindings, owner);
     if (scope === undefined) return undefined;
     const bound = scopes.lookup(receiver, scope);
     const input = bound?.kind === "replace" && bound.terms.length === 1 ? bound.terms[0] : undefined;
     if (input === undefined || input.kind !== "reference" && input.kind !== "leaf" || input.subject !== allocation.subject) return undefined;
+    if (input.scope === allocation.scope) return scope;
     const original = birth(input.subject, input.scope);
     return original !== undefined && original.key === birth(allocation.subject, allocation.scope)?.key ? scope : undefined;
   };
@@ -369,11 +371,11 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         } else terms.push(sourceStorageReference(result, scope));
         continue;
       }
+      const bindings = !copied && owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
+        ast.is.IsNewExpression(term.receiver.subject.node)
+        ? scopes.frameFor(owner, term.receiver.subject.node, term.receiver.scope, captured.bindings) : term.receiver.scope;
+      if (bindings === undefined) return undefined;
       if (!copied) {
-        const bindings = owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
-          ast.is.IsNewExpression(term.receiver.subject.node)
-          ? scopes.frameFor(owner, term.receiver.subject.node, term.receiver.scope, captured.bindings) : term.receiver.scope;
-        if (bindings === undefined) return undefined;
         witnesses.push(Object.freeze({ subject, bindings, contributes: true, observesValue: true }));
       }
       const stores = transport.storedValuesFor(subject);
@@ -403,9 +405,11 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (value === undefined && sourceStorageStoredValue(ast, store, undefined, term.scope) === undefined) continue;
         const receiver = receiverFor(store);
         if (receiver === undefined) { budget.reject("Source storage physical members require exact initialized or mutated receivers."); return undefined; }
-        const initialized = value === undefined ? undefined : initializationScope(store, receiver, term.receiver);
+        const initialized = value === undefined ? undefined : initializationScope(store, receiver, term.receiver, bindings);
         if (initialized !== undefined && value !== undefined) {
-          terms.push(sourceStorageReference(value, initialized));
+          const selected = context.initialize(value, initialized);
+          if (selected === undefined) return undefined;
+          terms.push(selected);
           continue;
         }
         const writtenReceiver = transport.bindingInputFor(receiver) ?? receiver;

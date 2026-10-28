@@ -142,6 +142,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return boundInputs === undefined || boundLocations === undefined ? undefined : [boundInputs, boundLocations];
     };
     const encodeUncachedTerm = (selected: SourceStorageTerm): Encoded | undefined => {
+      if (selected.kind === "instantiation") {
+        const value = encodeTerm(selected.value);
+        const activation = activationKey(selected.scope);
+        return value === undefined || activation === undefined ? undefined : [selected.kind, value, activation,
+          scopes.identity(selected.parameter), scopes.identity(selected.scope)];
+      }
       if (selected.kind === "input-frontier") {
         closed = false;
         return [selected.kind, scopes.identity(selected.input.subject), scopes.identity(selected.input.scope),

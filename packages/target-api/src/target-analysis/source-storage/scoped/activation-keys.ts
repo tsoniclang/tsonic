@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import type { SourceStorageActivation, SourceStorageFrame, SourceStorageScope, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageActivation, SourceStorageFrame, SourceStorageScope, SourceStorageScopeParameter, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
@@ -28,7 +28,7 @@ export function createSourceStorageActivationKeys(budget: SourceStorageBudget, r
     identity(value: object): number;
     callbackKey(callback: SourceStorageCallbackEntry | undefined): string;
     owningScope(scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined;
-    applyScope(scope: SourceStorageScope, substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined;
+    applyScope(scope: SourceStorageScope, substitutions: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>): SourceStorageScope | undefined;
     declarationFor(owner: Node, parent: SourceStorageScope): SourceStorageFrame | undefined;
   }, context: SourceStorageCreationContext) {
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();

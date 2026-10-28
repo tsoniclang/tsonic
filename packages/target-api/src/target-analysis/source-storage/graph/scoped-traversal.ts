@@ -1,8 +1,8 @@
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageScope, SourceStorageVariable } from "./scoped-model.js";
+import type { SourceStorageScope, SourceStorageScopeParameter } from "./scoped-model.js";
 
 export interface SourceStorageSubstitutionPath {
-  readonly replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>;
+  readonly replacements: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>;
   readonly parent: SourceStorageSubstitutionPath | undefined;
 }
 
@@ -11,7 +11,7 @@ export function createSourceStorageScopedTraversal(budget: SourceStorageBudget) 
     const rows = budget.createRows();
     const frontier = budget.createRows();
     let maximumFrontier = 0;
-    const paths = new Map<ReadonlyMap<SourceStorageVariable, SourceStorageScope>,
+    const paths = new Map<ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>,
       Map<SourceStorageSubstitutionPath | undefined, SourceStorageSubstitutionPath>>();
     const pending: { readonly scope: SourceStorageScope; readonly path: SourceStorageSubstitutionPath | undefined }[] = [];
     const visited = new Map<SourceStorageSubstitutionPath | undefined, Set<SourceStorageScope>>();
@@ -33,6 +33,16 @@ export function createSourceStorageScopedTraversal(budget: SourceStorageBudget) 
       while (pending.length !== 0) {
         if (!budget.step()) return;
         const current = pending.pop()!;
+        let replacementPath = current.path;
+        while (replacementPath !== undefined) {
+          if (!budget.step()) return;
+          if (replacementPath.replacements.has(current.scope)) break;
+          replacementPath = replacementPath.parent;
+        }
+        if (replacementPath !== undefined) {
+          if (!schedule(replacementPath.replacements.get(current.scope)!, replacementPath.parent)) return;
+          continue;
+        }
         if (current.scope.kind === "substitution") {
           const selections = paths.get(current.scope.substitutions);
           let path = selections?.get(current.path);
@@ -44,18 +54,6 @@ export function createSourceStorageScopedTraversal(budget: SourceStorageBudget) 
           }
           if (!schedule(current.scope.scope, path)) return;
           continue;
-        }
-        if (current.scope.kind === "variable") {
-          let path = current.path;
-          while (path !== undefined) {
-            if (!budget.step()) return;
-            if (path.replacements.has(current.scope)) break;
-            path = path.parent;
-          }
-          if (path !== undefined) {
-            if (!schedule(path.replacements.get(current.scope)!, path.parent)) return;
-            continue;
-          }
         }
         yield { scope: current.scope, path: current.path };
         if (current.scope.kind === "variable") {

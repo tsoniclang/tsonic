@@ -17,6 +17,8 @@ import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
+import type { SourceStorageCreationContext } from "./activation-keys.js";
+import { createSourceStorageInitializerSummaries } from "./initializer-summaries.js";
 
 const sourceStorageRelationKey = Symbol("source-storage-relation-key");
 export const sourceStorageRelationData = Symbol("source-storage-relation-data");
@@ -41,6 +43,8 @@ type SourceStorageRelationState = Map<SourceStorageRelation, number> & {
     forwardProjection?: (value: SourceStorageTerm) =>
       readonly SourceStorageForwardSelection<SourceStorageRelation, SourceStorageTerm>[] | undefined;
     complete: boolean;
+    instantiation?: { readonly input: SourceStorageRelation;
+      readonly substitutions: ReadonlyMap<SourceStorageScope, SourceStorageScope> };
 };
 
 type SourceStorageNormalizationWitness = SourceStorageRelationWitness & { readonly actual: boolean };
@@ -49,10 +53,12 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
   transport: SourceStorageScopedTransport, scopes: ReturnType<typeof createSourceStorageScopes>,
   equations: ReturnType<typeof createSourceStorageEquations>, reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   keys: ReturnType<typeof createSourceStorageScopedKeys>, evaluationQueries: ReturnType<typeof createSourceStorageGraphQueries>,
+  creation: SourceStorageCreationContext,
   boundary?: SourceStorageInputWalkBoundary) {
   const relations = new Map<string, SourceStorageRelation>();
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
+  const initializers = createSourceStorageInitializerSummaries(source, budget, scopes, creation, keys);
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
     if (scope === scopes.empty || subject.kind === "member") return scope;
     const region = transport.regions.enclosing(subject.node);
@@ -68,7 +74,7 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
       ? sourceStorageReference(input, scope) : undefined;
   };
   const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, reachability, keys.birth, keys.closed,
-    term => currentRead === undefined ? undefined : currentRead(term), outside);
+    term => currentRead === undefined ? undefined : currentRead(term), initializers.instantiate, outside);
   const addWitness = (relation: SourceStorageRelation, reference: SourceStorageRelationWitness,
     actual = false): boolean => {
     if (budget.failure() !== undefined) return false;
@@ -297,9 +303,14 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
       if (selected === undefined) return budget.failure() === undefined;
       if (selected.kind === "project") {
         for (const term of selected.inputs) {
-          const input = retain(term, false);
+          const input = current.kind === "instantiation" ? intern(term) : retain(term, false);
           if (input === undefined) return false;
-          children.set(input, children.get(input)! | 4);
+          if (current.kind === "instantiation") {
+            if (data.instantiation === undefined) {
+              if (!rows.add(2)) return false;
+              data.instantiation = { input, substitutions: new Map([[current.parameter, current.scope]]) };
+            }
+          } else children.set(input, children.get(input)! | 4);
           if (selected.valueFilter !== undefined) {
             if (selected.inputs.length !== 1) { budget.reject("A guarded storage projection requires one exact original value."); return false; }
             if (data.filter === undefined && !rows.add(1)) return false;
@@ -377,5 +388,7 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
     return complete;
   };
   const results = evaluationQueries.fixedPoint<SourceStorageRelation, SourceStorageTerm>(evaluateRelation, "storage-relations");
-  return { intern, derive, results, witnessScope, release: () => { results.release(); relations.clear(); rows.release(); } };
+  return { intern, derive, results, witnessScope, release: () => {
+    results.release(); relations.clear(); rows.release(); initializers.release();
+  } };
 }

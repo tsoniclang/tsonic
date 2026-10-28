@@ -31,6 +31,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   birth: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageActivation | undefined,
   closed: (term: SourceStorageTerm) => boolean | undefined,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined,
+  initialize: (value: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageTerm | undefined,
   outside: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageReference | undefined = () => undefined) {
   const { ast, navigation, semantics } = source;
   const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined });
@@ -43,7 +44,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     dispatchDependencies, regionsFor, passiveMember, independentCalleeFor } =
     createSourceStorageExecutionContext(source, budget, transport, scopes, reachability, readRelation);
   const { member, symbolicProjection } = createSourceStorageMemberSuccessors({ source, budget, transport, scopes, reachability,
-    birth, readRelation, readEffects, leaf, outside, creatorScope, passiveMember, regionsFor, application, classLineages,
+    birth, readRelation, readEffects, initialize, leaf, outside, creatorScope, passiveMember, regionsFor, application, classLineages,
     pointerWrites: (destination, store, projection, invocation, scope) =>
       pointerValues.writes(destination, store, projection, invocation, scope),
     materializeChild: (child, select, independentCallee) => materializeChild(child, select, independentCallee),
@@ -99,6 +100,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const reduceStep = (term: SourceStorageTerm, correlated: boolean): SourceStoragePendingReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "input-frontier" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
+    if (term.kind === "instantiation") return { kind: "project", inputs: [term.value], select: value => {
+      const instantiated = scopes.applyTerm(value, new Map([[term.parameter, term.scope]]));
+      return instantiated === undefined ? undefined : [instantiated];
+    } };
     if (term.kind === "input-projection") return symbolicProjection(term.subject, term.scope, term.value);
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf" && term.value.kind !== "input-frontier") {

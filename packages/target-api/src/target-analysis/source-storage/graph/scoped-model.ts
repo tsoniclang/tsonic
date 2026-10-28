@@ -40,8 +40,10 @@ export interface SourceStorageVariable {
 export interface SourceStorageScopeView {
   readonly kind: "substitution";
   readonly scope: SourceStorageFrame;
-  readonly substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>;
+  readonly substitutions: ReadonlyMap<SourceStorageScopeParameter, SourceStorageScope>;
 }
+
+export type SourceStorageScopeParameter = SourceStorageScope;
 
 export type SourceStorageScope = SourceStorageFrame | SourceStorageVariable | SourceStorageScopeView;
 
@@ -102,6 +104,8 @@ export type SourceStorageMemberSelection =
 export type SourceStorageTerm =
   | SourceStorageReference
   | SourceStorageInputFrontier
+  | { readonly kind: "instantiation"; readonly value: SourceStorageReference;
+      readonly parameter: SourceStorageScope; readonly scope: SourceStorageScope }
   | { readonly kind: "input-projection"; readonly value: SourceStorageInputFrontier;
       readonly subject: SourceStorageSubject; readonly scope: SourceStorageScope }
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
