@@ -640,7 +640,9 @@ export function createSourceStorageTransport(
           ? undefined : physicalMemberDestinationsFor(origin, selectedDeclarations, receiverType);
         if (selected === undefined || receiverType === undefined || matching === undefined) {
           const reason = "Source member writes require exact checked physical destination correspondence.";
-          unresolvedSubjects.set(origin, reason);
+          const indexedLocation = selected?.selectedIndex !== undefined && selected.writable === true &&
+            (declarations?.length ?? 0) === 0 ? storage : undefined;
+          unresolvedSubjects.set(indexedLocation ?? origin, reason);
           for (const pair of type === undefined ? [] : memberFlow.membersFor(origin, type) ?? []) {
             if (!step()) return;
             if (pair.kind !== "present") continue;

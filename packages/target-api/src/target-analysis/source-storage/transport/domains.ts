@@ -292,11 +292,12 @@ export function createSourceStorageDomains(
       ? transport.substitutions.boundActivation(bindings, declaredClass) : undefined;
   };
   const matchesCreation = (boundary: SourceStorageDomainWitness, bindings: SourceStorageScope,
-    activation: ReturnType<typeof memberActivation>): boolean => {
+    readActivation: () => ReturnType<typeof memberActivation>): boolean => {
     if (boundary.creationBindings === undefined) return true;
     const owner = boundary.owner ?? boundary.subject;
     if (boundary.subject.kind === "member" && owner.kind === "value" && owner.projection.length === 0 &&
       ast.is.IsNewExpression(owner.node)) {
+      const activation = readActivation();
       if (activation?.invocation !== undefined && activation.caller !== undefined && ast.is.IsNewExpression(activation.invocation)) {
         if (activation.invocation !== owner.node) return false;
         const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
@@ -338,8 +339,16 @@ export function createSourceStorageDomains(
       }
     }
     if (bindings === undefined) return selected;
-    const activation = memberActivation(subject, bindings);
-    return selected.filter(boundary => matchesCreation(boundary, bindings, activation));
+    let activation: ReturnType<typeof memberActivation>;
+    let inspected = false;
+    const readActivation = () => {
+      if (!inspected) {
+        activation = memberActivation(subject, bindings);
+        inspected = true;
+      }
+      return activation;
+    };
+    return selected.filter(boundary => matchesCreation(boundary, bindings, readActivation));
   };
   const closedInvocations = new Map<Node, Map<SourceStorageScope, boolean>>();
   const invocationRows = budget.createRows();
