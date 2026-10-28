@@ -99,6 +99,21 @@ for (const [name, definition, input] of [
   });
 }
 
+for (const reverse of [false, true]) test(`generic callback tuple transport retains both checked component identities (${reverse})`, () => {
+  const current = fixture(`
+    function identity<Value>(value: Value): Value { return value; }
+    function pair<Left, Right>(left: Left, right: Right): readonly [Left, Right] {
+      return identity([left, right] as const);
+    }
+    const leftValue = {}; const rightValue = {};
+    const leftCallback = () => leftValue; const rightCallback = () => rightValue;
+    const callbacks = pair(leftCallback, rightCallback);
+    const left = callbacks[0](); const right = callbacks[1]();
+  `);
+  for (const name of reverse ? ["right", "left"] : ["left", "right"])
+    exactResult(current, current.initializer(name), current.initializer(`${name}Value`));
+});
+
 test("selected returned closure retains captured mutable locations rather than only normalized original values", () => {
   const current = fixture(`
     function retain<Value>(value: Value): () => Value { return () => value; }

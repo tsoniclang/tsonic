@@ -14,7 +14,7 @@ export function sourceStorageProjectComponents(
   budget: SourceStorageBudget,
   collect: (projection: readonly SourceStorageProjection[]) => void,
 ): void {
-  if (semantics.types.couldContainTypeVariables(to) && from === to) {
+  if (semantics.types.couldContainTypeVariables(to) && semantics.types.isIdentical(from, to)) {
     collect([...origin, ...remaining]);
     return;
   }
