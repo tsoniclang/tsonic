@@ -16,7 +16,7 @@ export function sourceStorageHasOnlyExternalDeclarationInputs(source: TargetSour
   const parameters = sourceCallableValueParameters(ast, owner, semantics.forNode(owner), { kind: "declaration" });
   if (parameters === undefined || !parameters.includes(parameter)) return false;
   for (const formal of parameters) {
-    if (!budget.step() || !ast.is.IsIdentifier(ast.name(formal)) || Node_Initializer(ast, formal) !== undefined ||
+    if (!budget.step() || !ast.is.IsParameterDeclaration(formal) || !ast.is.IsIdentifier(ast.name(formal)) || Node_Initializer(ast, formal) !== undefined ||
       ast.as.AsParameterDeclaration(formal)?.DotDotDotToken !== undefined) return false;
     const summary = navigation.declarationUseSummary(formal);
     if (summary.bindingWritten || summary.memberWritten || summary.aliasedOrStored || summary.captured ||
