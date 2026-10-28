@@ -159,8 +159,14 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       for (const declaration of declarations ?? []) {
         if (!step()) break;
         if (!ast.is.IsGetAccessorDeclaration(declaration) &&
-          (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast)))
-          connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node));
+          (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast))) {
+          if (selected === undefined || selected.accessMode === "write") {
+            budget.reject("Source storage member reads require their exact checked instantiated value type.");
+            return;
+          }
+          connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node),
+            { from: selected.sourceReadType, to: selected.sourceReadType });
+        }
       }
       if ((declarations?.length ?? 0) !== 0 || selected?.selectedDeclaration !== undefined) memberAccessors.record(node);
       if (selected !== undefined && selected.accessMode !== "read") {

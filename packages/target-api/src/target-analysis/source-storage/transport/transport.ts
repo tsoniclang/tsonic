@@ -250,7 +250,7 @@ export function createSourceStorageTransport(
     if (sealed) { budget.reject("Source storage transport cannot add edges after graph construction is sealed."); return; }
     if (!edges.add(origin, destination, types)) return;
     graphQueries.invalidate(destination);
-    connectStructuralFlow(origin, destination);
+    connectStructuralFlow(origin, destination, types);
   };
   const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect,
     sourceFileFor, retainCheckedContext);

@@ -3,6 +3,7 @@ import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-s
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageMemberSubject } from "./subjects.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageOriginalComponents } from "./components.js";
+import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 
 export function createSourceStorageStructuralFlow(
   source: TargetSourceProgram,
@@ -12,15 +13,15 @@ export function createSourceStorageStructuralFlow(
     types?: { readonly from: Type; readonly to: Type }) => void,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
-): (origin: SourceStorageSubject, destination: SourceStorageSubject) => void {
+): (origin: SourceStorageSubject, destination: SourceStorageSubject, types?: SourceStorageEdgeTypes) => void {
   const visited = new Map<Type, Set<Type>>();
   const pending: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics }[] = [];
   let draining = false;
-  return (origin, destination) => {
+  return (origin, destination, types) => {
     const fromFile = sourceFileFor(origin);
     const toFile = sourceFileFor(destination);
-    const from = sourceStorageSubjectType(source, origin, fromFile);
-    const to = sourceStorageSubjectType(source, destination, toFile);
+    const from = types === undefined ? sourceStorageSubjectType(source, origin, fromFile) : types.from;
+    const to = types === undefined ? sourceStorageSubjectType(source, destination, toFile) : types.to;
     if (from === undefined || to === undefined || fromFile === undefined) return;
     pending.push({ from, to, semantics: source.semantics.forFile(fromFile) });
     if (draining) return;

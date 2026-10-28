@@ -1,8 +1,57 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageStructuralFlow } from "../../packages/target-api/dist/target-analysis/source-storage/model/structural-flow.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+
+test("structural value flow consumes exact supplied edge types without querying raw declarations", () => {
+  const file = {};
+  const from = {};
+  const to = {};
+  const subject = createSourceStorageSubjects(() => true, () => assert.fail("unexpected subject rejection"));
+  let selected = false;
+  const semantics = { types: {
+    isUnion: () => false, isTuple: () => false, isArrayLike: () => false, indexInfos: () => [],
+    structuralMembers(sourceType, destinationType, purpose) {
+      assert.equal(sourceType === from && destinationType === to && purpose === "read", true,
+        "the selected edge carries both instantiated types and the read operation");
+      selected = true;
+      return { kind: "available", members: [] };
+    },
+  } };
+  const source = { ast: {}, semantics: { forFile: owner => {
+    assert.equal(owner === file, true, "the original checked file owns the supplied edge");
+    return semantics;
+  } } };
+  const flow = createSourceStorageStructuralFlow(source, () => true, subject,
+    () => assert.fail("no descendant structural edge exists"), () => file,
+    () => assert.fail("no descendant declaration exists"));
+  flow(subject({}), subject({}), { from, to });
+  assert.equal(selected, true, "the supplied relationship was analyzed");
+});
+
+test("instantiated conditional member stores do not expand raw generic declaration types", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+interface Cell { payload: { token: object }; }
+interface Input<Value> {
+  readonly value: Value;
+  readonly next: Input<Input<Value>>;
+  readonly gated: Value extends Input<Input<Input<Input<Input<Input<object>>>>>> ? Cell : {};
+}
+const backing = { token: {} };
+export function store(input: Input<object>): void {
+  input.next.next.next.next.next.next.gated.payload = backing;
+}
+` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the actual instantiated conditional store is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const storage = createSourceStorageQuery(source, [file]);
+  assert.equal(storage.failureReason(), undefined, "transport construction preserves finite exact instantiated member edges");
+});
 
 test("structural Error flow never queries a declaration outside checked-file ownership", () => {
   const file = {};
