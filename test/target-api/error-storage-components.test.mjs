@@ -7,6 +7,7 @@ import { createSourceStorageSubjects } from "../../packages/target-api/dist/targ
 import { createSourceStorageUnresolvedQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/unresolved.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 
 const globals = `
 interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -90,6 +91,69 @@ const writing = new WritingHolder(direct);
     "an actual constructor-parameter receiver remains writable");
   assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("direct"))).kind, "writable",
     "a direct parameter write keeps its exact caller origin");
+});
+
+test("Error nested generic write demands retain initialized input identity without mutating sibling aliases", async () => {
+  const { source, file, provider, demands, variable, storage } = await checked("error-nested-generic-write-input", `
+interface SourceBox<Value> { readonly value: Value; }
+interface DestinationBox<Value> { readonly value: Value; }
+function transport(value: SourceBox<SourceBox<Stored>>): DestinationBox<DestinationBox<Stored>> { return value; }
+function write(value: DestinationBox<DestinationBox<Stored>>): void { value.value.value.message = "changed"; }
+const original = { message: "original" };
+const sibling = original;
+const untouched = { message: "untouched" };
+write(transport({ value: { value: original } }));
+`);
+  const write = demands.fieldWrites.find(node => source.ast.getSourceFile(node) === file);
+  assert.equal(write !== undefined, true, "one actual checked field write");
+  const receiver = source.semantics.forNode(write).operations.propertyAccess(write)?.receiver.expression;
+  assert.equal(receiver !== undefined, true, "the original checked write supplies its receiver");
+  const frontier = storage.boundValueFrontierFor(requiredStorageSubject(storage, receiver), storage.emptyBindings, Object.freeze([]));
+  assert.equal(frontier.kind, "resolved", frontier.kind === "unresolved" ? frontier.reason : "the actual generic write has its original producers");
+  const original = source.ast.as.AsVariableDeclaration(variable("original")).Initializer;
+  assert.equal(frontier.frontier.some(entry => entry.subject.node === original && entry.subject.kind === "value" &&
+    entry.subject.projection.length === 0), true,
+    "the nested generic write retains the exact original initialization, not merely its final field declaration");
+  const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))
+    .find(node => source.ast.text(source.ast.name(node)) === "message");
+  assert.equal(field !== undefined, true, "the original shared storage field");
+  const repeated = createSourceErrorStorageDemandQuery(source,
+    { fields: [field], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
+  assert.equal(repeated.storageFor(requiredStorageSubject(storage, variable("original"))).kind, "writable",
+    "the same producer query order cannot erase the original physical write");
+  for (const [name, expected] of [["original", "writable"], ["sibling", "immutable"], ["untouched", "immutable"]]) {
+    assert.equal(demands.storageFor(requiredStorageSubject(storage, variable(name))).kind, expected, name);
+  }
+});
+
+test("Error writes with an unresolved value frontier retain unresolved storage demand", async () => {
+  const checked = await checkedSource("error-write-unresolved-value-frontier", {
+    "globals.d.ts": `${globals}\n${sourceErrorDeclarations}`,
+    "src/index.ts": `
+      function pending(): Error { return pending(); }
+      const waiting = pending();
+      waiting.message = "changed";
+    `,
+  });
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
+  const source = createTargetSourceProgram(checked);
+  const declarations = projectSourceFile(source, "globals.d.ts");
+  const field = source.ast.members(namedDeclaration(source.ast, declarations, "Error"))
+    .find(node => source.ast.text(source.ast.name(node)) === "message");
+  assert.equal(field !== undefined, true, "the original checked Error.message declaration");
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+  const demands = createSourceErrorStorageDemandQuery(source,
+    { fields: [field], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
+  assert.equal(demands.fieldWrites.length, 1, "one actual checked Error write");
+  const write = demands.fieldWrites[0];
+  const receiver = source.semantics.forNode(write).operations.propertyAccess(write)?.receiver.expression;
+  assert.equal(receiver !== undefined, true, "the real Error write supplies its original receiver");
+  const subject = requiredStorageSubject(storage, receiver);
+  const frontier = storage.boundValueFrontierFor(subject, storage.emptyBindings, Object.freeze([]));
+  assert.equal(frontier.kind, "unresolved", "the recursive value has no completed original producer");
+  assert.equal(storage.failureReason(), undefined, "a genuine unresolved value frontier is not a forced resource failure");
+  assert.equal(demands.storageFor(subject).kind, "unresolved", "the unresolved write cannot become immutable or writable evidence");
+  assert.equal(storage.failureReason(), undefined, "the refusal remains the actual value-frontier uncertainty");
 });
 
 test("Error array storage transports exact element demand through aliases and cross-file parameters", async () => {
