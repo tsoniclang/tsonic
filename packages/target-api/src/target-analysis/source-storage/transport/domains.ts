@@ -82,8 +82,7 @@ export function createSourceStorageDomains(
     const owner = selected.kind === "resolved" ? selected.implementation.declaration : declaration;
     if (!publications.callable(owner, exposure)) return;
     if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) {
-      const sourceClass = navigation.isProjectDeclaration(owner) && ast.getSourceFile(owner)?.IsDeclarationFile !== true &&
-        !ast.hasModifierKind(owner, "declare");
+      const sourceClass = navigation.isProjectDeclaration(owner) && transport.declarationIsAmbient(owner) === false;
       const constructors = navigation.classConstructors(owner);
       if (constructors.kind === "resolved") for (const signature of constructors.signatures) {
         if (!budget.step()) return;
