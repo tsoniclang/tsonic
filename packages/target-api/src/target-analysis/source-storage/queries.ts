@@ -287,7 +287,10 @@ export function createSourceStorageQuery(
     formalMemberWriteDemand(declaration, parameter) {
       return transport.formalMemberWriteDemand(declaration, parameter);
     },
-    sealFormalMemberWriteDemands: transport.sealFormalMemberWriteDemands,
+    sealFormalMemberWriteDemands() {
+      domains.initialize();
+      transport.sealFormalMemberWriteDemands();
+    },
     memberWritesFor(subject) {
       return budget.withRows(rows => {
         const reason = subjectReason(subject) ?? budget.failure();

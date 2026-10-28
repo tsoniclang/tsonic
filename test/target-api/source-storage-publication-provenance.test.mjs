@@ -137,6 +137,79 @@ for (const reverse of [false, true]) {
     });
   }
 
+  test(`a guarded input retains an initialized readonly source payload (${reverse})`, () => {
+    const current = fixture(`
+      declare function consume(value: { token: object }): void;
+      const token = {}; const backing = { token };
+      class Box { readonly items = backing; }
+      export function publish(value: Box): void {
+        if (value instanceof Box) consume(value.items);
+      }
+      const original = new Box();
+      publish(original);
+      const selected = backing.token;
+      const container = original;
+    `);
+    const { ast } = current.source;
+    const file = ast.getSourceFile(current.initializer("selected"));
+    const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+    const inspectValue = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("selected"));
+      assert.equal(selected.kind === "open", true, `the readonly initialized payload is physically exposed: ${selected.reason ?? selected.kind}`);
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure), true,
+        "the readonly field does not hide the original contained-storage writer");
+      assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true,
+        "the known readonly initializer's exact contained producer remains");
+    };
+    const inspectContainer = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("container"));
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("original"), true,
+      "contained publication does not replace the actual instance");
+    };
+    for (const inspect of reverse ? [inspectContainer, inspectValue] : [inspectValue, inspectContainer]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "the original finite guards remain enabled");
+  });
+
+  test(`a guarded input retains a helper's actual member assignment (${reverse})`, () => {
+    const current = fixture(`
+      class Box { constructor(public items: { token: object }) {} }
+      declare function consume(value: { token: object }): void;
+      const initial = {}; const changed = {};
+      const backing = { token: initial }; const original = new Box(backing);
+      function replace(value: { token: object }): void { value.token = changed; }
+      export function publish(value: Box): void {
+        if (value instanceof Box) { replace(value.items); consume(value.items); }
+      }
+      publish(original);
+      const selected = backing.token;
+      const container = original;
+    `);
+    const { ast } = current.source;
+    const file = ast.getSourceFile(current.initializer("selected"));
+    const exposure = requiredNode(ast, file, node => ast.is.IsCallExpression(node) &&
+      ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "consume");
+    const inspectValue = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("selected"));
+      assert.equal(selected.kind === "open", true, `a source helper cannot be discarded as a read-only input: ${selected.reason ?? selected.kind}`);
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write" && boundary.exposure === exposure), true,
+        "the actual consume exposure is retained");
+      assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("changed")), true,
+        "the helper's exact assigned producer is retained");
+    };
+    const inspectContainer = () => {
+      const selected = current.storage.closedOriginsFor(current.subject("container"));
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("original"), true,
+      "a helper's contained store does not replace the actual instance");
+    };
+    for (const inspect of reverse ? [inspectContainer, inspectValue] : [inspectValue, inspectContainer]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "helper selection retains the original finite guards");
+  });
+
   test(`a stable guarded receiver retains its written member publication (${reverse})`, () => {
     const current = fixture(`
       class Box { constructor(public items: { token: object }) {} }

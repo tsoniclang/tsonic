@@ -17,6 +17,7 @@ import { createSourceStorageDomainInputs } from "./domain-inputs.js";
 import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import { sourceStorageHasOnlyExternalDeclarationInputs } from "./declaration-input-frontiers.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -453,6 +454,17 @@ export function createSourceStorageDomains(
       query = domainInputs.query((subject: SourceStorageSubject) => {
         const hasInputs = domainInputs.readPresence(subject);
         const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : current => {
+          if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node) &&
+            transport.guardedValues.appliesTo(current.subject.node) === true) {
+            const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
+            const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration)
+              ? transport.subject(declaration, "input") : undefined;
+            if (input !== undefined && !transport.substitutions.isBound(input, current.bindings)) {
+              domainInputs.read(input);
+              if (declaration !== undefined && domainInputs.has(input) &&
+                sourceStorageHasOnlyExternalDeclarationInputs(source, budget, transport, declaration)) return true;
+            }
+          }
           if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
           domainInputs.read(current.subject);
           return domainInputs.has(current.subject);
@@ -680,5 +692,5 @@ export function createSourceStorageDomains(
       exposure: boundary.exposure, ...(boundary.owner === undefined ? {} : { owner: boundary.owner }) }));
     return Object.freeze({ boundaries: Object.freeze(boundaries), reason });
   };
-  return Object.freeze({ select, writeBoundariesFor });
+  return Object.freeze({ initialize, select, writeBoundariesFor });
 }
