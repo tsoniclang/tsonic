@@ -114,15 +114,17 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const writeComponent = store.storage.projection[store.storage.projection.length - 1];
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
-          const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver, transport.sourceFileFor(receiver));
-          if (receiver === undefined || receiverType === undefined) return undefined;
+          const receiverFile = receiver === undefined ? undefined : transport.sourceFileFor(receiver);
+          const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver, receiverFile);
+          if (receiver === undefined || receiverType === undefined || receiverFile === undefined) return undefined;
+          const receiverSemantics = semantics.forFile(receiverFile);
           if (sourceStorageIsMemberProjection(component)) {
             const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
               : semantics.forNode(store.reference).operations.elementAccess(store.reference);
             const members = access === undefined ? undefined : transport.memberFlow.declarationsFor(receiver, store.storage.node, access.receiver.type);
             if (members === undefined || !members.includes(component.declaration)) continue;
           }
-          const selectedType = sourceStorageComponentType(receiverType, component, context, ast);
+          const selectedType = sourceStorageComponentType(receiverType, component, receiverSemantics, ast);
           const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value, transport.sourceFileFor(store.value));
           const absent = store.value === undefined ? sourceStorageStoredValue(ast, store, undefined, scope) : undefined;
           if (selectedType === undefined || valueType === undefined && absent === undefined || store.reason !== undefined) {
