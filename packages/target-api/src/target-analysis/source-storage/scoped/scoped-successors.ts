@@ -94,9 +94,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const instanceCaptures = (candidate: Node, value: SourceStorageReference) => sourceStorageInstanceCaptures(
     source, budget, candidate, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries);
   const application = (invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
-    projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm =>
-    Object.freeze({ kind: "application", invocation, activation: Object.freeze({ kind: "invoke" }),
-      callee: sourceStorageReference(target, scope), scope, projection, ...operation });
+    projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm => {
+    const caller = creatorScope(invocation, scope);
+    return Object.freeze({ kind: "application", invocation, activation: Object.freeze({ kind: "invoke" }),
+      callee: sourceStorageReference(target, caller), scope: caller, projection, ...operation });
+  };
   const dispatchDependencies = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] => {
     if (transport.invocationEffects.get(invocation)?.resultAlias !== undefined) return [];
     const call = semantics.forNode(invocation).operations.call(invocation);

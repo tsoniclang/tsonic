@@ -368,6 +368,26 @@ test("external array element writes reach the original tuple storage through a p
   open(current.selection("selected"), "external-write", "array publication exposes tuple elements");
 });
 
+test("a cached exported return keeps its actual creation without exposing a separate same-site call", async () => {
+  const current = await fixture("storage-domain-cached-same-site", `
+    function create(seed: number) {
+      const choose = <Value>(left: Value, right: Value): Value => seed ? left : right;
+      return { choose };
+    }
+    function make(seed: number) { return create(seed); }
+    const escaped = make(7);
+    const privateCopy = make(9);
+    export function read() { return escaped; }
+    const selected = escaped.choose;
+    const separate = privateCopy.choose;
+  `);
+  const separate = complete(current.selection("separate"), "another outer call does not share the cached object's writer");
+  assert.equal(separate.length === 1 && current.source.ast.is.IsArrowFunction(separate[0].subject.node), true,
+    "the private creation retains the exact authored callable");
+  open(current.selection("selected"), "external-write", "the global cached call is the exported return's actual creation");
+  complete(current.selection("separate"), "publication order cannot merge the distinct outer activation");
+});
+
 test("unknown callback dispatch stays open globally but closes under the selected private invocation", async () => {
   const current = await fixture("storage-domain-dynamic-callee", `
     export function run(callback: () => {}): {} { return callback(); }
