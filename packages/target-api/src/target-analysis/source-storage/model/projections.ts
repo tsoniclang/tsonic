@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
+import { IsTypeSyntaxNode, Node_Expression, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
@@ -186,7 +186,16 @@ export function createSourceStorageProjectionFlow(
   const literal = (node: Node): void => {
     const owner = subjectFor(node);
     const queries = semantics.forNode(node);
-    const type = queries.types.expressionType(node) ?? queries.types.contextualType(node)?.selectedType;
+    let type = queries.types.expressionType(node) ?? queries.types.contextualType(node)?.selectedType;
+    let expression = node;
+    while (type === undefined || !queries.types.isTuple(type)) {
+      if (!step()) return;
+      const parent = ast.parent(expression);
+      if (parent === undefined || sourceTransparentExpressionOperand(ast, parent) !== expression) break;
+      expression = parent;
+      const selected = semantics.forNode(expression).types.expressionType(expression);
+      if (selected !== undefined && queries.types.isTuple(selected)) type = selected;
+    }
     const tuple = type !== undefined && queries.types.isTuple(type);
     let tupleIndex = 0;
     for (const element of ast.elements(node)) {
