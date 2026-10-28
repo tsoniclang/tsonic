@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageIndexReader, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
+import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export interface SourceStorageWriteProjection {
@@ -25,7 +25,6 @@ export function createSourceStorageProjectionFlow(
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
 ) {
   const { ast, semantics } = source;
-  const indexes = sourceStorageIndexReader(source);
   const project = (owner: SourceStorageSubject | undefined, component: SourceStorageProjection):
     SourceStorageSubject | undefined => owner === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, component]);
@@ -34,13 +33,10 @@ export function createSourceStorageProjectionFlow(
     const property = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node) : undefined;
     const element = ast.is.IsElementAccessExpression(node) ? queries.operations.elementAccess(node) : undefined;
     const access = property ?? element;
-    const component: SourceStorageProjection | undefined = property?.selectedIndex !== undefined &&
-      (property.selectedIndex.declaration !== undefined || property.selectedIndex.components.length !== 0)
-      ? { kind: "indexed-value", sourceType: property.receiver.type, ownerType: property.receiver.type, index: property.selectedIndex }
-      : element === undefined ? undefined
-        : sourceIndexedStorageProjection(element.receiver.type, element.argument.expression, queries, ast);
+    const component = element === undefined ? undefined
+      : sourceIndexedStorageProjection(element.receiver.type, element.argument.expression, queries, ast);
     const declaration = access?.selectedDeclaration;
-    if (component === undefined && property?.selectedIndex === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
+    if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
       return subject(node);
     if (component === undefined && sourceStorageDynamicMemberKey(source, node) !== undefined)
@@ -226,7 +222,7 @@ export function createSourceStorageProjectionFlow(
       node = parent;
     }
     const owner = ast.body(node) === undefined ? subjectFor(node) : subject(node, "return");
-    const components = sourceStorageProjectionPath(projection === undefined ? syntaxProjection : projection, indexes);
+    const components = sourceStorageProjectionPath(projection === undefined ? syntaxProjection : projection);
     return owner === undefined || components === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, ...components]);
   };

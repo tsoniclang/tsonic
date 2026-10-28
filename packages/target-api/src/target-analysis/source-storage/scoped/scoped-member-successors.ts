@@ -116,12 +116,6 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
           const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver);
           if (receiver === undefined || receiverType === undefined) return undefined;
-          const context = semantics.forNode(receiver.node);
-          if (component.kind === "indexed-value" && (writeComponent?.kind !== "indexed-value" ||
-            component.index.keyType === undefined || writeComponent.index.keyType === undefined ||
-            component.index.valueType === undefined || writeComponent.index.valueType === undefined ||
-            !context.types.isIdentical(component.index.keyType, writeComponent.index.keyType) ||
-            !context.types.isIdentical(component.index.valueType, writeComponent.index.valueType))) continue;
           if (sourceStorageIsMemberProjection(component)) {
             const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
               : semantics.forNode(store.reference).operations.elementAccess(store.reference);

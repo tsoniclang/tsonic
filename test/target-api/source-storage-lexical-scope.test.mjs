@@ -25,7 +25,7 @@ function fixture() {
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 4096 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const outer = namedDeclaration(source.ast, file, "outer");

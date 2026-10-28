@@ -7,7 +7,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../pac
 
 function fixture(limits = {}, callee = false) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 65_536, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const count = 64;

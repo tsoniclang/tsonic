@@ -35,7 +35,7 @@ function fixture(limits = {}) {
     }
   `);
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 16_384, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const classValues = createSourceStorageTransport(current.source, current.source.navigation.sourceFiles,
     createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
   const guards = createSourceStorageGuardedValues(current.source, budget, classValues);

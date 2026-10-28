@@ -290,7 +290,7 @@ test("checked setter metadata admits its exact physical write while retaining th
 
 test("physical exclusion remains explicit when a completed alternative grows alongside a productive one", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const allocation = {}, operand = {}, included = {}, excluded = {}, declaration = {}, contract = {};
   const scope = Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze([]) });
   const receiver = Object.freeze({ kind: "leaf", subject: subject(allocation), scope });

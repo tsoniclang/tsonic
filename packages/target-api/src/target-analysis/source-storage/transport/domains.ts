@@ -251,8 +251,7 @@ export function createSourceStorageDomains(
             if (!budget.step()) return;
             const child = transport.subject(owner.node, owner.kind, [...owner.projection, original]);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
-            if (publication.writes && (component.kind === "indexed-value" ? !component.index.readonly
-              : indexes.some(value => !value.readonly))) add(child, publication.kind, publication.exposure, owner, selectedOwner.bindings);
+            if (publication.writes && indexes.some(value => !value.readonly)) add(child, publication.kind, publication.exposure, owner, selectedOwner.bindings);
             publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry,
               publication.inputOwner, publication, undefined, selectedOwner.bindings);
           }

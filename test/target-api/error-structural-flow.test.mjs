@@ -9,7 +9,7 @@ test("structural Error flow never queries a declaration outside checked-file own
   const checked = {};
   const detached = {};
   const foreign = {};
-  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"), () => []);
+  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const source = { ast: { name: () => undefined, kindName: () => "test-node", getSourceFile: node => node === detached ? undefined : node === foreign ? foreign : file,
     is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false, IsIdentifier: () => false,
       IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false, IsSpreadElement: () => false } },
@@ -33,7 +33,7 @@ test("recursive structural Error flow retains selected generic property types ev
   const inner = [{}, {}];
   const fields = [{}, {}, {}, {}];
   const checkedContexts = new Map();
-  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"), () => []);
+  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const edges = [];
   let queries = 0;
   let flow;

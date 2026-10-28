@@ -1,13 +1,13 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import { sourceStorageSubjectType, sourceStorageCheckedIndex } from "./model/components.js";
+import { sourceStorageSubjectType } from "./model/components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
 import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
 import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIndexReader, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
@@ -22,7 +22,6 @@ export function createSourceStorageQuery(
   effects: SourceStorageEffects = {},
 ): SourceStorageQueries {
   const budget = createSourceStorageBudget(limits);
-  const indexes = sourceStorageIndexReader(source);
   const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
   const domains = createSourceStorageDomains(source, transport, budget);
   const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>();
@@ -37,19 +36,8 @@ export function createSourceStorageQuery(
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
   };
-  const checkedProjection = (component: SourceStorageProjection): boolean => {
-    if (sourceStorageIsMemberProjection(component)) return checkedNode(component.declaration);
-    if (component.kind !== "indexed-value") return true;
-    const declarations = component.index.declaration === undefined ? component.index.components : [component.index.declaration];
-    const first = declarations[0];
-    if (first === undefined) return false;
-    for (const declaration of declarations) {
-      if (!budget.step() || declaration === undefined) return false;
-      const file = source.ast.getSourceFile(declaration);
-      if (file === undefined || !source.semantics.includes(file)) return false;
-    }
-    return sourceStorageCheckedIndex(component, source.semantics.forNode(first)) !== undefined;
-  };
+  const checkedProjection = (component: SourceStorageProjection): boolean =>
+    !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration);
   const checkedDeclaration = (declaration: Node): boolean => {
     if (!transport.hasNode(declaration) || !checkedNode(declaration)) return false;
     const ast = source.ast;
@@ -271,7 +259,7 @@ export function createSourceStorageQuery(
     subject(node, kind, projection) {
       if (kind !== undefined && kind !== "input" && kind !== "value" && kind !== "member" && kind !== "return" && kind !== "receiver")
         return unresolved("A source storage subject requires an exact input, value, member, return or receiver kind.");
-      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection, indexes);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
       return selectedSubject(checkedNode(node) && components !== undefined && components.every(checkedProjection)
         ? transport.subject(node, kind, components) : undefined);
     },
@@ -285,7 +273,7 @@ export function createSourceStorageQuery(
       return selectedSubject(member ? sourceStorageMemberSubject(node, ast, transport.subject) : undefined);
     },
     storageSubjectFor(node, projection) {
-      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection, indexes);
+      const components = projection === undefined ? [] : sourceStorageProjectionPath(projection);
       return selectedSubject(checkedNode(node) && components !== undefined && components.every(checkedProjection)
         ? transport.storageSubject(node, components) : undefined);
     },

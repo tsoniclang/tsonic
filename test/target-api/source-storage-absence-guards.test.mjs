@@ -17,7 +17,7 @@ function fixture(body, limits = {}, files = {}) {
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 65_536, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const classValues = createSourceStorageTransport(source, source.navigation.sourceFiles,
     createSourceStorageBudget(defaultSourceStorageLimits)).classLineagesFor;
   const guards = createSourceStorageGuardedValues(source, budget, classValues);

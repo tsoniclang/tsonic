@@ -17,237 +17,25 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
-function indexedFailure(current, name, selected) {
-  if (selected.kind === "open") return `open; ${JSON.stringify(selected.boundaries.slice(0, 8).map(boundary => ({
-    kind: boundary.kind, exposure: current.source.ast.kindName(boundary.exposure) })))}`;
-  if (selected.kind !== "unresolved" || current.storage.failureReason() !== undefined) return selected.reason ?? selected.kind;
-  const frontier = current.storage.boundValueFrontierFor(current.subject(name), current.storage.emptyBindings, []);
-  if (frontier.kind === "unresolved") return `${selected.reason}; frontier: ${frontier.reason}`;
-  const entries = frontier.frontier.slice(0, 8).map(({ subject }) => {
-    const root = current.storage.subject(subject.node, subject.kind);
-    const type = root.kind === "resolved" ? current.storage.typeFor(root.subject) : root;
-    const semantics = current.source.semantics.forNode(subject.node);
-    return { kind: subject.kind, node: current.source.ast.kindName(subject.node), projectionLength: subject.projection.length,
-      projection: subject.projection.slice(0, 8).map(component =>
-        component.kind !== "indexed-value" ? component.kind : { kind: component.kind,
-          sourceMatches: type.kind === "resolved" && type.type === component.sourceType,
-          sourceIdentical: type.kind === "resolved" && semantics.types.isIdentical(type.type, component.sourceType),
-          ownerMatches: type.kind === "resolved" && type.type === component.ownerType,
-          readonly: component.index.readonly }) };
-  });
-  return `${selected.reason}; exact frontier: ${JSON.stringify(entries)}`;
-}
-
-for (const readonly of [false, true]) test(`an unwritten fresh indexed ${readonly ? "readonly" : "mutable"} view retains absence`, async () => {
-  const current = await checked(`source-storage-indexed-absence-${readonly}`, `
-interface View { ${readonly ? "readonly " : ""}[key: string]: object | undefined; }
-const original = {}; const view: View = original; const alias: View = view;
-const missing = alias["item"];
-`);
-  const missing = current.storage.closedOriginsFor(current.subject("missing"));
-  assert.equal(missing.kind === "complete" && missing.origins.length === 0, true,
-    `an absent slot is not its container allocation; ${missing.reason ?? missing.kind}`);
-  const backing = current.storage.closedOriginsFor(current.subject("alias"));
-  assert.equal(backing.kind === "complete" && backing.origins.length === 1 &&
-    backing.origins[0].subject.node === current.initializer("original") && backing.origins[0].subject.projection.length === 0,
-  true, "the whole allocation identity remains original and unprojected");
-  assert.equal(current.storage.failureReason(), undefined, "the original finite owner is not bypassed");
-});
-
-for (const access of ["values.answer", 'values["answer"]']) {
-  test(`an unanchored checked mapped index remains a local unresolved storage demand (${access})`, async () => {
-    const current = await checked(`source-storage-mapped-index-${access.includes("[") ? "element" : "property"}`, `
-type Dictionary<Value> = { [Key in string]: Value };
-export function read(values: Dictionary<number>): number {
-  const selected = ${access};
-  return selected;
-}
-const original = {}; const unrelated = original;
-`);
-    const selected = current.storage.closedOriginsFor(current.subject("selected"));
-    assert.equal(selected.kind === "unresolved" &&
-      selected.reason === "An indexed value has no exact checked storage component.", true,
-    `an absent physical index anchor is not a complete storage certificate; ${selected.reason ?? selected.kind}`);
-    const unrelated = current.storage.closedOriginsFor(current.subject("unrelated"));
-    assert.equal(unrelated.kind === "complete" && unrelated.origins.length === 1 &&
-      unrelated.origins[0].subject.node === current.initializer("original") &&
-      unrelated.origins[0].subject.projection.length === 0, true,
-    "an unsupported index does not erase an unrelated original allocation");
-    assert.equal(current.storage.failureReason() === undefined, true,
-      "local indexed evidence does not poison the finite checked graph");
-  });
-}
-
-test("checked indexed views retain one fresh allocation and compatible view writes without mixing allocations", async () => {
-  const current = await checked("source-storage-indexed-views", `
-interface First { [key: string]: object | undefined; }
-interface Second { [key: string]: object | undefined; }
-const original = {}; const separate = {};
-const firstView: First = original; const secondView: Second = firstView;
-const independent: First = separate;
-const token = {}; const other = {};
-firstView["item"] = token; independent["item"] = other;
-const selected = secondView["item"];
-const isolated = independent["item"];
-const absent: First = {};
-const missing = absent["item"];
-`);
-  for (const [name, included, excluded] of [["selected", "token", "other"], ["isolated", "other", "token"]]) {
-    const domain = current.storage.closedOriginsFor(current.subject(name));
-    assert.equal(domain.kind === "complete", true, `${name}: ${indexedFailure(current, name, domain)}`);
-    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(included)), true,
-      `${name}: its actual checked write remains a producer`);
-    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer(excluded)), false,
-      `${name}: another physical allocation does not supply its contents`);
-  }
-  const backing = current.storage.closedOriginsFor(current.subject("secondView"));
-  assert.equal(backing.kind === "complete" && backing.origins.length === 1 &&
-    backing.origins[0].subject.node === current.initializer("original"), true,
-  "the view does not allocate or replace the empty original");
-  const missing = current.storage.closedOriginsFor(current.subject("missing"));
-  assert.equal(missing.kind === "complete" && missing.origins.length === 0, true,
-    "an unwritten fresh key contributes absence, not a fabricated element");
-  const original = resolvedSubject(current.storage.subjectFor(current.initializer("original")), "fresh original");
-  const originalType = current.storage.typeFor(original);
-  assert.equal(originalType.kind === "resolved" &&
-    current.source.semantics.forNode(current.initializer("original")).types.indexInfos(originalType.type).length === 0,
-  true, "retaining a checked view never retypes the original empty allocation");
-  assert.equal(current.storage.failureReason() === undefined, true, "the existing finite source guards remain enabled");
-});
-
-test("readonly indexed aliases share their backing writes across checked property and element access", async () => {
-  const current = await checked("source-storage-indexed-readonly-alias", `
-interface Mutable { [key: string]: object | undefined; }
-interface ReadonlyView { readonly [key: string]: object | undefined; }
-const token = {}; const independent = {};
-const backing = {};
-const mutable: Mutable = backing;
-const readonly: ReadonlyView = mutable;
-const separate: Mutable = {};
-mutable.item = token; separate.item = independent;
-const selected = readonly["item"];
-const property = readonly.item;
-`);
-  for (const name of ["selected", "property"]) {
-    const domain = current.storage.closedOriginsFor(current.subject(name));
-    assert.equal(domain.kind === "complete", true, `${name}: checked readonly alias completes; ${indexedFailure(current, name, domain)}`);
-    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("token")), true,
-      `${name}: a readonly view observes the actual writable alias`);
-    assert.equal(domain.origins.some(origin => origin.subject.node === current.initializer("independent")), false,
-      `${name}: another allocation cannot provide the indexed value`);
-  }
-  const domain = current.storage.closedOriginsFor(current.subject("readonly"));
-  assert.equal(domain.kind === "complete" && domain.origins.length === 1 &&
-    domain.origins[0].subject.node === current.initializer("backing"), true,
-  "readonly indexed transport retains the one original allocation");
-  assert.equal(current.storage.failureReason() === undefined, true, "property syntax does not require a second graph or raised limit");
-});
-
-test("indexed components require the actual checked view and keep generic and readonly evidence distinct", async () => {
-  const current = await checked("source-storage-indexed-admission", `
-interface Values<T> { [key: string]: T; }
-interface Frozen { readonly [key: string]: object | undefined; }
-interface Objects { [key: string]: object | undefined; }
-interface Strings { [key: string]: string | undefined; }
-const objects: Values<object | undefined> = {};
-const texts: Values<string | undefined> = {};
-const frozen: Frozen = {};
-const objectRecord: Objects = {}; const stringRecord: Strings = {};
-`);
-  const projection = name => {
-    const type = current.source.semantics.forNode(current.variable(name)).declarations.declaredValueType(current.variable(name));
-    const index = current.source.semantics.forNode(current.variable(name)).types.indexInfos(type)[0];
-    assert.equal(index !== undefined, true, `${name}: actual checked index metadata`);
-    return { kind: "indexed-value", sourceType: type, ownerType: type, index };
-  };
-  const objects = projection("objects"); const texts = projection("texts"); const frozen = projection("frozen");
-  const first = current.storage.storageSubjectFor(current.variable("objects"), [objects]);
-  const second = current.storage.storageSubjectFor(current.variable("texts"), [texts]);
-  assert.equal(first.kind === "resolved" && second.kind === "resolved" &&
-    first.subject.projectionKey !== second.subject.projectionKey, true,
-  "distinct instantiated key/value evidence cannot share a projection identity");
-  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), [texts]).kind, "unresolved",
-    "an unrelated generic view cannot be appended to another checked root");
-  for (const [sourceName, ownerName] of [["objects", "texts"], ["texts", "objects"],
-    ["objectRecord", "stringRecord"], ["stringRecord", "objectRecord"]]) {
-    const source = projection(sourceName);
-    const owner = projection(ownerName);
-    const hybrid = { ...owner, sourceType: source.sourceType };
-    const selected = current.storage.storageSubjectFor(current.variable(sourceName), [hybrid]);
-    assert.equal(selected.kind, "unresolved", `${sourceName}: another owner cannot lend a different indexed payload`);
-    const restored = current.storage.storageSubjectFor(current.variable(sourceName), [source]);
-    assert.equal(restored.kind, "resolved", `${sourceName}: refusing a hybrid preserves valid checked evidence`);
-  }
-  assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [frozen]).kind, "resolved",
-    "the actual readonly index is representable without inventing a writer");
-  const forged = { ...frozen, index: { ...frozen.index, readonly: false } };
-  assert.equal(current.storage.storageSubjectFor(current.variable("frozen"), [forged]).kind, "unresolved",
-    "changing readonly metadata does not create checked write authority");
-  const readonlySubject = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
-  assert.equal(readonlySubject.kind === "resolved", true, "the real checked indexed subject remains canonical");
-  const mutableHybrid = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...objects,
-    sourceType: frozen.sourceType }]);
-  assert.equal(mutableHybrid.kind, "unresolved", "a genuine mutable owner cannot lend write authority to a readonly source");
-  const readonlyView = current.storage.storageSubjectFor(current.variable("objects"), [{ ...frozen,
-    sourceType: objects.sourceType }]);
-  assert.equal(readonlyView.kind, "resolved", "a mutable source may be read through an exactly corresponding readonly view");
-  for (const field of ["keyType", "valueType", "readonly", "declaration", "symbol", "components"]) {
-    let getterCalls = 0;
-    const index = { ...frozen.index };
-    Object.defineProperty(index, field, { get() { getterCalls += 1; throw new Error("nested index getters must not execute"); } });
-    const selected = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen, index }]);
-    assert.equal(getterCalls, 0, `${field}: boundary admission never executes nested index accessors`);
-    assert.equal(selected.kind, "unresolved", `${field}: accessor-backed checked evidence is refused`);
-    assert.equal(selected.reason, "A source storage query has no exact checked subject.", `${field}: retain the precise boundary refusal`);
-    const restored = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
-    assert.equal(restored.kind === "resolved" && restored.subject === readonlySubject.subject, true,
-      `${field}: rejected input never poisons a valid canonical subject`);
-  }
-  let componentGetterCalls = 0;
-  const accessorComponents = Object.defineProperty([], "0", { get() {
-    componentGetterCalls += 1; throw new Error("nested index component getters must not execute");
-  } });
-  for (const [label, components] of [["accessor component", accessorComponents], ["sparse component", new Array(1)]]) {
-    const selected = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
-      index: { ...frozen.index, components } }]);
-    assert.equal(componentGetterCalls, 0, `${label}: dense component admission never invokes an entry accessor`);
-    assert.equal(selected.kind, "unresolved", `${label}: non-data components cannot supply index authority`);
-    assert.equal(selected.reason, "A source storage query has no exact checked subject.", `${label}: precise boundary refusal remains`);
-  }
-  const copied = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
-    index: { ...frozen.index, components: [...frozen.index.components] } }]);
-  assert.equal(copied.kind === "resolved" && copied.subject === readonlySubject.subject, true,
-    "data snapshots keep the original checked index and canonical subject identity");
-  assert.equal(copied.subject.projection[0].index.components.length === frozen.index.components.length &&
-    copied.subject.projection[0].index.components.every((component, ordinal) => component === frozen.index.components[ordinal]), true,
-  "data snapshots preserve exact component identities and their original order");
-  let nestedEntriesRead = 0;
-  const oversizedComponents = new Proxy(Array.from({ length: frozen.index.components.length + 32 },
-    () => frozen.index.declaration), {
-    getOwnPropertyDescriptor(target, key) {
-      if (key !== "length") nestedEntriesRead += 1;
-      return Reflect.getOwnPropertyDescriptor(target, key);
-    },
-  });
-  const oversized = current.storage.storageSubjectFor(current.variable("frozen"), [{ ...frozen,
-    index: { ...frozen.index, components: oversizedComponents } }]);
-  assert.equal(oversized.kind, "unresolved", "a mismatched vector cannot supply checked indexed evidence");
-  assert.equal(nestedEntriesRead, 0, "checked vector length is compared before traversing or copying supplied entries");
-  const restored = current.storage.storageSubjectFor(current.variable("frozen"), [frozen]);
-  assert.equal(restored.kind === "resolved" && restored.subject === readonlySubject.subject, true,
-    "oversized metadata refusal preserves the original canonical subject without exhausting its graph");
-  const foreign = await checked("source-storage-indexed-foreign", `
+test("removed indexed-value storage descriptors are rejected without erasing indexed type evidence", async () => {
+  const current = await checked("source-storage-removed-indexed-value", `
 interface Values { [key: string]: object | undefined; }
-const foreign: Values = {};
+const values: Values = {};
 `);
-  const foreignType = foreign.source.semantics.forNode(foreign.variable("foreign")).declarations.declaredValueType(foreign.variable("foreign"));
-  const foreignIndex = foreign.source.semantics.forNode(foreign.variable("foreign")).types.indexInfos(foreignType)[0];
-  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), [{ kind: "indexed-value",
-    sourceType: foreignType, ownerType: foreignType, index: foreignIndex }]).kind, "unresolved",
-  "another checker session cannot lend index ownership to this graph");
-  assert.equal(current.storage.storageSubjectFor(current.variable("objects"), element).kind, "unresolved",
-    "a native indexed record is never disguised as an array");
-  assert.equal(current.storage.failureReason() === undefined, true, "refused views do not poison a valid graph");
+  const declaration = current.variable("values");
+  const semantics = current.source.semantics.forNode(declaration);
+  const type = semantics.declarations.declaredValueType(declaration);
+  assert.equal(type !== undefined, true, "the original checked indexed type remains available");
+  const index = semantics.types.indexInfos(type)[0];
+  assert.equal(index !== undefined && index.keyType !== undefined && index.valueType !== undefined, true,
+    "independent indexed type evidence is preserved");
+  const selected = current.storage.storageSubjectFor(declaration, [{ kind: "indexed-value",
+    sourceType: type, ownerType: type, index }]);
+  assert.equal(selected.kind, "unresolved", "the removed storage descriptor has no compatibility admission path");
+  assert.equal(selected.reason, "A source storage query has no exact checked subject.",
+    "the removed form is refused at the public data boundary");
+  assert.equal(current.storage.failureReason(), undefined,
+    "unsupported external data cannot poison the retained storage graph");
 });
 
 test("array component transport follows exact inherited numeric indexes rather than interface arguments", async () => {

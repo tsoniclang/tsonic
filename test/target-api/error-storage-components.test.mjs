@@ -304,7 +304,7 @@ const untouched = { message: "untouched" };
 
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const subject = createSourceStorageSubjects(budget.subject, () => assert.fail("unexpected subject rejection"), () => []);
+  const subject = createSourceStorageSubjects(budget.subject, () => assert.fail("unexpected subject rejection"));
   const root = {};
   const value = subject(root);
   const component = subject(root, "value", element);
@@ -336,7 +336,7 @@ const values: [Stored, Stored] = [original, original];
 test("Error component identities are immutable, interned, dense, data-only and independently bounded", () => {
   let rows = 0;
   let rejected = 0;
-  const subject = createSourceStorageSubjects(cost => (rows += cost) <= 5, () => { rejected += 1; }, () => []);
+  const subject = createSourceStorageSubjects(cost => (rows += cost) <= 5, () => { rejected += 1; });
   const root = {};
   const first = subject(root, "value", slot(0));
   assert.equal(first !== undefined, true);

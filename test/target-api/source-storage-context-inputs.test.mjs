@@ -11,7 +11,7 @@ import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const inputs = new Map();
   const properties = new Map();
   const accesses = new Map();

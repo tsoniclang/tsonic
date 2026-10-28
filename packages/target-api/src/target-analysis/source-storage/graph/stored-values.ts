@@ -10,7 +10,7 @@ import { createSourceStorageBudget, type SourceStorageBudget } from "../model/re
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
-  sourceStorageSubjectType, sourceStorageProjectionsShareLocation } from "../model/components.js";
+  sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
@@ -420,7 +420,6 @@ export function createSourceStorageStoredValues(
   declarationIsAmbient: (declaration: Node) => boolean | undefined,
 ) {
   const locations = new Map<SourceStorageSubject, Map<Node, SourceStorageStore>>();
-  const indexedLocations = new Map<Node, Map<SourceStorageSubject["kind"], Set<SourceStorageSubject>>>();
   const regions = new Map<Node, Set<SourceStorageStore>>();
   const occurrences = new Map<Node, {
     readonly store: SourceStorageStore;
@@ -428,19 +427,6 @@ export function createSourceStorageStoredValues(
     published: SourceStorageWriteOccurrence | undefined;
   }>();
   const rows = budget.createRows();
-  const retainLocation = (storage: SourceStorageSubject, stores: Map<Node, SourceStorageStore>): void => {
-    locations.set(storage, stores);
-    if (!storage.projection.some(component => component.kind === "indexed-value")) return;
-    const kinds = indexedLocations.get(storage.node);
-    const members = kinds?.get(storage.kind);
-    if (members?.has(storage)) return;
-    if (!rows.add(1 + (kinds === undefined ? 1 : 0) + (members === undefined ? 1 : 0))) return;
-    const selectedKinds = kinds ?? new Map<SourceStorageSubject["kind"], Set<SourceStorageSubject>>();
-    const selectedMembers = members ?? new Set<SourceStorageSubject>();
-    selectedMembers.add(storage);
-    selectedKinds.set(storage.kind, selectedMembers);
-    indexedLocations.set(storage.node, selectedKinds);
-  };
   let published = false;
   const record = (storage: SourceStorageSubject | undefined, write: SourceStorageWrite): void => {
     const kind = write.kind;
@@ -513,7 +499,7 @@ export function createSourceStorageStoredValues(
     retained.add(store);
     regions.set(region, retained);
     selected.set(write.reference, store);
-    retainLocation(storage, selected);
+    locations.set(storage, selected);
     const occurrence = { store, destinations: new Set([storage]), published: undefined };
     occurrences.set(write.reference, occurrence);
     if (alias !== undefined) occurrences.set(alias, occurrence);
@@ -545,29 +531,8 @@ export function createSourceStorageStoredValues(
     if (write !== undefined) record(storage, write);
   };
   const storesFor = (storage: SourceStorageSubject): Iterable<SourceStorageStore> | undefined => {
-    if (!storage.projection.some(component => component.kind === "indexed-value")) {
-      const stores = locations.get(storage);
-      return stores === undefined ? undefined : { [Symbol.iterator]: () => stores.values() };
-    }
-    const candidates = indexedLocations.get(storage.node)?.get(storage.kind);
-    if (candidates === undefined) return undefined;
-    return { *[Symbol.iterator]() {
-      const temporary = budget.createRows();
-      const seen = new Set<SourceStorageStore>();
-      try {
-        for (const candidate of candidates) {
-          if (!budget.step()) return;
-          if (!sourceStorageProjectionsShareLocation(storage.projection, candidate.projection)) continue;
-          for (const store of locations.get(candidate)?.values() ?? []) {
-            if (!budget.step()) return;
-            if (seen.has(store)) continue;
-            if (!temporary.add(1)) return;
-            seen.add(store);
-            yield store;
-          }
-        }
-      } finally { temporary.release(); }
-    } };
+    const stores = locations.get(storage);
+    return stores === undefined ? undefined : { [Symbol.iterator]: () => stores.values() };
   };
   const physicalStoresFor = (storage: SourceStorageSubject): Iterable<SourceStorageStore> | undefined => {
     const stores = storesFor(storage);
@@ -615,7 +580,7 @@ export function createSourceStorageStoredValues(
       if (!rows.add(selected === undefined ? 3 : 2)) return;
       const retained = selected ?? new Map<Node, SourceStorageStore>();
       retained.set(occurrence, selectedOccurrence.store);
-      retainLocation(storage, retained);
+      locations.set(storage, retained);
       selectedOccurrence.destinations.add(storage);
     },
     publish(select: (write: SourceStorageWriteOccurrence) => SourceStorageWriteOccurrence): void {

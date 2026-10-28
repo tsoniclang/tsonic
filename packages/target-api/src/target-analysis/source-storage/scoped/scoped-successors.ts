@@ -651,9 +651,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const parents = transport.incomingFor(term.subject);
     let initial: Extract<SourceStorageTerm, { readonly kind: "empty" }> | undefined;
-    if (parents.size === 0 && ast.is.IsObjectLiteralExpression(node) && ast.properties(node).length === 0 &&
-      term.subject.projection[0]?.kind === "indexed-value")
-      initial = Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
     if (parents.size === 0 && ast.is.IsArrayLiteralExpression(node) && term.subject.projection.length !== 0) {
       const elements = ast.elements(node);
       const component = term.subject.projection[0];

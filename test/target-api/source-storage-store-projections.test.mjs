@@ -16,7 +16,7 @@ function fixture(limits = {}) {
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const pair = subject(namedVariable(source.ast, file, "pair"));
   const values = subject(namedVariable(source.ast, file, "values"));
   const selected = subject(values.node, values.kind, [{ kind: "array-element" }]);

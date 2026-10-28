@@ -376,7 +376,7 @@ export function createSourceStorageMemberFlow(
       const indexed = [...sourceStorageComponents(alternative, queries)];
       if (indexed.length !== 0) {
         components.push(...indexed);
-        if (indexed.every(component => component.kind !== "indexed-value")) continue;
+        continue;
       }
       for (const property of queries.types.propertyInfos(alternative)) {
         if (!budget.step()) return undefined;

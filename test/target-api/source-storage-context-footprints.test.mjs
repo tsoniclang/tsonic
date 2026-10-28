@@ -6,7 +6,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../pac
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const inputs = new Map();
   let reads = 0;
   const ports = createSourceStorageContextFootprints(budget, selected => {
@@ -46,7 +46,7 @@ test("finite row exhaustion is not mislabeled as an invalid positive reservation
 
 test("missing contextual evidence cannot become an empty completed port relation", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   let available = false;
   const ports = createSourceStorageContextFootprints(budget, () => available ? new Set() : undefined, () => undefined);
@@ -145,7 +145,7 @@ test("a cached port relationship never bypasses an independently exhausted work 
 
 test("one completed context footprint retains locations and ports from the identical bounded traversal", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 16 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   const location = subject({});
   const formal = subject({}, "input");
@@ -170,7 +170,7 @@ test("one completed context footprint retains locations and ports from the ident
 
 test("mutable binding contexts stop at the exact physical cell without erasing its separately selected values", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 8, maximumSteps: 16 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   const cell = subject({});
   const writer = subject({}, "input");
@@ -195,7 +195,7 @@ test("mutable binding contexts stop at the exact physical cell without erasing i
 
 test("a throwing location query cannot retain an unfinished footprint or its traversal rows", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4 });
-  const subject = createSourceStorageSubjects(budget.subject, budget.reject, () => []);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   const expected = new Error("exact physical dependency failed");
   let ready = false;

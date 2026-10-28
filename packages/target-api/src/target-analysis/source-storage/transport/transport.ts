@@ -8,7 +8,7 @@ import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceR
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { createSourceStorageSubjects, sourceStorageIndexReader, type SourceStorageSubject } from "../model/subjects.js";
+import { createSourceStorageSubjects, type SourceStorageSubject } from "../model/subjects.js";
 import { createSourceStorageProjectionFlow } from "../model/projections.js";
 import { createSourceStorageStructuralFlow } from "../model/structural-flow.js";
 import { createSourceStorageEdges } from "../graph/edges.js";
@@ -91,7 +91,7 @@ export function createSourceStorageTransport(
     return budget.failure() === undefined;
   });
   let sealed = false;
-  const internSubject = createSourceStorageSubjects(budget.subject, budget.reject, sourceStorageIndexReader(source));
+  const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
     const selectedKind = kind ?? (node !== undefined && !ast.is.IsParameterDeclaration(node) && sourceStorageIsDataMember(node, ast) ? "member" : "value");
     const selected = internSubject(node, selectedKind, projection);
@@ -151,8 +151,7 @@ export function createSourceStorageTransport(
       connect(receiver, value);
       return value;
     }
-    if (ast.is.IsElementAccessExpression(node) || ast.is.IsPropertyAccessExpression(node) &&
-      semantics.forNode(node).operations.propertyAccess(node)?.selectedIndex !== undefined) {
+    if (ast.is.IsElementAccessExpression(node)) {
       const indexed = projections.indexed(node);
       const value = indexed === undefined ? undefined : subject(node);
       if (value !== undefined) subjects.set(node, value);
@@ -241,7 +240,7 @@ export function createSourceStorageTransport(
       return undefined;
     return declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast))
       ? sourceStorageMemberSubject(declaration, ast, subject)
-      : ast.is.IsElementAccessExpression(node) || property?.selectedIndex !== undefined
+      : ast.is.IsElementAccessExpression(node)
         ? projections.indexed(node, true) : subjectFor(node);
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,

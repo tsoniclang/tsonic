@@ -236,17 +236,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (projected !== undefined && retain(1)) selected.push(Object.freeze({ ...entry, subject: projected, kind: "reference" }));
     };
     const memberIndex = origin.projection.findIndex(sourceStorageIsMemberProjection);
-    if (memberIndex < 0) {
-      if (!origin.projection.some(component => component.kind === "indexed-value"))
-        collect([...entry.subject.projection, ...origin.projection]);
-      else {
-        const root = selectedRoot ?? subject(origin.node, origin.kind);
-        const to = root === undefined ? undefined : sourceStorageSubjectType(source, root);
-        if (to === undefined) return undefined;
-        sourceStorageProjectComponents(entry.subject.projection, from, to, origin.projection,
-          context, source.ast, budget, collect);
-      }
-    }
+    if (memberIndex < 0) collect([...entry.subject.projection, ...origin.projection]);
     else {
       const root = selectedRoot ?? subject(origin.node, origin.kind);
       const to = root === undefined ? undefined : sourceStorageSubjectType(source, root);
