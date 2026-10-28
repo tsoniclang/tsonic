@@ -309,7 +309,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           const sameLocation = term.destination.subject === term.receiver.subject && term.destination.scope === term.receiver.scope;
           const sameInput = term.destination.kind === "input-frontier" && term.receiver.kind === "input-frontier" &&
             term.destination.input.subject === term.receiver.input.subject && term.destination.input.scope === term.receiver.input.scope;
-          return { kind: "replace", terms: sameLocation || sameInput ? [frontier, term.value] : [frontier] };
+          return term.destination.kind === "leaf" && !sameLocation && !sameInput ? absent : { kind: "replace", terms: sameLocation || sameInput ? [frontier, term.value] : [frontier] };
         }
       }
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination =>
