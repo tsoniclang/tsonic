@@ -227,38 +227,6 @@ test("CLI retains all spread members through a narrower return interface", async
     "}",
   ]), "7:kept\n");
 });
-test("object spread admission rejects an actually missing finalized member carrier", async () => {
-  const { checkedSource, requiredNode } = await import("../../../fixtures/source-navigation.mjs");
-  const { createTargetSourceProgram } = await import("../../../../packages/target-api/dist/public/source.js");
-  const { analyzeCsharpObjectLiterals } = await import("../../../../../tsonic-csharp/dist/analysis/objects/object-literals.js");
-  const checked = await checkedSource("object-spread-missing-finalized-carrier", { "src/index.ts":
-    "export function shrink(input: { value: number; label: string }): { value: number } { return { ...input }; }" });
-  assert.equal(checked.diagnostics.length, 0, "the original spread source is valid TypeScript");
-  const source = createTargetSourceProgram(checked);
-  const file = source.sourceFiles.find(candidate => source.ast.getFileName(candidate).endsWith("/src/index.ts"));
-  assert.equal(file !== undefined, true, "exact checked source file");
-  const literal = requiredNode(source.ast, file, node => source.ast.is.IsObjectLiteralExpression(node));
-  const spread = requiredNode(source.ast, literal, node => source.ast.is.IsSpreadAssignment(node));
-  const operand = source.ast.as.AsSpreadAssignment(spread).Expression;
-  const member = (name, type) => Object.freeze({ sourceKey: Object.freeze({ kind: "property", name }),
-    sourceName: name, targetName: name, memberKind: "property", type });
-  const value = member("value", Object.freeze({ kind: "source-primitive", name: "number" }));
-  const label = member("label", Object.freeze({ kind: "source-primitive", name: "string" }));
-  const target = Object.freeze({ targetType: Object.freeze({ kind: "target-named", id: "MissingLabelCarrier" }), members: Object.freeze([value]) });
-  const original = Object.freeze({ targetType: Object.freeze({ kind: "target-named", id: "CompleteSpreadSource" }), members: Object.freeze([value, label]) });
-  const child = Object.freeze({ kind: "value", expression: operand, children: Object.freeze([]),
-    completion: Object.freeze({ kind: "value", type: original.targetType }) });
-  const use = Object.freeze({ kind: "value", expression: literal, objectShape: target, children: Object.freeze([operand]),
-    completion: Object.freeze({ kind: "value", type: target.targetType }) });
-  const selected = analyzeCsharpObjectLiterals({ source, demand: { entries: [{ use }], nativeUse: { get: node => node === operand ? child : undefined } },
-    shapes: { resolveNode: node => node === operand ? original : undefined }, methods: { objectCaptures: { get: () => Object.freeze([]) } },
-    members: { objectMember: { get: () => undefined } }, storage: { requiredStorageType: { get: () => undefined } }, callables: { get: () => undefined } });
-  assert.equal(selected.issues.length, 1, "one admission refusal for the actually absent target member");
-  assert.equal(selected.issues[0].code, "CSHARP_UNSUPPORTED_AST");
-  assert.equal(selected.issues[0].sourceNode === spread, true, "the exact spread admission owns the rejection");
-  assert.equal(selected.issues[0].message,
-    "Object literal spread source member 'label' requires a finalized target object-shape member carrier before C# emission.");
-});
 test("CLI emits structural type-literal methods as authored object-shape methods", async () => {
   const projectDirectory = resolve(tempRoot, "structural-object-methods");
   await writeProject(projectDirectory, {

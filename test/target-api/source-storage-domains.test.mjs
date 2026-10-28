@@ -388,6 +388,21 @@ test("a cached exported return keeps its actual creation without exposing a sepa
   complete(current.selection("separate"), "publication order cannot merge the distinct outer activation");
 });
 
+test("an exported class instance does not expose a separate private instance of the same field", async () => {
+  const current = await fixture("storage-domain-separate-global-field", `
+    class Holder { token = {}; }
+    export const exposed = new Holder();
+    const privateHolder = new Holder();
+    const selected = privateHolder.token;
+    const published = exposed.token;
+  `);
+  const selected = complete(current.selection("selected"), "a different global allocation does not inherit the exported instance's field writer");
+  assert.equal(selected.length === 1 && current.source.ast.is.IsObjectLiteralExpression(selected[0].subject.node), true,
+    "the private field retains its actual initializer producer");
+  open(current.selection("published"), "external-write", "the actual exported instance retains its own writable field exposure");
+  complete(current.selection("selected"), "query order does not join two physical instances of the same class field");
+});
+
 test("unknown callback dispatch stays open globally but closes under the selected private invocation", async () => {
   const current = await fixture("storage-domain-dynamic-callee", `
     export function run(callback: () => {}): {} { return callback(); }

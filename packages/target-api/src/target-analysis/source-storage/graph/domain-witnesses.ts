@@ -12,6 +12,9 @@ type WitnessKinds = Map<SourceStorageDomainBoundary["kind"], Map<Node, Set<Sourc
 
 interface WitnessGroup {
   readonly values: SourceStorageDomainWitness[];
+  readonly inputValues: SourceStorageDomainWitness[];
+  readonly contextWrites: SourceStorageDomainWitness[];
+  readonly unscopedValues: SourceStorageDomainWitness[];
   readonly kinds: WitnessKinds;
   contexts?: Map<SourceStorageScope, WitnessKinds>;
   inputs?: Set<SourceStorageSubject | undefined>;
@@ -34,11 +37,11 @@ export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) 
       const owners = exposures?.get(exposure);
       if (owners?.has(owner)) return;
       const newInput = kind === "external-input" && group?.inputs?.has(owner) !== true;
-      const cost = 2 + (group === undefined ? 1 : 0) + (exposures === undefined ? 1 : 0) + (owners === undefined ? 1 : 0)
+      const cost = 3 + (kind === "external-input" ? 1 : 0) + (group === undefined ? 1 : 0) + (exposures === undefined ? 1 : 0) + (owners === undefined ? 1 : 0)
         + (newInput ? group?.inputs === undefined ? 2 : 1 : 0)
         + (creationBindings === undefined ? 0 : 1 + (group?.contexts === undefined ? 1 : 0) + (kinds === undefined ? 1 : 0));
       if (!rows.add(cost)) return;
-      const selected: WitnessGroup = group ?? { values: [], kinds: new Map() };
+      const selected: WitnessGroup = group ?? { values: [], inputValues: [], contextWrites: [], unscopedValues: [], kinds: new Map() };
       const selectedKinds = creationBindings === undefined ? selected.kinds
         : kinds ?? new Map<SourceStorageDomainBoundary["kind"], Map<Node, Set<SourceStorageSubject | undefined>>>();
       const selectedExposures = exposures ?? new Map<Node, Set<SourceStorageSubject | undefined>>();
@@ -50,8 +53,12 @@ export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) 
         selected.contexts ??= new Map();
         selected.contexts.set(creationBindings, selectedKinds);
       }
-      selected.values.push(Object.freeze({ kind, subject, exposure, ...(owner === undefined ? {} : { owner }),
-        ...(creationBindings === undefined ? {} : { creationBindings }) }));
+      const witness = Object.freeze({ kind, subject, exposure, ...(owner === undefined ? {} : { owner }),
+        ...(creationBindings === undefined ? {} : { creationBindings }) });
+      selected.values.push(witness);
+      if (kind === "external-input") selected.inputValues.push(witness);
+      if (creationBindings !== undefined && owner !== undefined && kind !== "external-input") selected.contextWrites.push(witness);
+      else selected.unscopedValues.push(witness);
       if (newInput) {
         selected.inputs ??= new Set();
         selected.inputs.add(owner);
@@ -59,8 +66,10 @@ export function createSourceStorageDomainWitnesses(budget: SourceStorageBudget) 
       }
       groups.set(subject, selected);
     },
-    forSubject(subject: SourceStorageSubject): readonly SourceStorageDomainWitness[] {
-      return groups.get(subject)?.values ?? empty;
+    forSubject(subject: SourceStorageSubject, kind?: "external-input" | "contextual-write" | "unscoped"): readonly SourceStorageDomainWitness[] {
+      const group = groups.get(subject);
+      return (kind === "external-input" ? group?.inputValues : kind === "contextual-write" ? group?.contextWrites
+        : kind === "unscoped" ? group?.unscopedValues : group?.values) ?? empty;
     },
     inputOwners(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject | undefined> {
       return groups.get(subject)?.inputs ?? noInputs;

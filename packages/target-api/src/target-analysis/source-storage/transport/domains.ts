@@ -277,32 +277,40 @@ export function createSourceStorageDomains(
       domainInputs.seal();
     }
   };
-  const boundariesFor = (subject: SourceStorageSubject, bindings?: SourceStorageScope): readonly SourceStorageDomainWitness[] => {
-    const selected = [...witnesses.forSubject(subject)];
+  const matchesCreation = (boundary: SourceStorageDomainWitness, bindings: SourceStorageScope): boolean => {
+    if (boundary.creationBindings === undefined) return true;
+    const owner = boundary.owner ?? boundary.subject;
+    const region = transport.regions.enclosing(owner.node);
+    const lexicalOwner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+    const exposureRegion = transport.regions.enclosing(boundary.exposure);
+    if (lexicalOwner !== undefined && exposureRegion !== undefined &&
+      sourceStorageRegionOwner(ast, exposureRegion) === lexicalOwner) {
+      const exposed = transport.substitutions.boundActivation(boundary.creationBindings, lexicalOwner);
+      const observed = transport.substitutions.boundActivation(bindings, lexicalOwner);
+      if (exposed !== undefined && exposed.invocation === undefined && exposed.nativeEntry === undefined &&
+        observed !== undefined) return true;
+    }
+    const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
+    const observed = boundary.creationBindings === bindings ? exposed : transport.substitutions.creationKeyFor(owner, bindings);
+    if (exposed === undefined || observed === undefined) {
+      budget.reject("Source storage writer evidence requires its exact original creation correspondence.");
+      return false;
+    }
+    return exposed === observed;
+  };
+  const boundariesFor = (subject: SourceStorageSubject, bindings?: SourceStorageScope,
+    kind?: "external-input" | "contextual-write" | "unscoped"): readonly SourceStorageDomainWitness[] => {
+    const selected = [...witnesses.forSubject(subject, kind)];
     for (let length = 0; length < subject.projection.length && budget.step(); length += 1) {
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
-      for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner)) {
+      for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner, kind)) {
         if (!budget.step()) break;
         if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
           boundary.kind === "unclassified-exposure") selected.push(boundary);
       }
     }
     if (bindings === undefined) return selected;
-    return selected.filter(boundary => {
-      if (boundary.creationBindings === undefined) return true;
-      const owner = boundary.owner ?? boundary.subject;
-      if (owner.kind === "value" && owner.projection.length === 0 && transport.contextLocation(owner) === "allocation") {
-        const region = transport.regions.enclosing(owner.node);
-        if (region !== undefined && ast.is.IsSourceFile(region)) return true;
-      }
-      const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
-      const observed = boundary.creationBindings === bindings ? exposed : transport.substitutions.creationKeyFor(owner, bindings);
-      if (exposed === undefined || observed === undefined) {
-        budget.reject("Source storage writer evidence requires its exact original creation correspondence.");
-        return false;
-      }
-      return exposed === observed;
-    });
+    return selected.filter(boundary => matchesCreation(boundary, bindings));
   };
   const closedInvocations = new Map<Node, Map<SourceStorageScope, boolean>>();
   const invocationRows = budget.createRows();
@@ -483,7 +491,7 @@ export function createSourceStorageDomains(
       return owner !== undefined && ast.body(owner) !== undefined;
     };
     const isExternalInput = (current: SourceStorageScopedSubject & { readonly original: boolean }): boolean => {
-      const boundaries = boundariesFor(current.subject, current.bindings);
+      const boundaries = boundariesFor(current.subject, current.bindings, "external-input");
       if (!boundaries.some(boundary => boundary.kind === "external-input")) return false;
       if (aggregateInput(current)) return false;
       if (transport.substitutions.isBound(current.subject, current.bindings) ||
@@ -569,6 +577,18 @@ export function createSourceStorageDomains(
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }
     }
+    const observedOwners = new Map<SourceStorageSubject, Set<SourceStorageScope>>();
+    for (const current of selected.subjects) {
+      if (!budget.step()) break;
+      const contexts = observedOwners.get(current.subject);
+      if (contexts?.has(current.bindings)) continue;
+      if (!rows.add(contexts === undefined ? 2 : 1)) break;
+      const retained = contexts ?? new Set<SourceStorageScope>();
+      retained.add(current.bindings);
+      observedOwners.set(current.subject, retained);
+    }
+    const selectedWriters = new Set<SourceStorageDomainWitness>();
+    const writerSubjects = new Set<SourceStorageSubject>();
     const pending: (SourceStorageRelationWitness & { readonly original: boolean })[] = [...selected.subjects];
     const visited = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
     while (reason === undefined && pending.length !== 0) {
@@ -582,7 +602,25 @@ export function createSourceStorageDomains(
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
       reason = transport.directlyUnresolvedFor(current.subject) ?? transport.unresolvedStoredInputsFor(current.subject);
       if (reason !== undefined) break;
-      for (const boundary of boundariesFor(current.subject, current.bindings)) {
+      if (!writerSubjects.has(current.subject)) {
+        if (!rows.add(1)) break;
+        writerSubjects.add(current.subject);
+        for (const boundary of boundariesFor(current.subject, undefined, "contextual-write")) {
+          if (!budget.step()) break;
+          if (selectedWriters.has(boundary)) continue;
+          if (!rows.add(1)) break;
+          selectedWriters.add(boundary);
+          for (const context of boundary.owner === undefined ? [] : observedOwners.get(boundary.owner) ?? []) {
+            if (!budget.step()) break;
+            if (!matchesCreation(boundary, context) || separateExportedCreation(boundary, context)) continue;
+            if ((boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
+              closedSourceInvocation(boundary.exposure, context)) continue;
+            retainBoundary(boundary, context);
+            break;
+          }
+        }
+      }
+      for (const boundary of boundariesFor(current.subject, current.bindings, "unscoped")) {
         if (!budget.step()) break;
         if (separateExportedCreation(boundary, current.bindings)) continue;
         if (boundary.kind === "opaque-result" && !current.observesValue) continue;
