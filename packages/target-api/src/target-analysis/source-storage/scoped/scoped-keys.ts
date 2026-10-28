@@ -239,6 +239,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
           selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true ? 1 : 0] : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
+            : selected.selection.kind === "physical" ? ["physical", scopes.identity(selected.selection.subject),
+              scopes.identity(selected.selection.declaration), scopes.identity(selected.selection.receiverType)]
             : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration),
               selected.selection.evaluation === undefined ? null : scopes.identity(selected.selection.evaluation),
               selected.selection.before === undefined ? null : scopes.identity(selected.selection.before)], receiver,

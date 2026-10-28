@@ -87,6 +87,7 @@ export interface SourceStorageAccessorInvocation {
 
 export type SourceStorageMemberSelection =
   | { readonly kind: "access"; readonly node: Node }
+  | { readonly kind: "physical"; readonly subject: SourceStorageSubject; readonly declaration: Node; readonly receiverType: Type }
   | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node;
       readonly evaluation: Node | undefined; readonly before: Node | undefined };
 
@@ -140,6 +141,10 @@ export type SourceStorageReduction =
 export interface SourceStorageScopedSubject {
   readonly subject: SourceStorageSubject;
   readonly bindings: SourceStorageScope;
+}
+
+export interface SourceStoragePhysicalMemberReceiver extends SourceStorageScopedSubject {
+  readonly type: Type;
 }
 
 export interface SourceStorageRelationWitness extends SourceStorageScopedSubject {

@@ -113,9 +113,9 @@ test("publication handoffs retain physical receivers and their exact creation bi
   const file = {};
   const exposure = {};
   const receivers = [
-    { subject: first, bindings: firstBindings },
-    { subject: second, bindings: firstBindings },
-    { subject: first, bindings: secondBindings },
+    { subject: first, bindings: firstBindings, type },
+    { subject: second, bindings: firstBindings, type },
+    { subject: first, bindings: secondBindings, type },
   ];
   for (const receiver of receivers) {
     publications.add(member, type, file, exposure, true, "opaque-write", false,

@@ -13,7 +13,7 @@ import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
 import { walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInputBinding } from "./scoped-transport.js";
-import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness,
+import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStoragePhysicalMemberReceiver, SourceStorageRelationWitness,
   SourceStorageReference, SourceStorageInputFrontier } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
@@ -436,9 +436,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   });
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined =>
     termValues(sourceStorageReference(origin, scope));
-  const memberValues = (receiver: SourceStorageScopedSubject, declaration: Node): ReadonlySet<SourceStorageScopedSubject> | undefined =>
-    termValues(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: receiver.subject,
-      declaration, evaluation: undefined, before: undefined }),
+  const memberValues = (receiver: SourceStoragePhysicalMemberReceiver, declaration: Node): ReadonlySet<SourceStorageScopedSubject> | undefined =>
+    termValues(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "physical", subject: receiver.subject,
+      declaration, receiverType: receiver.type }),
       receiver: Object.freeze({ kind: "leaf", subject: receiver.subject, scope: receiver.bindings }),
       scope: receiver.bindings, projection: Object.freeze([]), mode: "value" }));
   const provenance = (origin: SourceStorageSubject, scope: SourceStorageScope) => withQuery(() => {
@@ -627,7 +627,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (completed.size === 0) {
             const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
               : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
-              : current.kind === "member" ? current.selection.kind === "projection" ? current.selection.subject
+              : current.kind === "member" ? current.selection.kind !== "access" ? current.selection.subject
                 : transport.subject(current.selection.node) : undefined;
             const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
             if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {

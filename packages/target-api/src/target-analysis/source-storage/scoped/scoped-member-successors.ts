@@ -167,7 +167,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     { read: readRelation, symbolic: scopes.isSymbolic,
       lineages: value => classLineages(value, "heritage") });
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
-    const access = term.selection.kind === "access" ? term.selection.node : term.selection.evaluation;
+    const access = term.selection.kind === "access" ? term.selection.node
+      : term.selection.kind === "projection" ? term.selection.evaluation : undefined;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
     const selected = access === undefined ? undefined : property ?? (ast.is.IsElementAccessExpression(access)
       ? semantics.forNode(access).operations.elementAccess(access) : undefined);
@@ -181,15 +182,15 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         return { kind: "replace", terms: [Object.freeze({ kind: "empty",
           absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) })] };
     }
-    let selections = term.selection.kind === "projection" ? [{ target: term.selection.declaration, read: true }]
+    let selections = term.selection.kind !== "access" ? [{ target: term.selection.declaration, read: true }]
       : access === undefined ? undefined : term.mode === "execution" ? [
         ...(sourceStorageAccessDeclarations(source, access, "read") ?? []).map(target => ({ target, read: true })),
         ...(sourceStorageAccessDeclarations(source, access, "write") ?? []).map(target => ({ target, read: false })),
       ] : sourceStorageAccessDeclarations(source, access, "read")?.map(target => ({ target, read: true }));
     let declarations = selections?.map(selection => selection.target);
-    let receiverType = term.selection.kind === "projection"
+    let receiverType = term.selection.kind === "physical" ? term.selection.receiverType : term.selection.kind === "projection"
       ? sourceStorageSubjectType(source, term.selection.subject, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
-    let receiverView = term.selection.kind === "projection" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
+    let receiverView = term.selection.kind !== "access" ? term.selection.subject : transport.subjectFor(selected?.receiver.expression);
     const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
       ? undefined : sourceStorageDynamicMemberKey(source, access);
     if (dynamicKey !== undefined) {
@@ -263,7 +264,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       if (members.kind === "pending") continue;
       if (members.reason !== undefined) {
         if (budget.failure() !== undefined) return undefined;
-        const subject = term.selection.kind === "projection" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
+        const subject = term.selection.kind !== "access" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
         if (subject === undefined) return undefined;
         terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
       }

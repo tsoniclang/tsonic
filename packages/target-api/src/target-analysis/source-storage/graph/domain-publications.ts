@@ -1,7 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageScopedSubject, SourceStorageScope } from "./scoped-model.js";
+import type { SourceStoragePhysicalMemberReceiver, SourceStorageScope } from "./scoped-model.js";
 
 export interface SourceStoragePublication {
   readonly subject: SourceStorageSubject;
@@ -13,7 +13,7 @@ export interface SourceStoragePublication {
   readonly externalEntry: boolean;
   readonly inputOwner?: SourceStorageSubject;
   readonly parent: SourceStoragePublication | undefined;
-  readonly receiver: SourceStorageScopedSubject | undefined;
+  readonly receiver: SourceStoragePhysicalMemberReceiver | undefined;
   readonly bindings: SourceStorageScope;
 }
 
@@ -39,7 +39,7 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
     },
     add(subject: SourceStorageSubject, type: Type, sourceFile: SourceFile, exposure: Node, writes: boolean,
       kind: SourceStoragePublication["kind"], externalEntry: boolean, inputOwner: SourceStorageSubject | undefined,
-      parent: SourceStoragePublication | undefined, receiver: SourceStorageScopedSubject | undefined,
+      parent: SourceStoragePublication | undefined, receiver: SourceStoragePhysicalMemberReceiver | undefined,
       bindings: SourceStorageScope): void {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return; }
       if (!budget.step()) return;

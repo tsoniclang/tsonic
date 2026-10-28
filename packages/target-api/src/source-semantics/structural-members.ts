@@ -1,6 +1,7 @@
 import type { AstReader, Node, Signature, Symbol, Type, TypeCheckerQueries, TypeIndexInfo, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
 
 export interface SourceStructuralMember {
+  readonly receiverType: Type;
   readonly property: TypePropertyInfo;
   readonly declarations: readonly Node[];
   readonly getters: readonly Node[];
@@ -65,7 +66,7 @@ export function createSourceStructuralMemberQueries(
     return shape === undefined || types.isAny(shape) || types.isUnknown(shape) || types.isNever(shape) ||
       types.isNullish(shape) || types.isVoidLike(shape) || types.isUnion(shape);
   };
-  const describe = (property: TypePropertyInfo): SourceStructuralMember => {
+  const describe = (property: TypePropertyInfo, receiverType: Type): SourceStructuralMember => {
     const symbols = [property.symbol, ...property.rootSymbols];
     const declarations = Object.freeze([...new Set(symbols
       .flatMap((symbol) => checker.getSymbolDeclarations(symbol))
@@ -73,6 +74,7 @@ export function createSourceStructuralMemberQueries(
     const getters = Object.freeze(declarations.filter(ast.is.IsGetAccessorDeclaration));
     const setters = Object.freeze(declarations.filter(ast.is.IsSetAccessorDeclaration));
     return Object.freeze({
+      receiverType,
       property: Object.freeze({
         ...property,
         rootSymbols: Object.freeze([...property.rootSymbols]),
@@ -96,11 +98,11 @@ export function createSourceStructuralMemberQueries(
       components: Object.freeze([...info.components]),
     }))),
   });
-  const matchMember = (source: Type, actual: ReadonlyMap<Symbol, TypePropertyInfo>, property: TypePropertyInfo):
+  const matchMember = (source: Type, destination: Type, actual: ReadonlyMap<Symbol, TypePropertyInfo>, property: TypePropertyInfo):
     SourceStructuralMemberPair | Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }> => {
     const name = checker.getSymbolName(property.symbol);
     const selected = checker.getPropertyOfType(source, name);
-    const destinationMember = describe(property);
+    const destinationMember = describe(property, destination);
     if (selected === undefined) {
       if (types.isUnion(source) && types.getUnionOrIntersectionTypes(source).some(member =>
         member === undefined || checker.getPropertyOfType(member, name) !== undefined))
@@ -119,7 +121,7 @@ export function createSourceStructuralMemberQueries(
           return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
       }
     }
-    const sourceMember = describe(sourceProperty);
+    const sourceMember = describe(sourceProperty, source);
     return Object.freeze({ kind: "present", destination: destinationMember, source: sourceMember });
   };
   const select = (source: Type, destination: Type): MemberIndex => {
@@ -155,7 +157,7 @@ export function createSourceStructuralMemberQueries(
         continue;
       }
       seen.add(property.symbol);
-      const member = matchMember(source, actual, property);
+      const member = matchMember(source, destination, actual, property);
       if (member.kind === "unavailable") {
         disjoint ||= member.reason === "disjoint-shape";
         refusal ??= member;

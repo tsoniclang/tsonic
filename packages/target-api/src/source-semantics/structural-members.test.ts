@@ -50,6 +50,26 @@ function memberDeclaration(current: ReturnType<typeof inspect>, type: Type, name
   return declarations[0]!;
 }
 
+test("selected member descriptors retain their exact checked receiver contracts", () => {
+  const current = inspect(`
+    declare function observe<T>(value: T): void;
+    declare const actual: { readonly value: number };
+    declare const destination: { readonly value: number; optional?: object };
+    observe(actual); observe(destination);
+  `);
+  const [actual, destination] = current.argumentTypes;
+  assert.ok(actual && destination);
+  const selected = current.semantics.types.structuralMember(actual, destination,
+    memberDeclaration(current, destination, "value"), "correspondence");
+  assert.equal(selected?.kind === "present" && selected.source.receiverType === actual &&
+    selected.destination.receiverType === destination, true,
+  "source and external destination keep distinct exact checked type identities");
+  const absent = current.semantics.types.structuralMember(actual, destination,
+    memberDeclaration(current, destination, "optional"), "correspondence");
+  assert.equal(absent?.kind === "absent" && absent.destination.receiverType === destination &&
+    absent.destination.property.optional, true, "optional absence retains its actual declared allocation contract");
+});
+
 test("checked primitive member correspondence retains native carriers and exact declaration identities", () => {
   for (const [name, carrier, literal, predicate] of [
     ["String", "string", '"native"', "isStringLike"],
