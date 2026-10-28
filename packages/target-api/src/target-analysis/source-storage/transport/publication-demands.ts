@@ -21,6 +21,20 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
   const rows = budget.createRows();
   let initialized = false;
   const retain = (receiver: SourceStorageSubject, type: Type, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
+    const selectedComponents: { readonly component: SourceStorageProjection; readonly type: Type;
+      readonly subject: SourceStorageSubject | undefined }[] = [];
+    const semantics = source.semantics.forNode(receiver.node);
+    for (const component of components) {
+      if (!budget.step()) return;
+      const memberType = sourceStorageComponentType(type, component, semantics, source.ast);
+      if (memberType === undefined) continue;
+      const member = sourceStorageIsMemberProjection(component);
+      const subject = member ? sourceStorageMemberSubject(component.declaration, source.ast, transport.subject) : undefined;
+      if (member && subject === undefined) continue;
+      if (!temporary.add(1)) return;
+      selectedComponents.push({ component, type: memberType, subject });
+    }
+    if (selectedComponents.length === 0) return;
     const scope = transport.substitutions.forLexicalOwner(receiver.node);
     if (scope === undefined) return;
     const selected = origins(receiver, scope);
@@ -28,16 +42,14 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
     const values: SourceStoragePublicationDemand[] = [];
     for (const current of selected) {
       if (!budget.step()) return;
-      const semantics = source.semantics.forNode(receiver.node);
-      for (const component of components) {
+      for (const selectedComponent of selectedComponents) {
         if (!budget.step()) return;
-        const memberType = sourceStorageComponentType(type, component, semantics, source.ast);
-        const subject = sourceStorageIsMemberProjection(component)
-          ? sourceStorageMemberSubject(component.declaration, source.ast, transport.subject)
-          : transport.subject(current.subject.node, current.subject.kind, [...current.subject.projection, component]);
-        if (subject !== undefined && memberType !== undefined) {
+        const component = selectedComponent.component;
+        const subject = selectedComponent.subject ??
+          transport.subject(current.subject.node, current.subject.kind, [...current.subject.projection, component]);
+        if (subject !== undefined) {
           if (!temporary.add(1)) return;
-          values.push(Object.freeze({ subject, bindings: current.bindings, type: memberType,
+          values.push(Object.freeze({ subject, bindings: current.bindings, type: selectedComponent.type,
             receiver: Object.freeze({ ...current, type, view: receiver, component }) }));
         }
       }

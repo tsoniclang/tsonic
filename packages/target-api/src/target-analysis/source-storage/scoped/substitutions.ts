@@ -692,10 +692,12 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     for (const [scope, inputs] of subjects) for (const [subject, state] of inputs) {
       if (!budget.step()) return undefined;
       const mode = state.mode;
-      for (const views of state.views.size === 0 ? [undefined] : state.views) {
+      const witness = { subject, bindings: scope, contributes: (mode & 2) !== 0,
+        observesValue: (mode & 128) !== 0, original: (mode & 16) !== 0, views: undefined };
+      if (state.views.size === 0) selected.push(Object.freeze(witness));
+      else for (const views of state.views) {
         if (!budget.step()) return undefined;
-        selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0,
-          observesValue: (mode & 128) !== 0, original: (mode & 16) !== 0, views }));
+        selected.push(Object.freeze({ ...witness, views }));
       }
     }
     return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, absence,

@@ -389,13 +389,13 @@ test("declaration-local scope creation preserves finite resource rejection", () 
   assert.match(current.storage.failureReason(), /finite|rows/u);
 });
 
-for (const access of ["value.item", 'value["item"]']) {
-  test(`checked generic predicate members retain symbolic declaration roles (${access})`, () => {
+for (const access of ["value.item", 'value["item"]']) for (const exported of [false, true]) {
+  test(`checked generic predicate members retain symbolic declaration roles (${access})${exported ? " at an external entry" : ""}`, () => {
     const current = fixture(`
       interface Base { kind(): number; }
       interface Box<Value> extends Base { readonly item: Value; }
       interface Factory<Value> { accepts(value: Base | undefined): value is Box<Value>; }
-      function extract<Value>(factory: Factory<Value>, value: Base | undefined, otherwise: Value): Value {
+      ${exported ? "export " : ""}function extract<Value>(factory: Factory<Value>, value: Base | undefined, otherwise: Value): Value {
         return factory.accepts(value) ? ${access} : otherwise;
       }
     `);
@@ -409,7 +409,24 @@ for (const access of ["value.item", 'value["item"]']) {
       subject.projection[0].declaration === current.declaration("item")), true,
       "the selected checked field retains its exact declaration");
     assert.equal(origins.includes(current.input("extract", 2)), true, "the independent fallback input is preserved");
-    assert.equal(current.storage.closedOriginsFor(result, bindings).kind, "unresolved",
-      "a narrowed symbolic member does not manufacture physical caller storage or its projected type");
+    const selected = current.storage.closedOriginsFor(result, bindings);
+    const intent = "a narrowed symbolic member resolves to its exact symbolic inputs and does not manufacture physical caller storage or its projected type";
+    assert.equal(selected.kind, exported ? "open" : "complete", intent);
+    const projected = origins.find(subject => subject.node === current.input("extract", 1).node &&
+      subject.kind === "input" && subject.projection.length === 1 && subject.projection[0].kind === "member" &&
+      subject.projection[0].declaration === current.declaration("item"));
+    const fallback = current.input("extract", 2);
+    assert.equal(selected.origins.length === 2 && selected.origins.every(origin => origin.subject.kind === "input") &&
+      selected.origins.some(origin => origin.subject === projected) && selected.origins.some(origin => origin.subject === fallback), true, intent);
+    const checkedValue = current.exact(current.storage.typeFor(fallback));
+    const component = selected.origins.find(origin => origin.subject === projected);
+    assert.equal(current.source.semantics.forFile(checkedValue.sourceFile).types.isIdentical(component.type, checkedValue.type), true,
+      "the projected component retains the original checked generic Value, not its receiver or a widened type");
+    if (exported) {
+      assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" &&
+        boundary.subject === current.input("extract", 1)) && selected.boundaries.some(boundary =>
+        boundary.kind === "external-input" && boundary.subject === fallback), true,
+      "both original formals retain their actual outside input boundaries");
+    }
   });
 }
