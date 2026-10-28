@@ -140,7 +140,7 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
   assert.equal(build.status, 1);
   assert.equal(
     build.stderr,
-    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: Declaration/provider identifier 'Promise' requires a selected target operation or type-position usage before C# emission.\n",
+    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: The exact selected property is neither provider-owned, source-profile-owned, nor declared by this project.\n",
   );
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
