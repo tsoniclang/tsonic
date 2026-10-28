@@ -288,6 +288,25 @@ export function createSourceStorageDomains(
   const matchesCreation = (boundary: SourceStorageDomainWitness, bindings: SourceStorageScope): boolean => {
     if (boundary.creationBindings === undefined) return true;
     const owner = boundary.owner ?? boundary.subject;
+    if (boundary.subject.kind === "member" && owner.kind === "value" && owner.projection.length === 0 &&
+      ast.is.IsNewExpression(owner.node)) {
+      const declaration = boundary.subject.node;
+      const parent = ast.parent(declaration);
+      const declaredClass = parent !== undefined && ast.is.IsConstructorDeclaration(parent) ? ast.parent(parent) : parent;
+      if (declaredClass !== undefined && (ast.is.IsClassDeclaration(declaredClass) || ast.is.IsClassExpression(declaredClass))) {
+        const activation = transport.substitutions.boundActivation(bindings, declaredClass);
+        if (activation?.invocation !== undefined && activation.caller !== undefined && ast.is.IsNewExpression(activation.invocation)) {
+          if (activation.invocation !== owner.node) return false;
+          const exposed = transport.substitutions.creationKeyFor(owner, boundary.creationBindings);
+          const observed = transport.substitutions.creationKeyFor(owner, activation.caller);
+          if (exposed === undefined || observed === undefined) {
+            budget.reject("Source storage writer evidence requires its exact original creation correspondence.");
+            return false;
+          }
+          return exposed === observed;
+        }
+      }
+    }
     const region = transport.regions.enclosing(owner.node);
     const lexicalOwner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
     const exposureRegion = transport.regions.enclosing(boundary.exposure);
