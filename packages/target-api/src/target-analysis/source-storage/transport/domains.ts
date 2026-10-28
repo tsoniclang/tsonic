@@ -328,7 +328,7 @@ export function createSourceStorageDomains(
       const target = transport.invocationTargets.get(invocation);
       const selected = target === undefined ? undefined : transport.substitutions.walk(target, bindings);
       if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
-        selected.emptyDemands.length !== 0 || selected.origins.size === 0) return false;
+        selected.emptyDemands.length !== 0 || selected.effectFrontiers.length !== 0 || selected.origins.size === 0) return false;
       for (const origin of selected.origins) {
         if (!budget.step() || !sourceStorageHasOriginalCallableValue(origin, ast)) return false;
         const implementation = navigation.callableImplementation(origin.node);

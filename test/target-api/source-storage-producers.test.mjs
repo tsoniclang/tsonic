@@ -437,6 +437,35 @@ for (const reverse of [false, true]) for (const native of [false, true]) {
   });
 }
 
+test("native uncertainty on a callable binding cannot certify its later invocation as source-only", async () => {
+  const current = await fixture("storage-producer-native-callee-write", `
+    declare function nativeWrap(value: object): object;
+    declare function nativeDeliver(value: object, callback: (actual: () => void) => void): void;
+    declare function foreign(value: object): object;
+    let retain = function (value: object): object { return value; };
+    const retained = (): void => { retain = foreign; };
+    const input = { retained };
+    const wrapped = nativeWrap(input);
+    nativeDeliver(wrapped, actual => { actual(); });
+    function identity(value: object): object { return value; }
+    const original = {};
+    const selected = retain(original);
+    const independent = identity(original);
+  `);
+  const selected = current.storage.closedOriginsFor(current.subject(current.variable("selected")));
+  assert.equal(selected.kind === "open", true,
+    `an actual possible native callee replacement cannot be certified closed: ${selected.reason ?? selected.kind}`);
+  const invocation = current.initializer("selected");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result" && boundary.exposure === invocation ||
+    boundary.kind === "opaque-write" && current.source.ast.is.IsCallExpression(boundary.exposure)), true,
+  "the original native execution or uncertain invocation retains its exact opacity witness");
+  const independent = current.storage.closedOriginsFor(current.subject(current.variable("independent")));
+  assert.equal(independent.kind === "complete" && independent.origins.length === 1 &&
+    independent.origins[0].subject.node === current.initializer("original"), true,
+  "an unrelated wholly-source invocation retains its exact closed original producer");
+  assert.equal(current.storage.failureReason() === undefined, true, "native uncertainty is not a global resource failure");
+});
+
 test("producer queries retain every finite accounting limit and malformed-selection rejection", async () => {
   for (const key of Object.keys(defaultSourceStorageLimits)) {
     for (const value of [1, 0, Infinity, defaultSourceStorageLimits[key] + 1]) {
