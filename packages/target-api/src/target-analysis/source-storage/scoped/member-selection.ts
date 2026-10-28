@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageReference, SourceStorageScopedSubject } from "../graph/scoped-model.js";
+import type { SourceStorageReference, SourceStorageInputFrontier, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
@@ -18,10 +18,10 @@ type SourceStoragePhysicalMembers =
 export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
-    symbolic(value: SourceStorageReference): boolean;
+    symbolic(value: SourceStorageReference | SourceStorageInputFrontier): boolean;
     lineages(value: SourceStorageReference): readonly SourceStorageClassLineage<SourceStorageScope>[] | undefined;
   }) {
-  return (receiver: SourceStorageReference, target: Node, receiverType: Type,
+  return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: Type,
     mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {
     const { ast, navigation, semantics } = source;
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
@@ -29,7 +29,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
     const unresolved = (reason: string): SourceStoragePhysicalMembers =>
       ({ kind: "known", members: Object.freeze([]), absent: false, excluded: false, reason });
     const allocation = receiver.subject.node;
-    const construction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
+    const construction = receiver.kind !== "input-frontier" && ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
       navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
         ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
     if (!construction) {

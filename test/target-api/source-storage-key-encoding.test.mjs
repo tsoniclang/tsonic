@@ -47,9 +47,9 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
   const empty = {}; const scope = {};
   const identities = new Map(); const bindings = new Map();
   const parameters = new Set();
-  let term = { kind: "leaf", subject: { kind: "value", node: {} }, scope: empty };
+  let term = { kind: "leaf", subject: { kind: "value", node: {}, projection: [], projectionKey: "" }, scope: empty };
   for (let depth = 0; depth < 20; depth += 1) {
-    const subject = { kind: "input", node: {} };
+    const subject = { kind: "input", node: {}, projection: [], projectionKey: "" };
     parameters.add(subject.node);
     bindings.set(subject, { kind: "replace", terms: [term, term], initialization: "actual" });
     term = { kind: "reference", subject, scope };

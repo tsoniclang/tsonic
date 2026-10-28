@@ -15,7 +15,7 @@ import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
+import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageScopedTransport {
@@ -62,12 +62,11 @@ export interface SourceStorageScopedTransport {
 
 export function sourceStorageTransparentInput(subject: SourceStorageSubject, ast: AstReader,
   transport: Pick<SourceStorageScopedTransport, "incomingFor">): SourceStorageSubject | undefined {
-  if (subject.kind !== "value" || subject.projection.some(sourceStorageIsMemberProjection)) return undefined;
+  if (subject.kind !== "value" || subject.projection.length !== 0) return undefined;
   const parents = transport.incomingFor(subject);
   const input = parents.size === 1 ? parents.values().next().value : undefined;
-  if (input?.kind === "input" && input.node === subject.node && input.projectionKey === subject.projectionKey) return input;
-  return subject.projection.length === 0 && ast.is.IsVariableDeclaration(subject.node) &&
-    ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
+  if (input?.kind === "input" && input.node === subject.node) return input;
+  return ast.is.IsVariableDeclaration(subject.node) && ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
 }
 
 export function createSourceStorageBindingInputs(ast: AstReader,
@@ -77,7 +76,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
   const retained = budget.createRows();
   return subject => {
     if (!budget.step()) return undefined;
-    if (subject.projection.some(sourceStorageIsMemberProjection)) return undefined;
+    if (subject.projection.length !== 0) return undefined;
     const transparent = sourceStorageTransparentInput(subject, ast, transport);
     if (transparent !== undefined) return transparent;
     if (subject.kind !== "value" || !ast.is.IsIdentifier(subject.node) && ast.kindName(subject.node) !== "KindThisKeyword")
@@ -90,7 +89,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
       const visited = new Set<SourceStorageSubject>();
       while (current.kind === "value") {
         if (!budget.step()) return undefined;
-        if (current.projection.some(sourceStorageIsMemberProjection)) return undefined;
+        if (current.projection.length !== 0) return undefined;
         if (visited.has(current)) {
           budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
         }
@@ -121,6 +120,20 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
   const owner = sourceStorageFormalOwner(term.subject, source);
+  if (term.subject.projection.length !== 0) {
+    const base = scopes.inputBase(term.subject, term.scope);
+    if (base === undefined) return undefined;
+    const selected = base === term.subject ? undefined : scopes.lookup(base, term.scope);
+    const value = selected?.kind === "replace" && selected.terms.length === 1 ? selected.terms[0] : undefined;
+    const symbolic = value !== undefined && (value.kind === "leaf" || value.kind === "input-frontier") &&
+      value.subject === base && scopes.isSymbolic(value);
+    if (selected !== undefined && !symbolic) {
+      const remaining = transport.subject(term.subject.node, term.subject.kind,
+        term.subject.projection.slice(base.projection.length));
+      return remaining === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(base, term.scope)],
+        select: value => budget.withRows(temporary => scopes.project(value, remaining, temporary.add, base, term.scope)) };
+    }
+  }
   const bound = scopes.lookup(term.subject, term.scope);
   if (bound?.kind === "expand") return bound;
   const unresolved = (reason: string): Extract<SourceStorageReduction, { readonly kind: "replace" }> => ({ kind: "replace", terms: [Object.freeze({
@@ -130,7 +143,7 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   if (initializer !== undefined && term.subject.projection.length !== 0) {
     const root = transport.subject(term.subject.node, "input");
     return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)],
-      select: value => budget.withRows(temporary => scopes.project(value, term.subject, temporary.add)) };
+      select: value => budget.withRows(temporary => scopes.project(value, term.subject, temporary.add, undefined, term.scope)) };
   }
   if (initializer === undefined) return bound;
   const fallback = transport.subjectFor(initializer);
@@ -162,7 +175,8 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
 
 export function sourceStorageInitializedValue(source: TargetSourceProgram, budget: SourceStorageBudget,
   scopes: SourceStorageScopes, input: SourceStorageReference, fallback: SourceStorageReference,
-  value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm, { readonly kind: "empty" }>):
+  value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm,
+    { readonly kind: "empty" | "input-frontier" }>):
     readonly import("../graph/scoped-model.js").SourceStorageTerm[] | undefined {
   if (!budget.step()) return undefined;
   if (value.kind === "empty") return [value.absence === undefined ? value : fallback];

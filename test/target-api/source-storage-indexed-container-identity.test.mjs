@@ -12,6 +12,7 @@ function fixture(text) {
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the actual checked source file exists");
   const nodes = [];
   const pending = [file];
   while (pending.length !== 0) {
@@ -42,8 +43,10 @@ test("an exact checked indexed write preserves its original container without in
   `);
   const access = current.nodes.find(node => current.source.ast.is.IsElementAccessExpression(node) &&
     current.source.semantics.forNode(node).operations.elementAccess(node)?.accessMode === "write");
+  assert.equal(access !== undefined, true, "the original checked indexed write is retained");
   const evidence = current.source.semantics.forNode(access).operations.elementAccess(access);
-  assert.equal(evidence?.selectedIndex !== undefined && evidence.writable === true, true,
+  assert.equal(evidence?.selectedDeclaration !== undefined &&
+    current.source.ast.is.IsIndexSignatureDeclaration(evidence.selectedDeclaration) && evidence.writable === true, true,
     "the actual checked index contract, not a fabricated named field, admits the write");
   const selected = current.select("selected");
   assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&

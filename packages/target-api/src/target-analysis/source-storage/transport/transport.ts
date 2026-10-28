@@ -174,7 +174,8 @@ export function createSourceStorageTransport(
     const file = ast.getSourceFile(node);
     if (selected !== undefined && file !== undefined && semantics.includes(file) && !retainCheckedContext(selected, file)) return undefined;
     if (!sealed && selected !== undefined && file !== undefined && semantics.includes(file) &&
-      ast.is.IsVariableDeclaration(selected) && Node_Initializer(ast, selected) === undefined && !nativeConstructors.has(selected)) {
+      (ast.is.IsVariableDeclaration(selected) && Node_Initializer(ast, selected) === undefined ||
+        ast.is.IsClassDeclaration(selected) && !navigation.isProjectDeclaration(selected)) && !nativeConstructors.has(selected)) {
       const constructors = effects.nativeConstructorsFor?.(selected, semantics.forFile(file));
       if (!nativeConstructorRows.add(1 + (constructors?.length ?? 0))) return undefined;
       nativeConstructors.set(selected, constructors === undefined ? null : Object.freeze([...constructors]));
@@ -640,7 +641,9 @@ export function createSourceStorageTransport(
           ? undefined : physicalMemberDestinationsFor(origin, selectedDeclarations, receiverType);
         if (selected === undefined || receiverType === undefined || matching === undefined) {
           const reason = "Source member writes require exact checked physical destination correspondence.";
-          const indexedLocation = selected?.selectedIndex !== undefined && selected.writable === true &&
+          const checkedIndex = property?.selectedIndex !== undefined || selected?.selectedDeclaration !== undefined &&
+            ast.is.IsIndexSignatureDeclaration(selected.selectedDeclaration);
+          const indexedLocation = checkedIndex && selected?.writable === true &&
             (declarations?.length ?? 0) === 0 ? storage : undefined;
           unresolvedSubjects.set(indexedLocation ?? origin, reason);
           for (const pair of type === undefined ? [] : memberFlow.membersFor(origin, type) ?? []) {

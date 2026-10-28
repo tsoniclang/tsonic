@@ -5,7 +5,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
-import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
+import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageInputFrontier, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageStoredValue } from "./scoped-transport.js";
@@ -43,6 +43,7 @@ export interface SourceStorageMemberSuccessorContext {
   readEffects(store: SourceStorageStore, selection: SourceStorageEffectSelection, deferred?: boolean,
     context?: SourceStorageScope): Iterable<SourceStorageTerm>;
   leaf(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference;
+  outside(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference | undefined;
   creatorScope(node: Node, scope: SourceStorageScope): SourceStorageScope;
   passiveMember(declaration: Node): boolean;
   regionsFor(candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
@@ -52,7 +53,7 @@ export interface SourceStorageMemberSuccessorContext {
     projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm;
   classLineages(value: SourceStorageReference, mode?: "heritage"):
     ReturnType<typeof sourceStorageClassLineages<SourceStorageClassValue<SourceStorageScope>["bindings"]>>;
-  materializeChild(child: SourceStorageTerm, select: (child: SourceStorageReference) => readonly SourceStorageTerm[] | undefined,
+  materializeChild(child: SourceStorageTerm, select: (child: SourceStorageReference | SourceStorageInputFrontier) => readonly SourceStorageTerm[] | undefined,
     independentCallee?: Node): Extract<SourceStorageReduction, { readonly kind: "project" }>;
   replaceChild(child: SourceStorageTerm, replace: (child: SourceStorageTerm) => SourceStorageTerm,
     context?: SourceStorageChildContext): SourceStorageReduction | undefined;
@@ -60,7 +61,7 @@ export interface SourceStorageMemberSuccessorContext {
 
 /** Member reads and symbolic projections of the scoped successors. */
 export function createSourceStorageMemberSuccessors(context: SourceStorageMemberSuccessorContext) {
-  const { source, budget, transport, scopes, reachability, birth, readRelation, readEffects, leaf,
+  const { source, budget, transport, scopes, reachability, birth, readRelation, readEffects, leaf, outside,
     creatorScope, passiveMember, regionsFor, application, classLineages, materializeChild, replaceChild } = context;
   const { ast, semantics } = source;
   const receiverFor = (store: SourceStorageStore): SourceStorageSubject | undefined => {
@@ -84,7 +85,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const original = birth(input.subject, input.scope);
     return original !== undefined && original.key === birth(allocation.subject, allocation.scope)?.key ? scope : undefined;
   };
-  const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
+  const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope,
+    frontier?: SourceStorageInputFrontier): SourceStorageReduction | undefined => {
     const component = subject.projection[0];
     const declaration = component !== undefined && sourceStorageIsMemberProjection(component) ? component.declaration : undefined;
     const memberOwner = declaration === undefined ? undefined : sourceMemberOwner(ast, declaration);
@@ -97,7 +99,11 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       return { kind: "replace", terms: [sourceStorageReference(member, scope)],
         witnesses: [{ subject, bindings: scope, contributes: false, observesValue: true }] };
     }
-    const terms: SourceStorageTerm[] = [leaf(subject, scope)];
+    const boundary = frontier?.input ?? outside(subject, scope);
+    const terms: SourceStorageTerm[] = [boundary === undefined ? leaf(subject, scope)
+      : Object.freeze({ kind: "input-frontier", input: boundary,
+        preservesInput: subject === boundary.subject && frontier?.preservesInput !== false,
+        subject, scope, guards: frontier?.guards })];
     const owner = sourceStorageFormalOwner(subject, source);
     const region = owner === undefined ? undefined : ast.body(owner);
     if (region === undefined || subject.projection.length === 0) return { kind: "replace", terms };
@@ -158,7 +164,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     return { kind: "replace", terms };
   };
   const physicalMembers = createSourceStoragePhysicalMembers(source, budget, transport,
-    { read: readRelation, symbolic: scopes.isSymbolic, lineages: value => classLineages(value, "heritage") });
+    { read: readRelation, symbolic: scopes.isSymbolic,
+      lineages: value => classLineages(value, "heritage") });
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
     const access = term.selection.kind === "access" ? term.selection.node : term.selection.evaluation;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
@@ -167,11 +174,12 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
       ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
       : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
-    if (optional && term.receiver.kind === "leaf") {
+    if (optional && (term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier")) {
       const type = sourceStorageSubjectType(source, term.receiver.subject, transport.sourceFileFor(term.receiver.subject));
       const types = semantics.forNode(term.receiver.subject.node).types;
       if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
-        return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: term.receiver })] };
+        return { kind: "replace", terms: [Object.freeze({ kind: "empty",
+          absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) })] };
     }
     let selections = term.selection.kind === "projection" ? [{ target: term.selection.declaration, read: true }]
       : access === undefined ? undefined : term.mode === "execution" ? [
@@ -185,7 +193,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
       ? undefined : sourceStorageDynamicMemberKey(source, access);
     if (dynamicKey !== undefined) {
-      if (term.receiver.kind !== "leaf") return materializeChild(term.receiver, receiver =>
+      if (term.receiver.kind !== "leaf" && term.receiver.kind !== "input-frontier") return materializeChild(term.receiver, receiver =>
         [Object.freeze({ ...term, receiver })]);
       receiverView = term.receiver.subject;
       const read = term.mode !== "execution" || selected?.accessMode !== "write"
@@ -205,7 +213,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     if (receiverType === undefined || receiverView === undefined || declarations === undefined || declarations.length === 0) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
-    if (term.receiver.kind !== "leaf") {
+    if (term.receiver.kind !== "leaf" && term.receiver.kind !== "input-frontier") {
       const replace = (receiver: SourceStorageTerm): SourceStorageTerm =>
         receiver === term.receiver ? term : Object.freeze({ ...term, receiver });
       return !correlated && term.mode === "value" && declarations.every(passiveMember)
@@ -259,7 +267,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (subject === undefined) return undefined;
         terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
       }
-      if (members.absent) terms.push(Object.freeze({ kind: "empty", absence: term.receiver }));
+      if (members.absent) terms.push(Object.freeze({ kind: "empty",
+        absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
       if (members.excluded) terms.push(Object.freeze({ kind: "empty", absence: undefined }));
       for (const member of members.members) {
         if (!budget.step()) return undefined;
@@ -300,14 +309,16 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (absent === undefined) return undefined;
         terms.push(Object.freeze({ kind: "empty", absence: sourceStorageReference(absent, term.receiver.scope) }));
       }
-      if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty", absence: term.receiver }));
-      if (scopes.isSymbolic(term.receiver)) {
+      if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty",
+        absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
+      if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver)) {
         if (prototype) continue;
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
           [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",
             declaration: original }, ...term.projection]);
         if (projected === undefined) return undefined;
-        const selected = symbolicProjection(projected, term.receiver.scope);
+        const selected = symbolicProjection(projected, term.receiver.scope,
+          term.receiver.kind === "input-frontier" ? term.receiver : undefined);
         if (selected?.kind !== "replace") return selected;
         terms.push(...selected.terms);
         continue;
@@ -352,7 +363,13 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         } else terms.push(sourceStorageReference(result, scope));
         continue;
       }
-      if (!copied) witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true, observesValue: true }));
+      if (!copied) {
+        const bindings = owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
+          ast.is.IsNewExpression(term.receiver.subject.node)
+          ? scopes.frameFor(owner, term.receiver.subject.node, term.receiver.scope, captured.bindings) : term.receiver.scope;
+        if (bindings === undefined) return undefined;
+        witnesses.push(Object.freeze({ subject, bindings, contributes: true, observesValue: true }));
+      }
       const stores = transport.storedValuesFor(subject);
       // An unbound external receiver keeps its symbolic member value; stored writes of the member still apply.
       const unboundReceiver = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&

@@ -43,6 +43,46 @@ function open(selected, kind) {
   assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === kind), true, kind);
 }
 
+for (const reverse of [false, true]) for (const mutate of [false, true]) {
+  test(`opaque callback publication retains readonly-container descendant storage (${mutate}; ${reverse})`, async () => {
+    const current = await fixture(`storage-producer-readonly-descendant-${mutate}-${reverse}`, `
+      export function inspect(mutate: (holder: { readonly values: object[] }) => void): object {
+        const original = {};
+        const holder: { readonly values: object[] } = { values: [original] };
+        ${mutate ? "mutate(holder);" : ""}
+        const selected = holder.values[0];
+        return selected;
+      }
+    `);
+    const { ast } = current.source;
+    const owner = namedDeclaration(ast, current.file, "inspect");
+    const bindings = current.storage.bindingsForDeclaration(owner);
+    assert.equal(bindings.kind === "resolved", true, "the actual enclosing declaration activation is retained");
+    const inspectContainer = () => {
+      const selected = current.storage.closedOriginsFor(current.subject(current.variable("holder")), bindings.bindings);
+      assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&
+        selected.origins[0].subject.node === current.initializer("holder"), true,
+      "a by-value callback cannot replace the original container binding");
+    };
+    const inspectElement = () => {
+      const selected = current.storage.storageProducersFor(current.subject(current.initializer("selected")), bindings.bindings);
+      assert.equal(selected.kind === (mutate ? "open" : "complete"), true,
+        `the writable descendant keeps its actual publication status: ${selected.kind}`);
+      assert.equal(selected.kind !== "unresolved" && selected.producers.some(producer =>
+        producer.subject.node === current.initializer("original")), true, "the original element allocation remains a producer");
+      if (mutate) {
+        const call = requiredNode(ast, owner, node => ast.is.IsCallExpression(node) &&
+          ast.is.IsIdentifier(ast.as.AsCallExpression(node).Expression) && ast.text(ast.as.AsCallExpression(node).Expression) === "mutate");
+        assert.equal(selected.kind === "open" && selected.boundaries.some(boundary =>
+          boundary.kind === "opaque-write" && boundary.exposure === call), true,
+        "the original callback is the opaque writer of its writable array descendant");
+      }
+    };
+    for (const inspect of reverse ? [inspectElement, inspectContainer] : [inspectContainer, inspectElement]) inspect();
+    assert.equal(current.storage.failureReason() === undefined, true, "the exact descendant remains within the unchanged finite limits");
+  });
+}
+
 for (const reverse of [false, true]) test(`fixed authored callees retain separate outside argument domains (${reverse})`, async () => {
   const current = await fixture(`storage-producer-fixed-callee-${reverse}`, `
     declare const outside: object;

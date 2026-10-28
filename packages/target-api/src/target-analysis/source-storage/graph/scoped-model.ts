@@ -17,7 +17,8 @@ export interface SourceStorageFrame {
 }
 
 export interface SourceStorageFrameInput {
-  readonly values: readonly (SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" }>)[];
+  readonly values: readonly (SourceStorageReference | SourceStorageInputFrontier |
+    Extract<SourceStorageTerm, { readonly kind: "empty" }>)[];
   readonly initialization: "actual" | "initialized" | "absent";
 }
 
@@ -63,6 +64,15 @@ export interface SourceStorageReference {
   readonly guards?: SourceStorageValueGuards;
 }
 
+export interface SourceStorageInputFrontier {
+  readonly kind: "input-frontier";
+  readonly input: SourceStorageReference;
+  readonly preservesInput: boolean;
+  readonly subject: SourceStorageSubject;
+  readonly scope: SourceStorageScope;
+  readonly guards?: SourceStorageValueGuards;
+}
+
 export type SourceStorageOperation =
   | { readonly mode: "value" }
   | { readonly mode: "throw" }
@@ -82,6 +92,9 @@ export type SourceStorageMemberSelection =
 
 export type SourceStorageTerm =
   | SourceStorageReference
+  | SourceStorageInputFrontier
+  | { readonly kind: "input-projection"; readonly value: SourceStorageInputFrontier;
+      readonly subject: SourceStorageSubject; readonly scope: SourceStorageScope }
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
       readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node; readonly executionOnly?: true;
       readonly effectOnly?: true }
@@ -121,7 +134,8 @@ export type SourceStorageReduction =
       readonly dependencies?: readonly SourceStorageTerm[] }
   | { readonly kind: "project"; readonly inputs: readonly SourceStorageTerm[];
       readonly valueFilter?: Node;
-      readonly select: (value: SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" }>) => readonly SourceStorageTerm[] | undefined };
+      readonly select: (value: SourceStorageReference | SourceStorageInputFrontier |
+        Extract<SourceStorageTerm, { readonly kind: "empty" }>) => readonly SourceStorageTerm[] | undefined };
 
 export interface SourceStorageScopedSubject {
   readonly subject: SourceStorageSubject;

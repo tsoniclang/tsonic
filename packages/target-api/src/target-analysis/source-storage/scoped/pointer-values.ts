@@ -133,6 +133,9 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
       : sourceStorageReference(input, scope), scope, mode === "throw" ? { mode } : { mode, demand, deferred })];
   };
   const operation = (term: Extract<SourceStorageTerm, { readonly kind: "pointer" }>): SourceStorageReduction | undefined => {
+    if (term.pointer.kind === "input-frontier") return { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
+      subject: term.pointer.subject, scope: term.pointer.scope, exposure: term.invocation,
+      reason: "A native pointer operation requires its exact scoped backing location." })] };
     if (term.pointer.kind !== "leaf") return { kind: "project", inputs: [term.pointer], select: value =>
       value.kind === "empty" ? [value] : [value === term.pointer ? term : Object.freeze({ ...term, pointer: value })] };
     const original = term.pointer;

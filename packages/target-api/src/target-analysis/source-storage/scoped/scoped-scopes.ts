@@ -16,7 +16,7 @@ import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js
 import { createSourceStorageActivationKeys } from "./activation-keys.js";
 import type { SourceStorageCreationContext } from "./activation-keys.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
-import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference, SourceStorageInputFrontier, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
   let active: Memo | undefined;
@@ -67,7 +67,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
         ...[...scope.entries.values()].flatMap(entry => entry.values.flatMap(value =>
-          value.kind === "empty" ? value.absence === undefined ? [] : [value.absence.scope] : [value.scope]))];
+          value.kind === "empty" ? value.absence === undefined ? [] : [value.absence.scope]
+            : value.kind === "input-frontier" ? [value.scope, value.input.scope] : [value.scope]))];
     for (const input of inputs) {
       if (!budget.step()) return false;
       if (scope.kind !== "substitution") {
@@ -192,6 +193,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     const scope = applyScope(term.scope, replacements);
     if (scope === undefined) return undefined;
+    if (term.kind === "input-frontier") {
+      const inputScope = applyScope(term.input.scope, replacements);
+      return inputScope === undefined ? undefined : scope === term.scope && inputScope === term.input.scope ? term
+        : Object.freeze({ ...term, scope, input: Object.freeze({ ...term.input, scope: inputScope }) });
+    }
+    if (term.kind === "input-projection") {
+      const value = applyTerm(term.value, replacements);
+      return value?.kind !== "input-frontier" ? undefined : value === term.value && scope === term.scope ? term
+        : Object.freeze({ ...term, value, scope });
+    }
     if (term.kind === "pointer") {
       const pointer = applyTerm(term.pointer, replacements);
       const input = term.input === undefined ? undefined : applyTerm(term.input, replacements);
@@ -221,9 +232,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return scope === term.scope ? term : Object.freeze({ ...term, scope });
   };
-  const project = (entry: SourceStorageFrameInput["values"][number], origin: SourceStorageSubject, retain: (cost: number) => boolean,
-    selectedRoot?: SourceStorageSubject): readonly SourceStorageTerm[] | undefined => {
+  const project = (entry: SourceStorageFrameInput["values"][number] | Extract<SourceStorageTerm, { readonly kind: "input-frontier" }>,
+    origin: SourceStorageSubject, retain: (cost: number) => boolean,
+    selectedRoot: SourceStorageSubject | undefined, selectionScope: SourceStorageScope): readonly SourceStorageTerm[] | undefined => {
     if (entry.kind === "empty") return retain(1) ? [entry] : undefined;
+    if (entry.kind === "input-frontier") {
+      const root = selectedRoot ?? subject(origin.node, origin.kind);
+      const selected = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...origin.projection]);
+      if (selected === undefined || sourceStorageSubjectType(source, selected) === undefined || !retain(1)) return undefined;
+      return origin.projection.length === 0 ? [Object.freeze({ ...entry, subject: selected, scope: selectionScope })]
+        : [Object.freeze({ kind: "input-projection", value: entry, subject: selected, scope: selectionScope })];
+    }
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
     const from = sourceStorageSubjectType(source, entry.subject);
     if (from === undefined) return undefined;
@@ -268,13 +287,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   };
   const selectEntries = (origin: SourceStorageSubject, entry: SourceStorageFrameInput,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean,
-    selectedRoot?: SourceStorageSubject): SourceStorageScopeBinding | undefined => {
+    selectedRoot: SourceStorageSubject | undefined, selectionScope: SourceStorageScope): SourceStorageScopeBinding | undefined => {
     if (origin.projection.length === 0 && path === undefined)
       return retain(1) ? Object.freeze({ kind: "replace", terms: entry.values, initialization: entry.initialization }) : undefined;
     const terms: SourceStorageTerm[] = [];
     for (const value of entry.values) {
       if (!budget.step()) return undefined;
-      const projected = project(value, origin, retain, selectedRoot);
+      const projected = project(value, origin, retain, selectedRoot, selectionScope);
       if (projected === undefined) return undefined;
       for (const value of projected) {
         const applied = applyPath(value, path);
@@ -319,9 +338,9 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     };
     const local = select((scope.kind === "substitution" ? scope.scope : scope).entries);
     if (local !== undefined) {
-      if (scope.kind === "frame") return selectEntries(local.subject, local.entries, undefined, retain, local.root);
+      if (scope.kind === "frame") return selectEntries(local.subject, local.entries, undefined, retain, local.root, scope);
       return budget.withRows(rows => rows.add(1) ? selectEntries(local.subject, local.entries,
-        { replacements: scope.substitutions, parent: undefined }, retain, local.root) : undefined);
+        { replacements: scope.substitutions, parent: undefined }, retain, local.root, scope) : undefined);
     }
     for (const current of traverse(scope)) {
       if (current.scope.kind === "variable") {
@@ -330,7 +349,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         continue;
       }
       const selected = select(current.scope.entries);
-      if (selected !== undefined) return selectEntries(selected.subject, selected.entries, current.path, retain, selected.root);
+      if (selected !== undefined) return selectEntries(selected.subject, selected.entries, current.path, retain, selected.root, scope);
     }
     return undefined;
   };
@@ -353,6 +372,25 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       return selected;
     });
   };
+  const inputBase = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageSubject | undefined => {
+    const root = subject(origin.node, origin.kind);
+    if (root === undefined || origin.projection.length === 0) return root;
+    const owner = sourceStorageFormalOwner(origin, source);
+    for (const current of traverse(scope)) {
+      if (!budget.step()) return undefined;
+      if (current.scope.kind === "variable") {
+        if (owner !== undefined && variableIncludesOwner(current.scope, owner)) return root;
+        continue;
+      }
+      for (let length = origin.projection.length; length >= 0; length -= 1) {
+        if (!budget.step()) return undefined;
+        const prefix = length === 0 ? root : subject(origin.node, origin.kind, origin.projection.slice(0, length));
+        if (prefix === undefined) return undefined;
+        if (current.scope.entries.has(prefix)) return prefix;
+      }
+    }
+    return budget.failure() === undefined ? root : undefined;
+  };
   const frames = new Map<string, SourceStorageFrame>();
   const publishFrame = (key: string, frame: SourceStorageFrame): SourceStorageFrame | undefined => {
     if (budget.failure() !== undefined || !rows.add(1 + frame.entries.size +
@@ -366,6 +404,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (!budget.step()) return undefined;
     const key = `actuals:${[candidate, invocation, caller, captured].map(identity).join(":")}:${actuals.map(value =>
       value.kind === "empty" ? value.absence === undefined ? "empty" : `empty:${identity(value.absence.subject)}/${identity(value.absence.scope)}`
+        : value.kind === "input-frontier" ? `input:${identity(value.input.subject)}/${identity(value.input.scope)}/${identity(value.subject)}/${identity(value.scope)}/${value.preservesInput ? 1 : 0}/${value.guards?.key ?? ""}`
         : `${identity(value.subject)}/${identity(value.scope)}`).join(";")}`;
     const cached = frames.get(key);
     if (cached !== undefined) return cached;
@@ -392,12 +431,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const formal = subject(slot.parameter, "input", slot.projection);
       if (formal === undefined) return undefined;
       const values = slot.repeated ? actuals.slice(slot.effectiveIndex) : actuals.slice(slot.effectiveIndex, slot.effectiveIndex + 1);
-      if (values.length !== 0) entries.set(formal, Object.freeze({ initialization: "actual", values: Object.freeze(values) }));
+      if (values.length !== 0) entries.set(formal, Object.freeze({ initialization: "actual", values: Object.freeze(
+        values.map(value => value.kind === "input-frontier" ? Object.freeze({ ...value }) : value)) }));
     }
     return publishFrame(key, frame);
   };
   const enterApplication = (term: Extract<SourceStorageTerm, { readonly kind: "application" }>, candidate: Node,
-    callee: SourceStorageReference): SourceStorageReduction | undefined => {
+    callee: SourceStorageReference | SourceStorageInputFrontier): SourceStorageReduction | undefined => {
     if (term.activation.kind !== "provided") return undefined;
     const enter = (argument?: SourceStorageFrameInput["values"][number]): SourceStorageTerm | undefined => {
       const actuals = argument === undefined ? [] : [argument];
@@ -583,7 +623,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   });
-  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, enterApplication, declarationFor,
+  return Object.freeze({ empty, identity, callbackKey, variable, variablesFor, applyScope, applyTerm, lookup, inputBase, frameFor, enterApplication, declarationFor,
     executionRoots: (scope: SourceStorageScope) => withTraversal(() => budget.withRows(temporary => {
       const roots: { readonly owner: Node; readonly scope: SourceStorageScope; readonly invocation?: Node;
         readonly callback?: SourceStorageCallbackEntry }[] = [];
@@ -613,8 +653,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       }
       return false;
     }),
-    isSymbolic: (value: SourceStorageReference): boolean => {
-      if (value.kind !== "leaf" || value.scope.kind !== "frame" ||
+    isSymbolic: (value: SourceStorageReference | SourceStorageInputFrontier): boolean => {
+      if (value.kind !== "leaf" && value.kind !== "input-frontier" || value.scope.kind !== "frame" ||
         sourceStorageFormalOwner(value.subject, source) !== value.scope.owner) return false;
       if (value.scope.boundary === "declaration") return true;
       if (value.scope.callback === undefined || value.subject.kind !== "input") return false;
