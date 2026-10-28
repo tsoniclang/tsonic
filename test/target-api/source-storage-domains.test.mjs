@@ -505,6 +505,39 @@ for (const marker of ["mutableborrow", "readwriteref"]) {
   });
 }
 
+test("bodyless native API parameters retain outside inputs without publishing a fictitious source implementation", async () => {
+  const current = await fixture("storage-domain-native-declaration-inputs", `
+    interface Input<Value> { readonly value: Value; readonly next: Input<Input<Value>>; }
+    declare class Native {
+      constructor();
+      accept(value: Input<object>): void;
+    }
+    export const api = new Native();
+    const original = {};
+    const selected = original;
+  `, { effectsFactory(source, file) {
+    const native = namedDeclaration(source.ast, file, "Native");
+    const constructor = source.ast.members(native).find(node => source.ast.is.IsConstructorDeclaration(node));
+    return { call(node, selected) {
+      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === constructor
+        ? { resultAllocation: selected.call } : undefined;
+    } };
+  } });
+  const selected = complete(current.selection("selected"), "a native API's signature is not a recursively executing source body");
+  assert.equal(selected.length === 1 && selected[0].subject.node === current.initializer("original"), true,
+    "the original unrelated allocation is retained");
+  const native = namedDeclaration(current.source.ast, current.file, "Native");
+  const method = current.source.ast.members(native).find(node => current.source.ast.text(current.source.ast.name(node)) === "accept");
+  assert.equal(method !== undefined, true, "the exact checked native method is present");
+  const formal = current.storage.subjectFor(current.source.ast.parameters(method)[0]);
+  assert.equal(formal.kind === "resolved", true, "the native signature retains its original formal subject");
+  const domain = current.storage.closedOriginsFor(formal.subject);
+  assert.equal(domain.kind === "open" && domain.boundaries.some(boundary => boundary.kind === "external-input"), true,
+    `a bodyless native formal is outside storage, never a closed source allocation: ${domain.reason ?? domain.kind}`);
+  complete(current.selection("selected"), "querying the native signature does not contaminate source storage");
+  assert.equal(current.storage.failureReason() === undefined, true, "all original projection and work limits remain enabled");
+});
+
 test("an exported opaque constructor result does not require a concrete allocation for unrelated storage", async () => {
   const current = await fixture("storage-domain-opaque-constructor-publication", `
     declare class Native { readonly token: object; }

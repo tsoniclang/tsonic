@@ -82,6 +82,8 @@ export function createSourceStorageDomains(
     const owner = selected.kind === "resolved" ? selected.implementation.declaration : declaration;
     if (!publications.callable(owner, exposure)) return;
     if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) {
+      const sourceClass = navigation.isProjectDeclaration(owner) && ast.getSourceFile(owner)?.IsDeclarationFile !== true &&
+        !ast.hasModifierKind(owner, "declare");
       const constructors = navigation.classConstructors(owner);
       if (constructors.kind === "resolved") for (const signature of constructors.signatures) {
         if (!budget.step()) return;
@@ -89,10 +91,12 @@ export function createSourceStorageDomains(
           if (!budget.step()) return;
           const formal = transport.subject(parameter.parameterDeclaration, "input");
           add(formal, "external-input", exposure);
-          publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
+          if (sourceClass) publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
         }
       }
-      publish(transport.subject(owner, "receiver"), exposure);
+      const receiver = transport.subject(owner, "receiver");
+      if (sourceClass) publish(receiver, exposure);
+      else add(receiver, "external-input", exposure);
     } else {
       const parameters = sourceCallableValueParameters(ast, owner, semantics.forNode(owner), { kind: "declaration" });
       if (parameters === undefined) {
@@ -113,7 +117,7 @@ export function createSourceStorageDomains(
           });
         if (nativeInput) continue;
         add(formal, "external-input", exposure);
-        publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
+        if (ast.body(owner) !== undefined) publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
       }
       if (ast.body(owner) !== undefined) {
         if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner))
