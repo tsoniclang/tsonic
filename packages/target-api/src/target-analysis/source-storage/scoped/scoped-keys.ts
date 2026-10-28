@@ -63,12 +63,20 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return selected;
     });
   };
+  // A declaration frame whose whole parent chain is declarations over the empty scope names every activation of its owner:
+  // it carries no actual activation, exactly like the empty query, so both share the root creation context.
+  const symbolicOnly = (scope: SourceStorageScope): boolean => {
+    for (let current: SourceStorageScope = scope; current !== scopes.empty; current = current.parents[0]!) {
+      if (current.kind !== "frame" || current.boundary !== "declaration" || current.parents.length !== 1) return false;
+      if (!budget.step()) return false;
+    }
+    return true;
+  };
   const birth = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageActivation | undefined => {
     if (!budget.step()) return undefined;
-    const owner = locationOwner(subject);
-    const creationScope = owner === undefined ? scopes.empty
-      : scopes.owningScope(scope, owner) ?? scopes.declarationFor(owner, scopes.empty);
-    const selected = creationScope === undefined ? undefined : scopes.activation(creationScope);
+    const owner = scope === scopes.empty ? undefined : locationOwner(subject);
+    const bound = owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
+    const selected = scopes.activation(symbolicOnly(bound) ? scopes.empty : bound);
     return selected === undefined ? undefined : Object.freeze({ ...selected, key: `${scopes.identity(subject)}:${selected.key}` });
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(temporary => {
