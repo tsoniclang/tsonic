@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageClosedOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/model/types.js";
-import { Node_Expression, sourceEnclosingCallable } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, sourceEnclosingCallable } from "../../source-navigation/index.js";
 import { createSourceErrorInvalidationQuery, createSourceErrorLocalInvalidationQuery } from "./error-invalidation.js";
 import type { SourceErrorCheckedValue, SourceErrorConstruction, SourceErrorDeclarationProtocol, SourceErrorDeclarationQueries,
   SourceErrorDeclarationSelection, SourceErrorDeclaredSlot, SourceErrorFieldUse, SourceErrorMutation, SourceErrorParameterUse,
@@ -13,12 +13,15 @@ export function createSourceErrorDeclarationQuery(
   protocol: SourceErrorDeclarationProtocol,
 ): SourceErrorDeclarationQueries {
   const { ast, navigation, semantics } = source;
-  const domain = new Set(navigation.nodes);
+  const domain = new Set(navigation.nodesForFiles(source.sourceFiles.filter(semantics.includes)));
   const fields = new Map<Node, SourceErrorDeclaredSlot>();
   const constructors = new Map<Node, SourceErrorDeclaredSlot>();
   const mutators = new Map<Node, SourceErrorScalarSlot[]>();
   let failure: string | undefined;
-  const owns = (node: Node): boolean => domain.has(node) && semantics.includes(ast.getSourceFile(node));
+  const owns = (node: Node): boolean => {
+    const file = domain.has(node) ? ast.getSourceFile(node) : undefined;
+    return file !== undefined && semantics.includes(file);
+  };
   const rejected = (reason: string) => Object.freeze({ kind: "unresolved" as const, reason });
   const absent = Object.freeze({ kind: "not-applicable" as const });
   const selected = <Value>(value: Value): SourceErrorDeclarationSelection<Value> => Object.freeze({ kind: "resolved", value });
@@ -64,9 +67,11 @@ export function createSourceErrorDeclarationQuery(
   }
   const checkedValue = (node: Node): SourceErrorCheckedValue | undefined => {
     if (!owns(node)) return undefined;
-    const selectedType = semantics.forNode(node).types.expressionType(node);
+    const queries = semantics.forNode(node);
+    const selectedType = ast.is.IsParameterDeclaration(node)
+      ? queries.declarations.declaredValueType(node) : queries.types.expressionType(node);
     if (selectedType === undefined) return undefined;
-    const declaration = navigation.sourceReferenceFor(node)?.declaration;
+    const declaration = ast.is.IsParameterDeclaration(node) ? node : navigation.sourceReferenceFor(node)?.declaration;
     return Object.freeze({ node, component: Object.freeze({ selectedType,
       ...(declaration === undefined ? {} : { declaration }) }) });
   };
@@ -156,7 +161,7 @@ export function createSourceErrorDeclarationQuery(
         const field = parent === undefined ? absent : fieldFor(parent);
         if (field.kind === "resolved" && field.value.receiver.node === expression && field.value.accessMode === "read") continue;
         if (depth === 0 && parent !== undefined && ast.is.IsVariableDeclaration(parent) &&
-            ast.variableDeclarationKind(parent) === "const" && ast.initializer(parent) === expression && observes(parent, 1)) continue;
+            ast.variableDeclarationKind(parent) === "const" && Node_Initializer(ast, parent) === expression && observes(parent, 1)) continue;
         const use = navigation.declarationUses(binding).find(use => use.reference === reference);
         if (use?.role === "type-only" || use?.role === "comparison" || use?.role === "condition") continue;
         return false;
