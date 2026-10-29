@@ -50,8 +50,6 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/target-model/records/native/native-declaration-forms.ts", symbol: "RustNativeDeclarationForms.get" },
       { file: "src/target-model/records/objects/class-values.ts", symbol: "RustClassValuePlan.forDeclaration" },
       { file: "src/target-model/records/objects/class-values.ts", symbol: "RustClassValuePlan.viewFor" },
-      { file: "src/target-model/records/storage/frozen-data.ts", symbol: "RustFrozenDataWritePlan.capturesFieldIdentity" },
-      { file: "src/target-model/records/storage/frozen-data.ts", symbol: "RustFrozenDataWritePlan.receiverForDeclaration" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forExpression" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forIteration" },
       { file: "src/analysis/storage/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forStatement" },
