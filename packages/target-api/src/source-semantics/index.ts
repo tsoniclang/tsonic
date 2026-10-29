@@ -92,7 +92,7 @@ export { selectedSourcePropertyDeclarations } from "./selected-property-declarat
 export { selectedSourceIndexedDeclarations } from "./selected-indexed-declarations.js";
 export { sourceObjectLiteralDestinationMember } from "./object-literal-correspondence.js";
 export { sourceTypeIsAuthoredEmptyObject } from "./empty-object-evidence.js";
-export type { SourceNativeGuard, SourceValueFlowQueryContext } from "../target-analysis/value-flow-conditions.js";
+export type { SourceNativeGuard, SourceValueFlowQueryContext, SourceGuardedValueProof, SourceGuardedValueSelection } from "../target-analysis/value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
 export { sourceNodeIsNativeUnreachable } from "../target-analysis/native-control-flow.js";
 export type { SourceNativeValueGuard } from "./native-value-guards.js";

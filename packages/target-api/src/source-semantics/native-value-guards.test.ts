@@ -53,11 +53,14 @@ function run(value: unknown, other: unknown): void {
   assert.equal(source.ast.text(nominal.sourceConstructor), "Selected");
   assert.equal(source.navigation.sourceReferenceFor(nominal.sourceConstructor)?.declaration, nominal.declaration);
   assert.equal(guards[guards.length - 1], undefined);
-  const select = (reference: Node) => selectSourceGuardedValueMembers(context, reference, ["string", "object", "function", "number"],
+  const select = (reference: Node) => {
+    const selected = selectSourceGuardedValueMembers(context, reference, ["string", "object", "function", "number"],
     expression => {
       const guard = selectSourceNativeValueGuard(context, expression);
       return guard?.kind === "typeof" ? { sourceOperand: guard.sourceOperand, predicate: guard } : undefined;
     }, (member, predicate) => (member === predicate.value) !== predicate.negated);
+    return selected?.kind === "resolved" ? selected.members : undefined;
+  };
   assert.deepEqual(reads.slice(0, 4).map(select), [["string"], ["string", "function", "number"], ["function"], ["string", "object", "function"]]);
   assert.equal(select(reads[5]!), undefined);
   assert.equal(select(reads[6]!), undefined);

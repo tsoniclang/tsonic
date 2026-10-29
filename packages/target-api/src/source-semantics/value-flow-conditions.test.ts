@@ -38,12 +38,43 @@ function fixture(body: string) {
     return call === undefined || argument === undefined || name !== "isArray" && name !== "isRecord"
       ? undefined : { sourceOperand: argument.expression, predicate: name === "isArray" ? "array" : "record" };
   };
-  const select = (members: readonly string[] = ["array", "record"], sourceFacts?: ReadonlySourceFactResolver) => reads.map(reference =>
+  const selections = (members: readonly string[] = ["array", "record"], sourceFacts?: ReadonlySourceFactResolver) => reads.map(reference =>
     selectSourceGuardedValueMembers({ ast: source.ast, navigation: source.navigation,
       sourceFacts: sourceFacts ?? source.sourceFacts, semanticsFor: node => source.semantics.forNode(node) },
     reference, members, guard, (member, predicate) => member === "unknown" ? undefined : member === predicate));
-  return { source, reads, calls, select, guard };
+  const select = (members?: readonly string[], sourceFacts?: ReadonlySourceFactResolver) =>
+    selections(members, sourceFacts).map(selected => selected?.kind === "resolved" ? selected.members : undefined);
+  return { source, reads, calls, select, selections, guard };
 }
+
+test("checked flow publishes the original guard, polarity and logical proof without inventing unknown paths", () => {
+  for (const [body, kind, assumed] of [
+    ["if (isArray(value)) observe(value);", "guard", true],
+    ["if (!isArray(value)) observe(value);", "guard", false],
+    ["if (isArray(value) && isRecord(value)) observe(value);", "all", undefined],
+    ["if (isArray(value) || isRecord(value)) observe(value);", "any", undefined],
+    ["if (isArray(value) && flag) observe(value);", "guard", true],
+  ] as const) {
+    const current = fixture(body);
+    const selected = current.selections(["unknown"])[0];
+    assert.equal(selected?.kind, "resolved", body);
+    if (selected?.kind !== "resolved") assert.fail("the checked proof is required");
+    assert.equal(selected.members[0], "unknown", "an unknown physical member is retained");
+    assert.equal(selected.proof.kind, kind, body);
+    assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.proof), true, "the published proof is immutable");
+    if (selected.proof.kind === "guard") {
+      assert.equal(selected.proof.assumed, assumed, "the original checked branch polarity is retained");
+      assert.equal(current.source.navigation.referenceFor(selected.proof.guard.sourceOperand)?.declaration ===
+        current.source.navigation.referenceFor(current.reads[0]!)?.declaration, true, "the guard and read have the same checked binding");
+      assert.equal(current.calls.includes(selected.proof.expression), true, "the proof retains the actual guard expression");
+    }
+  }
+  for (const body of [
+    "if (isArray(value) || flag) observe(value);",
+    "if (isArray(other)) observe(value);",
+    "if (isArray(value)) { value = other; observe(value); }",
+  ]) assert.equal(fixture(body).selections(["unknown"])[0], undefined, body);
+});
 
 test("native flow selection retains original members through branches, negation and early returns", () => {
   for (const body of [
@@ -134,6 +165,7 @@ test("native flow selection rejects mutable passing and address exposure through
 test("native flow selection rejects exhausted accounting without changing checked provenance", () => {
   const current = fixture(`if (isArray(value)) { ${"consume(value);".repeat(1_000)} observe(value); }`);
   assert.deepEqual(current.select(), [undefined]);
+  assert.equal(current.selections()[0]?.kind, "resource-exhausted", "resource exhaustion is not missing or invalid proof");
   const flow = current.source.semantics.forNode(current.reads[0]!).operations.flowConditions(current.reads[0]!);
   assert.ok(flow?.conditions.length === 1 && Object.isFrozen(flow));
 });

@@ -17,6 +17,14 @@ export interface SourceNativeGuard<Predicate> {
   readonly predicate: Predicate;
 }
 
+export type SourceGuardedValueProof<Predicate> =
+  | { readonly kind: "guard"; readonly expression: Node; readonly assumed: boolean; readonly guard: SourceNativeGuard<Predicate> }
+  | { readonly kind: "all" | "any"; readonly left: SourceGuardedValueProof<Predicate>; readonly right: SourceGuardedValueProof<Predicate> };
+
+export type SourceGuardedValueSelection<Member, Predicate> =
+  | { readonly kind: "resolved"; readonly members: readonly Member[]; readonly proof: SourceGuardedValueProof<Predicate> }
+  | { readonly kind: "resource-exhausted" };
+
 export function selectSourceNativeGuardResult<Member, Predicate>(
   context: SourceValueFlowQueryContext,
   expression: Node,
@@ -48,7 +56,9 @@ export function selectSourceNativeGuardResult<Member, Predicate>(
     if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand)) return undefined;
     const members = membersFor(guard.sourceOperand);
     if (members === undefined || members.length === 0) return undefined;
-    const selected = selectSourceGuardedValueMembers(context, guard.sourceOperand, members, selectGuard, testMember) ?? members;
+    const selection = selectSourceGuardedValueMembers(context, guard.sourceOperand, members, selectGuard, testMember);
+    if (selection?.kind === "resource-exhausted") return undefined;
+    const selected = selection?.members ?? members;
     if (selected.length === 0) return undefined;
     const results = selected.map(member => testMember(member, guard.predicate));
     const result = results.every(value => value === true) ? true
@@ -103,7 +113,7 @@ export function selectSourceGuardedTypeMembers<Predicate>(
   };
   const selected = selectSourceGuardedValueMembers(context, reference, members, selectGuard,
     (member, predicate) => test(member, predicate));
-  return remaining >= 0 && !cyclic ? selected : undefined;
+  return remaining >= 0 && !cyclic && selected?.kind === "resolved" ? selected.members : undefined;
 }
 
 export function selectSourceGuardedValueMembers<Member, Predicate>(
@@ -112,7 +122,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   members: readonly Member[],
   selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
   testMember: (member: Member, predicate: Predicate) => boolean | undefined,
-): readonly Member[] | undefined {
+): SourceGuardedValueSelection<Member, Predicate> | undefined {
   if (!context.ast.is.IsIdentifier(reference)) return undefined;
   const binding = context.navigation.referenceFor(reference);
   if (binding === undefined ||
@@ -124,12 +134,14 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   let remaining = 2_048;
   const enter = (): boolean => --remaining >= 0;
-  if (sourceBindingHasMutableExposure(context, summary, enter)) return undefined;
+  if (sourceBindingHasMutableExposure(context, summary, enter)) return remaining < 0 ? { kind: "resource-exhausted" } : undefined;
+  if (remaining < 0) return { kind: "resource-exhausted" };
   const flow = context.semanticsFor(reference).operations.flowConditions(reference);
   if (flow === undefined || flow.reference !== reference) return undefined;
   let selected = members;
-  let consulted = false;
-  const selectCondition = (expression: Node, assumed: boolean, values: readonly Member[]): readonly Member[] | undefined => {
+  let proof: SourceGuardedValueProof<Predicate> | undefined;
+  const selectCondition = (expression: Node, assumed: boolean, values: readonly Member[]):
+    Extract<SourceGuardedValueSelection<Member, Predicate>, { readonly kind: "resolved" }> | undefined => {
     if (!enter()) return undefined;
     if (context.ast.is.IsParenthesizedExpression(expression) || context.ast.is.IsSatisfiesExpression(expression) ||
       context.ast.is.IsNonNullExpression(expression)) {
@@ -148,27 +160,36 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
       const left = selectCondition(binary.Left, assumed, values);
       const right = selectCondition(binary.Right, assumed, values);
       const intersect = (operator === "KindAmpersandAmpersandToken") === assumed;
-      if (intersect) return left === undefined ? right : right === undefined ? left : left.filter(member => right.includes(member));
-      return left === undefined || right === undefined ? undefined : values.filter(member => left.includes(member) || right.includes(member));
+      if (intersect && (left === undefined || right === undefined)) return left ?? right;
+      if (left === undefined || right === undefined) return undefined;
+      return Object.freeze({ kind: "resolved", members: Object.freeze(intersect
+        ? left.members.filter(member => right.members.includes(member))
+        : values.filter(member => left.members.includes(member) || right.members.includes(member))),
+        proof: Object.freeze({ kind: intersect ? "all" : "any", left: left.proof, right: right.proof }) });
     }
     const guard = selectGuard(expression);
     if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand) ||
       context.navigation.referenceFor(guard.sourceOperand)?.declaration !== binding.declaration) return undefined;
-    return values.filter(member => {
+    const narrowed = values.filter(member => {
       const result = testMember(member, guard.predicate);
       return result === undefined || result === assumed;
     });
+    return Object.freeze({ kind: "resolved", members: Object.freeze(narrowed),
+      proof: Object.freeze({ kind: "guard", expression, assumed, guard: Object.freeze(guard) }) });
   };
   for (const condition of flow.conditions) {
-    if (!enter()) return undefined;
+    if (!enter()) return { kind: "resource-exhausted" };
     if (condition.assignments.some(assignment =>
       context.navigation.bindingWritesWithin(binding.symbol, assignment).length > 0)) continue;
-    if (capturedWrites && !sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter)) continue;
+    if (capturedWrites && !sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter)) {
+      if (remaining < 0) return { kind: "resource-exhausted" };
+      continue;
+    }
     const narrowed = selectCondition(condition.expression, condition.assumed, selected);
-    if (remaining < 0) return undefined;
+    if (remaining < 0) return { kind: "resource-exhausted" };
     if (narrowed === undefined) continue;
-    consulted = true;
-    selected = narrowed;
+    proof = proof === undefined ? narrowed.proof : Object.freeze({ kind: "all", left: proof, right: narrowed.proof });
+    selected = narrowed.members;
   }
-  return consulted ? Object.freeze([...selected]) : undefined;
+  return proof === undefined ? undefined : Object.freeze({ kind: "resolved", members: Object.freeze([...selected]), proof });
 }

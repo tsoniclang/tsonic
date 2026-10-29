@@ -34,10 +34,13 @@ function fixture(body: string) {
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
-  return reads.map(reference => selectSourceGuardedValueMembers(context, reference, ["string", "object", "absence"], expression => {
+  return reads.map(reference => {
+    const selected = selectSourceGuardedValueMembers(context, reference, ["string", "object", "absence"], expression => {
     const guard = selectSourceNativeValueGuard(context, expression);
     return guard?.kind === "literal" ? { sourceOperand: guard.sourceOperand, predicate: guard } : undefined;
-  }, (member, predicate) => member === predicate.category ? undefined : predicate.negated));
+    }, (member, predicate) => member === predicate.category ? undefined : predicate.negated);
+    return selected?.kind === "resolved" ? selected.members : undefined;
+  });
 }
 
 test("captured writes do not erase a stable immediate native literal guard", () => {

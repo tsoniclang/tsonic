@@ -132,7 +132,7 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       return undefined;
     });
     if (budget.failure() !== undefined || !retained.add(1 + predicates.size)) return undefined;
-    const plan = selected === undefined ? null : Object.freeze({ identity: plans.size, predicates: Object.freeze([...predicates]) });
+    const plan = selected?.kind !== "resolved" ? null : Object.freeze({ identity: plans.size, predicates: Object.freeze([...predicates]) });
     plans.set(reference, plan);
     return plan ?? undefined;
   });
@@ -152,7 +152,7 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       return result;
     });
     if (budget.failure() !== undefined || !retained.add(previous === undefined ? 2 : 1)) return undefined;
-    const admitted = selected === undefined ? null : selected.length === 0 ? false : unknown ? null : true;
+    const admitted = selected?.kind !== "resolved" ? null : selected.members.length === 0 ? false : unknown ? null : true;
     const values = previous ?? new Map<SourceStorageSubject, boolean | null>();
     values.set(owner, admitted);
     admissions.set(reference, values);
@@ -184,10 +184,11 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       let candidates: readonly GuardCandidate[] = possibilities;
       for (const reference of references) {
         if (!budget.step()) return undefined;
-        candidates = selectSourceGuardedValueMembers(context, reference, candidates, guardFor,
+        const selection = selectSourceGuardedValueMembers(context, reference, candidates, guardFor,
           (candidate, predicate) => predicate.kind === "absence" ? (candidate.kind === "absence") !== predicate.negated
             : candidate.kind === "absence" || candidate.declaration === undefined ? false
-              : classMatches(candidate.declaration, predicate.declaration)) ?? candidates;
+              : classMatches(candidate.declaration, predicate.declaration));
+        if (selection?.kind === "resolved") candidates = selection.members;
       }
       if (budget.failure() !== undefined || !retained.add(1 + (candidates.length === 0 ? 0 : references.length))) return undefined;
       const selected = candidates.length === 0 ? null : Object.freeze({ key, references: Object.freeze(references) });
