@@ -206,9 +206,10 @@ export function createSourceErrorDeclarationQuery(
       const queries = semantics.forNode(parameter);
       const properties = queries.types.propertyInfos(selectedSlot.slot.type);
       for (const node of ast.elements(pattern)) {
-        const element = node === undefined ? undefined : ast.as.AsBindingElement(node);
+        if (node === undefined || !ast.is.IsBindingElement(node)) return false;
+        const element = ast.as.AsBindingElement(node);
         const name = element?.PropertyName ?? element?.name;
-        if (node === undefined || element === undefined || name === undefined || element.DotDotDotToken !== undefined) return false;
+        if (element === undefined || name === undefined || element.DotDotDotToken !== undefined) return false;
         const computed = ast.is.IsComputedPropertyName(name) ? semantics.forNode(name).propertyNames.get(name) : undefined;
         const text = ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name) ? ast.text(name)
           : computed?.kind === "resolved" ? computed.name : undefined;
