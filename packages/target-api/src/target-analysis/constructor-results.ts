@@ -2,7 +2,8 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
 import { AsBinaryExpression, AsConditionalExpression, AsIfStatement, AsVariableStatement,
   AsVariableDeclarationList, Node_Expression, Node_Initializer, forEachSourceImmediateEvaluationChild,
-  isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceEnclosingCallable } from "../source-navigation/index.js";
+  isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceEnclosingCallable,
+  sourceReceiverOwner } from "../source-navigation/index.js";
 
 export interface SourceConstructorResultIssue {
   readonly code: "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED" | "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN";
@@ -59,7 +60,8 @@ export function analyzeSourceConstructorResults(
       ast.forEachChild(node, child => { if (child !== undefined) invalidateWrites(child, bindings); });
     };
     const expression = (node: Node, bindings: ConstructorBindings, inspectInitializer = true): ConstructorValue => {
-      if (ast.kindName(node) === "KindThisKeyword") return sourceEnclosingCallable(node, ast) === declaration ? "receiver" : "unknown";
+      if (ast.kindName(node) === "KindThisKeyword") return sourceReceiverOwner(node, ast, "lexical-capture") === declaration
+        ? "receiver" : "unknown";
       if (ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node) ||
         ast.is.IsSatisfiesExpression(node) || ast.is.IsNonNullExpression(node)) {
         const inner = Node_Expression(ast, node);
@@ -76,21 +78,21 @@ export function analyzeSourceConstructorResults(
       }
       const conditional = AsConditionalExpression(ast, node);
       if (conditional?.Condition !== undefined && conditional.WhenTrue !== undefined && conditional.WhenFalse !== undefined) {
-        if (expression(conditional.Condition, bindings) === "never") return "never";
+        if (expression(conditional.Condition, bindings, inspectInitializer) === "never") return "never";
         const yes = new Map(bindings), no = new Map(bindings);
-        const result = join(expression(conditional.WhenTrue, yes), expression(conditional.WhenFalse, no));
+        const result = join(expression(conditional.WhenTrue, yes, inspectInitializer), expression(conditional.WhenFalse, no, inspectInitializer));
         merge(bindings, yes, no);
         return result;
       }
       const binary = AsBinaryExpression(ast, node);
       if (binary?.Left !== undefined && binary.Right !== undefined) {
-        const left = expression(binary.Left, bindings);
+        const left = expression(binary.Left, bindings, inspectInitializer);
         if (left === "never") return "never";
         const operator = ast.operatorKindName(node);
         const optional = operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken" ||
           operator === "KindQuestionQuestionToken";
         const rightBindings = optional ? new Map(bindings) : bindings;
-        const value = expression(binary.Right, rightBindings);
+        const value = expression(binary.Right, rightBindings, inspectInitializer);
         if (optional) merge(bindings, bindings, rightBindings);
         if (optional) return join(left, value);
         if (value === "never") return "never";
@@ -104,7 +106,10 @@ export function analyzeSourceConstructorResults(
         return "unknown";
       }
       let never = false;
-      forEachSourceImmediateEvaluationChild(ast, node, child => { if (!never) never = expression(child, bindings) === "never"; });
+      forEachSourceImmediateEvaluationChild(ast, node, child => {
+        if (!never) never = ast.is.IsBlock(child) ? !statement(child, bindings, inspectInitializer)
+          : expression(child, bindings, inspectInitializer) === "never";
+      });
       if (never) return "never";
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
         for (const selected of deferredWrites) bindings.set(selected, "unknown");
@@ -115,17 +120,16 @@ export function analyzeSourceConstructorResults(
       const type = types.expressionType(node);
       return type !== undefined && types.isNever(type) ? "never" : "unknown";
     };
-    const statement = (node: Node, bindings: ConstructorBindings): boolean => {
+    const statement = (node: Node, bindings: ConstructorBindings, inspectInitializer = true): boolean => {
       if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-        expression(node, bindings);
-        return true;
+        return expression(node, bindings, inspectInitializer) !== "never";
       }
       if (isSourceCallableBodyBoundary(ast, node)) return true;
       if (ast.is.IsBlock(node)) {
-        for (const child of ast.statements(node)) if (child !== undefined && !statement(child, bindings)) return false;
+        for (const child of ast.statements(node)) if (child !== undefined && !statement(child, bindings, inspectInitializer)) return false;
       } else if (ast.is.IsReturnStatement(node)) {
         const returned = Node_Expression(ast, node);
-        const value = returned === undefined ? "receiver" : expression(returned, bindings);
+        const value = returned === undefined ? "receiver" : expression(returned, bindings, inspectInitializer);
         if (value === "substitute" || value === "unknown") issues.push(Object.freeze({
           code: value === "substitute" ? "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED" : "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN",
           category: "error", source: "tsonic", sourceNode: returned,
@@ -140,25 +144,25 @@ export function analyzeSourceConstructorResults(
         for (const selected of AsVariableDeclarationList(ast, list)?.Declarations?.Nodes ?? []) {
           if (selected === undefined) continue;
           const initializer = Node_Initializer(ast, selected);
-          const value = initializer === undefined ? "unknown" : expression(initializer, bindings);
+          const value = initializer === undefined ? "unknown" : expression(initializer, bindings, inspectInitializer);
           if (value === "never") return false;
           bindings.set(selected, value);
         }
       } else if (ast.is.IsExpressionStatement(node)) {
         const selected = Node_Expression(ast, node);
-        if (selected !== undefined && expression(selected, bindings) === "never") return false;
+        if (selected !== undefined && expression(selected, bindings, inspectInitializer) === "never") return false;
       } else if (ast.is.IsIfStatement(node)) {
         const selected = AsIfStatement(ast, node)!;
-        if (selected.Expression !== undefined && expression(selected.Expression, bindings) === "never") return false;
+        if (selected.Expression !== undefined && expression(selected.Expression, bindings, inspectInitializer) === "never") return false;
         const yes = new Map(bindings), no = new Map(bindings);
-        const yesContinues = selected.ThenStatement === undefined || statement(selected.ThenStatement, yes);
-        const noContinues = selected.ElseStatement === undefined || statement(selected.ElseStatement, no);
+        const yesContinues = selected.ThenStatement === undefined || statement(selected.ThenStatement, yes, inspectInitializer);
+        const noContinues = selected.ElseStatement === undefined || statement(selected.ElseStatement, no, inspectInitializer);
         if (yesContinues && noContinues) merge(bindings, yes, no);
         else if (yesContinues || noContinues) merge(bindings, yesContinues ? yes : no, yesContinues ? yes : no);
         else return false;
       } else {
         invalidateWrites(node, bindings);
-        forEachSourceImmediateEvaluationChild(ast, node, child => { statement(child, new Map(bindings)); });
+        forEachSourceImmediateEvaluationChild(ast, node, child => { statement(child, new Map(bindings), inspectInitializer); });
       }
       return true;
     };
