@@ -142,3 +142,31 @@ test("constructor locality does not confuse a nested static receiver with this",
   assert.equal(issues[0].sourceNode === source.ast.as.AsReturnStatement(returned).Expression, true,
     "The diagnostic remains on the original constructor return.");
 });
+
+for (const [name, setup, effect] of [
+  ["getter", "class Trigger { get value(): number { replace(); return 1; } } const trigger = new Trigger();", "trigger.value;"],
+  ["setter", "class Trigger { set value(value: number) { replace(); } } const trigger = new Trigger();", "trigger.value = 1;"],
+  ["try region", "", "try { replace(); } finally {}"],
+  ["iteration region", "", "for (const item of [1]) { replace(); }"],
+]) {
+  test(`constructor locality invalidates deferred alias writes at a ${name} effect boundary`, () => {
+    const { source, nodes } = constructorResultFixture(`
+      class Owner { value = 1; constructor() {
+        let self: Owner = this;
+        const replace = () => { self = { value: 2 }; };
+        ${setup}
+        self = this;
+        ${effect}
+        return self;
+      } }
+    `);
+    const returned = nodes.find(node => source.ast.is.IsReturnStatement(node) &&
+      source.ast.is.IsIdentifier(source.ast.as.AsReturnStatement(node).Expression) &&
+      source.ast.text(source.ast.as.AsReturnStatement(node).Expression) === "self");
+    const issues = analyzeSourceConstructorResults(source);
+    assert.equal(issues.length, 1, `${name}: a possible callback cannot leave a stale receiver fact.`);
+    assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", `${name}: no nested invocation is replayed as identity proof.`);
+    assert.equal(issues[0].sourceNode === source.ast.as.AsReturnStatement(returned).Expression, true,
+      `${name}: the actual alias return owns the local diagnostic.`);
+  });
+}
