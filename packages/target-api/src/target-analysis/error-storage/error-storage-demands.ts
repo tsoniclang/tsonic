@@ -26,7 +26,7 @@ export function createSourceErrorDeclarationQuery(
   const absent = Object.freeze({ kind: "not-applicable" as const });
   const selected = <Value>(value: Value): SourceErrorDeclarationSelection<Value> => Object.freeze({ kind: "resolved", value });
   const validate = (slot: SourceErrorDeclaredSlot, construction: boolean): boolean => {
-    if (slot === undefined || !owns(slot.declaration) || slot.component?.declaration !== slot.declaration) return false;
+    if (slot === undefined || slot === null || !owns(slot.declaration) || slot.component?.declaration !== slot.declaration) return false;
     const queries = semantics.forNode(slot.declaration);
     const type = construction ? queries.types.declarationSignatureInfo(slot.declaration)?.returnType
       : queries.declarations.declaredValueType(slot.declaration);
@@ -50,7 +50,7 @@ export function createSourceErrorDeclarationQuery(
     install(protocol.constructors, constructors, true);
     for (const slot of protocol.scalarMutators) {
       const slots = mutators.get(slot?.signatureDeclaration) ?? [];
-      const parameter = slot !== undefined && owns(slot.signatureDeclaration) && Number.isSafeInteger(slot.parameterIndex) &&
+      const parameter = slot !== undefined && slot !== null && owns(slot.signatureDeclaration) && Number.isSafeInteger(slot.parameterIndex) &&
           slot.parameterIndex >= 0 ? ast.parameters(slot.signatureDeclaration)[slot.parameterIndex] : undefined;
       if (parameter === undefined || parameter !== slot.parameterDeclaration || !ast.is.IsParameterDeclaration(parameter) ||
           ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined ||
@@ -131,7 +131,8 @@ export function createSourceErrorDeclarationQuery(
         ? call.sourceArguments[binding.sourceArgumentIndex] : undefined;
       const parameter = call.sourceSelectedSignatureParameters[slot.parameterIndex];
       const checked = argument === undefined ? undefined : checkedValue(argument.expression);
-      if (checked === undefined || parameter?.parameterDeclaration !== slot.parameterDeclaration || parameter.rest === true)
+      if (checked === undefined || parameter?.parameterDeclaration !== slot.parameterDeclaration || parameter.rest === true ||
+          parameter.selectedType === undefined)
         return rejected("An Error mutation requires its original selected signature, instantiated scalar slot and argument.");
       mutations.push(Object.freeze({ kind: "scalar", scalar: Object.freeze({ node, selection: call,
         slot: Object.freeze({ ...slot, component: Object.freeze({ ...slot.component, selectedType: parameter.selectedType }) }),

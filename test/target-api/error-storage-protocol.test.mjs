@@ -171,7 +171,10 @@ test("checked Error protocols reject malformed, foreign, duplicate, missing and 
   const spreadParameter = current.source.ast.parameters(spread)[0];
   const invalid = [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER, 2].map(parameterIndex =>
     ({ ...current.protocol, scalarMutators: [{ ...slot, parameterIndex }] }));
-  invalid.push({ ...current.protocol, scalarMutators: foreign.protocol.scalarMutators },
+  invalid.push({ ...current.protocol, scalarMutators: [null] },
+    { ...current.protocol, fields: [null] },
+    { ...current.protocol, constructors: [null] },
+    { ...current.protocol, scalarMutators: foreign.protocol.scalarMutators },
     { ...current.protocol, scalarMutators: [slot, slot] },
     { ...current.protocol, scalarMutators: [{ ...slot, signatureDeclaration: spread,
       parameterDeclaration: spreadParameter, parameterIndex: 0, component: current.component(spreadParameter) }] },
