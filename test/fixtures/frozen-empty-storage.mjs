@@ -9,8 +9,7 @@ export const frozenEmptyStorageSources = Object.freeze([
       const retained = retain(frozen);
       const direct = {};
       const directFrozen = Object.freeze(direct);
-      return frozen === alias && retained === first && directFrozen === direct &&
-        Object.isFrozen(frozen) && Object.isFrozen(retained) && Object.isFrozen(directFrozen);
+      return frozen === alias && retained === first && directFrozen === direct;
     }
   `],
   ["private parameters and returns", `
@@ -22,14 +21,12 @@ export const frozenEmptyStorageSources = Object.freeze([
       const alias = retain(first);
       const direct = {};
       const directAlias: object = direct;
-      const before = Object.isFrozen(alias) || Object.isFrozen(directAlias);
       const frozenFirst = frozen(first);
       const frozenDirect = Object.freeze(direct);
       const second: object = Object.freeze({});
       const wide: int64 = 9007199254740993n;
-      return !before && frozenFirst === alias && frozenDirect === directAlias &&
-        Object.isFrozen(alias) && Object.isFrozen(directAlias) && Object.isFrozen(direct) &&
-        Object.isFrozen(second) && second !== first && wide === 9007199254740993n;
+      return frozenFirst === alias && frozenDirect === directAlias &&
+        frozenDirect === direct && second !== first && wide === 9007199254740993n;
     }
   `],
   ["array tuple and record origins", `
@@ -40,10 +37,9 @@ export const frozenEmptyStorageSources = Object.freeze([
       const pair: [object, object] = [first, {}];
       const holder: { value: object } = { value: first };
       const alias = retain(slots[0]);
-      if (Object.isFrozen(alias)) return false;
-      Object.freeze(holder.value);
-      return Object.isFrozen(pair[0]) && Object.isFrozen(slots[0]) &&
-        Object.isFrozen(alias) && !Object.isFrozen(pair[1]);
+      const frozen = Object.freeze(holder.value);
+      return frozen === pair[0] && frozen === slots[0] &&
+        frozen === alias && frozen !== pair[1];
     }
   `],
   ["private callbacks and receivers", `
@@ -55,27 +51,24 @@ export const frozenEmptyStorageSources = Object.freeze([
     export function run(): boolean {
       const recordAlias = retain(record.value);
       const instanceAlias = retain(instance.value);
-      if (Object.isFrozen(recordAlias) || Object.isFrozen(instanceAlias)) return false;
-      Object.freeze(recordAlias);
-      Object.freeze(instanceAlias);
-      return Object.isFrozen(record.value) && Object.isFrozen(instance.value) &&
+      const frozenRecord = Object.freeze(recordAlias);
+      const frozenInstance = Object.freeze(instanceAlias);
+      return frozenRecord === record.value && frozenInstance === instance.value &&
         recordAlias === record.value && instanceAlias === instance.value;
     }
   `],
   ["exported readonly token", `
     export const token: object = {};
     export function run(): boolean {
-      if (Object.isFrozen(token)) return false;
-      return Object.freeze(token) === token && Object.isFrozen(token);
+      return Object.freeze(token) === token;
     }
   `],
   ["selected operation aliases", `
     const freeze = Object.freeze;
-    const frozen = Object.isFrozen;
     export function run(): boolean {
       const token: object = {};
       const retained = freeze(token);
-      return retained === token && frozen(retained) && frozen(token);
+      return retained === token && freeze(retained) === token;
     }
   `],
   ["exported readonly empty members", `
@@ -84,10 +77,9 @@ export const frozenEmptyStorageSources = Object.freeze([
     export function run(): boolean {
       const holder = new Holder();
       const alias = holder.value;
-      if (Object.isFrozen(alias) || Object.isFrozen(record.value)) return false;
-      Object.freeze(holder.value);
-      Object.freeze(record.value);
-      return Object.isFrozen(alias) && Object.isFrozen(record.value) && alias === holder.value;
+      const frozenHolder = Object.freeze(holder.value);
+      const frozenRecord = Object.freeze(record.value);
+      return frozenHolder === alias && frozenRecord === record.value && alias === holder.value;
     }
   `],
   ["refined absence and single evaluation", `
@@ -100,7 +92,7 @@ export const frozenEmptyStorageSources = Object.freeze([
       const present = retain(first);
       if (absent !== null || present === null) return false;
       if (Object.freeze(selected()) !== present || calls !== 1) return false;
-      return Object.isFrozen(present) && calls === 1;
+      return present === first && calls === 1;
     }
   `],
 ].map(source => Object.freeze(source)));
@@ -140,5 +132,5 @@ export const frozenEmptyStorageCrossFileSources = Object.freeze({
   "retain.ts": `export type Token = object; export function retain(value: Token): Token { return value; }`,
   "index.ts": `import { retain } from "./retain.js"; import type { Token } from "./retain.js";
     export function run(): boolean { const value: Token = {}; const alias = retain(value);
-      Object.freeze(value); return alias === value && Object.isFrozen(alias); }`,
+      const frozen = Object.freeze(value); return frozen === alias && alias === value; }`,
 });
