@@ -197,7 +197,9 @@ test("checked Error invalidation stays in the current body and never infers disj
   const nodes = [];
   const visit = node => { nodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
   visit(body);
-  const readNode = nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) && source.ast.text(node) === "owner.message");
+  const readNode = nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+    source.ast.text(source.ast.as.AsPropertyAccessExpression(node).Expression) === "owner" &&
+    source.ast.text(source.ast.name(node)) === "message");
   const selected = query.fieldFor(readNode);
   assert.equal(selected.kind, "resolved", "the exact field read has checked receiver and member identity");
   const write = nodes.find(node => source.ast.is.IsBinaryExpression(node));
