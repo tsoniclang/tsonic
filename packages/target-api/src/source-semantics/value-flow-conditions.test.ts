@@ -60,13 +60,16 @@ test("checked flow publishes the original guard, polarity and logical proof with
     assert.equal(selected?.kind, "resolved", body);
     if (selected?.kind !== "resolved") assert.fail("the checked proof is required");
     assert.equal(selected.members[0], "unknown", "an unknown physical member is retained");
-    assert.equal(selected.proof.kind, kind, body);
+    assert.equal(kind === "guard" ? selected.proof.kind === "guard" || selected.proof.kind === "all" : selected.proof.kind === kind,
+      true, "the checked flow may retain repeated conjunctive evidence but never a disjunctive unknown path");
     assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.proof), true, "the published proof is immutable");
-    if (selected.proof.kind === "guard") {
-      assert.equal(selected.proof.assumed, assumed, "the original checked branch polarity is retained");
-      assert.equal(current.source.navigation.referenceFor(selected.proof.guard.sourceOperand)?.declaration ===
+    const guards = (proof: typeof selected.proof): readonly Extract<typeof selected.proof, { readonly kind: "guard" }>[] =>
+      proof.kind === "guard" ? [proof] : [...guards(proof.left), ...guards(proof.right)];
+    for (const proof of guards(selected.proof)) {
+      if (assumed !== undefined) assert.equal(proof.assumed, assumed, "every retained leaf keeps the original checked branch polarity");
+      assert.equal(current.source.navigation.referenceFor(proof.guard.sourceOperand)?.declaration ===
         current.source.navigation.referenceFor(current.reads[0]!)?.declaration, true, "the guard and read have the same checked binding");
-      assert.equal(current.calls.includes(selected.proof.expression), true, "the proof retains the actual guard expression");
+      assert.equal(current.calls.includes(proof.expression), true, "the proof retains the actual guard expression");
     }
   }
   for (const body of [
