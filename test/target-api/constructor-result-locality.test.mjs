@@ -170,3 +170,36 @@ for (const [name, setup, effect] of [
       `${name}: the actual alias return owns the local diagnostic.`);
   });
 }
+
+test("constructor locality invalidates destructured binding assignments", () => {
+  const { source, nodes } = constructorResultFixture(`
+    class Owner { value = 1; constructor() {
+      let self: Owner = this;
+      const incoming: { self: Owner } = { self: { value: 2 } };
+      ({ self } = incoming);
+      return self;
+    } }
+  `);
+  const returned = nodes.find(node => source.ast.is.IsReturnStatement(node));
+  const issues = analyzeSourceConstructorResults(source);
+  assert.equal(issues.length, 1, "Destructuring writes the binding rather than preserving an old receiver fact.");
+  assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "The declared member is not traced as a runtime object origin.");
+  assert.equal(issues[0].sourceNode === source.ast.as.AsReturnStatement(returned).Expression, true,
+    "The returned binding owns its local uncertainty.");
+});
+
+for (const [name, statements] of [
+  ["try receiver assignment", "try { self = this; } finally {}"],
+  ["loop receiver assignment", "for (const item of [1]) { self = this; }"],
+  ["immutable receiver assignment", "const receiver = this; try { self = receiver; } finally {}"],
+]) {
+  test(`constructor locality preserves invariant ${name}`, () => {
+    const { source } = constructorResultFixture(`class Owner { value = 1; constructor() {
+      let self: Owner = this;
+      ${statements}
+      return self;
+    } }`);
+    assert.equal(analyzeSourceConstructorResults(source).length, 0,
+      `${name}: assignments that can only preserve this receiver do not require global flow.`);
+  });
+}
