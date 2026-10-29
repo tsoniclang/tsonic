@@ -4,6 +4,7 @@ import { createSourceMemberImplementationNavigation } from "./member-implementat
 import { createSourceMemberContractNavigation } from "./member-contracts.js";
 import { createSourceCallableImplementationNavigation } from "./callable-implementation.js";
 import { sourceFileIdentity } from "./identity.js";
+import { createSourceNodeInventory } from "./node-inventory.js";
 import { createSourceHeritageNavigation } from "./heritage.js";
 import { createSourceClassConstructorNavigation } from "./constructors.js";
 import {
@@ -28,6 +29,7 @@ export function createSourceProgramNavigation(
   source: CheckedSourceProgram,
 ): SourceProgramNavigation {
   const sourceFiles = sourceProjectFiles(source);
+  const nodeInventory = createSourceNodeInventory(source, sourceFiles);
   const sourceFileSet = new Set(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
@@ -232,6 +234,8 @@ export function createSourceProgramNavigation(
 
   return Object.freeze({
     sourceFiles,
+    nodes: nodeInventory.nodes,
+    nodesForFiles: nodeInventory.nodesForFiles,
     referenceIndexStatistics: references.referenceIndexStatistics,
     sourceReferenceFor: references.sourceReferenceFor,
     referenceFor: references.referenceFor,
