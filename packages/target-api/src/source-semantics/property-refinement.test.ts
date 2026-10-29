@@ -164,7 +164,7 @@ test("readonly mapped class fields preserve exact inherited generic declarations
 
 test("checked accessor primary declarations follow their read, write and read-write roles", () => {
   const { source, selection } = readonlyFixture([
-    "class Value { private field = 1; get item(): number { return this.field; } set item(value: number) { this.field = value; } }",
+    "class Value { field = 1; get item(): number { return this.field; } set item(value: number) { this.field = value; } }",
     "function readonlyRead(value: Readonly<Value>) { return value.item; }",
     "function mutableWrite(value: Value) { value.item = 2; }",
     "function mutableReadWrite(value: Value) { value.item++; }",
@@ -196,12 +196,16 @@ test("canonical property publication preserves genuine ambiguity and mapped valu
   const { source, selection } = readonlyFixture([
     "interface Left { count: number; }",
     "interface Right { count: number; }",
+    "interface Readable { get count(): number; }",
+    "interface Writable { set count(value: number); }",
     "type Different<Value> = { readonly [Key in keyof Value]: boolean };",
     "function union(value: Left | Right) { return value.count; }",
     "function intersection(value: Left & Right) { return value.count; }",
+    "function separateUnion(value: Readonly<Readable | Writable>) { return value.count; }",
+    "function separateIntersection(value: Readonly<Readable & Writable>) { return value.count; }",
     "function changed(value: Different<Left>) { return value.count; }",
   ].join("\n"));
-  for (const name of ["union", "intersection"]) {
+  for (const name of ["union", "intersection", "separateUnion", "separateIntersection"]) {
     const { raw, selected } = selection(name);
     assert.equal(selected.selectedDeclaration === undefined, true, name + " has no unique declaration");
     assert.equal(selected === raw, true, name + " ambiguity is not resolved by candidate order");

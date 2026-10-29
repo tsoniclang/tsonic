@@ -7,14 +7,28 @@ import type { SourceCallableTypeEvidence, SourceFinalTypeQueries, SourceFileSema
 interface StandardTypeTransformationContext {
   readonly ast: AstReader;
   readonly navigation: SourceProgramNavigation;
+  readonly semantics: SourceFileSemantics;
   semanticsFor(node: Node): SourceFileSemantics;
 }
 
 export function selectStandardSourceTypeTransformation(
   context: StandardTypeTransformationContext,
-  authoredTypeNode: Node,
+  authoredTypeNode: Node | undefined,
   selectedType: Type,
 ): SourceStandardTypeTransformation | undefined {
+  if (authoredTypeNode === undefined) {
+    const application = context.semantics.types.aliasApplication(selectedType);
+    if (application === undefined || !isCanonicalTypescriptUtilityDeclaration(context, application.declaration) ||
+      context.ast.text(context.ast.name(application.declaration)) !== "Readonly") return undefined;
+    const parameters = context.ast.typeParameters(application.declaration);
+    const binding = application.bindings[0];
+    return application.kind !== "direct" || application.bindings.length !== 1 || parameters.length !== 1 ||
+        binding === undefined || binding.declaration !== parameters[0] ||
+        context.ast.typeNode(application.declaration) !== application.typeNode ||
+        !context.semantics.types.isIdentical(application.result, selectedType) || binding.argument === selectedType
+      ? { kind: "unresolved" }
+      : Object.freeze({ kind: "component", component: Object.freeze({ selectedType: binding.argument }) });
+  }
   if (!context.ast.is.IsTypeReferenceNode(authoredTypeNode)) {
     return undefined;
   }

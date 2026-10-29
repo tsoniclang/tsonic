@@ -56,6 +56,9 @@ function fixture(canonicalUtilities = false) {
         type Mixed = [Exact, Floating];
         type Recursive = { next?: Recursive; value: word };
         type Fields = { first: word; second: word; optional?: word; ordinary: number };
+        type ChangedFields = { readonly [Key in keyof Fields]: boolean };
+        type RenamedFields = { readonly [Key in keyof Fields as "renamed"]: Fields[Key] };
+        type ReadonlyChanged = Readonly<ChangedFields>;
         type First = Fields["first"];
         type Several = Fields["first" | "second"];
         type Optional = Fields["optional"];
@@ -201,7 +204,29 @@ test("explicit and inferred readonly results retain the checker's same generic c
       application!.bindings[0]!.argument)!) === parameter, true, name + " input is this exact function's generic parameter");
     assert.equal(source.ast.typeNode(declaration) === undefined, name === "readonlyInferred",
       name + " retains authored versus inferred syntax provenance");
+    const transformation = semantics.types.standardTransformation(undefined, result);
+    assert.equal(transformation?.kind, "component", name + " has the canonical checked native view");
+    assert.equal(transformation?.kind === "component" &&
+      transformation.component.selectedType === application!.bindings[0]!.argument,
+    true, name + " selects the already-checked input binding without re-inference");
+    assert.equal(transformation?.kind === "component" && transformation.component.authoredTypeNode === undefined &&
+      transformation.component.declaration === undefined, true, name + " does not fabricate authored evidence");
   }
+});
+
+test("checked native readonly views never erase foreign utilities or mapped key and value transformations", () => {
+  const { semantics, alias, selected } = fixture(true);
+  for (const name of ["PartialFields", "RequiredFields", "PickedFields", "RecordedFields", "ChangedFields", "RenamedFields"]) {
+    assert.equal(semantics.types.standardTransformation(undefined, selected(name)), undefined,
+      name + " is not the canonical readonly input view");
+  }
+  const transformed = semantics.types.standardTransformation(alias("ReadonlyChanged"), selected("ReadonlyChanged"));
+  const changed = selected("ChangedFields");
+  assert.equal(transformed?.kind === "component" && semantics.types.isIdentical(transformed.component.selectedType, changed),
+    true, "a readonly view retains its changed mapped value payload, not the original fields");
+  const ordinary = fixture();
+  assert.equal(ordinary.semantics.types.standardTransformation(undefined, ordinary.selected("ReadonlyFields")),
+    undefined, "a foreign utility application cannot acquire canonical native identity");
 });
 
 test("canonical nullish removal retains its exact authored component", () => {

@@ -34,7 +34,13 @@ export function selectSourcePropertyDeclaration(
   const candidates = declarations.filter(declaration => role === "read"
     ? !ast.is.IsSetAccessorDeclaration(declaration)
     : !ast.is.IsGetAccessorDeclaration(declaration));
-  return candidates.length === 1 ? candidates[0] : undefined;
+  if (candidates.length !== 1) return undefined;
+  const declaration = candidates[0]!;
+  if (declarations.length > 1 && (!(role === "read"
+    ? ast.is.IsGetAccessorDeclaration(declaration) : ast.is.IsSetAccessorDeclaration(declaration)) ||
+    ast.parent(declaration) === undefined ||
+    declarations.some(candidate => ast.parent(candidate) !== ast.parent(declaration)))) return undefined;
+  return declaration;
 }
 
 export function normalizeSourcePropertyAccessDeclarations(
@@ -48,11 +54,13 @@ export function normalizeSourcePropertyAccessDeclarations(
     : !ast.is.IsGetAccessorDeclaration(selected.selectedDeclaration))) return selected;
   const declarations = selectedSourcePropertyDeclarations(semantics, undefined, selected.selectedSymbol);
   if (declarations === undefined) return selected;
-  const read = selected.accessMode === "write" ? undefined : selected.selectedReadDeclaration ??
+  const read = selected.accessMode === "write" ? undefined :
     selectSourcePropertyDeclaration(ast, declarations, "read");
   const write = selected.writable && (selected.accessMode === "write" || selected.accessMode === "read-write")
-    ? selected.selectedWriteDeclaration ?? selectSourcePropertyDeclaration(ast, declarations, "write")
+    ? selectSourcePropertyDeclaration(ast, declarations, "write")
     : undefined;
+  if (selected.selectedReadDeclaration !== undefined && selected.selectedReadDeclaration !== read ||
+    selected.selectedWriteDeclaration !== undefined && selected.selectedWriteDeclaration !== write) return selected;
   const declaration = primaryRole === "write" ? write : read;
   return declaration === undefined ? selected : Object.freeze({
     ...selected,

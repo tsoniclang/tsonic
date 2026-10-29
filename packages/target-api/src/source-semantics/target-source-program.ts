@@ -260,9 +260,9 @@ export function createTargetSourceProgram(
           right,
         );
       },
-      standardTransformation(authoredTypeNode: Node, selectedType: Type) {
+      standardTransformation(authoredTypeNode: Node | undefined, selectedType: Type) {
         return selectStandardSourceTypeTransformation(
-          { ast: source.ast, navigation, semanticsFor: forNode },
+          { ast: source.ast, navigation, semantics, semanticsFor: forNode },
           authoredTypeNode,
           selectedType,
         );
