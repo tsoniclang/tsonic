@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../source-navigation/ast.js";
 import { fixture, propagatedDestinations } from './contextual-type-selection-fixtures.js';
 
@@ -83,3 +84,38 @@ export const value = { [key]: 7 };
     entry.selection.constant.token.coefficient === 9007199254740994n, true,
   "the same canonical key owner retains the actual exact numeric token without a 53-bit cap or Number reconstruction");
 });
+
+for (const [name, declaration, invocation, explicit] of [
+  ["concrete callback", "declare function apply(callback: () => number): number;", "apply(() => 1);", false],
+  ["inferred generic callback", "declare function apply<Value>(callback: () => Value): Value;", "apply(() => 1);", false],
+  ["explicit generic callback", "declare function apply<Value>(callback: () => Value): Value;", "apply<number>(() => 1);", true],
+  ["parenthesized explicit callback", "declare function apply<Value>(callback: () => Value): Value;", "apply<number>(((() => 1)));", true],
+] as const) {
+  test(`contextual ${name} retains its exact checked invocation provenance`, () => {
+    const { source, file } = fixture(`const sentinel = {}; ${declaration} ${invocation}`);
+    const arrows: Node[] = [];
+    const calls: Node[] = [];
+    const visit = (node: Node): void => {
+      if (source.ast.is.IsArrowFunction(node)) arrows.push(node);
+      if (source.ast.is.IsCallExpression(node)) calls.push(node);
+      source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    };
+    visit(file);
+    assert.equal(arrows.length === 1 && calls.length === 1, true, "one actual callback belongs to one checked invocation");
+    const semantics = source.semantics.forNode(arrows[0]!);
+    const component = semantics.types.contextualType(arrows[0]!);
+    const call = semantics.operations.call(calls[0]!);
+    assert.equal(component !== undefined && call !== undefined, true, "the checked context and selected invocation both exist");
+    assert.equal(component !== undefined && "contextualCall" in component && component.contextualCall === call, true,
+      "the shared contextual producer retains the original selected signature and argument bindings, not a guessed authored flag");
+    assert.equal(component?.authoredTypeNode === undefined && component?.declaration === undefined, true,
+      "a callback argument does not manufacture a variable annotation owner");
+    assert.equal(call?.sourceSelectedSignatureKind, "resolved", "the final checked signature is authoritative");
+    assert.equal(call?.sourceArgumentBindings.length, 1, "the exact direct argument has one checked parameter binding");
+    const parameter = call?.sourceSelectedSignatureParameters[call.sourceArgumentBindings[0]!.sourceParameterIndex];
+    assert.equal(parameter?.parameterDeclaration !== undefined && parameter.authoredTypeNode !== undefined, true,
+      "the real declared callback parameter and its type node remain available");
+    assert.equal(call?.sourceSelectedMethodTypeArguments?.some(argument => argument.explicitTypeNode !== undefined) === true, explicit,
+      "authored generic arguments remain distinguishable from inferred substitutions");
+  });
+}
