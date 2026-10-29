@@ -38,7 +38,6 @@ export function createSourceErrorLocalInvalidationQuery(
         if (mutations.value.some(mutation => mutation.kind === "field"
           ? mutation.field.memberDeclaration === read.memberDeclaration
           : mutation.scalar.slot.fields.includes(read.memberDeclaration))) return Object.freeze({ kind: "invalidated", at: node });
-        if (ast.is.IsCallExpression(node)) continue;
       }
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) return Object.freeze({ kind: "invalidated", at: node });
       if (ast.is.IsPropertyAccessExpression(node)) {
