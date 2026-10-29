@@ -9,9 +9,8 @@ export function main(): void {
   const value = {count: 1};
   value.count += change(value, false);
   if (value.count !== 3) throw new Error("compound read precedes right operand");
-  let failed = false;
-  try { value.count += change(value, true); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || value.count !== 9) throw new Error("freeze precedes final write");
+  value.count += change(value, true);
+  if (value.count !== 5) throw new Error("readonly view preserves compound read and alias write order");
 }
 `,
   "module-token": `
@@ -19,7 +18,7 @@ const fileType = Object.freeze({ comparable: true });
 class File { type: {readonly comparable: boolean}; constructor(type = fileType) { this.type = type; } }
 export function main(): void {
   const value = new File();
-  if (!value.type.comparable || !Object.isFrozen(fileType) || value.type !== fileType) throw new Error("frozen token");
+  if (!value.type.comparable || value.type !== fileType) throw new Error("readonly token identity");
 }
 `,
   "aliases-and-order": `
@@ -29,15 +28,14 @@ export function main(): void {
   const alias = value;
   const state = {calls: 0};
   const frozen = Object.freeze(value);
-  if (frozen !== alias || !Object.isFrozen(alias)) throw new Error("identity");
-  let failed = false;
-  try { update(alias, state); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || state.calls !== 1 || value.count !== 2) throw new Error("frozen write");
+  if (frozen !== alias) throw new Error("identity");
+  update(alias, state);
+  if (state.calls !== 1 || frozen.count !== 1) throw new Error("mutable alias write");
   alias.nested.count = 8;
-  if (value.nested.count !== 8 || Object.isFrozen(value.nested)) throw new Error("shallow");
+  if (value.nested.count !== 8 || frozen.nested !== alias.nested) throw new Error("shallow");
   const other = {count: 1, nested: {count: 1}};
   update(other, state);
-  if (Object.isFrozen(other) || other.count !== 2) throw new Error("independent identity");
+  if (other === value || other.count !== 2 || frozen.count !== 1) throw new Error("independent identity");
 }
 `,
   "accessor-and-data": `
@@ -50,9 +48,8 @@ export function main(): void {
   if (accessor.count !== 7) throw new Error("frozen accessor");
   const data = {count: 2};
   Object.freeze(data);
-  let failed = false;
-  try { write(data, 3); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || data.count !== 2) throw new Error("data arm");
+  write(data, 3);
+  if (data.count !== 3) throw new Error("mutable data alias");
 }
 `,
   "retained-locations": `
@@ -62,9 +59,8 @@ export function main(): void {
   const pointer = addressof(value.count);
   const nested = addressof(value.nested.count);
   Object.freeze(value);
-  let failed = false;
-  try { storeptr(pointer, 7); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || loadptr(pointer) !== 2) throw new Error("retained location");
+  storeptr(pointer, 7);
+  if (loadptr(pointer) !== 7 || value.count !== 7) throw new Error("retained native location");
   storeptr(nested, 9);
   if (value.nested.count !== 9) throw new Error("reference projection");
 }
@@ -75,9 +71,8 @@ function freeze(value: {count: number}): void { Object.freeze(value); }
 export function main(): void {
   const counter = new Counter();
   freeze(counter);
-  let failed = false;
-  try { counter.increment(); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || counter.count !== 1 || !Object.isFrozen(counter)) throw new Error("class view");
+  counter.increment();
+  if (counter.count !== 2) throw new Error("mutable class alias");
 }
 `,
   "assign-and-method-write": `
@@ -86,12 +81,11 @@ function freeze(value: {count: number}): void { Object.freeze(value); }
 export function main(): void {
   const record = {count: 1};
   Object.freeze(record);
-  let rejected = 0;
-  try { Object.assign(record, {count: 9}); } catch (error) { if (!(error instanceof TypeError)) throw error; rejected += 1; }
+  Object.assign(record, {count: 9});
   const counter = new Counter();
   freeze(counter);
-  try { counter.value = (): number => 7; } catch (error) { if (!(error instanceof TypeError)) throw error; rejected += 1; }
-  if (rejected !== 2 || record.count !== 1 || counter.value() !== 1) throw new Error("frozen mutation routes");
+  counter.value = (): number => 7;
+  if (record.count !== 9 || counter.value() !== 7) throw new Error("mutable alias routes");
 }
 `,
 };

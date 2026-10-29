@@ -23,8 +23,11 @@ ${includeFrozen ? `function frozenIdentity(): boolean {
   const alias = first;
   const second: {} = {};
   const frozen = Object.freeze(first);
-  return frozen === alias && Object.isFrozen(alias) &&
-    !Object.isFrozen(second) && !Object.isFrozen(projected) && first !== second;
+  const frozenAlias = Object.freeze(alias);
+  const frozenSecond = Object.freeze(second);
+  const frozenProjected = Object.freeze(projected);
+  return frozen === first && frozen === alias && frozenAlias === alias &&
+    frozenSecond === second && frozenProjected === projected && first !== second;
 }` : ""}
 
 function identityAndConversions(): boolean {

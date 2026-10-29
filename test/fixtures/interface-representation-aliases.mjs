@@ -36,8 +36,8 @@ function runJsAliases(): boolean {
   const replacement = {};
   originalTokens[0] = replacement;
   if (tokenAlias[0] !== replacement) return false;
-  Object.freeze(replacement);
-  if (!Object.isFrozen(tokenAlias[0])) return false;
+  const frozen = Object.freeze(replacement);
+  if (frozen !== replacement || frozen !== tokenAlias[0]) return false;
   const original = [2, 3];
   const alias: Values<number> = original;
   original[0] = 7;

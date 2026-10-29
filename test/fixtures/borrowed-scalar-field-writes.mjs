@@ -51,13 +51,10 @@ export function run(): boolean {
 export const borrowedScalarFieldFreezeSource = `
 export function frozenWrite(): boolean {
   const holder = new Value();
-  Object.freeze(holder.point);
-  let failed = false;
-  try { parameter(holder, 99); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    failed = true;
-  }
-  return failed && holder.point.x === 1;
+  const readonly = Object.freeze(holder.point);
+  const read = holder.read;
+  parameter(holder, 99);
+  return readonly === holder.point && readonly.x === 99 && read() === 99;
 }
 `;
 

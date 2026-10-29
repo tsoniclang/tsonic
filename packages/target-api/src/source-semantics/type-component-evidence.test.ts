@@ -43,6 +43,12 @@ function fixture(canonicalUtilities = false) {
         type RequiredObject = Required<BroadObject>;
         type ReadonlyFields = Readonly<{ value: number }>;
         type ReadonlyEmpty = Readonly<{}>;
+        type ReadonlyGeneric<Value extends object> = Readonly<Value>;
+        type ReadonlyNative = Readonly<DerivedStore<word>>;
+        type PartialFields = Partial<{ value: number }>;
+        type RequiredFields = Required<{ value?: number }>;
+        type PickedFields = Pick<{ value: number; other: string }, "value">;
+        type RecordedFields = Record<"value", number>;
         type Wide = bigint;
         type Callable = (first: Floating, second: Wide) => string;
         type Indirect = Callable;
@@ -50,6 +56,9 @@ function fixture(canonicalUtilities = false) {
         type Mixed = [Exact, Floating];
         type Recursive = { next?: Recursive; value: word };
         type Fields = { first: word; second: word; optional?: word; ordinary: number };
+        type ChangedFields = { readonly [Key in keyof Fields]: boolean };
+        type RenamedFields = { readonly [Key in keyof Fields as "renamed"]: Fields[Key] };
+        type ReadonlyChanged = Readonly<ChangedFields>;
         type First = Fields["first"];
         type Several = Fields["first" | "second"];
         type Optional = Fields["optional"];
@@ -85,6 +94,9 @@ function fixture(canonicalUtilities = false) {
         function nullable<Value>(value: Value): Value | null | undefined { return value; }
         function mixed<Value>(value: Value): string | Value | undefined { return value; }
         function duplicate<Value>(value: Value): string | Value { return value; }
+        declare function readonlyInput<Value>(value: Value): Readonly<Value>;
+        function readonlyExplicit<Value extends object>(value: Value): Readonly<Value> { return readonlyInput(value); }
+        function readonlyInferred<Value extends object>(value: Value) { return readonlyInput(value); }
       `,
     },
     compilerOptions: { strict: true, noLib: canonicalUtilities, target: "es2022", module: "esnext", moduleResolution: "bundler" },
@@ -117,7 +129,7 @@ function fixture(canonicalUtilities = false) {
     assert.ok(type);
     return type;
   };
-  return { source, semantics, alias, selected };
+  return { source, semantics, alias, selected, file };
 }
 
 test("transformed components retain ordinary keyword evidence through exact aliases", () => {
@@ -130,7 +142,7 @@ test("transformed components retain ordinary keyword evidence through exact alia
 });
 
 test("homomorphic utilities preserve exact intrinsic object components without empty structural carriers", () => {
-  const { semantics, alias, selected } = fixture(true);
+  const { source, semantics, alias, selected } = fixture(true);
   for (const name of ["ReadonlyObject", "PartialObject", "RequiredObject"]) {
     const transformation = semantics.types.standardTransformation(alias(name), selected(name));
     assert.equal(transformation?.kind, "component", name);
@@ -141,9 +153,80 @@ test("homomorphic utilities preserve exact intrinsic object components without e
     assert.equal(Object.isFrozen(transformation.component), true, name);
   }
   for (const name of ["ReadonlyFields", "ReadonlyEmpty"]) {
-    assert.equal(semantics.types.standardTransformation(alias(name), selected(name))?.kind, "structural", name);
+    const transformation = semantics.types.standardTransformation(alias(name), selected(name));
+    assert.equal(transformation?.kind, "component", name + " is a native readonly view");
+    assert.equal(transformation?.kind === "component" && transformation.component.authoredTypeNode ===
+      source.ast.typeArguments(alias(name))[0], true, name + " retains its exact checked input syntax");
     assert.equal(semantics.types.isNonPrimitive(selected(name)), false, name);
   }
+});
+
+test("canonical readonly views retain generic and native components without changing other utilities", () => {
+  const { source, semantics, alias, selected } = fixture(true);
+  for (const name of ["ReadonlyGeneric", "ReadonlyNative", "ReadonlyFields", "ReadonlyEmpty"]) {
+    const node = alias(name);
+    const input = source.ast.typeArguments(node)[0];
+    assert.ok(input !== undefined, name + " has one authored input");
+    const inputType = semantics.types.authoredType(input);
+    const transformation = semantics.types.standardTransformation(node, selected(name));
+    assert.equal(transformation?.kind, "component", name + " selects its native input component");
+    assert.equal(transformation?.kind === "component" && transformation.component.selectedType === inputType &&
+      transformation.component.authoredTypeNode === input, true, name + " retains exact checked identity and generic evidence");
+    assert.equal(Object.isFrozen(transformation) && transformation?.kind === "component" &&
+      Object.isFrozen(transformation.component), true, name + " immutable component");
+    assert.equal(semantics.types.standardTransformation(node, selected("TextArray"))?.kind, "unresolved",
+      name + " rejects unrelated selected evidence");
+  }
+  for (const name of ["PartialFields", "RequiredFields", "PickedFields", "RecordedFields"]) {
+    assert.equal(semantics.types.standardTransformation(alias(name), selected(name))?.kind, "structural",
+      name + " does not acquire readonly identity semantics");
+  }
+  const ordinary = fixture();
+  assert.equal(ordinary.semantics.types.standardTransformation(ordinary.alias("ReadonlyFields"),
+    ordinary.selected("ReadonlyFields")), undefined, "an independently supplied utility declaration is not canonical");
+});
+
+test("explicit and inferred readonly results retain the checker's same generic component without invented syntax", () => {
+  const { source, semantics, file } = fixture(true);
+  for (const name of ["readonlyExplicit", "readonlyInferred"]) {
+    const declaration = source.ast.statements(file).find(node => node !== undefined &&
+      source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+    assert.ok(declaration !== undefined, name + " has a checked function declaration");
+    const signature = semantics.declarations.declarationSignature(declaration);
+    assert.ok(signature !== undefined, name + " has a checked signature");
+    const result = semantics.types.returnType(signature);
+    assert.ok(result !== undefined, name + " has a checked return type");
+    const application = semantics.types.aliasApplication(result);
+    assert.equal(application?.bindings.length, 1, name + " retains its mapped utility input binding");
+    const parameter = source.ast.typeParameters(declaration)[0];
+    assert.ok(parameter !== undefined, name + " has its authored generic parameter");
+    assert.equal(semantics.declarations.primarySymbolDeclaration(semantics.declarations.typeSymbol(
+      application!.bindings[0]!.argument)!) === parameter, true, name + " input is this exact function's generic parameter");
+    assert.equal(source.ast.typeNode(declaration) === undefined, name === "readonlyInferred",
+      name + " retains authored versus inferred syntax provenance");
+    const transformation = semantics.types.standardTransformation(undefined, result);
+    assert.equal(transformation?.kind, "component", name + " has the canonical checked native view");
+    assert.equal(transformation?.kind === "component" &&
+      transformation.component.selectedType === application!.bindings[0]!.argument,
+    true, name + " selects the already-checked input binding without re-inference");
+    assert.equal(transformation?.kind === "component" && transformation.component.authoredTypeNode === undefined &&
+      transformation.component.declaration === undefined, true, name + " does not fabricate authored evidence");
+  }
+});
+
+test("checked native readonly views never erase foreign utilities or mapped key and value transformations", () => {
+  const { semantics, alias, selected } = fixture(true);
+  for (const name of ["PartialFields", "RequiredFields", "PickedFields", "RecordedFields", "ChangedFields", "RenamedFields"]) {
+    assert.equal(semantics.types.standardTransformation(undefined, selected(name)), undefined,
+      name + " is not the canonical readonly input view");
+  }
+  const transformed = semantics.types.standardTransformation(alias("ReadonlyChanged"), selected("ReadonlyChanged"));
+  const changed = selected("ChangedFields");
+  assert.equal(transformed?.kind === "component" && semantics.types.isIdentical(transformed.component.selectedType, changed),
+    true, "a readonly view retains its changed mapped value payload, not the original fields");
+  const ordinary = fixture();
+  assert.equal(ordinary.semantics.types.standardTransformation(undefined, ordinary.selected("ReadonlyFields")),
+    undefined, "a foreign utility application cannot acquire canonical native identity");
 });
 
 test("canonical nullish removal retains its exact authored component", () => {

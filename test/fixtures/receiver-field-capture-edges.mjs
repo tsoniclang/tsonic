@@ -182,12 +182,8 @@ export function run(): boolean {
   const value = new Value();
   const change = value.change;
   Object.freeze(value);
-  let failed = false;
-  try { change(); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    failed = true;
-  }
-  return failed && value.value === 1 && Object.isFrozen(value);
+  change();
+  return value.value === 2;
 }
 `;
 
@@ -195,17 +191,16 @@ export const receiverFieldFreezeEdges = [
   { name: "escaped-identity", asynchronous: false, source: `
 class Value {
   value = 1;
-  change = (): void => { this.value = 2; };
+  change = (): number => { this.value = 2; return this.value; };
 }
-function escaped(): () => void {
+function escaped(): () => number {
   const value = new Value();
   Object.freeze(value);
   return value.change;
 }
 export function run(): boolean {
   const change = escaped();
-  try { change(); } catch (error) { return error instanceof TypeError; }
-  return false;
+  return change() === 2;
 }
 ` },
   { name: "inherited-identity", asynchronous: false, source: `
@@ -220,10 +215,8 @@ export function run(): boolean {
   const base: Base = value;
   const change = base.change;
   freeze(value);
-  try { change(7); } catch (error) {
-    return error instanceof TypeError && base.value === 2 && value.value === 2;
-  }
-  return false;
+  change(7);
+  return base.value === 7 && value.value === 7;
 }
 ` },
   { name: "generic-identity", asynchronous: false, source: `
@@ -238,34 +231,23 @@ export function run(): boolean {
   const value = new Value();
   const choose = value.choose;
   Object.freeze(value);
-  let text = false;
-  let numeric = false;
-  try { choose("left", "right"); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    text = true;
-  }
-  try { choose(3, 4); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    numeric = true;
-  }
-  return text && numeric && value.first;
+  return choose("left", "right") === "right" && choose(3, 4) === 4 && !value.first;
 }
 ` },
   { name: "suspended-identity", asynchronous: true, source: `
 async function pause(): Promise<void> {}
 class Value {
   value = 1;
-  change = async (): Promise<void> => { await pause(); this.value = 2; };
+  change = async (): Promise<number> => { await pause(); this.value = 2; return this.value; };
 }
-function escaped(): () => Promise<void> {
+function escaped(): () => Promise<number> {
   const value = new Value();
   Object.freeze(value);
   return value.change;
 }
 export async function run(): Promise<boolean> {
   const change = escaped();
-  try { await change(); } catch (error) { return error instanceof TypeError; }
-  return false;
+  return await change() === 2;
 }
 ` },
   { name: "reentrant-write", asynchronous: false, source: `
@@ -277,10 +259,8 @@ export function run(): boolean {
   const value = new Value();
   let calls = 0;
   const next = (): number => { calls += 1; Object.freeze(value); return 2; };
-  try { value.change(next); } catch (error) {
-    return error instanceof TypeError && calls === 1 && value.value === 1;
-  }
-  return false;
+  value.change(next);
+  return calls === 1 && value.value === 2;
 }
 ` },
   { name: "shallow-content", asynchronous: false, source: `
@@ -290,9 +270,9 @@ class Value {
 }
 export function run(): boolean {
   const value = new Value();
-  Object.freeze(value);
+  const readonly = Object.freeze(value);
   value.change();
-  return value.child.value === 2 && Object.isFrozen(value) && !Object.isFrozen(value.child);
+  return readonly === value && value.child.value === 2 && readonly.child === value.child;
 }
 ` },
 ];

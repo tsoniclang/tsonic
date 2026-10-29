@@ -63,6 +63,14 @@ function contextualComponent(
         semantics.types.authoredSelection(authoredTypeNode, selectedType).kind === "unrelated" ? {}
         : { declaration: parent, authoredTypeNode }) });
     }
+    if (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) {
+      const call = semantics.operations.call(parent);
+      const bindings = call?.sourceArgumentBindings.filter(binding =>
+        binding.sourceForm === "value" && call.sourceArguments[binding.sourceArgumentIndex]?.expression === current);
+      return Object.freeze({ selectedType, ...(call?.sourceSelectedSignatureKind === "resolved" && bindings?.length === 1 &&
+        call.sourceSelectedSignatureParameters[bindings[0]!.sourceParameterIndex]?.parameterDeclaration !== undefined
+        ? { contextualCall: call } : {}) });
+    }
     if (Node_Expression(ast, parent) !== current || !(ast.is.IsParenthesizedExpression(parent) ||
       ast.is.IsNonNullExpression(parent) || ast.isConstAssertion(parent))) break;
     current = parent;

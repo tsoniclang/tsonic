@@ -107,7 +107,7 @@ export interface SourceFinalTypeQueries {
   structuralMember(source: Type, destination: Type, selectedDeclaration: Node,
     purpose: "correspondence" | "read"): import("./structural-members.js").SourceStructuralMemberPair | undefined;
   standardTransformation(
-    authoredTypeNode: Node,
+    authoredTypeNode: Node | undefined,
     selectedType: Type,
   ): SourceStandardTypeTransformation | undefined;
   callable(type: Type): SourceCallableTypeEvidence | undefined;
@@ -151,6 +151,7 @@ export interface SourceTypeComponentEvidence {
   readonly selectedType: Type;
   readonly declaration?: Node;
   readonly authoredTypeNode?: Node;
+  readonly contextualCall?: ResolvedSourceCallInfo;
 }
 
 export interface SourceCallableParameterEvidence extends TypeSignatureParameterInfo {

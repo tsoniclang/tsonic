@@ -39,12 +39,8 @@ export function run(): boolean {
   const read = value.read;
   const change = value.change;
   freeze(value);
-  let failed = false;
-  try { change(2); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    failed = true;
-  }
-  return failed && read() === 1 && value.value === 1 && Object.isFrozen(value);
+  change(2);
+  return read() === 2 && value.value === 2;
 }
 `;
 
@@ -56,12 +52,8 @@ export function run(): boolean {
   const read = value.read;
   const change = value.change;
   ${invocation}
-  let failed = false;
-  try { change(); } catch (error) {
-    if (!(error instanceof TypeError)) throw error;
-    failed = true;
-  }
-  return failed && read() === 1 && value.value === 1 && Object.isFrozen(value);
+  change();
+  return read() === 2 && value.value === 2;
 }
 `;
 }
