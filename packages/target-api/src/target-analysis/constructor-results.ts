@@ -51,6 +51,14 @@ export function analyzeSourceConstructorResults(
       ast.forEachChild(node, child => { if (child !== undefined) collectDeferredWrites(child); });
     };
     collectDeferredWrites(body);
+    const invalidateDeferredWrites = (bindings: ConstructorBindings): void => {
+      for (const selected of deferredWrites) bindings.set(selected, "unknown");
+    };
+    const invalidateEffects = (node: Node, bindings: ConstructorBindings): void => {
+      if (deferredWrites.size === 0) return;
+      const effects = source.navigation.expressionEffects(node);
+      if (effects.invokes || effects.suspends) invalidateDeferredWrites(bindings);
+    };
     const invalidateWrites = (node: Node, bindings: ConstructorBindings): void => {
       if (isSourceCallableBodyBoundary(ast, node) || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) return;
       const selected = binding(node);
@@ -99,9 +107,11 @@ export function analyzeSourceConstructorResults(
         if (operator === "KindEqualsToken") {
           const selected = binding(binary.Left);
           if (selected !== undefined) bindings.set(selected, value);
+          else invalidateEffects(node, bindings);
           return value;
         }
         if (operator === "KindCommaToken") return value;
+        if (operator !== "KindEqualsEqualsEqualsToken" && operator !== "KindExclamationEqualsEqualsToken") invalidateEffects(node, bindings);
         invalidateWrites(node, bindings);
         return "unknown";
       }
@@ -111,8 +121,9 @@ export function analyzeSourceConstructorResults(
           : expression(child, bindings, inspectInitializer) === "never";
       });
       if (never) return "never";
-      if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
-        for (const selected of deferredWrites) bindings.set(selected, "unknown");
+      if (!ast.is.IsClassDeclaration(node) && !ast.is.IsClassExpression(node) && !ast.is.IsObjectLiteralExpression(node) &&
+        !ast.is.IsArrayLiteralExpression(node) && !ast.is.IsPropertyAssignment(node) && !ast.is.IsShorthandPropertyAssignment(node)) {
+        invalidateEffects(node, bindings);
       }
       if (ast.is.IsObjectLiteralExpression(node) || ast.is.IsArrayLiteralExpression(node) || ast.is.IsNewExpression(node) ||
         ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) || ast.is.IsClassExpression(node)) return "substitute";
@@ -146,6 +157,8 @@ export function analyzeSourceConstructorResults(
           const initializer = Node_Initializer(ast, selected);
           const value = initializer === undefined ? "unknown" : expression(initializer, bindings, inspectInitializer);
           if (value === "never") return false;
+          const name = ast.name(selected);
+          if (name !== undefined && !ast.is.IsIdentifier(name)) invalidateDeferredWrites(bindings);
           bindings.set(selected, value);
         }
       } else if (ast.is.IsExpressionStatement(node)) {
@@ -162,6 +175,8 @@ export function analyzeSourceConstructorResults(
         else return false;
       } else {
         invalidateWrites(node, bindings);
+        if (ast.is.IsForInStatement(node) || ast.is.IsForOfStatement(node)) invalidateDeferredWrites(bindings);
+        else invalidateEffects(node, bindings);
         forEachSourceImmediateEvaluationChild(ast, node, child => { statement(child, new Map(bindings), inspectInitializer); });
       }
       return true;
