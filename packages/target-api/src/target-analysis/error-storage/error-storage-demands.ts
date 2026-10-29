@@ -75,7 +75,7 @@ export function createSourceErrorDeclarationQuery(
     return Object.freeze({ node, component: Object.freeze({ selectedType,
       ...(declaration === undefined ? {} : { declaration }) }) });
   };
-  const constructorFor: SourceErrorDeclarationQueries["constructorFor"] = node => {
+  const selectConstructor: SourceErrorDeclarationQueries["constructorFor"] = node => {
     if (failure !== undefined) return rejected(failure);
     if (!owns(node)) return rejected("An Error construction requires an original checked source expression.");
     const queries = semantics.forNode(node);
@@ -86,6 +86,14 @@ export function createSourceErrorDeclarationQuery(
     if (call === undefined || result === undefined) return rejected("A selected Error constructor requires its checked result component.");
     const value: SourceErrorConstruction = Object.freeze({ node, signatureDeclaration: signature, selection: call, result });
     return selected(value);
+  };
+  const constructorFacts = new Map<Node, ReturnType<SourceErrorDeclarationQueries["constructorFor"]>>();
+  const constructorFor: SourceErrorDeclarationQueries["constructorFor"] = node => {
+    const cached = constructorFacts.get(node);
+    if (cached !== undefined) return cached;
+    const fact = selectConstructor(node);
+    constructorFacts.set(node, fact);
+    return fact;
   };
   const fieldCache = new Map<Node, SourceErrorDeclarationSelection<SourceErrorFieldUse>>();
   const fieldFor: SourceErrorDeclarationQueries["fieldFor"] = node => {
@@ -103,7 +111,7 @@ export function createSourceErrorDeclarationQuery(
     fieldCache.set(node, result);
     return result;
   };
-  const mutationFor: SourceErrorDeclarationQueries["mutationFor"] = node => {
+  const selectMutation: SourceErrorDeclarationQueries["mutationFor"] = node => {
     if (failure !== undefined) return rejected(failure);
     if (!owns(node)) return rejected("An Error mutation requires an original checked source expression.");
     const field = fieldFor(node);
@@ -130,6 +138,14 @@ export function createSourceErrorDeclarationQuery(
         argument: checked }) }));
     }
     return selected(Object.freeze(mutations));
+  };
+  const mutationFacts = new Map<Node, ReturnType<SourceErrorDeclarationQueries["mutationFor"]>>();
+  const mutationFor: SourceErrorDeclarationQueries["mutationFor"] = node => {
+    const cached = mutationFacts.get(node);
+    if (cached !== undefined) return cached;
+    const fact = selectMutation(node);
+    mutationFacts.set(node, fact);
+    return fact;
   };
   const parameters = new Map<Node, SourceErrorDeclarationSelection<SourceErrorParameterUse>>();
   const parameterFor: SourceErrorDeclarationQueries["parameterFor"] = parameter => {

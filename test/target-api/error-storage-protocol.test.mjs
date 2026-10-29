@@ -109,6 +109,12 @@ async function declarationProtocol(name) {
       export function mutate(value: Stored): void { value.message = "changed"; }
       export function escape(value: Stored): Stored { return value; }
       export function capture(value: Stored): () => string { return () => value.message; }
+      export function inspect(owner: Stored, other: Stored): string {
+        const read = owner.message;
+        other.message = "changed";
+        unrelated(other, owner);
+        return read;
+      }
     `,
   });
   assert.equal(checked.diagnostics.length, 0, `${name}: checked declarations`);
@@ -135,6 +141,7 @@ test("checked Error declarations select the exact instantiated generic scalar ar
   const selected = query.mutationFor(calls[0]);
   assert.equal(selected.kind, "resolved", "the selected generic signature is the registered mutation owner");
   assert.equal(selected.value.length, 1, "one scalar parameter publishes one mutation");
+  assert.equal(query.mutationFor(calls[0]) === selected, true, "later readers consume the one published selected mutation");
   const mutation = selected.value[0].scalar;
   const call = source.semantics.forNode(calls[0]).operations.call(calls[0]);
   assert.equal(mutation.selection === call, true, "retain the original selected checked call");
@@ -180,4 +187,28 @@ test("checked Error protocols reject malformed, foreign, duplicate, missing and 
   assert.equal(query.mutationFor(foreign.calls[0]).kind, "unresolved", "an equal-looking foreign call cannot acquire ownership");
   assert.equal(query.mutationFor({}).kind, "unresolved", "a reconstructed node cannot acquire checked ownership");
   assert.equal(query.mutationFor(current.calls[0]).kind, "resolved", "invalid foreign requests do not poison valid selections");
+});
+
+test("checked Error invalidation stays in the current body and never infers disjointness or call purity", async () => {
+  const { source, file, protocol } = await declarationProtocol("error-declaration-local-effects");
+  const query = createSourceErrorDeclarationQuery(source, protocol);
+  const inspect = namedDeclaration(source.ast, file, "inspect");
+  const body = source.ast.body(inspect);
+  const nodes = [];
+  const visit = node => { nodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
+  visit(body);
+  const readNode = nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) && source.ast.text(node) === "owner.message");
+  const selected = query.fieldFor(readNode);
+  assert.equal(selected.kind, "resolved", "the exact field read has checked receiver and member identity");
+  const write = nodes.find(node => source.ast.is.IsBinaryExpression(node));
+  const call = nodes.find(node => source.ast.is.IsCallExpression(node));
+  assert.equal(query.invalidationFor(selected.value, write).kind, "invalidated",
+    "different parameters are not proof of distinct physical native Error owners");
+  assert.equal(query.invalidationFor(selected.value, call).kind, "invalidated",
+    "an unregistered selected call is not proven pure by a readonly-looking signature");
+  const foreignBody = source.ast.body(namedDeclaration(source.ast, file, "observe"));
+  assert.equal(query.invalidationFor(selected.value, foreignBody).kind, "unresolved",
+    "the owner never replays another callable's execution");
+  assert.equal(query.invalidationFor({ ...selected.value }, call).kind, "unresolved",
+    "an equal-looking reconstructed read cannot replace the canonical checked read");
 });

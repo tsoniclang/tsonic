@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { forEachSourceImmediateEvaluationChild, Node_Expression } from "../../source-navigation/index.js";
+import { forEachSourceImmediateEvaluationChild, Node_Expression, sourceEnclosingCallable } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
@@ -20,6 +20,9 @@ export function createSourceErrorLocalInvalidationQuery(
     const checked = fieldFor(read.node);
     if (checked.kind !== "resolved" || checked.value !== read || read.accessMode !== "read") return Object.freeze({ kind: "unresolved",
       reason: "Local Error invalidation requires its exact published field-read selection." });
+    if (sourceEnclosingCallable(read.node, ast) !== sourceEnclosingCallable(expression, ast) ||
+        ast.getSourceFile(read.node) !== ast.getSourceFile(expression)) return Object.freeze({ kind: "unresolved",
+      reason: "Local Error invalidation cannot replay another callable or source file." });
     const pending = [{ node: expression, completed: false }];
     while (pending.length !== 0) {
       const { node, completed } = pending.pop()!;
@@ -40,6 +43,7 @@ export function createSourceErrorLocalInvalidationQuery(
           : mutation.scalar.slot.fields.includes(read.memberDeclaration))) return Object.freeze({ kind: "invalidated", at: node });
       }
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) return Object.freeze({ kind: "invalidated", at: node });
+      if (ast.is.IsElementAccessExpression(node)) return Object.freeze({ kind: "invalidated", at: node });
       if (ast.is.IsPropertyAccessExpression(node)) {
         const field = fieldFor(node);
         if (field.kind === "unresolved") return field;
