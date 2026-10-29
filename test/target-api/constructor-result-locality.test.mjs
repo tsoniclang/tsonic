@@ -54,7 +54,7 @@ test("constructor locality keeps opaque return diagnostics local", () => {
     class Valid { value = 1; constructor() { return this; } }
   `);
   const returned = nodes.find(node => source.ast.is.IsReturnStatement(node) &&
-    source.ast.text(source.ast.as.AsReturnStatement(node).Expression).includes("opaque"));
+    source.ast.is.IsAsExpression(source.ast.as.AsReturnStatement(node).Expression));
   const issues = analyzeSourceConstructorResults(source);
   assert.equal(issues.length, 1, "Only the opaque constructor receives a diagnostic.");
   assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "An assertion cannot prove an opaque call's identity.");
@@ -89,4 +89,56 @@ test("constructor locality preserves receiver identity across member mutation an
   `);
   assert.equal(analyzeSourceConstructorResults(source).length, 0,
     "Member mutation and comparison do not reassign the receiver binding.");
+});
+
+test("constructor locality stops after one external initializer", () => {
+  const { source } = constructorResultFixture(`
+    declare const flag: boolean;
+    declare const external: Owner;
+    const first: Owner = flag ? external : external;
+    const second: Owner = flag ? first : first;
+    class Owner { value = 1; constructor() { return second; } }
+  `);
+  let deeperReads = 0;
+  const navigation = Object.freeze({ ...source.navigation, sourceReferenceFor(node) {
+    if (node !== undefined && source.ast.is.IsIdentifier(node) && source.ast.text(node) === "external") deeperReads++;
+    return source.navigation.sourceReferenceFor(node);
+  } });
+  const issues = analyzeSourceConstructorResults(Object.freeze({ ...source, navigation }));
+  assert.equal(issues.length, 1, "The declared opaque object remains a local uncertainty.");
+  assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "No origin history is fabricated.");
+  assert.equal(deeperReads, 0, "Conditional syntax cannot restart the one-initializer allowance.");
+});
+
+test("constructor locality merges eagerly executed nested static branches", () => {
+  const { source, nodes } = constructorResultFixture(`
+    class Owner { value = 1; constructor(flag: boolean) {
+      const receiver = this;
+      let self: Owner = this;
+      class Nested { static { if (flag) self = { value: 2 }; else self = receiver; } }
+      return self;
+    } }
+  `);
+  const returned = nodes.find(node => source.ast.is.IsReturnStatement(node));
+  const issues = analyzeSourceConstructorResults(source);
+  assert.equal(issues.length, 1, "An eagerly executed static branch can substitute the local binding.");
+  assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", "A native definition effect cannot be skipped.");
+  assert.equal(issues[0].sourceNode === source.ast.as.AsReturnStatement(returned).Expression, true,
+    "The actual returned alias owns the diagnostic.");
+});
+
+test("constructor locality does not confuse a nested static receiver with this", () => {
+  const { source, nodes } = constructorResultFixture(`
+    class Owner { value = 1; constructor() {
+      let self: Owner = this;
+      class Nested { static { self = this as unknown as Owner; } }
+      return self;
+    } }
+  `);
+  const returned = nodes.find(node => source.ast.is.IsReturnStatement(node));
+  const issues = analyzeSourceConstructorResults(source);
+  assert.equal(issues.length, 1, "Another receiver boundary cannot establish this constructor's receiver.");
+  assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "An asserted static receiver is not local receiver evidence.");
+  assert.equal(issues[0].sourceNode === source.ast.as.AsReturnStatement(returned).Expression, true,
+    "The diagnostic remains on the original constructor return.");
 });
