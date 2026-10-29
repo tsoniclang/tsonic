@@ -35,7 +35,7 @@ export interface SourceErrorFieldUse {
   readonly receiver: SourceErrorCheckedValue;
   readonly memberDeclaration: Node;
   readonly selection: NonNullable<ReturnType<SourceFileSemantics["operations"]["propertyAccess"]>>;
-  readonly accessMode: "read" | "write" | "read-write";
+  readonly accessMode: NonNullable<ReturnType<SourceFileSemantics["operations"]["propertyAccess"]>>["accessMode"];
 }
 
 export interface SourceErrorConstruction {

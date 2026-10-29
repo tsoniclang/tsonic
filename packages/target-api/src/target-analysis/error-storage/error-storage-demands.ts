@@ -57,7 +57,7 @@ export function createSourceErrorDeclarationQuery(
           !validate({ declaration: parameter, component: slot.component }, false) ||
           slots.some(previous => previous.parameterIndex === slot.parameterIndex) || !Array.isArray(slot.fields) ||
           slot.fields.length === 0 || new Set(slot.fields).size !== slot.fields.length ||
-          slot.fields.some(field => !fields.has(field))) {
+          slot.fields.some((field: Node) => !fields.has(field))) {
         failure ??= "An Error mutator requires its exact checked scalar signature slot, type and field declarations.";
         continue;
       }
