@@ -61,8 +61,9 @@ export const receiverFieldStorageFreezeSource = `
   export function run(): boolean {
     const value = new Value();
     const view: { value: string } = value;
-    Object.freeze(view);
-    try { change(view); return false; } catch {}
-    return value.read() === "first" && value.value === "first";
+    const frozen = Object.freeze(view);
+    change(view);
+    return frozen === view && view === value && value.read() === "second" &&
+      value.value === "second" && frozen.value === "second";
   }
 `;
