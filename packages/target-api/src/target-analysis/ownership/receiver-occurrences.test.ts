@@ -3,6 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
+import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
 import type { SourceReceiverResourceLimits } from "./receiver-resources.js";
 
@@ -160,7 +161,7 @@ test("receiver indexing rejects incomplete inventories and finite-budget exhaust
     assert.equal(selected.kind, "unresolved");
     assert.equal("occurrences" in selected, false);
   }
-  const history = createSourceStorageQuery(source, sourceFiles, { maximumNodes: 1 });
+  const history = createSourceStorageQuery(source, sourceFiles, { ...defaultSourceStorageLimits, maximumNodes: 1 });
   assert.equal(history.failureReason(), "Source storage transport exceeds its finite source-node budget.",
     "the separate history engine really is resource-exhausted");
   const independent = analyzeSourceReceiverOccurrences(source, sourceFiles);
