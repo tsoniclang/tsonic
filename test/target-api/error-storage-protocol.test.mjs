@@ -97,9 +97,11 @@ async function declarationProtocol(name) {
       export declare function write<Value extends Stored>(first: Value, second: Value): void;
       export declare function unrelated(first: Stored, second: Stored): void;
       export declare function spread(...values: Stored[]): void;
+      export declare class External { constructor(value: Stored); }
     `,
     "src/index.ts": `
-      import { Stored, write, unrelated } from "./provider.js";
+      import { Stored, External, write, unrelated } from "./provider.js";
+      type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };
       const original = { message: "original", stack: "original" };
       const alias = original;
       const untouched = { message: "untouched", stack: "untouched" };
@@ -114,6 +116,23 @@ async function declarationProtocol(name) {
         other.message = "changed";
         unrelated(other, owner);
         return read;
+      }
+      export function localEffects(owner: Stored): string {
+        const view: Readonly<Stored> = owner;
+        const read = view.message;
+        owner.message = "changed through the mutable alias";
+        new External(owner);
+        const deferred = () => { owner.message = "later"; };
+        return read;
+      }
+      class Holder {
+        value: Stored;
+        constructor(value: Stored) { this.value = value; }
+        inspect(owner: Stored): string {
+          const read = owner.message;
+          this.value.message = "receiver write";
+          return read;
+        }
       }
     `,
   });
@@ -216,4 +235,40 @@ test("checked Error invalidation stays in the current body and never infers disj
     "the owner never replays another callable's execution");
   assert.equal(query.invalidationFor({ ...selected.value }, call).kind, "unresolved",
     "an equal-looking reconstructed read cannot replace the canonical checked read");
+});
+
+test("checked Error local read and effect pairs retain readonly alias, opaque construction and deferred receiver safety", async () => {
+  const { source, file, protocol } = await declarationProtocol("error-declaration-read-effect-pairs");
+  const query = createSourceErrorDeclarationQuery(source, protocol);
+  const local = namedDeclaration(source.ast, file, "localEffects");
+  const nodes = [];
+  const visit = node => { nodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
+  visit(source.ast.body(local));
+  const readonlyRead = nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+    source.ast.text(source.ast.as.AsPropertyAccessExpression(node).Expression) === "view");
+  const read = query.fieldFor(readonlyRead);
+  assert.equal(read.kind, "resolved", "the readonly mapped view retains the original checked member");
+  const mutableWrite = nodes.find(node => source.ast.is.IsExpressionStatement(node) &&
+    source.ast.is.IsBinaryExpression(source.ast.as.AsExpressionStatement(node).Expression));
+  assert.equal(query.invalidationFor(read.value, mutableWrite).kind, "invalidated",
+    "readonly access is not immutable storage when its original alias writes");
+  const construction = nodes.find(node => source.ast.is.IsNewExpression(node));
+  assert.equal(query.invalidationFor(read.value, construction).kind, "invalidated",
+    "the exact external constructor signature does not establish purity or preserve a live read");
+  const deferred = nodes.find(node => source.ast.is.IsArrowFunction(node));
+  assert.equal(query.invalidationFor(read.value, deferred).kind, "preserved",
+    "creating a deferred callable does not execute its later field write");
+  const holder = namedDeclaration(source.ast, file, "Holder");
+  const method = source.ast.members(holder).find(node => source.ast.is.IsMethodDeclaration(node));
+  const methodNodes = [];
+  const collect = node => { methodNodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) collect(child); }); };
+  collect(source.ast.body(method));
+  const receiverRead = methodNodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
+    source.ast.is.IsIdentifier(source.ast.as.AsPropertyAccessExpression(node).Expression) &&
+    source.ast.text(source.ast.as.AsPropertyAccessExpression(node).Expression) === "owner");
+  const selected = query.fieldFor(receiverRead);
+  assert.equal(selected.kind, "resolved", "the receiver test contains its real original checked read");
+  const receiverWrite = methodNodes.find(node => source.ast.is.IsBinaryExpression(node));
+  assert.equal(query.invalidationFor(selected.value, receiverWrite).kind, "invalidated",
+    "a distinct receiver expression is not proof that it cannot alias the observed native object");
 });
