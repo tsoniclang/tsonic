@@ -20,7 +20,9 @@ export function createSourceErrorLocalInvalidationQuery(
     const checked = fieldFor(read.node);
     if (checked.kind !== "resolved" || checked.value !== read || read.accessMode !== "read") return Object.freeze({ kind: "unresolved",
       reason: "Local Error invalidation requires its exact published field-read selection." });
-    if (sourceEnclosingCallable(read.node, ast) !== sourceEnclosingCallable(expression, ast) ||
+    const evaluationOwner = ast.is.IsArrowFunction(expression) || ast.is.IsFunctionExpression(expression) ||
+      ast.is.IsFunctionDeclaration(expression) ? ast.parent(expression) : expression;
+    if (sourceEnclosingCallable(read.node, ast) !== sourceEnclosingCallable(evaluationOwner, ast) ||
         ast.getSourceFile(read.node) !== ast.getSourceFile(expression)) return Object.freeze({ kind: "unresolved",
       reason: "Local Error invalidation cannot replay another callable or source file." });
     const pending = [{ node: expression, completed: false }];
