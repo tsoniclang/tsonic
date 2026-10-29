@@ -14,6 +14,7 @@ import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { resolveSourceFlowConditions } from "../target-analysis/flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
+import { normalizeSourcePropertyAccessDeclarations } from "./selected-property-declarations.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQueries } from "./structural-members.js";
 import { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
@@ -59,11 +60,13 @@ export function createTargetSourceProgram(
       call: queries.checker.getResolvedCallInfo,
       propertyName: queries.checker.getEffectivePropertyName,
       propertyAccess(node: Node) {
-        const selected = queries.checker.getResolvedPropertyAccessInfo(node);
+        const checked = queries.checker.getResolvedPropertyAccessInfo(node);
+        const selected = checked === undefined ? undefined :
+          normalizeSourcePropertyAccessDeclarations(source.ast, semantics, checked);
         return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
           ? selected
           : selectRefinedSourcePropertyAccess(selected,
-            selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts);
+            selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts, source.ast);
       },
       elementAccess: queries.checker.getResolvedElementAccessInfo,
       flowConditions(node: Node) {

@@ -34,8 +34,17 @@ export function selectStandardSourceTypeTransformation(
     (node): node is Node => node !== undefined,
   );
   const semantics = context.semanticsFor(authoredTypeNode);
+  if (name === "Readonly" && typeArguments.length === 1) {
+    const actual = semantics.types.authoredType(authoredTypeNode);
+    const inputType = semantics.types.authoredType(typeArguments[0]!);
+    return actual === undefined || inputType === undefined || !semantics.types.isIdentical(actual, selectedType)
+      ? { kind: "unresolved" }
+      : Object.freeze({ kind: "component", component: Object.freeze({
+          selectedType: inputType, authoredTypeNode: typeArguments[0]!,
+        }) });
+  }
   if (
-    (name === "Partial" || name === "Required" || name === "Readonly") &&
+    (name === "Partial" || name === "Required") &&
     typeArguments.length === 1
   ) {
     const inputType = semantics.types.authoredType(typeArguments[0]!);
