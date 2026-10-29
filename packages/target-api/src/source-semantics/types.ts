@@ -151,6 +151,7 @@ export interface SourceTypeComponentEvidence {
   readonly selectedType: Type;
   readonly declaration?: Node;
   readonly authoredTypeNode?: Node;
+  readonly contextualCall?: ResolvedSourceCallInfo;
 }
 
 export interface SourceCallableParameterEvidence extends TypeSignatureParameterInfo {
