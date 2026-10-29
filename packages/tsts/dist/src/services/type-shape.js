@@ -63,6 +63,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isArrayLike: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
         isTypeIdenticalTo: (left, right) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
             if (checker === undefined || left?.checker === undefined || right?.checker === undefined ||
+                left.checker !== checker || right.checker !== checker ||
                 left.checker.program.SourceFiles() !== checker.program.SourceFiles() ||
                 right.checker.program.SourceFiles() !== checker.program.SourceFiles())
                 return false;
