@@ -66,7 +66,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/entry-validation.ts": 1,
   "packages/target-api/src/target-analysis/enum-constants.ts": 5,
   "packages/target-api/src/target-analysis/enum-numeric-uses.ts": 15,
-  "packages/target-api/src/target-analysis/error-storage/error-storage-demands.ts": 2,
+  "packages/target-api/src/target-analysis/error-storage/error-storage-demands.ts": 3,
   "packages/target-api/src/target-analysis/flow-conditions.ts": 4,
   "packages/target-api/src/target-analysis/flow/bindings.ts": 10,
   "packages/target-api/src/target-analysis/flow/expressions.ts": 25,
