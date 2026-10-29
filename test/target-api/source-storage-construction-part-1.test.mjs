@@ -104,9 +104,8 @@ for (const [name, text] of [
 ]) {
   test(`constructor result admission preserves ${name}`, () => {
     const current = constructorResultFixture(text);
-    const issues = analyzeSourceConstructorResults(current.source, current.storage);
+    const issues = analyzeSourceConstructorResults(current.source);
     assert.equal(issues.length, 0, `${name}: no receiver substitution is introduced.`);
-    assert.equal(current.storage.failureReason() === undefined, true, `${name}: finite proof remains complete.`);
     assert.equal(Object.isFrozen(issues), true, `${name}: admission publishes immutable issues.`);
   });
 }
@@ -122,8 +121,8 @@ for (const [name, text] of [
 ]) {
   test(`constructor result admission rejects ${name} at its actual source expression`, () => {
     const current = constructorResultFixture(text);
-    const issues = analyzeSourceConstructorResults(current.source, current.storage);
-    const returned = current.storage.nodes.find(node => current.source.ast.is.IsReturnStatement(node));
+    const issues = analyzeSourceConstructorResults(current.source);
+    const returned = current.nodes.find(node => current.source.ast.is.IsReturnStatement(node));
     assert.equal(issues.length, 1, `${name}: exactly one shared source rejection.`);
     assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", `${name}: this is a deliberate v1 exclusion, not a native impossibility.`);
     assert.equal(issues[0].message, "A constructor that returns an object other than its receiver is not supported.");
@@ -131,33 +130,33 @@ for (const [name, text] of [
       `${name}: the original returned expression owns the diagnostic.`);
     assert.equal(issues[0].category, "error");
     assert.equal(issues[0].source, "tsonic", "Both targets consume the identical shared diagnostic.");
-    assert.equal(current.storage.failureReason() === undefined, true, `${name}: a source rejection does not fabricate a resource failure.`);
+    assert.equal(Object.isFrozen(issues) && Object.isFrozen(issues[0]), true,
+      `${name}: the local source rejection is immutable, not a storage-resource failure.`);
   });
 }
 
-test("constructor result admission preserves unresolved, resource and foreign-owner reasons", () => {
+test("constructor result admission preserves local opaque-return reasons", () => {
   const current = constructorResultFixture("declare function unknown(owner: Owner): Owner; class Owner { value = 1; constructor() { return unknown(this); } }");
-  const issues = analyzeSourceConstructorResults(current.source, current.storage);
+  const issues = analyzeSourceConstructorResults(current.source);
   assert.equal(issues.length, 1, "An opaque result cannot prove the current receiver.");
   assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "Unresolved identity is not mislabelled as a proven substitute.");
   assert.equal(issues[0].message.startsWith("Constructor result receiver identity is not proven: "), true);
   const asserted = constructorResultFixture("declare function unknown(owner: Owner): Owner; class Owner { value = 1; constructor() { return unknown(this) as never; } }");
-  const assertedIssues = analyzeSourceConstructorResults(asserted.source, asserted.storage);
+  const assertedIssues = analyzeSourceConstructorResults(asserted.source);
   assert.equal(assertedIssues.length, 1, "An outer never assertion does not close an actual opaque producer.");
   assert.equal(assertedIssues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN", "Actual source-domain uncertainty survives the assertion.");
+});
+
+test("constructor result admission is independent of unrelated storage-resource failure", () => {
+  const current = constructorResultFixture("class Owner { constructor() { return this; } }");
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
-    const bounded = constructorResultFixture("class Owner { constructor() { return this; } }", { ...defaultSourceStorageLimits, ...limits });
-    const reason = bounded.storage.failureReason();
+    const storage = createSourceStorageQuery(current.source, current.source.sourceFiles, { ...defaultSourceStorageLimits, ...limits });
+    const reason = storage.failureReason();
     assert.equal(reason !== undefined, true, "The original storage owner records the actual resource refusal.");
-    const failures = analyzeSourceConstructorResults(bounded.source, bounded.storage);
-    assert.equal(failures.length, 1);
-    assert.equal(failures[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_PROVEN");
-    assert.equal(failures[0].message, `Constructor result receiver identity is not proven: ${reason}`);
+    const issues = analyzeSourceConstructorResults(current.source);
+    assert.equal(issues.length, 0, "An unrelated storage-resource refusal cannot reject this constructor.");
   }
-  const foreign = constructorResultFixture("class Owner { constructor() { return this; } }");
-  const failures = analyzeSourceConstructorResults(current.source, foreign.storage);
-  assert.equal(failures.length, 1);
-  assert.equal(failures[0].message, "Constructor result receiver identity is not proven: Source storage belongs to a different checked source program.");
+  assert.equal(analyzeSourceConstructorResults.length, 1, "Only the source program belongs to the canonical admission API.");
 });
 
 for (const [name, expression, declaration] of [
@@ -187,16 +186,16 @@ test("constructor receiver admission preserves an actual effect before return th
     class Owner { value = 1; constructor() { log(); return this; } }
     const owner = new Owner();
   `);
-  const { source, storage } = current;
-  const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+  const { source, nodes } = current;
+  const invocation = nodes.find(node => source.ast.is.IsCallExpression(node) &&
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "log");
   assert.equal(invocation !== undefined, true, "The original checked effect precedes the receiver return.");
   const before = source.semantics.forNode(invocation).operations.call(invocation);
   assert.equal(before !== undefined, true, "The actual invocation has its exact selected call contract.");
-  assert.equal(analyzeSourceConstructorResults(source, storage).length, 0,
+  assert.equal(analyzeSourceConstructorResults(source).length, 0,
     "A valid effectful constructor that returns its actual receiver stays admitted.");
   const after = source.semantics.forNode(invocation).operations.call(invocation);
-  assert.equal(after !== undefined && after.selectedSignature === before.selectedSignature && storage.invocations.includes(invocation), true,
+  assert.equal(after !== undefined && after.selectedSignature === before.selectedSignature && nodes.includes(invocation), true,
     "Admission does not remove or replace the original effect and its native lowering evidence.");
 });
 
