@@ -94,14 +94,14 @@ test("constructor locality preserves receiver identity across member mutation an
 test("constructor locality stops after one external initializer", () => {
   const { source } = constructorResultFixture(`
     declare const flag: boolean;
-    declare const external: Owner;
-    const first: Owner = flag ? external : external;
+    declare const foreignOwner: Owner;
+    const first: Owner = flag ? foreignOwner : foreignOwner;
     const second: Owner = flag ? first : first;
     class Owner { value = 1; constructor() { return second; } }
   `);
   let deeperReads = 0;
   const navigation = Object.freeze({ ...source.navigation, sourceReferenceFor(node) {
-    if (node !== undefined && source.ast.is.IsIdentifier(node) && source.ast.text(node) === "external") deeperReads++;
+    if (node !== undefined && source.ast.is.IsIdentifier(node) && source.ast.text(node) === "foreignOwner") deeperReads++;
     return source.navigation.sourceReferenceFor(node);
   } });
   const issues = analyzeSourceConstructorResults(Object.freeze({ ...source, navigation }));
