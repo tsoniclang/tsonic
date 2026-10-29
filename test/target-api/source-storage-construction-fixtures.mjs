@@ -27,11 +27,17 @@ export function fixture(limits = defaultSourceStorageLimits) {
   return { source, storage, invocation };
 }
 
-export function constructorResultFixture(text, limits = defaultSourceStorageLimits) {
+export function constructorResultFixture(text) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "Constructor admission controls are actual checked source.");
   const source = createTargetSourceProgram(checked);
-  const storage = createSourceStorageQuery(source, source.sourceFiles, limits);
-  return { source, storage };
+  const nodes = [];
+  const pending = [...source.sourceFiles];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    nodes.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+  }
+  return { source, nodes };
 }
