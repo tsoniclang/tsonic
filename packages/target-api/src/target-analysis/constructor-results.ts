@@ -59,12 +59,27 @@ export function analyzeSourceConstructorResults(
       const effects = source.navigation.expressionEffects(node);
       if (effects.invokes || effects.suspends) invalidateDeferredWrites(bindings);
     };
+    const receiverReference = (node: Node, bindings: ConstructorBindings): boolean => {
+      let current: Node | undefined = node;
+      while (current !== undefined && (ast.is.IsParenthesizedExpression(current) || ast.is.IsAsExpression(current) ||
+        ast.is.IsTypeAssertion(current) || ast.is.IsSatisfiesExpression(current) || ast.is.IsNonNullExpression(current))) {
+        current = Node_Expression(ast, current);
+      }
+      if (current === undefined) return false;
+      if (ast.kindName(current) === "KindThisKeyword") return sourceReceiverOwner(current, ast, "lexical-capture") === declaration;
+      const selected = binding(current);
+      return selected !== undefined && bindings.get(selected) === "receiver" && ast.is.IsVariableDeclaration(selected) &&
+        ast.variableDeclarationKind(ast.parent(selected)) === "const";
+    };
     const invalidateWrites = (node: Node, bindings: ConstructorBindings): void => {
       if (isSourceCallableBodyBoundary(ast, node) || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) return;
       const selected = binding(node);
       const write = selected === undefined ? undefined : sourceBindingWriteAtReference(ast, node);
-      if (selected !== undefined && write !== undefined && write.kind !== "initialization" &&
-        write.values.some(value => value.projection.length === 0)) bindings.set(selected, "unknown");
+      if (selected !== undefined && write !== undefined && write.kind !== "initialization") {
+        const value = write.values.length === 1 ? write.values[0] : undefined;
+        if (write.kind !== "assignment" || value?.kind !== "value" || value.projection.length !== 0 ||
+          !receiverReference(value.expression, bindings)) bindings.set(selected, "unknown");
+      }
       ast.forEachChild(node, child => { if (child !== undefined) invalidateWrites(child, bindings); });
     };
     const expression = (node: Node, bindings: ConstructorBindings, inspectInitializer = true): ConstructorValue => {
@@ -107,7 +122,10 @@ export function analyzeSourceConstructorResults(
         if (operator === "KindEqualsToken") {
           const selected = binding(binary.Left);
           if (selected !== undefined) bindings.set(selected, value);
-          else invalidateEffects(node, bindings);
+          else {
+            invalidateWrites(binary.Left, bindings);
+            invalidateEffects(node, bindings);
+          }
           return value;
         }
         if (operator === "KindCommaToken") return value;
