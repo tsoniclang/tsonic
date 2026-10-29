@@ -1,8 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatDiagnostics } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceErrorDeclarationQuery, createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+
+test("destructured Error formals retain their unique checked signature slot and actual field reads", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/error-bindings", files: {
+    "/error-bindings/index.ts": `
+      export function read({ message: renamed, stack = "absent" }: Error): string { return renamed + stack; }
+      export function other(error: Error): string { return error.message; }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the original object parameter is checked without a source annotation workaround");
+  const source = createTargetSourceProgram(checked);
+  const declaration = source.navigation.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "read");
+  const other = source.navigation.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "other");
+  assert.equal(declaration !== undefined && other !== undefined, true, "both real callable declarations are present");
+  const queries = source.semantics.forNode(declaration);
+  const signature = queries.types.declarationSignatureInfo(declaration);
+  const parameter = source.ast.parameters(declaration)[0];
+  const slot = signature.parameters[0];
+  const fields = queries.types.propertyInfos(slot.type).filter(member => ["message", "stack"].includes(member.name))
+    .flatMap(member => queries.declarations.symbolDeclarations(member.symbol));
+  const protocol = { fields: fields.map(declaration => ({ declaration, component: {
+    declaration, selectedType: source.semantics.forNode(declaration).declarations.declaredValueType(declaration),
+  } })), constructors: [], scalarMutators: [] };
+  const selected = createSourceErrorDeclarationQuery(source, protocol).parameterFor(parameter);
+  assert.equal(selected.kind === "resolved" && selected.value.access === "read-only", true,
+    "an actual native readonly binding is selected from its original signature, not an Identifier-only query");
+  assert.equal(selected.value.parameter.component.selectedType === slot.type && selected.value.parameter.component.declaration === parameter,
+    true, "the original selected Type and parameter declaration remain identical");
+  assert.equal(selected.value.uses.length === 2 && selected.value.uses.every(node => source.ast.is.IsBindingElement(node)), true,
+    "the two real binding reads are recorded, not an empty manufactured readonly proof");
+  const foreign = queries.types.declarationSignatureInfo(other).parameters[0].sourceSymbol;
+  for (const [label, parameters] of [
+    ["missing symbol", [{ ...slot, sourceSymbol: undefined }]],
+    ["foreign symbol", [{ ...slot, sourceSymbol: foreign }]],
+    ["duplicate declaration slot", [slot, slot]],
+  ]) {
+    const malformed = { ...source, semantics: { ...source.semantics, forNode(node) {
+      const actual = source.semantics.forNode(node);
+      return { ...actual, types: { ...actual.types, declarationSignatureInfo(owner) {
+        const selected = actual.types.declarationSignatureInfo(owner);
+        return owner === declaration ? { ...selected, parameters } : selected;
+      } } };
+    } } };
+    assert.equal(createSourceErrorDeclarationQuery(malformed, protocol).parameterFor(parameter).kind, "unresolved",
+      `${label}: no vacuous readonly contract or forged parameter identity`);
+  }
+});
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 
 const profile = `
