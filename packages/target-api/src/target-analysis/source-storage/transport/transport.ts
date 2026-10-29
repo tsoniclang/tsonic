@@ -301,27 +301,28 @@ export function createSourceStorageTransport(
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow,
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
-  const pendingNodes: Node[] = [];
-  const admitNode = (node: Node, inheritedAmbient: boolean): boolean => {
-    const existing = admittedAmbient.get(node);
-    if (existing?.collected === true) return false;
-    if (existing === undefined) {
-      if (!budget.node()) return false;
-      admittedAmbient.set(node, { ambient: sourceDeclarationAmbientContext(ast, node, inheritedAmbient), collected: true });
-    } else existing.collected = true;
-    return true;
-  };
+  const sourceNodes = navigation.nodesForFiles(sourceFiles);
   for (const file of sourceFiles) {
     if (!semantics.includes(file)) budget.reject("Source storage transport requires exact checked source-file ownership.");
-    else if (admitNode(file, false)) pendingNodes.push(file);
+    else {
+      const existing = admittedAmbient.get(file);
+      if (existing !== undefined) existing.collected = true;
+      else if (budget.node()) admittedAmbient.set(file, {
+        ambient: sourceDeclarationAmbientContext(ast, file, false), collected: true,
+      });
+    }
   }
-  while (pendingNodes.length !== 0 && budget.failure() === undefined) {
-    const node = pendingNodes.pop()!;
-    const ambient = admittedAmbient.get(node)!.ambient;
+  for (const node of sourceNodes) {
+    if (budget.failure() !== undefined) break;
+    const existing = admittedAmbient.get(node);
+    if (existing !== undefined) existing.collected = true;
+    else {
+      if (!budget.node()) break;
+      const parent = ast.parent(node);
+      const inheritedAmbient = parent === undefined ? false : admittedAmbient.get(parent)?.ambient ?? false;
+      admittedAmbient.set(node, { ambient: sourceDeclarationAmbientContext(ast, node, inheritedAmbient), collected: true });
+    }
     visitedNodes.push(node);
-    const children: Node[] = [];
-    ast.forEachChild(node, child => { if (child !== undefined && admitNode(child, ambient)) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
   }
   for (const node of visitedNodes) {
     if (budget.failure() !== undefined) break;
