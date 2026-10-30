@@ -133,6 +133,17 @@ test("a native default initializer does not taint a proven present ordinary call
   assertDeclaredAdoption(current, 1, "wrap(promised)");
 });
 
+test("a zero-parameter native Promise executor requires no invented resolver", () => {
+  const current = fixture("export const pending = new Promise<void>(() => {});");
+  const executor = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
+  assert.equal(executor !== undefined && current.source.ast.parameters(executor).length === 0, true,
+    "the original checked executor declares no resolver parameter");
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "a complete zero-parameter signature is not missing evidence");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+    "an unsettled Promise does not invent an adopting native resolution");
+});
+
 for (const ordinary of [false, true]) {
   test("native contextual input bounds qualify the same generic source callback: ordinary=" + ordinary, () => {
     const current = fixture(`

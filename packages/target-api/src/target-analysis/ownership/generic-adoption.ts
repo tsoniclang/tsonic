@@ -242,11 +242,16 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
         if (member === "construct" && argument !== undefined) {
           const executor = semantics.types.expressionType(argument);
           const signatures = executor === undefined ? [] : semantics.types.signatureInfos(executor, "call");
-          const resolver = signatures.length === 1 ? signatures[0]!.parameters[0]?.declaration : undefined;
-          if (resolver === undefined)
+          if (signatures.length !== 1)
             return sourceDeclarationOwnershipUnresolved(argument, "A native Promise executor requires its exact checked resolver parameter contract.");
-          if (!rows.add(1)) return budget.failure()!;
-          resolverParameters.add(resolver);
+          const parameter = signatures[0]!.parameters[0];
+          const resolver = parameter?.declaration;
+          if (parameter !== undefined && resolver === undefined)
+            return sourceDeclarationOwnershipUnresolved(argument, "A native Promise executor requires its exact checked resolver parameter contract.");
+          if (resolver !== undefined) {
+            if (!rows.add(1)) return budget.failure()!;
+            resolverParameters.add(resolver);
+          }
         } else if (member === "then" || member === "catch" || member === "finally") {
           for (const callback of ast.arguments(node)) {
             if (callback === undefined) continue;
