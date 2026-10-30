@@ -588,7 +588,7 @@ test("flow refuses the removed implicit source-domain API", async () => {
   const current = await fixture("function run() { return 1; }");
   const selected = createSourceDeclarationControlFlow(current.source, current.declaration);
   assert.equal(selected.kind, "unresolved");
-  assert.equal(selected.reason, "Source flow requires explicit limits, checked invocation options and an explicit source domain.");
+  assert.equal(selected.reason, "Source flow requires explicit limits and an explicit checked source domain.");
   assert.equal(selected.source === current.declaration, true, "the refusal identifies the actual requested root");
   assert.equal("graph" in selected, false, "a missing domain cannot publish a partial graph");
 });

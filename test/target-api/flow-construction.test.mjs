@@ -226,6 +226,52 @@ test("declaration constructor regions fail closed for foreign input, selected-ro
   }
 });
 
+for (const [label, contract] of [
+  ["constructor type", "type Factory = new () => { root: number };"],
+  ["constructor overloads", "interface Factory { new (): { root: number }; new (input: number): { root: number }; }"],
+]) test(`declaration construction retains ${label} without selecting a runtime base implementation`, () => {
+  const current = fixture(`${contract}
+    function layer(Parent: Factory, value: number) {
+      return class Layer extends Parent { field = mark("declared-field") + value; };
+    }`);
+  const field = propertyField(current, "Layer", "field");
+  const declaration = current.ast.parent(field);
+  const graph = declarationFlow(current, declaration);
+  const initializer = current.ast.as.AsPropertyDeclaration(field).Initializer;
+  const point = marked(current, graph, "declared-field");
+  const region = graph.executionRegions.get(point.id);
+  assert.equal(region?.owner === declaration && region.root === initializer &&
+    region.role === "instance-initializer" && !("selection" in region), true,
+    "the actual field region comes from the declaration, never an observed constructor activation");
+  assert.equal(reachable(graph, graph.entry, point.id) && reachable(graph, point.id, graph.exit), true,
+    "an implicit declared base does not skip the local initializer");
+  assert.equal(point.successors.some(edge => edge.kind === "exception" && edge.to === graph.exceptionExit), true,
+    "the original initializer retains its exceptional completion");
+  assert.equal(graph.points.some(entry => entry.operation.kind === "return" || entry.operation.kind === "declare"), false,
+    "a checked constructor signature does not fabricate a callable body or parameter initialization");
+  assert.equal(graph.points.filter(entry => entry.operation.kind === "read" &&
+    current.ast.text(current.ast.name(entry.operation.binding)) === "value").length, 1,
+    "the lexical captured value is read exactly once without following runtime callers");
+});
+
+test("declaration construction refuses a missing checked constructor contract without a partial graph", () => {
+  const current = fixture(`type Factory = new () => { root: number };
+    function layer(Parent: Factory) { return class Layer extends Parent { field = mark("declared-field"); }; }`);
+  const declaration = current.ast.parent(propertyField(current, "Layer", "field"));
+  const formal = current.source.navigation.nodesForFiles(current.source.sourceFiles).find(node =>
+    current.ast.is.IsParameterDeclaration(node) && current.ast.text(current.ast.name(node)) === "Parent");
+  assert.equal(formal !== undefined, true, "the declared native-constructor input has its original checked identity");
+  const source = { ...current.source, semantics: { ...current.source.semantics,
+    forNode(node) {
+      const selected = current.source.semantics.forNode(node);
+      return node === formal ? { ...selected, types: { ...selected.types, constructSignatures: () => [] } } : selected;
+    } } };
+  const result = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" } });
+  assert.equal(result.kind, "unresolved", "missing native constructor evidence is not empty success");
+  assert.equal(result.source === formal, true, "the missing contract belongs to the original declared constructor input");
+  assert.equal("graph" in result, false, "no partial initializer graph escapes the failed native contract");
+});
+
 test("field initializers carry class activations while defaults and bodies carry constructor activations", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
   const graph = flow(current, current.constructor("Derived"));
@@ -578,7 +624,12 @@ for (const [label, expression, reads, writes] of [
   assert.equal(selected.kind, "resolved", selected.reason ?? "the actual property initializer defines its source flow");
   const graph = selected.graph;
   assert.equal(graph.declaration === declaration, true, "the graph retains the original property identity");
-  assert.equal(graph.executionRegions.size, 0, "a symbolic graph is not evidence of a constructor activation");
+  const initializer = current.ast.as.AsPropertyDeclaration(declaration).Initializer;
+  const regions = [...graph.executionRegions.values()];
+  assert.equal(regions.length > 0, true, "the checked initializer has its required declaration region");
+  assert.equal(regions.every(region => region.owner === current.ast.parent(declaration) &&
+    region.root === initializer && region.role === "instance-initializer" && !("selection" in region)), true,
+  "the original initializer region is not a constructor activation or fabricated callable");
   assert.equal(graph.points.some(point => point.operation.kind === "return" || point.operation.kind === "declare"), false,
     "an initializer is neither a function return nor a synthetic parameter declaration");
   assert.equal(graph.points.some(point => point.operation.kind === "evaluate" && point.source !== undefined &&
