@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceControlFlowOptions, SourceFlowLimits } from "../flow/model.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import { sourceStorageConstructionExpression } from "../source-storage/model/construction.js";
+import { sourceConstructionExpression } from "../../source-navigation/class-initialization.js";
 import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipPremises, SourceOwnershipUnresolved, SourcePendingOperation, SourceRetentionPremise, SourceSuspensionSelection } from "./model.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
@@ -94,7 +94,7 @@ export function createSourceContinuationClosureQuery(input: {
     const declaration = selected?.sourceSelectedSignatureKind === "resolved"
       ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
     const implementations = storage.invocationImplementationsFor(call, bindings);
-    const sourceConstruction = sourceStorageConstructionExpression(call, source, budget.step) !== undefined &&
+    const sourceConstruction = sourceConstructionExpression(call, source, budget.step) !== undefined &&
       implementations.kind === "resolved" && implementations.nodes.some(candidate =>
         source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) || source.ast.is.IsConstructorDeclaration(candidate));
     const construction = sourceConstruction ? storage.constructionFor(call, bindings) : undefined;
@@ -202,7 +202,7 @@ export function createSourceContinuationClosureQuery(input: {
       const selectedDeclaration = call?.sourceSelectedSignatureKind === "resolved"
         ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
       const implementations = storage.invocationImplementationsFor(value.node, bindings);
-      const sourceConstruction = sourceStorageConstructionExpression(value.node, source, evaluationBudget.step) !== undefined &&
+      const sourceConstruction = sourceConstructionExpression(value.node, source, evaluationBudget.step) !== undefined &&
         implementations.kind === "resolved" && implementations.nodes.some(candidate =>
           source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) || source.ast.is.IsConstructorDeclaration(candidate));
       const construction = sourceConstruction ? storage.constructionFor(value.node, bindings) : undefined;

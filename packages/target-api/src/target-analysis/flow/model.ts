@@ -32,7 +32,7 @@ export interface SourceFlowPoint {
   readonly predecessors: readonly SourceFlowEdge[];
 }
 
-export interface SourceControlFlowGraph {
+export interface SourceControlFlowGraph<Region = SourceFlowExecutionRegion> {
   readonly declaration: Node;
   readonly entry: number;
   readonly exit: number;
@@ -40,7 +40,7 @@ export interface SourceControlFlowGraph {
   readonly points: readonly SourceFlowPoint[];
   readonly sourcePoints: ReadonlyMap<Node, readonly number[]>;
   readonly bindings: ReadonlySet<Node>;
-  readonly executionRegions: ReadonlyMap<number, SourceFlowExecutionRegion>;
+  readonly executionRegions: ReadonlyMap<number, Region>;
 }
 
 export interface SourceFlowExecutionRegion {
@@ -48,14 +48,25 @@ export interface SourceFlowExecutionRegion {
   readonly selection: SourceStorageBindingsSelection;
 }
 
+export interface SourceDeclarationFlowExecutionRegion {
+  readonly owner: Node;
+  readonly root: Node;
+  readonly role: "body" | "parameter-initializer" | "instance-initializer" | "module" | "static-initializer";
+}
+
 export interface SourceFlowUnresolved {
   readonly kind: "unresolved";
   readonly reason: string;
   readonly source: Node | undefined;
+  readonly resource?: {
+    readonly subject: Node;
+    readonly dimension: keyof SourceFlowLimits;
+    readonly limit: number;
+  };
 }
 
-export type SourceControlFlowSelection =
-  | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph }
+export type SourceControlFlowSelection<Region = SourceFlowExecutionRegion> =
+  | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph<Region> }
   | SourceFlowUnresolved;
 
 export interface SourceFlowLimits {
@@ -71,9 +82,12 @@ export interface SourceControlFlowSelectedDomain {
   readonly nodes: readonly Node[];
 }
 
-export interface SourceControlFlowOptions {
+export interface SourceDeclarationControlFlowOptions {
   readonly domain: { readonly kind: "source" } | SourceControlFlowSelectedDomain;
   readonly limits?: Partial<SourceFlowLimits>;
+}
+
+export interface SourceControlFlowOptions extends SourceDeclarationControlFlowOptions {
   readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
     readonly callerBindings?: SourceStorageBindings;
     readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number] };

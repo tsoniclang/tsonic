@@ -289,12 +289,27 @@ test("flow solver returns unresolved for exhausted work and missing lattice prem
   const limited = solveSourceFlow(current.graph, problem, { maximumSteps: 1 });
   assert.equal(limited.kind, "unresolved");
   assert.match(limited.reason, /work budget/u);
+  assert.equal(limited.resource?.subject === current.graph.declaration, true, "work exhaustion names the original callable");
+  assert.equal(limited.resource?.dimension, "maximumSteps", "the exhausted dimension is typed evidence");
+  assert.equal(limited.resource?.limit, 1, "the work limit is not inferred from the message");
+  assert.equal(Object.isFrozen(limited.resource), true, "resource evidence is immutable");
+  assert.equal("before" in limited || "after" in limited, false, "resource exhaustion publishes no partial solution");
   const missing = solveSourceFlow(current.graph, { ...problem, transfer: () => undefined });
   assert.equal(missing.kind, "unresolved");
   assert.match(missing.reason, /premises and budget/u);
+  assert.equal(missing.resource === undefined, true, "missing lattice premises are not resource exhaustion");
   const unbounded = solveSourceFlow(current.graph, { ...problem, transfer: (_, state) => state + 1 }, { maximumSteps: 2000 });
   assert.equal(unbounded.kind, "unresolved");
   assert.match(unbounded.reason, /work budget/u);
+  assert.equal(unbounded.resource?.subject === current.graph.declaration, true, "nonconvergence retains the callable subject");
+  assert.equal(unbounded.resource?.dimension, "maximumSteps", "actual repeated work exhausts the work dimension");
+  assert.equal(unbounded.resource?.limit, 2000, "the unchanged finite bound is reported exactly");
+  const invalid = solveSourceFlow(current.graph, problem, { maximumSteps: Infinity });
+  assert.equal(invalid.kind, "unresolved", "an invalid requested limit remains rejected");
+  assert.equal(invalid.resource === undefined, true, "invalid configuration is not an exhausted valid allowance");
+  const failure = new Error("original transfer failure");
+  assert.throws(() => solveSourceFlow(current.graph, { ...problem, transfer() { throw failure; } }),
+    error => error === failure, "unrelated transfer errors retain their exact identity");
 });
 
 test("flow definite assignment and last use preserve conditional pattern defaults", async () => {
@@ -313,12 +328,23 @@ test("flow solver charges instance lattice work and honors explicit finite edge 
   const edges = solveSourceFlow(current.graph, problem, { maximumEdges: 1 });
   assert.equal(edges.kind, "unresolved");
   assert.match(edges.reason, /edge budget/u);
+  assert.equal(edges.resource?.subject === current.graph.declaration, true, "edge exhaustion names the original callable");
+  assert.equal(edges.resource?.dimension, "maximumEdges", "the edge guard reports its actual dimension");
+  assert.equal(edges.resource?.limit, 1, "the exact edge allowance is retained");
+  const points = solveSourceFlow(current.graph, problem, { maximumPoints: 1 });
+  assert.equal(points.kind, "unresolved", "the original finite point guard is retained");
+  assert.equal(points.resource?.subject === current.graph.declaration, true, "point exhaustion names the callable");
+  assert.equal(points.resource?.dimension, "maximumPoints", "point exhaustion does not become a language refusal");
+  assert.equal(points.resource?.limit, 1, "the exact point allowance is retained");
   const expensive = solveSourceFlow(current.graph, { ...problem, transfer(_, value, work) {
     for (let index = 0; index < 1000; index += 1) work.step();
     return value;
   } }, { maximumSteps: 500 });
   assert.equal(expensive.kind, "unresolved");
   assert.match(expensive.reason, /work budget/u);
+  assert.equal(expensive.resource?.subject === current.graph.declaration, true, "charged lattice work retains its subject");
+  assert.equal(expensive.resource?.dimension, "maximumSteps", "lattice work uses the same work owner");
+  assert.equal(expensive.resource?.limit, 500, "lattice work cannot evade its original bound");
 });
 
 test("flow finally read is last only when every completion-specific occurrence is last", async () => {
