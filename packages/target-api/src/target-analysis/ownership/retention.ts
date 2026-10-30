@@ -36,7 +36,7 @@ export function createSourceDeclarationRetentionQuery(input: {
             return sourceDeclarationOwnershipUnresolved(value.node, "A retained or borrowed owner must be a distinct checked local value.");
         }
         if (premise.kind === "retained" && premise.reason === "module-owner" &&
-          !source.ast.is.IsSourceFile(value.region.owner))
+          premise.contract.kind !== "declaration")
           return sourceDeclarationOwnershipUnresolved(value.node, "Program-duration retention requires its actual module owner.");
         if (premise.kind === "scoped-borrowed") {
           const regionFile = source.ast.getSourceFile(premise.region);

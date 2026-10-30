@@ -171,8 +171,8 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
       factoryBodies.has(storage.enclosingRegionFor(node))));
     assert.equal(constructors.size, 2, "The fixture supplies native non-Future contracts only for its two actual constructor values.");
     const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
-      suspensionFor(value) {
-        if (!constructors.has(value.node)) return current.premises.suspensionFor(value);
+      suspensionFor(value, use) {
+        if (!constructors.has(value.node)) return current.premises.suspensionFor(value, use);
         const type = value.component.selectedType;
         assert.equal(source.semantics.forNode(value.node).types.constructSignatures(type).length === 1,
           true, "A native constructor value has its exact checked constructor signature, not a guessed unknown result.");

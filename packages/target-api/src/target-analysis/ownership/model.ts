@@ -77,7 +77,8 @@ export interface SourceDeclarationOwnershipPremises {
     | { readonly kind: "value"; readonly value: SourceDeclarationOwnershipValue }
     | { readonly kind: "read-value"; readonly reference: Node; readonly value: SourceDeclarationOwnershipValue }
   )): SourceDeclarationRetentionSelection | undefined;
-  suspensionFor(value: SourceDeclarationOwnershipValue): SourceDeclarationSuspensionSelection | undefined;
+  suspensionFor(value: SourceDeclarationOwnershipValue,
+    use: "operation" | "value"): SourceDeclarationSuspensionSelection | undefined;
 }
 
 export interface SourceDeclarationPendingOperation {

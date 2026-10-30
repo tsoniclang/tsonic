@@ -18,10 +18,10 @@ test("a complete structural source method remains a source continuation instead 
     current.selectedDeclaration(node) === current.declaration("shapeRead"));
   assert.equal(call !== undefined, true, "The original source read is invoked in its actual await.");
   const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
-    suspensionFor(value) {
+    suspensionFor(value, use) {
       const declaration = current.source.ast.is.IsCallExpression(value.node) ? current.selectedDeclaration(value.node) : undefined;
       return declaration === current.declaration("pending") || declaration === current.declaration("read")
-        ? current.premises.suspensionFor(value) : undefined;
+        ? current.premises.suspensionFor(value, use) : undefined;
     },
   } });
   const selected = query.forCall(call!);
@@ -560,12 +560,12 @@ for (const thrown of [false, true]) {
     const original = new Error("native premise control");
     let fail = true;
     const { closure: query } = current.continuation({ ...current.premises,
-      suspensionFor(value) {
+      suspensionFor(value, use) {
         if (fail && current.selectedDeclaration(value.node) === current.declaration("unclassified")) {
           if (thrown) throw original;
           return undefined;
         }
-        return current.premises.suspensionFor(value);
+        return current.premises.suspensionFor(value, use);
       },
     }, budget);
     const validCall = current.callIn("ownedRoot");

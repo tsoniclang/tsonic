@@ -5,18 +5,25 @@ import { createTargetSourceProgram } from "../../packages/target-api/dist/public
 import { sourceDeclarationUses } from "../../packages/target-api/dist/source-navigation/declaration-uses.js";
 import { sourceCallableValueParameters } from "../../packages/target-api/dist/source-navigation/callable-parameters.js";
 import { sourceStorageFormalOwner } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
-import { createSourceCallableRetentionQuery, createSourceStorageBudget, createSourceStorageQuery,
-  defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipValues, createSourceDeclarationOwnershipBudget,
+  defaultSourceDeclarationOwnershipLimits, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 
-function fixture(text) {
+function fixture(text, nativeAvailable = true) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": `export {}; ${text}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createTargetSourceProgram(checked);
   const storage = createSourceStorageQuery(source, source.sourceFiles);
-  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
-  const query = createSourceCallableRetentionQuery({ source, storage, budget });
+  const nodes = source.navigation.nodes;
+  const budget = createSourceDeclarationOwnershipBudget(nodes[0], defaultSourceDeclarationOwnershipLimits);
+  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const query = createSourceDeclarationRetentionQuery({ source, values: context.values, budget,
+    premises: { retentionFor({ value }) {
+      if (!nativeAvailable) return undefined;
+      return { kind: "resolved", premises: [{ kind: "retained", reason: "owned-value", value,
+        contract: { kind: "expression", expression: value.node, component: value.component } }] };
+    } } });
   const declaration = name => {
     const selected = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
       source.ast.text(source.ast.name(node)) === name);
@@ -27,7 +34,20 @@ function fixture(text) {
     assert.equal(initializer !== undefined, true, `${name}: checked callable initializer`);
     return initializer;
   };
-  return { source, storage, budget, declaration, retention: name => query.forDeclaration(declaration(name)) };
+  const references = name => {
+    const selected = declaration(name);
+    const owner = source.ast.is.IsFunctionExpression(selected) || source.ast.is.IsArrowFunction(selected)
+      ? source.ast.parent(selected) : selected;
+    return nodes.filter(node => source.ast.is.IsIdentifier(node) && node !== source.ast.name(owner) &&
+      source.navigation.sourceReferenceFor(node)?.declaration === owner);
+  };
+  const select = name => {
+    const reference = references(name)[0];
+    return reference === undefined ? { kind: "unresolved", at: declaration(name),
+      reason: "A native callable contract requires its actual checked read, never an empty declaration-use set.",
+      cause: { kind: "required-fact" } } : query.forReference(reference);
+  };
+  return { source, storage, nodes, budget, context, query, declaration, references, select };
 }
 
 for (const [label, body] of [
@@ -99,10 +119,10 @@ for (const [label, body] of [
 ]) {
   test(`callable creation and execution case map: ${label}`, () => {
     const current = fixture(body);
-    const selected = current.retention("child");
+    const selected = current.select("child");
     assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? selected.kind}`);
-    assert.equal(selected.retention, "scoped", `${label}: nonescaping checked calls`);
-    assert.equal(selected.witnesses.length > 0, true, `${label}: nonempty original use proof`);
+    assert.equal(selected.premises[0]?.kind, "retained", `${label}: nonescaping checked calls`);
+    assert.equal(selected.premises.length > 0, true, `${label}: nonempty original use proof`);
     assert.equal(current.budget.failure() === undefined, true, `${label}: finite completed query`);
   });
 }
@@ -155,10 +175,10 @@ for (const [label, expression] of [
       }
       void start(pending);
     `);
-    const selected = current.retention("child");
+    const selected = current.select("child");
     assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? selected.kind}`);
-    assert.equal(selected.retention, "scoped", `${label}: original receiving activation completes before creator`);
-    assert.equal(selected.witnesses.length > 0, true, `${label}: exact nonempty proof`);
+    assert.equal(selected.premises[0]?.kind, "retained", `${label}: original receiving activation completes before creator`);
+    assert.equal(selected.premises.length > 0, true, `${label}: exact nonempty proof`);
   });
 }
 
@@ -176,16 +196,16 @@ for (const [label, returnType, expression] of [
       }
       void start(pending);
     `);
-    const selected = current.retention("child");
+    const selected = current.select("child");
     assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? selected.kind}`);
-    assert.equal(selected.retention, "retained", `${label}: actual receiving future escapes creator activation`);
-    assert.equal(selected.witnesses.length > 0, true, `${label}: original escape witness retained`);
+    assert.equal(selected.premises[0]?.kind, "retained", `${label}: actual receiving future escapes creator activation`);
+    assert.equal(selected.premises.length > 0, true, `${label}: original escape witness retained`);
   });
 }
 
 test("opaque callback boundaries cannot become safe through an empty checked invocation graph", () => {
-  const current = fixture("declare function opaque(callback: () => void): void; function child(): void {} opaque(child);");
-  const selected = current.retention("child");
+  const current = fixture("declare function opaque(callback: () => void): void; function child(): void {} opaque(child);", false);
+  const selected = current.select("child");
   assert.equal(selected.kind, "unresolved", "unknown native lifetime is not empty nonretention");
 });
 
@@ -197,9 +217,9 @@ test("returned callable values preserve actual creator retention", () => {
   }
   const result = create();
   result();`);
-  const selected = current.retention("child");
+  const selected = current.select("child");
   assert.equal(selected.kind === "resolved", true, selected.reason ?? selected.kind);
-  assert.equal(selected.retention, "retained", "returning the actual closure escapes its original creator");
+  assert.equal(selected.premises[0]?.kind, "retained", "returning the actual closure escapes its original creator");
 });
 
 for (const [label, declarations, read, expected] of [
@@ -308,8 +328,8 @@ test("deferred callback lifetime follows the receiving input rather than the par
     "the parameter's physical binding value is not a formal activation port");
   assert.equal(input.kind === "resolved" && input.subject.kind === "input" && input.subject !== binding.subject, true,
     "the identical checked declaration has a distinct actual receiving input");
-  const selected = current.retention("child");
-  assert.equal(selected.kind === "resolved" && selected.retention === "retained", true,
+  const selected = current.select("child");
+  assert.equal(selected.kind === "resolved" && selected.premises[0]?.kind === "retained", true,
     "a discarded receiving future cannot be hidden by looking for an input owner on the binding-value subject");
   const { ast } = current.source;
   const receiving = current.storage.nodes.filter(node => {
@@ -322,6 +342,7 @@ test("deferred callback lifetime follows the receiving input rather than the par
         ast.text(argument.expression) === ["ready", "child"][index]);
   });
   assert.equal(receiving.length, 1, "the fixture has one exact checked later(ready, child) invocation");
-  assert.equal(selected.witnesses.some(node => node === receiving[0]), true,
+  assert.equal(selected.premises.some(premise => current.references("child").includes(premise.value.node) &&
+    current.source.ast.is.IsCallExpression(current.source.ast.parent(premise.value.node))), true,
     "the actual original receiving call owns the escape");
 });

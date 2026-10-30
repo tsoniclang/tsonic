@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceContinuationDependencyQuery, createSourceContinuationTransfer, createSourceSuspensionQuery,
-  createSourceStorageBudget, defaultSourceStorageLimits }
+import { createSourceDeclarationContinuationDependencyQuery, createSourceContinuationTransfer, createSourceDeclarationSuspensionQuery,
+  createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits }
   from "../../packages/target-api/dist/public/analysis.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 
 const fixture = ownershipFixture();
 
-function witnesses(bindings = fixture.storage.emptyBindings) {
-  const reader = createSourceSuspensionQuery({ ...fixture, premises: fixture.native });
+function witnesses() {
+  const reader = createSourceDeclarationSuspensionQuery({ ...fixture, premises: fixture.native });
   const pending = fixture.nodes.filter(node => fixture.within(node, fixture.declaration("read")) &&
     fixture.source.ast.is.IsAwaitExpression(node)).map(node => {
-      const selected = reader.forAwait(node, bindings);
+      const selected = reader.forAwait(node);
       assert.equal(selected.kind, "resolved");
       return selected.pending;
     });
@@ -19,7 +19,7 @@ function witnesses(bindings = fixture.storage.emptyBindings) {
 }
 
 test("the suspension lattice is monotone, associative, commutative and idempotent without mutating inputs", () => {
-  const transfer = createSourceContinuationTransfer(fixture.budget);
+  const transfer = createSourceContinuationTransfer(fixture.transferBudget);
   const { pending: [first, second] } = witnesses();
   const empty = transfer.lattice.empty();
   const left = transfer.suspend(empty, first);
@@ -38,27 +38,28 @@ test("the suspension lattice is monotone, associative, commutative and idempoten
 });
 
 test("reads before suspension need no lease proof, while post-suspension reads preserve all bound owners", () => {
-  const transfer = createSourceContinuationTransfer(fixture.budget);
-  const bindings = fixture.invocationBindings(fixture.readCall(fixture.declaration("alternatives")));
-  const { reader: suspensions, pending: [first, second] } = witnesses(bindings);
-  const missing = createSourceContinuationDependencyQuery({ ...fixture, transfer,
-    premises: { retentionFor: () => undefined }, suspensions });
-  const before = missing.forRead(transfer.lattice.empty(), fixture.readReference(), fixture.declaration("read"), bindings);
+  const transfer = createSourceContinuationTransfer(fixture.transferBudget);
+  const reference = fixture.source.ast.arguments(fixture.readCall(fixture.declaration("alternatives")))[0];
+  const { reader: suspensions, pending: [first, second] } = witnesses();
+  const missing = createSourceDeclarationContinuationDependencyQuery({ ...fixture,
+    retention: createSourceDeclarationRetentionQuery({ ...fixture, premises: { retentionFor: () => undefined } }), suspensions });
+  const before = missing.forRead(transfer.lattice.empty(), reference, fixture.declaration("alternatives"));
   assert.equal(before.kind === "resolved" && before.dependencies.length === 0, true, "no suspended lease before any suspension");
   const state = transfer.suspend(transfer.suspend(transfer.lattice.empty(), first), second);
-  const afterMissing = missing.forRead(state, fixture.readReference(), fixture.declaration("read"), bindings);
+  const afterMissing = missing.forRead(state, reference, fixture.declaration("alternatives"));
   assert.equal(afterMissing.kind, "unresolved", "missing post-suspension evidence cannot become empty");
-  const actual = createSourceContinuationDependencyQuery({ ...fixture, transfer, premises: fixture.native, suspensions })
-    .forRead(state, fixture.readReference(), fixture.declaration("read"), bindings);
+  const actual = createSourceDeclarationContinuationDependencyQuery({ ...fixture,
+    retention: createSourceDeclarationRetentionQuery({ ...fixture, premises: fixture.native }), suspensions })
+    .forRead(state, reference, fixture.declaration("alternatives"));
   assert.equal(actual.kind === "resolved" && actual.dependencies.length === 4, true, "two native owners across both pending operations");
-  assert.equal(new Set(actual.dependencies.map(item => item.actual)).size, 2);
+  assert.equal(new Set(actual.dependencies.map(item => item.retention.owner)).size, 2);
   assert.equal(new Set(actual.dependencies.map(item => item.suspension)).size, 2);
   assert.equal(Object.isFrozen(actual.dependencies) && actual.dependencies.every(Object.isFrozen), true);
   transfer.release();
 });
 
 test("a bounded transfer reaches its finite witness fixpoint without a second solver", () => {
-  const transfer = createSourceContinuationTransfer(fixture.budget);
+  const transfer = createSourceContinuationTransfer(fixture.transferBudget);
   const { pending } = witnesses();
   let state = transfer.lattice.empty();
   let rounds = 0;
@@ -74,42 +75,46 @@ test("a bounded transfer reaches its finite witness fixpoint without a second so
 });
 
 test("analysis work exhaustion fails closed and is sticky", () => {
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 2 });
-  const transfer = createSourceContinuationTransfer(budget);
+  const budget = createSourceDeclarationOwnershipBudget(fixture.file, { ...defaultSourceDeclarationOwnershipLimits, maximumSteps: 2 });
+  const transfer = createSourceContinuationTransfer({ step: () => budget.step(fixture.file),
+    createRows: () => budget.createRows(fixture.file), failure: () => budget.failure()?.reason });
   const { pending: [first, second] } = witnesses();
   const state = transfer.suspend(transfer.lattice.empty(), first);
   assert.equal(state !== undefined, true);
   assert.equal(transfer.suspend(state, second) !== undefined, true);
   assert.equal(transfer.suspend(state, second) === undefined, true);
-  assert.match(budget.failure(), /analysis-work/u);
+  assert.equal(budget.failure().cause.kind === "resource-limit" && budget.failure().cause.subject === fixture.file &&
+    budget.failure().cause.category === "step" && budget.failure().cause.limit === 2, true);
   assert.equal(transfer.lattice.join(transfer.lattice.empty(), state) === undefined, true,
     "an exhausted analysis cannot certify even an apparently trivial join");
   transfer.release();
 });
 
 test("retained-row exhaustion fails closed, without a hidden raised budget", () => {
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
-  const transfer = createSourceContinuationTransfer(budget);
+  const budget = createSourceDeclarationOwnershipBudget(fixture.file, { ...defaultSourceDeclarationOwnershipLimits, maximumTransportRows: 2 });
+  const transfer = createSourceContinuationTransfer({ step: () => budget.step(fixture.file),
+    createRows: () => budget.createRows(fixture.file), failure: () => budget.failure()?.reason });
   const { pending: [first, second] } = witnesses();
   const one = transfer.suspend(transfer.lattice.empty(), first);
   assert.equal(one !== undefined, true);
   assert.equal(transfer.suspend(one, second) === undefined, true);
-  assert.match(budget.failure(), /transport-row|finite positive reservation/u);
+  assert.equal(budget.failure().cause.kind === "resource-limit" && budget.failure().cause.category === "row" &&
+    budget.failure().cause.limit === 2, true);
   transfer.release();
   assert.equal(budget.failure() !== undefined, true, "release does not clear an exhausted query's failed proof");
 });
 
 test("copied and foreign pending witnesses cannot authorize continuation dependencies", () => {
-  const transfer = createSourceContinuationTransfer(fixture.budget);
-  const bindings = fixture.invocationBindings(fixture.readCall(fixture.declaration("awaited")));
-  const { reader: suspensions, pending: [first] } = witnesses(bindings);
-  const foreign = witnesses(bindings).pending[0];
-  const query = createSourceContinuationDependencyQuery({ ...fixture, transfer, premises: fixture.native, suspensions });
+  const transfer = createSourceContinuationTransfer(fixture.transferBudget);
+  const { reader: suspensions, pending: [first] } = witnesses();
+  const foreign = witnesses().pending[0];
+  const query = createSourceDeclarationContinuationDependencyQuery({ ...fixture,
+    retention: createSourceDeclarationRetentionQuery({ ...fixture, premises: fixture.native }), suspensions });
   for (const pending of [{ ...first }, foreign]) {
     const state = transfer.suspend(transfer.lattice.empty(), pending);
-    const selected = query.forRead(state, fixture.readReference(), fixture.declaration("read"), bindings);
+    const selected = query.forRead(state, fixture.readReference(), fixture.declaration("read"));
     assert.equal(selected.kind, "unresolved");
-    assert.match(selected.reason, /original checked pending-operation evidence/u);
+    assert.match(selected.reason, /real pending native operation/u);
   }
   transfer.release();
 });

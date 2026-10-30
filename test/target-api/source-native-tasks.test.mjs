@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/source.js";
-import { analyzeSourceNativeTaskGraph, createSourceStorageQuery, createSourceStorageBudget,
+import { createSourceStorageQuery,
   defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { analyzeSourceDeclarationNativeTaskGraph, createSourceDeclarationOwnershipValues,
-  createSourceDeclarationOwnershipBudget } from "../../packages/target-api/dist/public/analysis.js";
+  createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "../../packages/target-api/dist/public/analysis.js";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
@@ -14,7 +14,7 @@ function fixture(body) {
   const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
-  const nodes = storage.nodes;
+  const nodes = source.navigation.nodesForFiles([file]);
   const declarations = new Map(nodes.filter(node => source.ast.is.IsFunctionDeclaration(node)).map(node =>
     [source.ast.text(source.ast.name(node)), node]));
   const ownerUses = new Map([...declarations.values()].map(node => [node, { capture: false, parameter: true }]));
@@ -24,15 +24,35 @@ function fixture(body) {
   const callInputs = new Map(nodes.filter(node => source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)).map(node => [node, "parameter"]));
   for (const node of storage.accessorInvocations) callInputs.set(node, "parameter");
   const spawns = nodes.filter(node => source.ast.is.IsVoidExpression(node)).map(node => ({ node, operand: Node_Expression(source.ast, node) }));
-  const select = (changes = {}) => analyzeSourceNativeTaskGraph({ source, storage, nodes, ownerUses, callInputs,
-    spawns, lifecycleOwner: file, publishedDeclarations: new Set(), budget: createSourceStorageBudget(defaultSourceStorageLimits), ...changes });
+  const select = (changes = {}) => {
+    const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
+    const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+    return analyzeSourceDeclarationNativeTaskGraph({ source, nodes, values: context.values, spawns,
+      lifecycleOwner: Object.hasOwn(changes, "lifecycleOwner") ? changes.lifecycleOwner : file,
+      publishedDeclarations: changes.publishedDeclarations ?? new Set(), budget,
+      scopeFor(declaration) {
+        const use = (changes.ownerUses ?? ownerUses).get(declaration);
+        if (changes.callInputs !== undefined && changes.callInputs.size === 0)
+          return { kind: "unresolved", at: declaration, reason: "The selected native scope contract is missing.",
+            cause: { kind: "required-fact" } };
+        if (use === undefined) return { kind: "unresolved", at: declaration,
+          reason: "The selected declaration has no completed native scope requirement.", cause: { kind: "required-fact" } };
+        const semantics = source.semantics.forNode(declaration);
+        const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
+          semantics.declarations.declaredValueType(declaration);
+        assert.equal(selectedType !== undefined, true, "the native scope fact has its exact checked declaration component");
+        return { kind: use.capture ? "capture" : use.parameter ? "parameter" : "none",
+          contract: { kind: "declaration", declaration, component: { selectedType } } };
+      },
+    });
+  };
   return { source, storage, file, nodes, declarations, ownerUses, callInputs, select };
 }
 
 function declaredTasks(current, required, changes = {}) {
   const { source, file } = current;
   const nodes = source.navigation.nodesForFiles([file]);
-  const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceStorageLimits);
+  const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
   const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
   return analyzeSourceDeclarationNativeTaskGraph({ source, nodes, values: context.values, budget,
     lifecycleOwner: file, publishedDeclarations: new Set(),
@@ -152,7 +172,7 @@ test("a demanded retained callable capture is refused even when a direct helper 
   assert.equal(selected.issues.length, 1, "the unsupported owner has one refusal");
   assert.equal(selected.issues[0].node === work, true, "the original retaining callable is the subject");
   assert.equal(selected.issues[0].kind, "scope-owner", "capture is rejected before target ABI publication");
-  assert.equal(selected.issues[0].reason, "Native explicit void spawn is unsupported in a retained callable capture.",
+  assert.equal(selected.issues[0].reason, "A demanded native task declaration requires its exact declared scope input, not a captured or invented parameter.",
     "a direct helper facet cannot mask an unsupported captured facet");
 });
 
@@ -161,7 +181,9 @@ test("an unknown demanded scope calling form is refused rather than assumed nati
     function work(): void { void child(); } work();`);
   const selected = current.select({ callInputs: new Map() });
   assert.equal(selected.kind, "unresolved", "native or capture call ownership must be selected before propagation");
-  assert.equal(selected.issues.some(issue => issue.kind === "call-graph"), true, "the original invocation identifies the missing contract");
+  assert.equal(selected.cause.kind === "required-fact" && selected.at === current.declarations.get("work"), true,
+    "the original demanded declaration identifies the missing native scope contract");
+  assert.equal("graph" in selected, false, "missing evidence cannot publish a partial native graph");
 });
 
 test("a public callable cannot silently gain a compiler-owned source ABI input", () => {
@@ -185,7 +207,7 @@ test("a capture-only demanded owner cannot manufacture an implicit helper parame
   current.ownerUses.set(current.declarations.get("work"), { capture: true, parameter: false });
   const selected = current.select();
   assert.equal(selected.kind, "unresolved", "a captured activation is outside the direct native helper capability");
-  assert.equal(selected.issues.some(issue => issue.kind === "scope-owner" && issue.reason.includes("retained callable capture")), true,
+  assert.equal(selected.issues.some(issue => issue.kind === "scope-owner" && issue.reason.includes("captured or invented parameter")), true,
     "the unsupported capture remains the precise refusal");
 });
 
@@ -237,7 +259,7 @@ for (const [label, sourceText] of [
     const selected = current.select();
     assert.equal(selected.kind, "unresolved", "no constructor or captured scope machinery is synthesized");
     assert.equal(selected.issues.some(issue => issue.kind === "scope-owner" &&
-      (issue.reason.includes("initializer") || issue.reason.includes("generator activation"))), true,
+      (issue.reason.includes("initializer") || issue.reason.includes("generator"))), true,
     "the checked unsupported execution owner supplies the precise refusal");
     assert.equal(selected.issues.every(issue => current.nodes.includes(issue.node)), true,
       "every diagnostic subject is an original checked source node");
