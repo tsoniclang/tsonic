@@ -35,10 +35,10 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       diagnostic: Object.freeze({ code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", at: call,
         message: "A native asynchronous call result must be observed, not discarded." }) });
   const continuation = input.continuation();
-  if (continuation.kind === "unresolved" && continuation.cause.kind !== "required-fact") return continuation;
   const retention = input.retention(call);
+  if (continuation.kind === "unresolved") return budget.failure() ?? continuation;
   if (retention.kind === "unresolved" || retention.premises.length === 0)
-    return continuation.kind === "unresolved" ? continuation : retention.kind === "unresolved" ? retention
+    return retention.kind === "unresolved" ? retention
       : sourceDeclarationOwnershipUnresolved(call, "The async result requires its nonempty completed native retention contract.");
   if (retention.reference !== call || retention.premises.some(premise => premise.value.node !== call))
     return sourceDeclarationOwnershipUnresolved(call,
@@ -49,9 +49,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       { selectedType: selected.sourceResultType }, premise.contract);
     if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(call, problem);
   }
-  if (continuation.kind === "unresolved" && retention.premises.some(premise =>
-    premise.kind === "scoped-borrowed" || premise.kind === "formal-borrowed")) return continuation;
-  const dependencies = continuation.kind === "resolved" ? continuation.dependencies : Object.freeze([]);
+  const dependencies = continuation.dependencies;
   const leases = [...dependencies.map(dependency => dependency.retention), ...retention.premises];
   for (const premise of leases) {
     if (!budget.step(call)) return budget.failure()!;

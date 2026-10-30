@@ -408,3 +408,46 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     "actual nonempty validated native retention remains authoritative when the source continuation is unresolved");
   });
 }
+
+test("an owning result never discharges a missing pending-input lifetime fact", () => {
+  const current = fixture("input-duration", premise => premise, `
+    declare function nativeFuture<Region>(view: Lease<number, Region>): Promise<number>;
+    async function use<Region>(view: Lease<number, Region>): Promise<number> {
+      await nativeFuture(view); return view.value;
+    }
+    function missingInputRoot<Region>(view: Lease<number, Region>): void { void use(view); }
+  `);
+  const owner = current.declaration("use");
+  const parameter = current.source.ast.parameters(owner)[0];
+  assert.equal(parameter !== undefined, true, "the pending input has its original checked formal");
+  const premises: SourceDeclarationOwnershipPremises = {
+    ...current.premises,
+    retentionFor(request) {
+      if (current.source.navigation.sourceReferenceFor(request.value.node)?.declaration === parameter)
+        return undefined;
+      return current.premises.retentionFor(request);
+    },
+    suspensionFor(value, use) {
+      return current.selectedDeclaration(value.node) === current.declaration("nativeFuture")
+        ? { kind: "may-suspend", value,
+            contract: { kind: "expression", expression: value.node, component: value.component } }
+        : current.premises.suspensionFor(value, use);
+    },
+  };
+  const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.selectedDeclaration(node) === owner);
+  assert.equal(call !== undefined, true, "the original caller explicitly discards use(view)");
+  if (call === undefined) throw new Error("missing checked owning-result call");
+  const retained = createSourceDeclarationRetentionQuery({ ...current, premises }).forReference(call);
+  assert.equal(retained.kind === "resolved" && retained.premises.length > 0 &&
+    retained.premises.every(premise => premise.kind === "retained" && premise.reason === "owned-value"),
+  true, "the completed owning result is not the missing continuation-input proof");
+  const query = createSourceDeclarationOwnershipQuery({ ...current, premises });
+  const continuation = query.continuationFor(call);
+  assert.equal(continuation.kind === "unresolved" && continuation.cause.kind === "required-fact", true,
+    "the pending input lifetime remains genuinely unavailable");
+  const selected = query.forCall(call);
+  assert.equal(selected.kind === "unresolved" && selected.cause.kind === "required-fact" &&
+    continuation.kind === "unresolved" && selected.at === continuation.at && current.nodes.includes(selected.at),
+  true, "an owning Task cannot erase the original missing checked safety subject");
+});
