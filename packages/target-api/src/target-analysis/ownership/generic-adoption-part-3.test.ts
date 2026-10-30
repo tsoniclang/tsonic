@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
+import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 import { fixture, sourcePosition, sourceSpan, identity, declarations } from './generic-adoption-fixtures.js';
 import { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
 import { createSourceDeclarationOwnershipBudget, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
-import type { SourceStorageLimits } from "../source-storage/model/types.js";
+import type { SourceDeclarationOwnershipLimits } from "./model.js";
 
 for (const [name, declaration, invoked] of declarations) {
   test(`generic adoption closes ${name} without refusing its ordinary actual`, () => {
@@ -354,7 +354,7 @@ test("interface and abstract generic signatures stay fail-closed without a sourc
   assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(),
     ["base.identity(promised)", "contract.identity(promised)"], "both actual generic signature instantiations require adoption");
 });
-function declaredQuery(current: ReturnType<typeof fixture>, limits: SourceStorageLimits = defaultSourceStorageLimits) {
+function declaredQuery(current: ReturnType<typeof fixture>, limits: SourceDeclarationOwnershipLimits = defaultSourceDeclarationOwnershipLimits) {
   const node = current.nodes[0]!;
   const budget = createSourceDeclarationOwnershipBudget(node, limits);
   return analyzeSourceDeclarationGenericAdoption({ source: current.source, nodes: current.nodes, projectRoot: "/src", budget,
@@ -460,7 +460,7 @@ test("declaration-native canonical Promise wrappers keep their adoption boundary
 
 test("declaration-native generic exhaustion is a resource result with the actual source and no partial issue publication", () => {
   const current = fixture(`${identity}\nvoid identity(Promise.resolve(7));`);
-  const selected = declaredQuery(current, { ...defaultSourceStorageLimits, maximumSteps: 1 });
+  const selected = declaredQuery(current, { ...defaultSourceDeclarationOwnershipLimits, maximumSteps: 1 });
   assert.equal(selected.kind === "unresolved" && selected.cause.kind === "resource-limit" &&
     selected.cause.limit === 1 && current.nodes.includes(selected.cause.subject), true, "typed exact work exhaustion");
   assert.equal("issues" in selected, false, "an incomplete declared relation cannot publish successful partial issues");

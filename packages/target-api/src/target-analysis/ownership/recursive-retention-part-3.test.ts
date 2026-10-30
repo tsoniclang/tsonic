@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceOwnershipQuery } from "./query.js";
+import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { fixture } from './recursive-retention-fixtures.js';
 
 for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (const producersFirst of [false, true]) {
@@ -170,14 +170,14 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
     const constructors = new Set(storage.nodes.filter(node => source.ast.is.IsClassExpression(node) &&
       factoryBodies.has(storage.enclosingRegionFor(node))));
     assert.equal(constructors.size, 2, "The fixture supplies native non-Future contracts only for its two actual constructor values.");
-    const query = createSourceOwnershipQuery({ ...current, premises: { ...current.premises,
-      suspensionFor(value, bindings) {
-        if (!constructors.has(value.node)) return current.premises.suspensionFor(value, bindings);
-        const type = storage.typeFor(value);
-        assert.equal(type.kind === "resolved" && source.semantics.forNode(value.node).types.constructSignatures(type.type).length === 1,
+    const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
+      suspensionFor(value) {
+        if (!constructors.has(value.node)) return current.premises.suspensionFor(value);
+        const type = value.component.selectedType;
+        assert.equal(source.semantics.forNode(value.node).types.constructSignatures(type).length === 1,
           true, "A native constructor value has its exact checked constructor signature, not a guessed unknown result.");
-        return type.kind === "unresolved" ? { kind: "unresolved", at: value.node, reason: type.reason }
-          : { kind: "never", value, contractDeclaration: value.node, checkedType: type.type };
+        return { kind: "never", value,
+          contract: { kind: "expression", expression: value.node, component: value.component } };
       },
     } });
     const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&

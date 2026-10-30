@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import { createSourceOwnershipQuery } from "./query.js";
-import { createSourceContinuationClosureQuery } from "./closure.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceStorageBindings } from "../source-storage/model/types.js";
+import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
+import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { fixture } from './recursive-retention-fixtures.js';
 
 for (const reverse of [false, true]) {
@@ -88,8 +89,8 @@ for (const recursive of ["self", "mutual"] as const) {
 test("a recursive component never publishes its private bottom after budget exhaustion", () => {
   const current = fixture(false, "mutual");
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
-    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const selected = createSourceOwnershipQuery({ ...current, budget }).continuationFor(current.callIn("borrowedRoot"));
+    const budget = createSourceDeclarationOwnershipBudget(current.nodes[0]!, { ...defaultSourceDeclarationOwnershipLimits, ...limits });
+    const selected = createSourceDeclarationOwnershipQuery({ ...current, budget }).continuationFor(current.callIn("borrowedRoot"));
     assert.equal(selected.kind, "unresolved", "exhaustion precedes all publication");
     assert.equal(Object.prototype.hasOwnProperty.call(selected, "dependencies"), false, "no provisional owned/empty summary escapes");
     assert.equal(budget.failure() !== undefined, true, "one canonical budget owns the failure");
@@ -102,7 +103,7 @@ test("a continuation context refusal retains its own reason and cannot poison a 
   const context = current.storage.bindingsForLexicalOwner(call);
   assert.equal(context.kind, "resolved", "the actual invocation owns its canonical bindings");
   if (context.kind !== "resolved") return;
-  const rejected = current.query.continuationFor(call, { ...context.bindings });
+  const rejected = current.query.continuationFor(fixture(false, "self").callIn("ownedRoot"));
   assert.equal(rejected.kind === "unresolved" && typeof rejected.reason === "string" && rejected.reason.length > 0, true,
     "a refused copied context never becomes an undefined budget reason");
   const selected = current.query.forCall(call);
@@ -205,12 +206,45 @@ for (const depth of [2, 3]) for (const reverse of [false, true]) {
     assert.equal(call !== undefined, true, "One actual repeated-factory allocation is checked.");
     const bindings = storage.bindingsForLexicalOwner(call!);
     assert.equal(bindings.kind, "resolved", "The actual allocation caller is retained.");
-    const closure = createSourceContinuationClosureQuery({ source, storage, premises: current.premises, budget: current.budget });
-    const selected = closure.forInvocation(call!, bindings.bindings);
-    assert.equal(selected.kind === "resolved", true,
-      selected.kind === "unresolved" ? selected.reason : "Every actual initializer activation participates in the same complete closure.");
-    if (selected.kind === "unresolved") return;
-    const reads = selected.reads.filter(read => source.ast.is.IsIdentifier(read.reference) && source.ast.text(read.reference) === "lease");
+    const construction = storage.constructionFor(call!, bindings.kind === "resolved" ? bindings.bindings : undefined);
+    assert.equal(construction.kind === "resolved", true, "the real native construction keeps each instantiated factory class");
+    if (construction.kind !== "resolved") return;
+    const reads: { readonly reference: Node; readonly candidate: Node; readonly bindings: SourceStorageBindings }[] = [];
+    const { closure, context } = current.continuation(current.premises, current.budget);
+    const checkedDeclarations = new Set<Node>();
+    for (const alternative of construction.alternatives) for (const selectedClass of alternative.classes) {
+      for (const region of selectedClass.regions) {
+        if (region.selection.kind !== "resolved") {
+          assert.fail(region.selection.reason);
+        }
+        const references = current.nodes.filter(node => {
+          if (!source.ast.is.IsIdentifier(node) || source.ast.text(node) !== "lease") return false;
+          for (let parent: Node | undefined = node; parent !== undefined; parent = source.ast.parent(parent))
+            if (parent === region.node) return true;
+          return false;
+        });
+        for (const reference of references)
+          reads.push({ reference, candidate: selectedClass.owner, bindings: region.selection.bindings });
+        if (references.length === 0 || checkedDeclarations.has(selectedClass.owner)) continue;
+        checkedDeclarations.add(selectedClass.owner);
+        const graph = context.graphFor(selectedClass.owner);
+        assert.equal(graph.kind === "resolved", true, "the same source class has one canonical declaration graph");
+        if (graph.kind !== "resolved") return;
+        const selected = closure.forDeclaration(selectedClass.owner);
+        assert.equal(selected.kind === "resolved", true,
+          selected.kind === "unresolved" ? selected.reason : "the declaration initializer retains its local native obligations");
+        for (const reference of references) {
+          const value = context.values.forNode(reference);
+          assert.equal("kind" in value, false, "the original initializer read has its exact checked native component");
+          if ("kind" in value) return;
+          assert.equal(value.node === reference && value.region.owner === selectedClass.owner &&
+            value.region.root === region.node && value.region.role === "instance-initializer", true,
+          "a repeated runtime instance never replaces the declaration's original field region or component");
+          assert.equal(context.values.forNode(reference) === value, true,
+            "additional runtime constructor instances do not create competing declaration values");
+        }
+      }
+    }
     assert.equal(reads.length, depth, "Each original initializer read occurs once per actual factory capture.");
     assert.equal(reads.every(read => read.reference === reads[0]!.reference && read.candidate === reads[0]!.candidate), true,
       "The same source read and class AST have distinct execution bindings, not fabricated syntax.");

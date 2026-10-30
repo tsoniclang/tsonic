@@ -1,11 +1,10 @@
 import { AsCallExpression } from "../../source-navigation/checked-casts.js";
+import { Node_Expression } from "../../source-navigation/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { type Node } from "@tsonic/tsts";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import type { SourceStorageBindings } from "../source-storage/model/types.js";
-import { createSourceOwnershipQuery } from "./query.js";
-import { createSourceContinuationClosureQuery } from "./closure.js";
+import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
+import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { fixture } from './recursive-retention-fixtures.js';
 
 test("a complete structural source method remains a source continuation instead of an opaque native signature", () => {
@@ -18,14 +17,14 @@ test("a complete structural source method remains a source continuation instead 
   const call = current.storage.invocations.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.selectedDeclaration(node) === current.declaration("shapeRead"));
   assert.equal(call !== undefined, true, "The original source read is invoked in its actual await.");
-  const query = createSourceOwnershipQuery({ ...current, premises: { ...current.premises,
-    suspensionFor(value, bindings) {
+  const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
+    suspensionFor(value) {
       const declaration = current.source.ast.is.IsCallExpression(value.node) ? current.selectedDeclaration(value.node) : undefined;
       return declaration === current.declaration("pending") || declaration === current.declaration("read")
-        ? current.premises.suspensionFor(value, bindings) : undefined;
+        ? current.premises.suspensionFor(value) : undefined;
     },
   } });
-  const selected = query.continuationFor(call!);
+  const selected = query.forCall(call!);
   assert.equal(selected.kind === "resolved" && selected.dependencies.length === 0, true,
     selected.kind === "unresolved" ? selected.reason : "The complete source body needs no fabricated native completion or owned contract.");
 });
@@ -233,7 +232,17 @@ for (const accessor of [false, true]) {
       const subject = storage.subjectFor(allocation!);
       assert.equal(subject.kind, "resolved", "the real local native allocation");
       if (subject.kind !== "resolved") return;
-      const closure = createSourceContinuationClosureQuery(current);
+      const { closure, context } = current.continuation(current.premises, current.budget);
+      const graph = context.graphFor(candidate!);
+      assert.equal(graph.kind === "resolved", true, "one declaration-owned graph is independent of the two actual factory calls");
+      if (graph.kind !== "resolved") return;
+      const selected = closure.forDeclaration(candidate!);
+      assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "the actual declaration continuation closes");
+      if (selected.kind !== "resolved") return;
+      const reads = graph.graph.points.filter(point => point.operation.kind === "read" && point.source !== undefined);
+      const results = graph.graph.points.filter(point => point.source !== undefined && source.ast.is.IsReturnStatement(point.source));
+      assert.equal(reads.length > 0 && results.length > 0 && selected.dependencies.length > 0, true,
+        "the control observes real reads, returned values and pending loan evidence");
       const keys: string[] = [];
       for (const entry of reverse ? [...entries].reverse() : entries) {
         const parent = storage.bindingsForLexicalOwner(entry);
@@ -245,38 +254,30 @@ for (const accessor of [false, true]) {
         assert.equal(key.kind, "resolved", "the canonical local allocation birth");
         if (key.kind !== "resolved") return;
         keys.push(key.key);
-        const selected = closure.forInvocation(invocation!, caller.bindings);
-        assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "the actual continuation closes");
-        if (selected.kind !== "resolved") return;
-        const reads = selected.reads.filter(read => read.candidate === candidate);
-        const results = selected.results.filter(read => read.candidate === candidate);
-        assert.equal(reads.length > 0 && results.length > 0 && selected.dependencies.length > 0, true,
-          "the control observes real reads, returned values and pending loan evidence");
-        for (const [binding, executionOwner] of [...reads.map(read => [read.bindings, read.candidate] as const),
-          ...results.map(result => [result.bindings, result.candidate] as const),
-          ...selected.dependencies.map(dependency => [dependency.suspension.bindings,
-            source.ast.parent(storage.enclosingRegionFor(dependency.suspension.expression))] as const)]) {
-          let currentBinding = binding;
-          let currentOwner = executionOwner;
-          const visited = new Set<SourceStorageBindings>();
-          while (currentOwner !== undefined && currentOwner !== middle && !visited.has(currentBinding)) {
-            visited.add(currentBinding);
-            const observed = storage.boundActivationsFor(currentOwner, currentBinding);
-            const activation = observed.kind === "resolved" && observed.activations.length === 1 ? observed.activations[0] : undefined;
-            assert.equal(activation?.kind === "invocation", true, "each actual call keeps its dynamic caller distinct from lexical captures");
-            if (activation?.kind !== "invocation") break;
-            currentBinding = activation.callerBindings;
-            currentOwner = source.ast.parent(storage.enclosingRegionFor(activation.invocation));
-          }
-          const observed = currentOwner === middle ? storage.boundActivationsFor(middle, currentBinding) : undefined;
-          assert.equal(observed?.kind === "resolved" && observed.activations.length > 0 &&
-            observed.activations.every(activation => activation.kind === "invocation" && activation.invocation === entry), true,
-          "no read, result or pending witness retains another outer invocation's activation");
+        assert.equal(closure.forDeclaration(candidate!) === selected, true,
+          "the two runtime factory calls do not create competing declaration summaries");
+        for (const point of [...reads, ...results]) {
+          const region = graph.graph.executionRegions.get(point.id);
+          assert.equal(region !== undefined && region.owner === candidate && region.root === source.ast.body(candidate!) &&
+            region.role === "body", true,
+          "every real read and result retains its original declaration owner and body, never a caller activation");
+          const node = source.ast.is.IsReturnStatement(point.source!)
+            ? Node_Expression(source.ast, point.source!) : point.source;
+          assert.equal(node !== undefined, true, "the checked return keeps its actual native output expression");
+          if (node === undefined) return;
+          const value = context.values.forNode(node);
+          assert.equal("kind" in value, false, "the original local source point has its checked native component");
+          if ("kind" in value) return;
+          assert.equal(value.node === node && value.region === region, true,
+            "the checked local value uses this sole published region and original source node");
+          assert.equal(context.values.forNode(node) === value, true,
+            "unrelated runtime calls cannot retarget or republish the earlier checked value");
         }
-        for (const read of reads) {
-          const observed = storage.contextKeyFor([subject.subject], read.bindings);
-          assert.equal(observed.kind === "resolved" && observed.key === key.key, true,
-            "the published read names the actual local allocation in this invocation");
+        for (const dependency of selected.dependencies) {
+          assert.equal(dependency.suspension.region.owner === candidate &&
+            dependency.actual.region.owner === candidate &&
+            dependency.actual.node === dependency.reference, true,
+          "pending and read evidence refer to the same original local declaration, without runtime bindings");
         }
       }
       assert.equal(keys.length === 2 && keys[0] !== keys[1], true, "identical inputs do not merge distinct actual local allocations");
@@ -555,27 +556,27 @@ for (const thrown of [false, true]) {
     const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
       current.selectedDeclaration(node) === candidate);
     assert.equal(call !== undefined, true, "the wave contains a valid child before a late unknown native leaf");
-    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 65_536 });
+    const budget = createSourceDeclarationOwnershipBudget(current.nodes[0]!, { ...defaultSourceDeclarationOwnershipLimits, maximumTransportRows: 65_536 });
     const original = new Error("native premise control");
     let fail = true;
-    const query = createSourceContinuationClosureQuery({ ...current, budget, premises: { ...current.premises,
-      suspensionFor(value, bindings) {
+    const { closure: query } = current.continuation({ ...current.premises,
+      suspensionFor(value) {
         if (fail && current.selectedDeclaration(value.node) === current.declaration("unclassified")) {
           if (thrown) throw original;
           return undefined;
         }
-        return current.premises.suspensionFor(value, bindings);
+        return current.premises.suspensionFor(value);
       },
-    } });
+    }, budget);
     const validCall = current.callIn("ownedRoot");
-    const valid = query.forInvocation(validCall);
+    const valid = query.forCall(validCall);
     assert.equal(valid.kind, "resolved", "an earlier durable completed component remains cached");
     let retained: number | undefined;
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      if (thrown) assert.throws(() => query.forInvocation(call!), error => error === original,
+      if (thrown) assert.throws(() => query.forCall(call!), error => error === original,
         "a thrown native premise retains its original identity");
       else {
-        const rejected = query.forInvocation(call!);
+        const rejected = query.forCall(call!);
         assert.equal(rejected.kind === "unresolved" && rejected.reason.includes("native continuation contract"), true,
           "a late semantic failure is not a resource refusal");
       }
@@ -583,10 +584,10 @@ for (const thrown of [false, true]) {
       if (retained === undefined) retained = usage;
       assert.equal(usage, retained, "repeated failed waves retain no orphaned summary or CFG input reservations");
       assert.equal(budget.failure() === undefined, true, "the unchanged small budget is not poisoned by discarded work");
-      assert.equal(query.forInvocation(validCall) === valid, true, "pre-existing completed results and their resources survive rollback");
+      assert.equal(query.forCall(validCall) === valid, true, "pre-existing completed results and their resources survive rollback");
     }
     fail = false;
-    const corrected = query.forInvocation(call!);
+    const corrected = query.forCall(call!);
     assert.equal(corrected.kind, "resolved", corrected.kind === "unresolved" ? corrected.reason : "the corrected native premise can be retried");
     assert.equal(budget.failure() === undefined, true, "rollback did not consume the later valid query's finite row budget");
   });

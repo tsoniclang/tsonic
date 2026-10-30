@@ -2,22 +2,19 @@ import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import { analyzeSourceGenericAdoption } from "./generic-adoption.js";
-import { createSourceStorageQuery } from "../source-storage/queries.js";
-import type { SourceStorageEffects } from "../source-storage/model/types.js";
+import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
+  sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
 
 export function nativeEntryFixture(text: string, timing?: "synchronous" | "deferred") {
-  return fixture(text, "/src", (source, nodes) => {
-    const declaration = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
-      source.ast.text(source.ast.name(node)) === "nativeInvoke");
-    assert.equal(declaration !== undefined && source.ast.body(declaration) === undefined, true,
-      "one exact checked ambient declaration owns this unit fixture's native contract");
-    return Object.freeze({ callbackEntries(node, selected) {
-      return timing !== undefined && source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === declaration
-        ? Object.freeze([{ parameterIndex: 0, timing }]) : undefined;
-    } } satisfies SourceStorageEffects);
-  });
+  const current = fixture(text);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "nativeInvoke");
+  assert.equal(declaration !== undefined && current.source.ast.body(declaration) === undefined, true,
+    "one exact checked ambient declaration owns this unit fixture's native contract");
+  assert.equal(timing === undefined || timing === "synchronous" || timing === "deferred", true,
+    "the retained timing controls never choose a different checked native signature");
+  return current;
 }
 
 export const nativePayloadContinuationCases = [
@@ -72,7 +69,7 @@ export const nativePayloadContinuationCases = [
   }
 ] as const;
 
-export function fixture(text: string, projectRoot = "/src", effectsFor?: (source: TargetSourceProgram, nodes: readonly Node[]) => SourceStorageEffects) {
+export function fixture(text: string, projectRoot = "/src") {
   const checked = createCompilerSessionFromFiles({ currentDirectory: projectRoot, files: { [`${projectRoot}/index.ts`]: text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics
@@ -84,9 +81,21 @@ export function fixture(text: string, projectRoot = "/src", effectsFor?: (source
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   for (const file of source.sourceFiles) if (!source.ast.isDeclarationFile(file)) visit(file);
-  const storage = createSourceStorageQuery(source, source.sourceFiles, undefined, effectsFor?.(source, nodes));
-  const query = (maximumSteps = defaultSourceStorageLimits.maximumSteps, exemptTypeParameter?: (node: Node) => boolean) =>
-    analyzeSourceGenericAdoption({ source, projectRoot, nodes, storage, budget: createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps }),
+  const query = (maximumSteps = defaultSourceDeclarationOwnershipLimits.maximumSteps,
+    exemptTypeParameter?: (node: Node) => boolean) =>
+    analyzeSourceDeclarationGenericAdoption({ source, projectRoot, nodes,
+      budget: createSourceDeclarationOwnershipBudget(nodes[0]!,
+        { ...defaultSourceDeclarationOwnershipLimits, maximumSteps }),
+      premises: { completionFor(call, selected) {
+        const semantics = source.semantics.forNode(call);
+        const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+        if (declaration === undefined)
+          return sourceDeclarationOwnershipUnresolved(call, "The unit native contract requires its real selected declaration.");
+        const awaited = semantics.types.awaitedType(selected.sourceResultType);
+        if (awaited !== undefined && semantics.types.isIdentical(awaited, selected.sourceResultType)) return { kind: "not-async" };
+        return { kind: "async", resultPolicy: "must-observe", contract: { kind: "declaration", declaration,
+          component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
+      } },
       ...(exemptTypeParameter === undefined ? {} : { exemptTypeParameter }) });
   const textFor = (node: Node): string => Buffer.from(source.ast.getSourceText(source.ast.getSourceFile(node)!))
     .subarray(source.ast.pos(node), source.ast.end(node)).toString("utf8").trim();

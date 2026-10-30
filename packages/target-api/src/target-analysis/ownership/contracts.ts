@@ -72,6 +72,7 @@ export function createSourceDeclarationOwnershipBudget(subject: Node,
       });
     },
     failure: () => failure,
+    usage: () => Object.freeze({ steps, rows }),
   });
 }
 

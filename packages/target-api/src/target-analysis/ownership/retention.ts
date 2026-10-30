@@ -131,7 +131,7 @@ export function createSourceDeclarationRetentionQuery(input: {
         return sourceDeclarationOwnershipUnresolved(value.node, "Native retention requires the original immutable local descriptor.");
       const existing = actuals.get(value);
       if (existing !== undefined) return existing;
-      const selected = premises.retentionFor({ kind: "value", value });
+      const selected = premises.retentionFor({ kind: "value", value, valueFor: values.forNode });
       if (selected === undefined)
         return sourceDeclarationOwnershipUnresolved(value.node, "The checked native value has no required retention or lifetime contract.");
       const result = validate(value, selected);
@@ -144,7 +144,7 @@ export function createSourceDeclarationRetentionQuery(input: {
       if (existing !== undefined) return existing;
       const value = values.forNode(reference);
       if ("kind" in value) return value;
-      const selected = premises.retentionFor({ kind: "read-value", reference, value });
+      const selected = premises.retentionFor({ kind: "read-value", reference, value, valueFor: values.forNode });
       if (selected === undefined)
         return sourceDeclarationOwnershipUnresolved(reference, "This exact checked read has no completed native retention contract.");
       const validated = validate(value, selected);

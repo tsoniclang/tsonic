@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import { createSourceOwnershipQuery } from "./query.js";
-import type { SourceOwnershipPremises } from "./model.js";
+import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
+import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
+import { createSourceDeclarationOwnershipValues } from "./flow.js";
+import { createSourceDeclarationOwnershipQuery } from "./query.js";
+import { createSourceDeclarationContinuationClosureQuery } from "./closure.js";
+import { createSourceDeclarationRetentionQuery } from "./retention.js";
+import { createSourceDeclarationSuspensionQuery } from "./suspension.js";
+import { createSourceDeclarationContinuationDependencyQuery } from "./dependencies.js";
+import type { SourceDeclarationOwnershipBudget } from "./model.js";
+import type { SourceDeclarationOwnershipPremises } from "./model.js";
 
 export function fixture(reverse: boolean, recursive: "self" | "mutual", additional = "") {
   const bodies = [
@@ -105,56 +112,73 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
         ? { resultAllocation: node } : undefined;
     },
   });
-  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const nodes = source.navigation.nodes;
+  const budget = createSourceDeclarationOwnershipBudget(nodes[0]!, defaultSourceDeclarationOwnershipLimits);
+  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
   const declaration = (name: string): Node => {
     const selected = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
     assert.equal(selected !== undefined, true, name);
     return selected!;
   };
-  const premises: SourceOwnershipPremises = {
+  const premises: SourceDeclarationOwnershipPremises = {
     completionFor(call, selected) {
       const owner = selectedDeclaration(call);
       return owner !== undefined && source.ast.hasModifierKind(owner, "async")
-        ? { kind: "async", resultPolicy: "observe-rejection", contractDeclaration: owner, checkedType: selected.sourceResultType }
+        ? { kind: "async", resultPolicy: "observe-rejection",
+            contract: { kind: "declaration", declaration: owner,
+              component: { selectedType: selected.sourceResultType, contextualCall: selected } } }
         : { kind: "not-async" };
     },
     suspensionFor(value) {
-      if (value.kind === "input" && value.node === source.ast.parameters(declaration("formalAdoption"))[0]) {
-        const type = storage.typeFor(value);
-        return type.kind === "resolved" ? { kind: "may-suspend", value,
-          contractDeclaration: value.node, checkedType: type.type } : undefined;
+      const selected = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
+      const reference = source.navigation.sourceReferenceFor(value.node)?.declaration;
+      const formal = source.ast.is.IsParameterDeclaration(value.node) ? value.node : reference;
+      const contract = { kind: "expression" as const, expression: value.node, component: value.component };
+      if (formal === source.ast.parameters(declaration("formalAdoption"))[0])
+        return { kind: "may-suspend", value, contract };
+      if (selected === undefined) {
+        const semantics = source.semantics.forNode(value.node);
+        const awaited = semantics.types.awaitedType(value.component.selectedType);
+        return awaited === undefined ? undefined : { kind: semantics.types.isIdentical(awaited, value.component.selectedType)
+          ? "never" : "may-suspend", value, contract };
       }
-      if (!source.ast.is.IsCallExpression(value.node)) return undefined;
-      const selected = selectedDeclaration(value.node);
-      if (selected === undefined || source.ast.body(selected) !== undefined) return undefined;
-      const type = storage.typeFor(value);
-      assert.equal(type.kind === "resolved", true, "native pending contract");
-      return type.kind === "unresolved" ? undefined : { kind: selected === declaration("pending") ? "may-suspend" : "never",
-        value, contractDeclaration: selected, checkedType: type.type };
+      if (source.ast.body(selected) !== undefined)
+        return { kind: source.ast.hasModifierKind(selected, "async") ? "may-suspend" : "never", value, contract };
+      if (selected !== declaration("pending") && selected !== declaration("read") && selected !== declaration("borrow"))
+        return undefined;
+      return { kind: selected === declaration("pending") ? "may-suspend" : "never", value, contract };
     },
-    retentionFor(request: Parameters<SourceOwnershipPremises["retentionFor"]>[0]) {
-      if (request.kind === "read-value") return undefined;
-      const { value, bindings } = request;
-      const type = storage.typeFor(value);
-      assert.equal(type.kind === "resolved", true, "exact retained origin type");
-      if (type.kind === "unresolved") return { kind: "unresolved", at: value.node, reason: type.reason };
+    retentionFor({ value, valueFor }) {
+      const contract = { kind: "expression" as const, expression: value.node, component: value.component };
       if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("borrow")) {
         const argument = source.ast.arguments(value.node)[0]!;
-        const selected = storage.subjectFor(argument);
-        assert.equal(selected.kind, "resolved", "concrete lease owner subject");
-        const bound = selected.kind === "resolved" ? storage.boundOriginsFor(selected.subject, bindings) : selected;
-        assert.equal(bound.kind === "resolved" && bound.subjects.length === 1, true, "one exact concrete owner");
-        if (bound.kind === "unresolved") return { kind: "unresolved", at: value.node, reason: bound.reason };
-        const region = storage.enclosingRegionFor(value.node);
-        assert.equal(region !== undefined, true, "concrete source execution region");
-        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner: bound.subjects[0]!, region: region!,
-          mode: "shared", contractDeclaration: declaration("borrow"), checkedType: type.type }] };
+        const owner = valueFor(argument);
+        if ("kind" in owner) return owner;
+        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner,
+          region: value.region.root, mode: "shared", contract }] };
       }
-      return { kind: "resolved", premises: [{ kind: "retained", value, reason: "owned-value",
-        contractDeclaration: value.node, checkedType: type.type }] };
+      const semantics = source.semantics.forNode(value.node);
+      const reference = source.navigation.sourceReferenceFor(value.node)?.declaration;
+      const formal = source.ast.is.IsParameterDeclaration(value.node) ? value.node
+        : reference !== undefined && source.ast.is.IsParameterDeclaration(reference) ? reference : undefined;
+      if (formal !== undefined && source.ast.text(source.ast.name(formal)) === "value" &&
+        source.ast.text(source.ast.typeNode(formal)) === "Lease")
+        return { kind: "resolved", premises: [{ kind: "formal-borrowed", value,
+          executionOwner: source.ast.parent(formal)!, region: { kind: "input-duration", parameter: formal },
+          mode: "shared", contract }] };
+      if (source.ast.is.IsCallExpression(value.node)) {
+        const call = semantics.operations.call(value.node);
+        const owner = selectedDeclaration(value.node);
+        const parameter = owner === undefined ? undefined : source.ast.parameters(owner)[0];
+        if (call?.sourceSelectedSignatureKind === "resolved" && owner !== undefined && parameter !== undefined &&
+          source.ast.hasModifierKind(owner, "async") && source.ast.text(source.ast.typeNode(parameter)) === "Lease")
+          return { kind: "resolved", premises: [{ kind: "formal-borrowed", value, executionOwner: owner,
+            region: { kind: "input-duration", parameter }, mode: "shared", contract }] };
+      }
+      return { kind: "resolved", premises: [{ kind: "retained", value, reason: "owned-value", contract }] };
     },
   };
-  const query = createSourceOwnershipQuery({ source, storage, budget, premises });
+  const query = createSourceDeclarationOwnershipQuery({ source, nodes, budget, premises });
   const callIn = (name: string): Node => {
     const root = declaration(name);
     const selected = storage.nodes.find(node => source.ast.is.IsCallExpression(node) &&
@@ -163,5 +187,15 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
     assert.equal(selected !== undefined, true, `actual recursive demand in ${name}`);
     return selected!;
   };
-  return { source, storage, budget, premises, query, callIn, declaration, selectedDeclaration };
+  const continuation = (premises: SourceDeclarationOwnershipPremises, budget: SourceDeclarationOwnershipBudget) => {
+    const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+    const retention = createSourceDeclarationRetentionQuery({ source, values: context.values, premises, budget });
+    const suspensions = createSourceDeclarationSuspensionQuery({ source, values: context.values, premises, budget });
+    const dependencies = createSourceDeclarationContinuationDependencyQuery({ source, budget, retention, suspensions });
+    const closure = createSourceDeclarationContinuationClosureQuery({ source, context, budget, retention, suspensions,
+      dependencies, limits: {} });
+    return { context, closure };
+  };
+  return { source, nodes, storage, budget, context, values: context.values, premises, query, callIn, declaration,
+    selectedDeclaration, continuation };
 }
