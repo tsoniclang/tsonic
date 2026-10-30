@@ -141,7 +141,7 @@ test("CLI emits contextual generic source call results from TSTS-selected call s
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string stringify\(int value\)/);
-  assert.match(generatedSource, /string (?<callable>__tsonic_callable_\d+)\(int current\)\s*\{\s*return \$"\{current\}";\s*\}\s*return global::Smoke\.Generated\.Helpers\.apply<int, string>\(new Func<int, string>\(\k<callable>\), value\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Helpers\.apply<int, string>\(\(int current\) => \$"\{current\}", value\);/);
   assert.match(generatedSource, /int chosen = global::Smoke\.Generated\.Helpers\.choose<int>\(value, 7\);/);
   assert.doesNotMatch(generatedSource, /apply\(|choose\(|__unsupported/);
 

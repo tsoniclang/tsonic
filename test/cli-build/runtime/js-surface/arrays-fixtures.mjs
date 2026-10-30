@@ -16,10 +16,10 @@ function assertExternalCallNotMapped(stderr, memberName) {
 
 function assertArrayPredicate(source, operation, predicate, arrayParameter, staticCall = false, resultSuffix = "") {
   const invocation = staticCall
-    ? `Tsonic\\.CSharp\\.Js\\.Array\\.${operation}\\(\\k<receiver>, `
-    : `\\k<receiver>\\.${operation}\\(`;
+    ? `Tsonic\\.CSharp\\.Js\\.Array\\.${operation}\\(values, `
+    : `values\\.${operation}\\(`;
   const suffix = resultSuffix.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  assert.match(source, new RegExp(`Tsonic\\.CSharp\\.Js\\.JSArray<int> (?<receiver>__tsonic_value_\\d+) = values;\\s*static bool (?<callable>__tsonic_callable_\\d+)\\(int value, int index, Tsonic\\.CSharp\\.Js\\.JSArray<int> ${arrayParameter}\\)\\s*\\{\\s*return ${predicate.source};\\s*\\}\\s*return ${invocation}\\(Func<int, int, Tsonic\\.CSharp\\.Js\\.JSArray<int>, bool>\\)\\k<callable>\\)${suffix};`, "u"));
+  assert.match(source, new RegExp(`return ${invocation}\\(int value, int index, Tsonic\\.CSharp\\.Js\\.JSArray<int> ${arrayParameter}\\) => ${predicate.source}\\)${suffix};`, "u"));
 }
 
 export { assertExternalCallNotMapped, assertArrayPredicate };
