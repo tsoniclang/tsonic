@@ -12,10 +12,12 @@ export function createSourceDeclarationSuspensionQuery(input: {
   readonly budget: SourceDeclarationOwnershipBudget;
 }) {
   const { source, values, premises, budget } = input;
-  const cache = new Map<Node, SourceDeclarationPendingSelection>();
+  const operations = new Map<Node, SourceDeclarationPendingSelection>();
+  const results = new Map<Node, SourceDeclarationPendingSelection>();
   const pending = new WeakSet<SourceDeclarationPendingOperation>();
-  const select = (operation: Node, expression: Node): SourceDeclarationPendingSelection => {
+  const select = (operation: Node, expression: Node, use: "operation" | "value"): SourceDeclarationPendingSelection => {
     if (!budget.step(operation)) return budget.failure()!;
+    const cache = use === "operation" ? operations : results;
     const existing = cache.get(operation);
     if (existing !== undefined) return existing;
     const region = values.regionFor(operation);
@@ -24,7 +26,28 @@ export function createSourceDeclarationSuspensionQuery(input: {
     if ("kind" in value) return value;
     if (value.region !== region)
       return sourceDeclarationOwnershipUnresolved(operation, "A native pending operand must belong to this exact checked execution region.");
-    const selected = premises.suspensionFor(value);
+    if (use === "value") {
+      const types = source.semantics.forNode(expression).types;
+      const immediate = (type: typeof value.component.selectedType): boolean => {
+        if (!budget.step(expression) || types.isAny(type) || types.isUnknown(type) || types.isIntersection(type)) return false;
+        if (types.isUnion(type)) {
+          const members = types.unionOrIntersectionTypes(type);
+          return members.length !== 0 && members.every(immediate);
+        }
+        return types.isNever(type) || types.isNumberLike(type) || types.isBooleanLike(type) || types.isStringLike(type) ||
+          types.isBigIntLike(type) || types.isSymbolLike(type) || types.isNullish(type) || types.isVoidLike(type);
+      };
+      if (immediate(value.component.selectedType)) {
+        const rows = budget.createRows(operation);
+        if (!rows.add(2)) { rows.release(); return budget.failure()!; }
+        const result = Object.freeze({ kind: "never" as const });
+        cache.set(operation, result);
+        return result;
+      }
+      const failure = budget.failure();
+      if (failure !== undefined) return failure;
+    }
+    const selected = premises.suspensionFor(value, use);
     if (selected === undefined)
       return sourceDeclarationOwnershipUnresolved(expression,
         "A missing declaration body or native completion record is not proof of a non-suspending operation.");
@@ -56,7 +79,7 @@ export function createSourceDeclarationSuspensionQuery(input: {
         ? Node_Expression(source.ast, operation) : undefined;
       if (file === undefined || !source.semantics.includes(file) || expression === undefined)
         return sourceDeclarationOwnershipUnresolved(operation, "A pending await requires its original checked operation and operand.");
-      return select(operation, expression);
+      return select(operation, expression, "value");
     },
     forCall(call: Node): SourceDeclarationPendingSelection {
       if (!budget.step(call)) return budget.failure()!;
@@ -67,9 +90,9 @@ export function createSourceDeclarationSuspensionQuery(input: {
       const selected = source.semantics.forNode(call).operations.call(call);
       if (selected?.sourceSelectedSignatureKind !== "resolved")
         return sourceDeclarationOwnershipUnresolved(call, "Native completion requires its checked selected declaration contract.");
-      return select(call, call);
+      return select(call, call, "operation");
     },
-    forResult(expression: Node): SourceDeclarationPendingSelection { return select(expression, expression); },
+    forResult(expression: Node): SourceDeclarationPendingSelection { return select(expression, expression, "value"); },
   });
 }
 

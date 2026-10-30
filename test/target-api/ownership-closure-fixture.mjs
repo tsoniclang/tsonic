@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { ownershipFixture, sourceText } from "./ownership-fixture.mjs";
-import { createSourceStorageQuery, defaultSourceStorageLimits, createSourceOwnershipQuery }
+import { createSourceStorageQuery, defaultSourceStorageLimits, createSourceDeclarationOwnershipQuery }
   from "../../packages/target-api/dist/public/analysis.js";
 
 export const closureText = `
@@ -59,62 +59,55 @@ export function closureFixture(options = {}) {
     return result.subject;
   };
   const typeFor = value => {
+    if (value.component !== undefined) return value.component.selectedType;
     const result = storage.typeFor(value);
     assert.equal(result.kind === "resolved", true, "checked actual type");
     return result.type;
-  };
-  const actuals = (node, bindings) => {
-    const selected = storage.boundOriginsFor(subject(node), bindings);
-    assert.equal(selected.kind === "resolved", true, "checked actual origins");
-    return selected.subjects;
   };
   const native = {
     completionFor(call, selected) {
       const current = selectedDeclaration(call);
       return current !== undefined && (source.ast.hasModifierKind(current, "async") || pendingDeclarations.has(current) ||
         current === declaration("settledFuture")) ? { kind: "async", resultPolicy: options.resultPolicy ?? "observe-rejection",
-        contractDeclaration: current, checkedType: selected.sourceResultType } : { kind: "not-async" };
+        contract: { kind: "declaration", declaration: current,
+          component: { selectedType: selected.sourceResultType, contextualCall: selected } } } : { kind: "not-async" };
     },
     suspensionFor(value) {
-      if (!source.ast.is.IsCallExpression(value.node)) return undefined;
-      const current = selectedDeclaration(value.node);
-      if (!nativeDeclarations.has(current)) return undefined;
-      return { kind: pendingDeclarations.has(current) ? "may-suspend" : "never", value,
-        contractDeclaration: current, checkedType: typeFor(value) };
+      const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
+      const semantics = source.semantics.forNode(value.node);
+      const awaited = semantics.types.awaitedType(value.component.selectedType);
+      if (current !== undefined && !nativeDeclarations.has(current) && source.ast.body(current) === undefined) return undefined;
+      const kind = pendingDeclarations.has(current) || current !== undefined && source.ast.hasModifierKind(current, "async")
+        ? "may-suspend" : awaited !== undefined && semantics.types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
+      return kind === undefined ? undefined : { kind, value,
+        contract: { kind: "expression", expression: value.node, component: value.component } };
     },
     retentionFor(request) {
-      if (request.kind === "read-value") return undefined;
-      const { value, bindings } = request;
+      const { value } = request;
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
-      const checkedType = typeFor(value);
-      if (current === declaration("borrow")) {
-        const owner = actuals(source.ast.arguments(value.node)[0], bindings);
-        assert.equal(owner.length, 1, "one checked lease owner");
-        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner: owner[0], mode: options.mode ?? "shared",
-          region: storage.enclosingRegionFor(value.node), contractDeclaration: current, checkedType }] };
-      }
       if (current === declaration("nativeFuture") || current === declaration("settledFuture")) {
-        const premises = actuals(source.ast.arguments(value.node)[0], bindings).flatMap(actual =>
-          native.retentionFor({ kind: "origin", value: actual, bindings }).premises)
-          .map(premise => ({ ...premise, value, contractDeclaration: current, checkedType }));
-        return { kind: "resolved", premises };
+        const parameter = source.ast.parameters(current)[0];
+        return { kind: "resolved", premises: [{ kind: "formal-borrowed", value, executionOwner: current,
+          region: { kind: "input-duration", parameter }, mode: options.mode ?? "shared",
+          contract: { kind: "declaration", declaration: current, component: value.component } }] };
       }
-      return { kind: "resolved", premises: [{ kind: "retained", value,
-        reason: current === declaration("sharedGlobal") ? "module-owner" : "owned-value",
-        contractDeclaration: current ?? value.node, checkedType }] };
+      const selected = base.native.retentionFor(request);
+      return selected?.kind !== "resolved" ? selected : { ...selected,
+        premises: selected.premises.map(premise => premise.kind === "scoped-borrowed" || premise.kind === "formal-borrowed"
+          ? { ...premise, mode: options.mode ?? "shared" } : premise) };
     },
   };
-  const query = createSourceOwnershipQuery({ source, storage, budget: base.budget, premises: options.premises?.(native) ?? native,
-    flowLimits: options.flowLimits });
+  const query = createSourceDeclarationOwnershipQuery({ source, nodes: base.nodes, budget: base.budget,
+    premises: options.premises?.(native) ?? native, flowLimits: options.flowLimits });
   const call = (name, owner = "runClosed") => {
     const selected = base.calls(declaration(owner)).find(value => selectedDeclaration(value) === declaration(name));
     assert.equal(selected !== undefined, true, `checked call ${owner} → ${name}`);
     return selected;
   };
-  return { ...base, storage, native, subject, typeFor, actuals, query, call };
+  return { ...base, storage, native, subject, typeFor, query, call };
 }
 
 export function borrowed(selection, label) {
   assert.equal(selection.kind === "resolved", true, selection.kind === "unresolved" ? `${label}: ${selection.reason}` : label);
-  return selection.dependencies.filter(dependency => dependency.retention.kind === "scoped-borrowed");
+  return selection.dependencies.filter(dependency => dependency.retention.kind === "scoped-borrowed" || dependency.retention.kind === "formal-borrowed");
 }

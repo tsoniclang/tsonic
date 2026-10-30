@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageBudget, createSourceStorageQuery, defaultSourceStorageLimits }
+import { createSourceDeclarationOwnershipBudget, createSourceDeclarationOwnershipValues, defaultSourceDeclarationOwnershipLimits,
+  createSourceStorageQuery, defaultSourceStorageLimits }
   from "../../packages/target-api/dist/public/analysis.js";
 
 export const sourceText = `
@@ -111,61 +112,105 @@ export function ownershipFixture(options = {}) {
         ? { resultAllocation: node } : undefined;
     },
   });
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...options.limits });
+  const budget = createSourceDeclarationOwnershipBudget(file, { ...defaultSourceDeclarationOwnershipLimits, ...options.limits });
+  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const transferBudget = { step: () => budget.step(file), createRows: () => budget.createRows(file),
+    failure: () => budget.failure()?.reason };
   const subject = node => {
     const result = storage.subjectFor(node);
     assert.equal(result.kind === "resolved", true, "exact checked value subject");
     return result.subject;
   };
   const typeFor = value => {
-    const result = storage.typeFor(value);
-    assert.equal(result.kind === "resolved", true, "exact checked value type");
-    return result.type;
+    if (value.component !== undefined) return value.component.selectedType;
+    const semantics = source.semantics.forNode(value.node);
+    const type = semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
+    assert.equal(type !== undefined, true, "the original checked type is required even for foreign-value controls");
+    return type;
   };
+  const nativeReads = new Map();
+  for (const [ownerName, ownerNames] of [
+    ["awaited", ["owner"]], ["discarded", ["owner"]], ["stored", ["owner"]], ["returned", ["owner"]],
+    ["forwarded", ["owner"]], ["forwardedAsserted", ["owner"]], ["passedToAsync", ["owner"]],
+    ["passedToStorage", ["owner"]], ["alternatives", ["leftOwner", "rightOwner"]], ["moduleStored", []],
+  ]) {
+    const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === ownerName);
+    if (owner === undefined) continue;
+    const call = calls(owner).find(node => source.ast.text(source.ast.name(selectedDeclaration(node))) === "read");
+    if (call === undefined) continue;
+    const nativeOwners = ownerNames.map(name => source.ast.as.AsVariableDeclaration(named(owner, name)).Initializer);
+    const metadata = Object.freeze({ owner, nativeOwners: Object.freeze(nativeOwners), programDuration: ownerName === "moduleStored" });
+    nativeReads.set(call, metadata);
+    const argument = source.ast.arguments(call)[0];
+    if (argument !== undefined) nativeReads.set(argument, metadata);
+  }
   const native = {
-    completionFor(call, _selected, _bindings) { return completion(call); },
-    retentionFor(request) {
-      if (request.kind === "read-value") return undefined;
-      const { value } = request;
-      const checkedType = typeFor(value);
-      if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("sharedGlobal")) {
+    completionFor(call, _selected) { return completion(call); },
+    retentionFor({ value, valueFor }) {
+      const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
+      const contract = { kind: "expression", expression: value.node, component: value.component };
+      const metadata = nativeReads.get(value.node);
+      if (metadata !== undefined) {
+        if (metadata.programDuration) return { kind: "resolved", premises: [{ kind: "retained", reason: "module-owner", value,
+          contract: { kind: "declaration", declaration: source.ast.is.IsCallExpression(value.node)
+            ? selectedDeclaration(value.node) : source.navigation.sourceReferenceFor(value.node)?.declaration,
+            component: value.component } }] };
+        const premises = [];
+        for (const node of metadata.nativeOwners) {
+          const owner = valueFor(node);
+          if ("kind" in owner) return owner;
+          premises.push({ kind: "scoped-borrowed", value, owner, region: source.ast.body(metadata.owner),
+            mode: "shared", contract });
+        }
+        return { kind: "resolved", premises };
+      }
+      if (current === declaration("sharedGlobal"))
         return { kind: "resolved", premises: [{ kind: "retained", reason: "module-owner", value,
-          contractDeclaration: declaration("sharedGlobal"), checkedType }] };
+          contract: { kind: "declaration", declaration: current, component: value.component } }] };
+      if (current === declaration("borrow")) {
+        const owner = valueFor(source.ast.arguments(value.node)[0]);
+        if ("kind" in owner) return owner;
+        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner,
+          region: value.region.root, mode: "shared", contract }] };
       }
-      if (source.ast.is.IsCallExpression(value.node) && selectedDeclaration(value.node) === declaration("borrow")) {
-        const argument = source.ast.arguments(value.node)[0];
-        const origins = storage.boundOriginsFor(subject(argument), storage.emptyBindings);
-        assert.equal(origins.kind === "resolved" && origins.subjects.length === 1, true, "checked source owner correspondence");
-        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner: origins.subjects[0],
-          region: storage.enclosingRegionFor(value.node), mode: "shared", contractDeclaration: declaration("borrow"), checkedType }] };
-      }
-      return { kind: "resolved", premises: [{ kind: "retained", value, reason: "owned-value",
-        contractDeclaration: value.node, checkedType }] };
+      const reference = source.navigation.sourceReferenceFor(value.node)?.declaration;
+      const parameter = source.ast.is.IsParameterDeclaration(value.node) ? value.node
+        : reference !== undefined && source.ast.is.IsParameterDeclaration(reference) ? reference
+        : current === declaration("read") ? source.ast.parameters(current)[0] : undefined;
+      if (parameter !== undefined && source.ast.text(source.ast.name(parameter)) === "view")
+        return { kind: "resolved", premises: [{ kind: "formal-borrowed", value,
+          executionOwner: source.ast.parent(parameter), region: { kind: "input-duration", parameter },
+          mode: "shared", contract }] };
+      return { kind: "resolved", premises: [{ kind: "retained", value, reason: "owned-value", contract }] };
     },
     suspensionFor(value) {
       const expression = value.node;
       const current = source.ast.is.IsCallExpression(expression) ? selectedDeclaration(expression) : undefined;
-      if (current !== declaration("pending") && current !== declaration("anotherPending")) return undefined;
-      return { kind: "may-suspend", value, contractDeclaration: current, checkedType: typeFor(value) };
+      const types = source.semantics.forNode(expression).types;
+      const awaited = types.awaitedType(value.component.selectedType);
+      const knownFuture = ["aliasedPending", "joinedPending"].some(name => {
+        const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+        return owner !== undefined && within(expression, owner);
+      });
+      const kind = current === declaration("pending") || current === declaration("anotherPending") || knownFuture ? "may-suspend"
+        : awaited !== undefined && types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
+      return kind === undefined ? undefined : { kind, value,
+        contract: { kind: "expression", expression, component: value.component } };
     },
   };
   function completion(call, resultPolicy = "observe-rejection") {
     const semantics = source.semantics.forNode(call);
     const selected = semantics.operations.call(call);
     assert.equal(selected?.sourceSelectedSignatureKind, "resolved");
-    return { kind: "async", resultPolicy, contractDeclaration: selectedDeclaration(call), checkedType: selected.sourceResultType };
+    return { kind: "async", resultPolicy, contract: { kind: "declaration", declaration: selectedDeclaration(call),
+      component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
   }
-  const invocationBindings = call => {
-    const result = storage.bindingsForInvocation(selectedDeclaration(call), call);
-    assert.equal(result.kind === "resolved", true, "exact invocation substitutions");
-    return result.bindings;
-  };
   const awaitNode = owner => required(nodes.find(node => within(node, owner) && source.ast.is.IsAwaitExpression(node)), "await");
   const readReference = () => required(nodes.find(node => within(node, declaration("read")) &&
     source.ast.is.IsIdentifier(node) && source.ast.text(node) === "view" &&
     source.ast.is.IsPropertyAccessExpression(source.ast.parent(node))), "actual view read");
-  return { source, storage, budget, native, nodes, declaration, named, calls, readCall, awaitNode,
-    readReference, selectedDeclaration, invocationBindings, subject, typeFor, completion, within };
+  return { source, storage, file, budget, context, values: context.values, transferBudget, nativeReads, native, nodes, declaration, named, calls, readCall, awaitNode,
+    readReference, selectedDeclaration, subject, typeFor, completion, within };
 }
 
 function required(value, name) {

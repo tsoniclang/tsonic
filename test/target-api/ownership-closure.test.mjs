@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceOwnershipQuery, createSourceStorageBudget, defaultSourceStorageLimits }
+import { createSourceDeclarationOwnershipQuery, createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits }
   from "../../packages/target-api/dist/public/analysis.js";
 import { closureFixture, borrowed } from "./ownership-closure-fixture.mjs";
 
@@ -32,7 +32,9 @@ test("a pending native result retains its lease through await without a later so
   const selected = fixture.query.continuationFor(fixture.call("nativeOnly"));
   const held = borrowed(selected, "held native future");
   assert.equal(held.some(dependency => fixture.selectedDeclaration(dependency.actual.node) === fixture.declaration("nativeFuture")), true);
-  assert.equal(held.every(dependency => dependency.retention.owner.node !== dependency.actual.node), true);
+  assert.equal(held.every(dependency => dependency.retention.kind === "formal-borrowed"
+    ? dependency.retention.region.parameter !== dependency.actual.node
+    : dependency.retention.owner.node !== dependency.actual.node), true);
 });
 
 for (const owner of ["storedClosed", "discardedClosed", "returnedClosed"]) {
@@ -50,12 +52,11 @@ test("the complete shared query admits immediate await and marks an owned discar
     awaited.kind === "unresolved" ? awaited.reason : "immediate await");
   const call = fixture.call("nativeOnly", "discardedClosed");
   const native = { ...fixture.native, retentionFor(request) {
-    if (request.kind === "read-value") return undefined;
     const { value } = request;
     return { kind: "resolved", premises: [{ kind: "retained", reason: "owned-value", value,
-      checkedType: fixture.typeFor(value), contractDeclaration: value.node }] };
+      contract: { kind: "expression", expression: value.node, component: value.component } }] };
   } };
-  const selected = createSourceOwnershipQuery({ ...fixture, premises: native }).forCall(call);
+  const selected = createSourceDeclarationOwnershipQuery({ ...fixture, nodes: fixture.nodes, premises: native }).forCall(call);
   assert.equal(selected.kind === "resolved" && selected.decision === "observe-discarded-rejection", true,
     selected.kind === "unresolved" ? selected.reason : "owned discarded completion");
 });
@@ -79,12 +80,12 @@ test("foreign checked calls, copied bindings and exhausted closure budgets fail 
   const foreignCall = fixture.query.continuationFor(foreign.call("after"));
   assert.equal(foreignCall.kind, "unresolved");
   const call = fixture.call("after");
-  const copied = fixture.query.continuationFor(call, { ...fixture.storage.emptyBindings });
+  const copied = fixture.query.continuationFor({ ...call });
   assert.equal(copied.kind, "unresolved");
-  assert.match(copied.reason, /different source storage/u);
+  assert.match(copied.reason, /checked|selected|original/u);
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
-    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const selected = createSourceOwnershipQuery({ ...fixture, budget, premises: fixture.native }).continuationFor(call);
+    const budget = createSourceDeclarationOwnershipBudget(call, { ...defaultSourceDeclarationOwnershipLimits, ...limits });
+    const selected = createSourceDeclarationOwnershipQuery({ ...fixture, budget, premises: fixture.native }).continuationFor(call);
     assert.equal(selected.kind, "unresolved");
     assert.equal(budget.failure() !== undefined, true);
   }

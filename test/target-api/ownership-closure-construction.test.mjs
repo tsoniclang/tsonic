@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceSuspensionQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { closureFixture, borrowed } from "./ownership-closure-fixture.mjs";
 
 const forwarded = argument => `
@@ -123,9 +123,9 @@ test("an inherited native constructor without a checked body or pending contract
 test("an inferred settled result cannot be reused as an absent native invocation contract", () => {
   const current = closureFixture({ text: "function scalarFactory() { return nativeScalar(1); }" });
   const call = current.calls(current.declaration("scalarFactory"))[0];
-  const query = createSourceSuspensionQuery({ ...current, premises: { suspensionFor: () => undefined } });
-  assert.equal(query.forResult(call, current.storage.emptyBindings).kind, "never", "plain scalar result cannot suspend its adopter");
-  const native = query.forCall(call, current.storage.emptyBindings);
+  const query = createSourceDeclarationSuspensionQuery({ ...current, premises: { suspensionFor: () => undefined } });
+  assert.equal(query.forResult(call).kind, "never", "plain scalar result cannot suspend its adopter");
+  const native = query.forCall(call);
   assert.equal(native.kind, "unresolved", "native invocation work still requires its own exact contract");
 });
 
@@ -134,25 +134,26 @@ for (const resultFirst of [false, true]) {
     const current = closureFixture({ text: "function scalarFactory() { return nativeScalar(1); }" });
     const call = current.calls(current.declaration("scalarFactory"))[0];
     let contracts = 0;
-    const query = createSourceSuspensionQuery({ ...current, premises: { suspensionFor(value, bindings) {
+    const query = createSourceDeclarationSuspensionQuery({ ...current, premises: { suspensionFor(value, use) {
       contracts += 1;
-      return current.native.suspensionFor(value, bindings);
+      return current.native.suspensionFor(value, use);
     } } });
-    const value = () => assert.equal(query.forResult(call, current.storage.emptyBindings).kind, "never", "plain scalar result stays immediate");
-    const invocation = () => assert.equal(query.forCall(call, current.storage.emptyBindings).kind, "never", "native call retains its actual checked contract");
+    const value = () => assert.equal(query.forResult(call).kind, "never", "plain scalar result stays immediate");
+    const invocation = () => assert.equal(query.forCall(call).kind, "never", "native call retains its actual checked contract");
     for (const inspect of resultFirst ? [value, invocation] : [invocation, value]) inspect();
     assert.equal(contracts, 1, "the invocation contract is computed once and is never inferred from the scalar result");
   });
 }
 
 test("completed continuation caches cannot outlive a sticky exhausted owner budget", () => {
-  const current = closureFixture();
+  const current = closureFixture({ limits: { maximumSteps: 32768 } });
   const call = current.call("after");
   assert.equal(current.query.continuationFor(call).kind, "resolved");
-  current.budget.reject("Explicit finite owner exhaustion.");
+  while (current.budget.step(call)) {}
   const selected = current.query.continuationFor(call);
   assert.equal(selected.kind, "unresolved");
-  assert.equal(selected.reason, "Explicit finite owner exhaustion.");
+  assert.equal(selected === current.budget.failure() && selected.cause.kind === "resource-limit" &&
+    selected.cause.subject === call && selected.cause.category === "step" && selected.cause.limit === 32768, true);
 });
 
 test("actual callable aliases and conditional implementations close together without hiding an open alternative", () => {
