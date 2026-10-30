@@ -98,12 +98,17 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       const heritage = source.navigation.declaredHeritage(owner);
       if (heritage.kind === "unresolved") return [];
       const bases = heritage.edges.filter(edge => edge.kind === "extends");
-      return bases.length === 1 ? [bases[0]!.target.declaration] : [];
+      if (bases.length !== 1) return [];
+      const base = bases[0]!.target.declaration;
+      if (source.navigation.isProjectDeclaration(base) && !source.ast.hasModifierKind(base, "ambient")) return [base];
+      const native = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+      return native === undefined ? [] : [native];
     }
     if (source.ast.is.IsNewExpression(call)) {
       const symbol = semantics.declarations.typeSymbol(selected.sourceResultType);
       const classes = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol).filter(declaration =>
-        source.ast.is.IsClassDeclaration(declaration) || source.ast.is.IsClassExpression(declaration));
+        (source.ast.is.IsClassDeclaration(declaration) || source.ast.is.IsClassExpression(declaration)) &&
+        source.navigation.isProjectDeclaration(declaration) && !source.ast.hasModifierKind(declaration, "ambient"));
       if (classes.length === 1) return classes;
     }
     const expression = selected.sourceCallee.expression;
