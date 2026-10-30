@@ -368,7 +368,7 @@ for (const choice of ["flag ? first.ping : second.pong", "flag ? second.pong : f
         const pick = ${choice};
         const local: Lease = { value: 1 }; const stored = pick(local, 2); return stored;
       }
-    `);
+    `, [{ scope: "pairRoot", owner: "owner", results: ["ping", "pong"] }]);
     const root = current.declaration("pairRoot");
     const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
       current.source.ast.text(current.source.ast.as.AsCallExpression(node)?.Expression) === "pick" &&
