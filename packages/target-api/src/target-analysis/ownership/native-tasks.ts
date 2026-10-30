@@ -107,7 +107,11 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       spawns.push(Object.freeze({ ...spawn, owner }));
       spawnedOwners.add(owner);
       owners.add(owner);
+      if (unsupported !== undefined)
+        reject(unsupported, "scope-owner", "Native explicit void spawn is unsupported in this selected constructor, initializer or generator.");
     }
+    if (issues.some(issue => issue.kind === "scope-owner"))
+      return budget.failure() ?? Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });
     for (const node of input.nodes) {
       if (!budget.step(node)) return budget.failure()!;
       const semantics = source.semantics.forNode(node);

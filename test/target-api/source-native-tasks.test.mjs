@@ -265,3 +265,77 @@ for (const [label, sourceText] of [
       "every diagnostic subject is an original checked source node");
   });
 }
+
+test("a native task generator refusal precedes unrelated external iterator scope demands", () => {
+  const current = fixture(`async function child(): Promise<void> {}
+    function* work(): Generator<number, void, unknown> { void child(); yield 1; }
+    const values = work(); values.next();`);
+  let scopeQueries = 0;
+  const selected = declaredTasks(current, new Set(), { scopeFor() {
+    scopeQueries++;
+    assert.fail("the precise unsupported local owner needs no unrelated native contract");
+  } });
+  assert.equal(selected.kind === "unresolved" && "issues" in selected, true,
+    "the existing precise local refusal is published, not a missing external contract");
+  assert.equal(selected.issues.length === 1 && selected.issues[0].kind === "scope-owner" &&
+    selected.issues[0].node === current.declarations.get("work"), true,
+    "the original checked generator declaration is the sole diagnostic owner");
+  assert.equal(scopeQueries, 0, "no external scope contract is guessed or queried after the local refusal");
+  assert.equal("graph" in selected, false, "a refused generator publishes no partial graph");
+});
+
+test("a supported native task owner still requires its external iterator's completed scope contract", () => {
+  const current = fixture(`declare function child(): Promise<void>;
+    function work(): void { void child(); }
+    declare const values: Generator<number, void, unknown>;
+    work(); values.next();`);
+  const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.is.IsPropertyAccessExpression(Node_Expression(current.source.ast, node)));
+  assert.equal(call !== undefined, true, "the original external iterator call is checked");
+  const semantics = current.source.semantics.forNode(call);
+  const operation = semantics.operations.call(call);
+  assert.equal(operation?.sourceSelectedSignatureKind === "resolved", true, "the external call selects its real signature");
+  const declaration = semantics.declarations.signatureDeclaration(operation.selectedSignature);
+  assert.equal(declaration !== undefined && current.source.ast.getSourceFile(declaration) !== current.file, true,
+    "the original iterator declaration is external, not a manufactured source owner");
+  const selected = current.select();
+  assert.equal(selected.kind === "unresolved" && selected.cause?.kind === "required-fact" && selected.at === declaration,
+    true, "without its completed native contract the exact external declaration remains unresolved");
+  assert.equal("graph" in selected, false, "missing external native evidence never becomes empty success");
+});
+
+test("a completed external iterator scope-none contract adds no hidden native task input", () => {
+  const current = fixture(`declare function child(): Promise<void>;
+    function work(): void { void child(); }
+    declare const values: Generator<number, void, unknown>;
+    work(); values.next();`);
+  const owner = current.declarations.get("work");
+  const selected = declaredTasks(current, new Set([owner]));
+  assert.equal(selected.kind === "resolved", true, "real selected native scope-none facts complete the graph");
+  assert.equal(selected.graph.owners.length === 1 && selected.graph.owners[0] === owner, true,
+    "only the checked spawning declaration needs its declared native scope input");
+  assert.equal(selected.graph.spawns.length === 1 && selected.graph.calls.length === 1 &&
+    selected.graph.calls[0].targets.length === 1 && selected.graph.calls[0].targets[0] === owner, true,
+    "an external iterator with a completed scope-none contract creates no executor transport or fake runtime storage");
+});
+
+for (const category of ["step", "row"]) {
+  test(`an unsupported native task generator retains its finite ${category} failure without partial publication`, () => {
+    const current = fixture(`async function child(): Promise<void> {}
+      function* work(): Generator<number, void, unknown> { void child(); yield 1; }
+      const values = work(); values.next();`);
+    const limits = { ...defaultSourceDeclarationOwnershipLimits,
+      [category === "step" ? "maximumSteps" : "maximumTransportRows"]: 1 };
+    const budget = createSourceDeclarationOwnershipBudget(current.file, limits);
+    const context = createSourceDeclarationOwnershipValues({ source: current.source, nodes: current.nodes, budget, limits: {} });
+    const selected = analyzeSourceDeclarationNativeTaskGraph({ source: current.source, nodes: current.nodes,
+      values: context.values, budget, lifecycleOwner: current.file, publishedDeclarations: new Set(),
+      spawns: current.nodes.filter(node => current.source.ast.is.IsVoidExpression(node))
+        .map(node => ({ node, operand: Node_Expression(current.source.ast, node) })),
+      scopeFor: () => assert.fail("resource exhaustion never fabricates native scope evidence") });
+    assert.equal(selected.kind === "unresolved" && selected.cause?.kind === "resource-limit" &&
+      selected.cause.category === category && selected.cause.limit === 1 && current.nodes.includes(selected.cause.subject), true,
+      "finite exhaustion retains its exact checked subject, numeric limit and resource category");
+    assert.equal("graph" in selected, false, "exhaustion is neither local unsupported success nor a partial task graph");
+  });
+}
