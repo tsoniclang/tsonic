@@ -6,22 +6,23 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import * as publicAnalysis from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
+import { createSourceDeclarationControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 test("the public flow port exports the identical canonical graph and solver owners", () => {
-  for (const [name, owner] of Object.entries({ createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness,
+  for (const [name, owner] of Object.entries({ createSourceDeclarationControlFlow, solveSourceFlow, analyzeSourceLiveness,
     analyzeSourceDefiniteAssignment, analyzeSourceWrites })) {
     assert.equal(publicAnalysis[name] === owner, true, name);
   }
+  assert.equal(Object.hasOwn(publicAnalysis, "createSourceControlFlow"), false, "the replaced history API is not exported");
 });
 
 let caseNumber = 0;
 async function fixture(text, name = "run") {
   const source = createTargetSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }));
   const file = projectSourceFile(source, "src/index.ts");
-  const selection = createSourceControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
+  const selection = createSourceDeclarationControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
   return { source, ast: source.ast, graph: selection.graph, file };
 }
