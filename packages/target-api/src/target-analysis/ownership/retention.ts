@@ -493,7 +493,7 @@ export function createSourceDeclarationRetentionQuery(input: {
             if (argumentType === undefined || symbol === undefined || !source.ast.is.IsTypeParameterDeclaration(region.declaration) ||
               !semantics.declarations.symbolDeclarations(symbol).includes(region.declaration))
               return sourceDeclarationOwnershipUnresolved(value.node, "A formal lease needs its exact instantiated native type argument.");
-            let owner: Node | undefined = premise.executionOwner;
+            let owner: Node | undefined = nativeResult ? value.region.owner : premise.executionOwner;
             const visited = new Set<Node>();
             while (owner !== undefined && !source.ast.typeParameters(owner).includes(region.declaration)) {
               if (!budget.step(value.node)) return budget.failure()!;

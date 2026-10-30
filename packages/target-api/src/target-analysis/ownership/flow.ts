@@ -337,7 +337,10 @@ export function createSourceDeclarationOwnershipValues(input: {
     if (selected.kind === "unresolved") return selected;
     const regions = new Set<SourceDeclarationFlowExecutionRegion>();
     const visited = new Set<Node>();
-    let current: Node | undefined = node;
+    let current: Node | undefined = source.ast.is.IsParameterDeclaration(node) || source.ast.is.IsVariableDeclaration(node)
+      ? source.ast.name(node) : node;
+    if (current === undefined)
+      return sourceDeclarationOwnershipUnresolved(node, "A local declared value requires its original checked binding name.");
     while (current !== undefined) {
       if (!budget.step(node)) return budget.failure()!;
       if (visited.has(current)) return sourceDeclarationOwnershipUnresolved(node, "A local graph projection has cyclic checked ancestry.");

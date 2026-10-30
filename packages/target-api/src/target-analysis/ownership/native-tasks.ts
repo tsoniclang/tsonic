@@ -143,7 +143,9 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       if (scope === undefined) return failure ?? budget.failure()!;
       if (scope !== "parameter") reject(declaration, "scope-owner",
         "A demanded native task declaration requires its exact declared scope input, not a captured or invented parameter.");
-      if (input.publishedDeclarations.has(declaration)) reject(declaration, "public-scope",
+      const container = source.ast.parent(declaration);
+      if (input.publishedDeclarations.has(declaration) || container !== undefined && input.publishedDeclarations.has(container))
+        reject(declaration, "public-scope",
         "A public native signature cannot acquire an implicit executor input from its callers.");
       if (source.ast.is.IsConstructorDeclaration(declaration) || source.ast.is.IsClassDeclaration(declaration) ||
         source.ast.is.IsClassExpression(declaration) || source.ast.is.IsClassStaticBlockDeclaration(declaration) ||

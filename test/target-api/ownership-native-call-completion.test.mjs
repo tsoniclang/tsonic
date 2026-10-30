@@ -241,6 +241,50 @@ test("declaration-native retention rejects a copied descriptor and preserves bot
   }
 });
 
+for (const kind of ["input-duration", "type-argument"]) {
+  for (const mode of ["shared", "mutable"]) {
+    test(`declaration-native results retain the exact selected ${kind} ${mode} formal contract`, () => {
+      const current = declarationFixture();
+      const value = current.context.values.forNode(current.call);
+      assert.equal("kind" in value, false, "the result has its actual checked caller region");
+      const parameter = current.selected.sourceSelectedSignatureParameters[0]?.parameterDeclaration;
+      const formals = current.source.ast.typeParameters(current.declaration);
+      const arguments_ = current.selected.sourceSelectedMethodTypeArguments;
+      const regionDeclarations = current.source.ast.typeParameters(value.region.owner);
+      assert.equal(parameter !== undefined && formals.length === 1 && arguments_?.length === 1 && regionDeclarations.length === 1,
+        true, "exact native input and generic correspondence on the unchanged source");
+      const region = kind === "input-duration" ? { kind, parameter }
+        : { kind, declaration: regionDeclarations[0], binding: { declaration: formals[0],
+            parameterType: arguments_[0].typeParameter, argumentType: arguments_[0].selectedType } };
+      const premiseFor = actual => ({ kind: "formal-borrowed", value: actual, executionOwner: current.declaration, region, mode,
+        contract: { kind: "expression", expression: actual.node, component: actual.component } });
+      const premises = { ...current.premises, retentionFor: ({ value: actual }) => ({ kind: "resolved", premises: [premiseFor(actual)] }) };
+      const retention = createSourceDeclarationRetentionQuery({ ...current, values: current.context.values, premises });
+      const retained = retention.forValue(value);
+      assert.equal(retained.kind === "resolved" && retained.premises.length === 1 && retained.premises[0].value === value &&
+        retained.premises[0].mode === mode, true, "the borrowed result retains its real selected native formal and mode");
+      const query = createSourceDeclarationOwnershipQuery({ ...current, premises });
+      const selected = query.forCall(current.call);
+      assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+        "the actual immediate await uses the caller's substituted native region, not the callee's declaration environment");
+      const foreign = declarationFixture();
+      const foreignValue = foreign.context.values.forNode(foreign.call);
+      assert.equal("kind" in foreignValue, false, "the foreign region negative is a real declaration in its own checked program");
+      for (const wrong of ["owner", "region"]) {
+        const invalid = createSourceDeclarationRetentionQuery({ ...current, values: current.context.values,
+          premises: { retentionFor: ({ value: actual }) => {
+            const premise = premiseFor(actual);
+            return { kind: "resolved", premises: [{ ...premise, ...(wrong === "owner" ? { executionOwner: foreign.declaration }
+              : { region: kind === "input-duration"
+                ? { kind, parameter: foreign.selected.sourceSelectedSignatureParameters[0].parameterDeclaration }
+                : { ...region, declaration: foreign.source.ast.typeParameters(foreignValue.region.owner)[0] } }) }] };
+          } } });
+        assert.equal(invalid.forValue(value).kind === "unresolved", true, `${wrong}: a foreign formal/lifetime cannot replace exact native evidence`);
+      }
+    });
+  }
+}
+
 test("declaration-native finite work and row exhaustion retain subject and exact limit without false invalid-config exhaustion", () => {
   const current = declarationFixture();
   const work = createSourceDeclarationOwnershipBudget(current.call, { ...defaultSourceStorageLimits, maximumSteps: 1 });

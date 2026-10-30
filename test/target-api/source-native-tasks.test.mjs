@@ -114,6 +114,17 @@ test("declaration-native task scope rejects an unrelated checked component", () 
   assert.equal("graph" in selected, false, "incompatible component evidence is not a partial success");
 });
 
+test("declaration-native task demand cannot add an executor slot to an exported container method", () => {
+  const current = fixture("declare function child(): Promise<void>; export class Holder { work(): void { void child(); } } new Holder().work();");
+  const container = current.nodes.find(node => current.source.ast.is.IsClassDeclaration(node));
+  const method = current.nodes.find(node => current.source.ast.is.IsMethodDeclaration(node));
+  assert.equal(container !== undefined && method !== undefined, true, "the actual public class and its declared method exist");
+  const selected = declaredTasks(current, new Set([method]), { publishedDeclarations: new Set([container]) });
+  assert.equal(selected.kind === "unresolved" && selected.issues.some(issue => issue.kind === "public-scope" && issue.node === method),
+    true, "publication of the container preserves its method's source-native ABI");
+  assert.equal("graph" in selected, false, "an exported signature mismatch publishes no partial native graph");
+});
+
 test("native task demand propagates from a source spawn through its original callers", () => {
   const current = fixture(`async function child(): Promise<void> {}
     function inner(): void { void child(); }

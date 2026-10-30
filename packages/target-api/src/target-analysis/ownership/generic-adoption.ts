@@ -849,14 +849,25 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
           mark(node, type, semantics);
         }
         if (member === "construct" && argument !== undefined) {
-          let executor = argument;
-          const named = source.navigation.sourceReferenceFor(argument)?.declaration;
-          if (named !== undefined && ast.is.IsVariableDeclaration(named) && ast.variableDeclarationKind(named) === "const") {
-            const initializer = ast.as.AsVariableDeclaration(named)?.Initializer;
-            if (initializer !== undefined) executor = initializer;
+          const executor = semantics.types.expressionType(argument);
+          const signatures = executor === undefined ? [] : semantics.types.signatureInfos(executor, "call");
+          const resolver = signatures.length === 1 ? signatures[0]!.parameters[0]?.declaration : undefined;
+          if (resolver === undefined)
+            return sourceDeclarationOwnershipUnresolved(argument, "A native Promise executor requires its exact checked resolver parameter contract.");
+          if (!rows.add(1)) return budget.failure()!;
+          resolverParameters.add(resolver);
+        } else if (member === "then" || member === "catch" || member === "finally") {
+          for (const callback of ast.arguments(node)) {
+            if (callback === undefined) continue;
+            if (!step(callback)) break;
+            const type = semantics.types.expressionType(callback);
+            if (type === undefined)
+              return sourceDeclarationOwnershipUnresolved(callback, "A native reaction requires its exact checked callback result contract.");
+            for (const signature of semantics.types.signatureInfos(type, "call")) {
+              if (!step(callback)) break;
+              if (signature.returnType !== undefined) mark(node, signature.returnType, semantics);
+            }
           }
-          const resolver = ast.parameters(executor)[0];
-          if (resolver !== undefined) resolverParameters.add(resolver);
         }
         for (const argument of selected.sourceSelectedMethodTypeArguments ?? []) {
           const symbol = semantics.declarations.typeSymbol(argument.typeParameter);
@@ -914,7 +925,20 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
             });
             const receiverArgument = selected.sourceReceiver === undefined ? undefined
               : semantics.types.typeArgumentBindings(selected.sourceReceiver.type)?.find(argument => argument.declaration === parameter);
-            const argumentType = selectedArgument?.selectedType ?? receiverArgument?.argumentType;
+            const parameterOwner = parameters.get(parameter)!.owner;
+            let lexical: Node | undefined = declaration;
+            const visited = new Set<Node>();
+            while (lexical !== undefined && lexical !== parameterOwner) {
+              if (!step(node)) break;
+              if (visited.has(lexical))
+                return sourceDeclarationOwnershipUnresolved(node, "A declared callback binding has cyclic checked ancestry.");
+              visited.add(lexical);
+              lexical = ast.parent(lexical);
+            }
+            const lexicalType = lexical === parameterOwner && declaration !== parameterOwner &&
+                !ast.is.IsClassDeclaration(parameterOwner) && !ast.is.IsClassExpression(parameterOwner)
+              ? semantics.declarations.declaredType(parameter) : undefined;
+            const argumentType = selectedArgument?.selectedType ?? receiverArgument?.argumentType ?? lexicalType;
             if (argumentType === undefined) continue;
             if (resolverParameters.has(callback)) instance(node, parameter, argumentType, operation);
             else if (ast.is.IsParameterDeclaration(callback)) for (const forwarded of parametersIn(argumentType, semantics))
