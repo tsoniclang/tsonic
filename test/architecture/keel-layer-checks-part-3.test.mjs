@@ -86,12 +86,12 @@ test(`${repo}: provider metadata G1 ${origin} ${grammar} ${read ? "actual read" 
 }
 
 for (const repo of ["tsonic-rust"]){
-for (const [form, body, symbol, explicit, typeOnly] of Array.from([
+for (const [form, body, symbol, explicit, typeOnly] of [
     ["direct this", "return this;", "Metadata.selectMetadata", false, false],
     ["lexical arrow this", "return (() => this)();", "Metadata.selectMetadata", false, false],
     ["type this only", "type Receiver = this; return value;", "Metadata.selectMetadata", false, true],
     ["explicit this", "return this;", "selectMetadata", true, false],
-  ]).slice(0, 1)){
+  ]){
 for (const foreign of [false, true]){
 test(`${repo}: provider metadata G2 ${form} ${foreign ? "source" : "native"}`, () => {
     const file = "src/providers/native/projection/members.ts";
@@ -107,26 +107,116 @@ test(`${repo}: provider metadata G2 ${form} ${foreign ? "source" : "native"}`, (
   });
 }
 }
+}
 
-for (const [form, body, symbol, explicit, typeOnly] of Array.from([
-    ["direct this", "return this;", "Metadata.selectMetadata", false, false],
-    ["lexical arrow this", "return (() => this)();", "Metadata.selectMetadata", false, false],
-    ["type this only", "type Receiver = this; return value;", "Metadata.selectMetadata", false, true],
-    ["explicit this", "return this;", "selectMetadata", true, false],
-  ]).slice(1, 2)){
-for (const foreign of Array.from([false, true]).slice(0, 1)){
-test(`${repo}: provider metadata G2 ${form} ${foreign ? "source" : "native"}`, () => {
+for (const repo of ["tsonic-rust"]){
+for (const boundary of ["input", "output"]){
+for (const getter of [false, true]){
+for (const foreign of [false, true]){
+test(`${repo}: provider metadata G3 inferred ${getter ? "getter" : "field"} ${boundary} ${foreign ? "source" : "native"}`, () => {
+      const file = "src/providers/native/projection/members.ts";
+      const member = getter ? `get source() { return new ${foreign ? "CheckedSource" : "NativeValue"}(); }` : `readonly source = new ${foreign ? "CheckedSource" : "NativeValue"}();`;
+      const selected = boundary === "input" ? "NativeMetadata" : "ProviderModel";
+      const other = boundary === "input" ? "ProviderModel" : "NativeMetadata";
+      const model = checkedMetadataFixture([
+        ["src/source/semantics.ts", "export class CheckedSource { readonly value = 1; }"],
+        ["src/providers/native/model/input.ts", `import { CheckedSource } from "../../../source/semantics.js"; class NativeValue { readonly value = 1; } export class ${selected} { ${member} readonly value = 0; readonly next: ${selected} | undefined = undefined; } export interface ${other} { readonly value: number; }`],
+        [file, `import { ${selected} } from "../model/input.js"; import type { ${other} } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return ${boundary === "input" ? "{ value: 0 }" : "new ProviderModel()"}; }`],
+      ], `inferred ${getter} ${boundary} ${foreign}`);
+      const findings = evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")] });
+      assert.equal(foreign ? keelFixtureHas(findings, "AC1", "metadata-only inputs") : findings.length === 0, true,
+        `${boundary}: checked inferred members, native recursive members and getters retain their actual types`);
+    });
+}
+}
+}
+}
+
+for (const repo of ["tsonic-rust"]){
+for (const [form, body, parameter, foreign, rejected] of [
+    ["unused foreign static", "return value;", "NativeMetadata", true, false],
+    ["unused native static", "return value;", "NativeMetadata", false, false],
+    ["foreign static read", "return NativeMetadata.source;", "NativeMetadata", true, true],
+    ["native static read", "return NativeMetadata.source;", "NativeMetadata", false, false],
+    ["foreign constructor boundary", "return { value: 0 };", "typeof NativeMetadata", true, true],
+  ]){
+test(`${repo}: provider metadata G4 ${form}`, () => {
     const file = "src/providers/native/projection/members.ts";
-    const declaration = `export class Metadata extends ${foreign ? "CheckedSource" : "NativeMetadata"} { selectMetadata(value: NativeMetadata): ProviderModel { ${body} } }`;
     const model = checkedMetadataFixture([
       ["src/source/semantics.ts", "export class CheckedSource { readonly value = 1; }"],
-      ["src/providers/native/model/input.ts", "export class NativeMetadata { readonly value = 0; } export interface ProviderModel { readonly value: number; }"],
-      [file, `import { CheckedSource } from "../../../source/semantics.js"; import { NativeMetadata } from "../model/input.js"; import type { ProviderModel } from "../model/input.js"; ${explicit ? `export function selectMetadata(this: ${foreign ? "CheckedSource" : "NativeMetadata"}, value: NativeMetadata): ProviderModel { ${body} }` : declaration}`],
-    ], `${form} ${foreign}`);
-    const findings = evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, symbol, "provider-metadata")] });
-    assert.equal(foreign && !typeOnly ? keelFixtureHas(findings, "AC1", explicit ? "metadata-only inputs" : "cannot read checked source") : findings.length === 0,
-      true, `${form}: only actual receiver values participate`);
+      ["src/providers/native/model/input.ts", `import { CheckedSource } from "../../../source/semantics.js"; class NativeValue { readonly value = 1; } export class NativeMetadata { static readonly source: ${foreign ? "CheckedSource" : "NativeValue"} = new ${foreign ? "CheckedSource" : "NativeValue"}(); readonly value = 0; } export interface ProviderModel { readonly value: number; }`],
+      [file, `import { NativeMetadata } from "../model/input.js"; import type { ProviderModel } from "../model/input.js"; export function selectMetadata(value: ${parameter}): ProviderModel { ${body} }`],
+    ], form);
+    const findings = evaluateKeelLayers(repo, model, { functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")] });
+    assert.equal(rejected ? keelFixtureHas(findings, "AC1", form.includes("boundary") ? "metadata-only inputs" : "cannot read checked source") : findings.length === 0,
+      true, `${form}: instance and constructor are distinct checked types`);
   });
 }
 }
+
+for (const repo of ["tsonic-rust"]){
+for (const [origin, foreign, type] of [
+    ["source", "src/source/semantics.ts", "CheckedSource"],
+    ["policy", "src/policy/types/native.ts", "CarrierDecision"],
+  ]){
+for (const [form, body] of [
+    ["bare imported value", "return imported;"],
+    ["local constant alias", "const selected: ProviderModel = imported; return selected;"],
+    ["local mutable alias", "let selected: ProviderModel = imported; return selected;"],
+  ]){
+test(`${repo}: provider metadata rejects ${origin} values through ${form}`, () => {
+    const file = "src/providers/native/projection/members.ts";
+    const model = checkedMetadataFixture([
+      [foreign, `export interface ${type} { readonly value: number; } export const checked: ${type} = { value: 1 };`],
+      ["src/providers/native/model/input.ts", "export interface NativeMetadata { readonly value: number; } export interface ProviderModel { readonly value: number; }"],
+      [file, `import { checked as imported } from "../../../${foreign.slice(4, -3)}.js"; import type { NativeMetadata, ProviderModel } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { ${body} }`],
+    ], `${repo}: ${origin} ${form}`);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+      functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
+    }), "AC1", "cannot read checked source"), true, `${origin} ${form}: actual foreign value identity`);
+  });
+}
+}
+}
+
+for (const repo of ["tsonic-rust"]){
+for (const [boundary, foreign, declaration] of [
+    ["input", "src/source/semantics.ts", "interface"],
+    ["class input", "src/source/semantics.ts", "class"],
+    ["output", "src/policy/types/native.ts", "interface"],
+    ["output", "src/analysis/operations/native.ts", "interface"],
+    ["output", "src/backend/target-ast/native.ts", "interface"],
+  ]){
+test(`${repo}: provider metadata rejects inherited ${boundary} from ${foreign}`, () => {
+    const file = "src/providers/native/projection/members.ts";
+    const input = boundary !== "output";
+    const model = checkedMetadataFixture([
+      [foreign, declaration === "class" ? "export class Foreign { readonly value = 1; }" : "export interface Foreign { readonly value: number; }"],
+      ["src/providers/native/model/input.ts", `import type { Foreign as Ancestor } from "../../../${foreign.slice(4, -3)}.js"; ${input ? declaration === "class" ? 'import { Foreign as Parent } from "../../../source/semantics.js"; export class NativeMetadata extends Parent {}' : "export interface NativeMetadata extends Ancestor {}" : "export interface NativeMetadata { readonly value: number; }"} ${input ? "export interface ProviderModel { readonly value: number; }" : "export interface ProviderModel extends Ancestor {}"}`],
+      [file, 'import type { NativeMetadata, ProviderModel } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return { value: 0 }; }'],
+    ], `${repo}: inherited ${boundary} ${foreign}`);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+      functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
+    }), "AC1", "metadata-only inputs"), true, `${boundary}: checked base identity cannot be hidden by a local declaration`);
+  });
+}
+}
+
+for (const repo of ["tsonic-rust"]){
+test(`${repo}: provider metadata preserves native inherited data and unrelated imported types`, () => {
+    const file = "src/providers/native/projection/members.ts";
+    for (const declaration of [
+      "export interface Base<T> { readonly value: T; } export interface NativeMetadata extends Base<number> {} export interface ProviderModel extends NativeMetadata {}",
+      "export class Base { readonly value = 1; } export class NativeMetadata extends Base {} export class ProviderModel extends NativeMetadata {}",
+    ]) {
+      const model = checkedMetadataFixture([
+        ["src/source/semantics.ts", "export interface UnusedSource { readonly source: number; }"],
+        ["src/providers/native/model/input.ts", `import type { UnusedSource } from "../../../source/semantics.js"; ${declaration}`],
+        [file, 'import type { NativeMetadata, ProviderModel } from "../model/input.js"; export function selectMetadata(value: NativeMetadata): ProviderModel { return value; }'],
+      ], `${repo}: native-only inheritance`);
+      assert.equal(evaluateKeelLayers(repo, model, {
+        functions: [keelFixtureReview(model, file, "selectMetadata", "provider-metadata")],
+      }).length, 0, "native inheritance is allowed without a global import ban");
+    }
+  });
 }

@@ -13,7 +13,7 @@ import {
 import { metadataWorkspace, publicMetadataInputs, checkedMetadataFixture } from './keel-layer-checks-fixtures.mjs';
 
 for (const repo of ["tsonic-csharp"]){
-for (const [type, accepted] of Array.from([
+for (const [type, accepted] of [
     ["ProviderTypeExpression", true], ["readonly ProviderMemberDeclaration[]", true],
     ["ProviderParameterDeclaration", true], ["ProviderPropertyName", true],
     ["SourcePrimitiveKind", true], ["ArgumentPassingMode", true], ["ProviderWellKnownSymbolName", true],
@@ -23,7 +23,7 @@ for (const [type, accepted] of Array.from([
     ["ProviderHeritageDeclaration", true], ["ProviderDeclarationModel", true], ["ProviderRequestedExport", true],
     ["ProviderImportRequestKind", true], ["ExtensionDiagnosticRange", true],
     ["SourcePrimitiveFact", false], ["ExtensionDiagnostic", false], ["ExtensionDiagnosticCategory", false],
-  ]).slice(0, 15)){
+  ]){
 test(`${repo}: provider metadata R3 actual public ${type}`, () => {
     const file = "src/providers/native/projection/members.ts";
     const imported = type === "readonly ProviderMemberDeclaration[]" ? "ProviderMemberDeclaration" : type;

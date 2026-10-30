@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { checked, numericUses } from "./enum-numeric-uses-fixtures.js";
 
-for (const [label, body] of Array.from(numericUses).slice(0, 27)){
+for (const [label, body] of numericUses){
 test(`enum numeric admission refuses ${label} once before target analysis`, () => {
     const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
     const issues = source.semantics.enumConstants.issues;

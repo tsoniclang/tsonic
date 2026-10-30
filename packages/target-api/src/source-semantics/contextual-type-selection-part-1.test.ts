@@ -77,7 +77,7 @@ test(`unannotated ${name} keeps its actual initializer rather than a synthetic c
   });
 }
 
-for (const [name, sourceText] of Array.from(authoredDestinations).slice(0, 6)){
+for (const [name, sourceText] of authoredDestinations){
 test(`${name} retains its actual checked contextual destination`, () => {
     const { source, queries, literal } = fixture(sourceText);
     const contextual = queries.checker.getContextualType(literal);
@@ -87,3 +87,10 @@ test(`${name} retains its actual checked contextual destination`, () => {
       `${name}: const transparency cannot discard a real annotation or typed assertion`);
   });
 }
+
+test("unavailable contexts do not fabricate a destination", () => {
+  const { source, queries, literal } = fixture('export const value = { key: "value" };');
+  assert.equal(queries.checker.getContextualType(literal) === undefined, true, "the checked initializer has no authored contextual target");
+  assert.equal(source.semantics.forNode(literal).types.contextualValueSelection(literal).kind, "unavailable",
+    "the existing unavailable result is retained");
+});

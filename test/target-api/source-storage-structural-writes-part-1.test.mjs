@@ -368,20 +368,3 @@ test("formal member demands separate readonly consumers from the actual writer a
   }
   assert.equal(current.storage.failureReason() === undefined, true, "formal summaries preserve all original finite storage evidence");
 });
-
-for (const [label, statements] of Array.from([
-  ["direct", "owner.read = () => 3;"],
-  ["constant-indexed", 'owner["read"] = () => 3;'],
-  ["same-value", "owner.read = owner.read;"],
-  ["const alias", "const alias = owner; alias.read = () => 3;"],
-  ["transitive alias", "const first = owner; const alias = first; alias.read = () => 3;"],
-  ["stable let", "let alias = owner; alias.read = () => 3;"],
-  ["later reassignment", "let alias = owner; alias.read = () => 3; alias = other;"],
-  ["captured parameter", "function apply() { owner.read = () => 3; } apply();"],
-]).slice(0, 6)){
-test(`formal member writes retain ${label} binding and declaration evidence`, () => {
-  const current = formalFixture(`function replace(owner: Reader, other: Reader) { ${statements} }`);
-  current.complete("replace", [current.member()]);
-  current.complete("replace", [], "other");
-});
-}

@@ -4,14 +4,14 @@ import test from "node:test";
 
 import { fixture } from "./recursive-retention-fixtures.js";
 
-for (const reverse of Array.from([false, true]).slice(0, 1)){
-for (const [kind, owner, callee] of Array.from([
+for (const reverse of [false, true]){
+for (const [kind, owner, callee] of [
     ["returned-alias", "Adoption", "returned"],
     ["awaited-member", "AwaitedAdoption", "awaited"],
     ["recursive-return", "RecursiveAdoption", "recursiveAdopt"],
     ["getter-return", "GetterAdoption", "returned"],
     ["conditional-return", "ConditionalAdoption", "returned"],
-  ]).slice(0, 4)){
+  ]){
 test(`${kind} prepares its caller-owned Promise producer before the SCC, reverse=${reverse}`, () => {
       for (const borrowed of [false, true]) {
         for (const producerFirst of [false, true]) {

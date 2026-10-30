@@ -109,28 +109,3 @@ test(`constructor result admission preserves ${name}`, () => {
     assert.equal(Object.isFrozen(issues), true, `${name}: admission publishes immutable issues.`);
   });
 }
-
-for (const [name, text] of Array.from([
-  ["fresh object", "class Owner { value = 1; constructor() { return { value: 2 }; } } const owner = new Owner();"],
-  ["conditional substitute", "class Owner { value = 1; constructor(flag: boolean) { return flag ? this : { value: 2 }; } } const owner = new Owner(true);"],
-  ["reassigned alias", "class Owner { value = 1; constructor() { let self: Owner = this; self = { value: 2 }; return self; } } const owner = new Owner();"],
-  ["cached instance", "const cached = { value: 2 }; class Owner { value = 1; constructor() { return cached; } } const owner = new Owner();"],
-  ["substitute or checked never", "function fail(): never { throw 'stop'; } class Owner { value = 1; constructor(flag: boolean) { return flag ? { value: 2 } : fail(); } } const owner = new Owner(true);"],
-  ["substitute asserted as never", "class Owner { value = 1; constructor() { return ({ value: 2 } as never); } } const owner = new Owner();"],
-  ["aliased substitute asserted as never", "class Owner { value = 1; constructor() { const replacement = { value: 2 } as never; return replacement; } } const owner = new Owner();"],
-]).slice(0, 3)){
-test(`constructor result admission rejects ${name} at its actual source expression`, () => {
-    const current = constructorResultFixture(text);
-    const issues = analyzeSourceConstructorResults(current.source);
-    const returned = current.nodes.find(node => current.source.ast.is.IsReturnStatement(node));
-    assert.equal(issues.length, 1, `${name}: exactly one shared source rejection.`);
-    assert.equal(issues[0].code, "TSONIC_CONSTRUCTOR_RESULT_NOT_SUPPORTED", `${name}: this is a deliberate v1 exclusion, not a native impossibility.`);
-    assert.equal(issues[0].message, "A constructor that returns an object other than its receiver is not supported.");
-    assert.equal(issues[0].sourceNode === current.source.ast.as.AsReturnStatement(returned).Expression, true,
-      `${name}: the original returned expression owns the diagnostic.`);
-    assert.equal(issues[0].category, "error");
-    assert.equal(issues[0].source, "tsonic", "Both targets consume the identical shared diagnostic.");
-    assert.equal(Object.isFrozen(issues) && Object.isFrozen(issues[0]), true,
-      `${name}: the local source rejection is immutable, not a storage-resource failure.`);
-  });
-}

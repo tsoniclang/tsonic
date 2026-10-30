@@ -45,7 +45,7 @@ test("a class parameter and captured structural method are summarized at their a
   assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(), ["make(promised)", "new Holder(promised)"]);
 });
 
-for (const [name, extra, receiver, expression] of Array.from([
+for (const [name, extra, receiver, expression] of [
   ["incoming", "", "Holder<Promise<number>>", "holder.get()"],
   ["aliased", "type Alias<V> = Holder<V>;", "Alias<Promise<number>>", "holder.get()"],
   ["finite-union", "", "Holder<number> | Holder<Promise<number>>", "holder.get()"],
@@ -57,7 +57,7 @@ for (const [name, extra, receiver, expression] of Array.from([
   ["parenthesized-call", "", "Holder<Promise<number>>", "(holder.get)()"],
   ["getter", "", "Holder<Promise<number>>", "holder.task"],
   ["method-value", "", "Holder<Promise<number>>", "holder.get"],
-] as const).slice(0, 7)){
+] as const){
 test(`generic adoption retains the actual ${name} receiver binding`, () => {
     const current = fixture(`class Holder<T> { constructor(readonly value: T) {}
       async get(): Promise<T> { return this.value; }
@@ -69,5 +69,71 @@ test(`generic adoption retains the actual ${name} receiver binding`, () => {
     if (selected.kind !== "resolved") return;
     assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), [expression],
       "every actual receiver alternative is checked, without a callee-property duplicate");
+  });
+}
+
+test("a receiver forwards sensitivity through the exact outer function binder", () => {
+  const current = fixture(`class Holder<T> { constructor(readonly value: T) {}
+    async get(): Promise<T> { return this.value; } }
+    function forward<V>(holder: Holder<V>) { return holder.get(); }
+    export function use(holder: Holder<Promise<number>>) { return forward(holder); }`);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "receiver forwarding");
+  if (selected.kind !== "resolved") return;
+  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["forward(holder)"],
+    "the owning checked call supplies the actual binding, not a guessed member spelling");
+});
+
+test("a synchronous class-binder result is native pass-through, not an invented async completion", () => {
+  const current = fixture(`interface Method<Value> { read(): Value; }
+    interface Property<Value> { read: () => Value; }
+    abstract class Abstract<Value> { abstract read(): Value; }
+    export function use(method: Method<Promise<number>>, property: Property<Promise<number>>,
+      abstract: Abstract<Promise<number>>) {
+      void method.read(); void property.read(); void abstract.read();
+    }`);
+  const selected = current.query();
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "no source await or async result adopts the class's native payload");
+});
+
+for (const [name, declaration] of [
+  ["interface", "interface Contract<Value> { read(): Promise<Value>; }"],
+  ["abstract", "abstract class Contract<Value> { abstract read(): Promise<Value>; }"],
+  ["callable-property", "interface Contract<Value> { read: () => Promise<Value>; }"],
+  ["class-callable-property", `class Contract<Value> { read: () => Promise<Value>;
+    constructor(read: () => Promise<Value>) { this.read = read; } }`],
+] as const){
+test(`unknown ${name} receiver completion keeps its exact class binding fail-closed`, () => {
+    const current = fixture(`${declaration}
+      export function use(value: Contract<Promise<number>>) { return value.read(); }`);
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
+    if (selected.kind !== "resolved") return;
+    assert.equal(selected.issues.length, 0, "the bodyless declaration keeps its completed native signature");
+    const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.textFor(node) === "value.read()");
+    assert.equal(call !== undefined, true, "the original native receiver call remains checked");
+    if (call === undefined) return;
+    const semantics = current.source.semantics.forNode(call);
+    const completed = semantics.operations.call(call);
+    const nativeDeclaration = completed === undefined ? undefined :
+      semantics.declarations.signatureDeclaration(completed.selectedSignature);
+    const receiver = completed?.sourceReceiver;
+    const bindings = receiver === undefined ? undefined : semantics.types.typeArgumentBindings(receiver.type);
+    assert.equal(nativeDeclaration !== undefined && current.nodes.includes(nativeDeclaration) &&
+      current.source.ast.body(nativeDeclaration) === undefined, true, "the selected signature is the original bodyless declaration");
+    assert.equal(bindings?.length === 1 && current.nodes.includes(bindings[0]!.declaration), true,
+      "the receiver retains its exact checked generic formal");
+    if (bindings?.length !== 1 || receiver === undefined) return;
+    const symbol = semantics.declarations.typeSymbol(receiver.type);
+    const owner = current.source.ast.parent(bindings[0]!.declaration);
+    assert.equal(symbol !== undefined && owner !== undefined &&
+      semantics.declarations.symbolDeclarations(symbol).includes(owner), true,
+      "the formal belongs to the actual native receiver declaration");
+    const argument = bindings[0]!.argumentType;
+    const awaited = semantics.types.awaitedType(argument);
+    assert.equal(awaited !== undefined && !semantics.types.isIdentical(awaited, argument), true,
+      "the completed receiver binding keeps its original Promise-valued native payload");
   });
 }
