@@ -28,11 +28,8 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
   if (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
     const name = ast.name(node);
     if (name === undefined) throw new SourceFlowFailure("Source flow requires a checked binding name.", node);
-    const selectedInitializer = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)?.Initializer
+    const initializer = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)?.Initializer
       : ast.as.AsParameterDeclaration(node)?.Initializer;
-    const initializer = ast.is.IsParameterDeclaration(node) && selectedInitializer !== undefined &&
-      build.parameterInitializers !== undefined && !build.parameterInitializers.has(selectedInitializer)
-      ? undefined : selectedInitializer;
     if (initializer === undefined) {
       if (ast.is.IsParameterDeclaration(node)) return build.pattern(name, next, context, true, value);
       if (!ast.is.IsIdentifier(name)) throw new SourceFlowFailure("A binding pattern requires an initializer.", node);

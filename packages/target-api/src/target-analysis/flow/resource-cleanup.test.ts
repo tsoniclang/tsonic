@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceControlFlow, createSourceControlFlowDomain } from "./graph.js";
+import { createSourceDeclarationControlFlow, createSourceControlFlowDomain } from "./graph.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
 import type { SourceControlFlowGraph, SourceFlowPoint } from "./model.js";
@@ -29,7 +29,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   visit(file!);
   const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "run");
   assert.equal(owner !== undefined, true, "resource fixture callable exists");
-  const selection = createSourceControlFlow(source, owner!, { domain: { kind: "source" } });
+  const selection = createSourceDeclarationControlFlow(source, owner!, { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "checked cleanup graph");
   if (selection.kind !== "resolved") throw new Error("Expected the checked resource flow graph.");
   const named = (name: string): Node => {
@@ -253,7 +253,7 @@ test("selected native resource domains omit erased acquisition and preserve the 
   const domain = createSourceControlFlowDomain(current.source, selected.nodes);
   assert.equal(domain.kind, "resolved", "the identical checked selected inventory is admitted");
   if (domain.kind !== "resolved") throw new Error("Expected the checked resource domain.");
-  const result = createSourceControlFlow(current.source, current.owner, { domain: domain.domain });
+  const result = createSourceDeclarationControlFlow(current.source, current.owner, { domain: domain.domain });
   assert.equal(result.kind, "resolved", "the same cleanup graph handles the actual native domain");
   if (result.kind !== "resolved") throw new Error("Expected the selected resource flow graph.");
   const excluded = new Set(current.nodes.filter(node => !selected.nodes.includes(node)));

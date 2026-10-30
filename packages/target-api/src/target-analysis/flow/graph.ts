@@ -6,9 +6,9 @@ import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callab
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
 import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
-import { sourceDeclarationFlowEntry, sourceFlowEntry, type SourceFlowEntry, type SourceFlowInitializer } from "./entry.js";
+import { sourceDeclarationFlowEntry, type SourceFlowInitializer } from "./entry.js";
 import { sourceFlowExpression } from "./expressions.js";
-import type { SourceControlFlowOptions, SourceControlFlowSelectedDomain, SourceControlFlowSelection,
+import type { SourceControlFlowSelectedDomain, SourceControlFlowSelection,
   SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "./model.js";
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
@@ -56,21 +56,8 @@ interface PatternContinuation {
   entry: number | undefined;
 }
 
-export function createSourceControlFlow(source: TargetSourceProgram, declaration: Node,
-  options: SourceControlFlowOptions): SourceControlFlowSelection {
-  return createControlFlow(source, declaration, options, ["domain", "limits", "invocation"],
-    step => sourceFlowEntry(source, declaration, options.invocation, step));
-}
-
 export function createSourceDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
   options: SourceDeclarationControlFlowOptions): SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
-  return createControlFlow(source, declaration, options, ["domain", "limits"],
-    step => sourceDeclarationFlowEntry(source, declaration, step));
-}
-
-function createControlFlow<Region>(source: TargetSourceProgram, declaration: Node,
-  options: SourceDeclarationControlFlowOptions, allowedOptions: readonly string[],
-  entryFor: (step: (node?: Node) => void) => SourceFlowEntry<Region>): SourceControlFlowSelection<Region> {
   try {
     const { ast } = source;
     const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
@@ -81,9 +68,9 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
     if (options === null || typeof options !== "object" ||
-      Reflect.ownKeys(options).some(key => typeof key !== "string" || !allowedOptions.includes(key)) ||
+      Reflect.ownKeys(options).some(key => key !== "domain" && key !== "limits") ||
       !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(options, "domain") ?? {}, "value")) {
-      throw new SourceFlowFailure("Source flow requires explicit limits, checked invocation options and an explicit source domain.", declaration);
+      throw new SourceFlowFailure("Source flow requires explicit limits and an explicit checked source domain.", declaration);
     }
     const domain = options.domain;
     if (domain === undefined || domain === null || typeof domain !== "object" ||
@@ -100,13 +87,13 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
     } else throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
     const includes = (node: Node): boolean => included === "source" || included.has(node);
     const selectedLimits = sourceFlowLimits(options.limits ?? {});
-    const owner = createSourceFlowConstruction<Region>(declaration, selectedLimits);
-    const selectedEntry = entryFor(owner.step);
+    const owner = createSourceFlowConstruction<SourceDeclarationFlowExecutionRegion>(declaration, selectedLimits);
+    const selectedEntry = sourceDeclarationFlowEntry(source, declaration, owner.step);
     for (const root of selectedEntry.rootExecutions.keys()) {
       owner.step(root);
       if (!includes(root)) throw new SourceFlowFailure("Declaration flow requires each exact region root in its checked source domain.", root);
     }
-    const { body, parameterInitializers, superInitializers, bodyExecution } = selectedEntry;
+    const { body, superInitializers, bodyExecution } = selectedEntry;
     const pending = (propertyRoot ? selectedEntry.syntaxRoots : [declaration, ...selectedEntry.syntaxRoots])
       .map(node => ({ node, depth: 0 }));
     while (pending.length > 0) {
@@ -124,7 +111,7 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
         if (child !== undefined) pending.push({ node: child, depth: current.depth + 1 });
       }
     }
-    const initialize = (initializers: readonly SourceFlowInitializer<Region>[], next: number, context: SourceFlowContext): number => {
+    const initialize = (initializers: readonly SourceFlowInitializer<SourceDeclarationFlowExecutionRegion>[], next: number, context: SourceFlowContext): number => {
       let entry = next;
       for (let index = initializers.length - 1; index >= 0; index -= 1) {
         const selected = initializers[index]!;
@@ -137,7 +124,7 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
       const execution = selectedEntry.rootExecutions.get(node);
       return execution === undefined ? visit() : owner.withExecution(execution, visit);
     };
-    const build: SourceFlowConstruction = { source, parameterInitializers, includes,
+    const build: SourceFlowConstruction = { source, includes,
       initializeSuper: (next, context) => initialize(superInitializers, next, context),
       captures: createSourceFlowCaptureQuery(source, owner.step, included),
       point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,

@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
-import type { SourceControlFlowGraph, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowExecutionRegion, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
+import type { SourceControlFlowGraph, SourceDeclarationFlowExecutionRegion, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
 import { createSourceFlowBudget, SourceFlowFailure } from "./resources.js";
 
 export interface SourceFlowContext {
@@ -22,7 +22,6 @@ interface OpenPoint {
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
   readonly includes: (node: Node) => boolean;
-  readonly parameterInitializers: ReadonlySet<Node> | undefined;
   readonly initializeSuper: (next: number, context: SourceFlowContext) => number;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
@@ -36,7 +35,7 @@ export interface SourceFlowConstruction {
   readonly step: (source?: Node) => void;
 }
 
-export function createSourceFlowConstruction<Region = SourceFlowExecutionRegion>(declaration: Node,
+export function createSourceFlowConstruction<Region = SourceDeclarationFlowExecutionRegion>(declaration: Node,
   limits: SourceFlowLimits) {
   const points: OpenPoint[] = [];
   const sourcePoints = new Map<Node, number[]>();

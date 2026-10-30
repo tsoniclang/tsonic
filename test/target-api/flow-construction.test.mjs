@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlow, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
@@ -35,8 +35,8 @@ function fixture(text) {
   return { source, storage, ast, named, construct, constructor };
 }
 
-function flow(current, declaration, call, callerBindings = current.storage.emptyBindings) {
-  const selected = createSourceControlFlow(current.source, declaration, { domain: { kind: "source" }, invocation: { storage: current.storage, call, callerBindings } });
+function flow(current, declaration) {
+  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" } });
   assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked graph");
   return selected.graph;
 }
@@ -105,7 +105,7 @@ test("checked constructor flow agrees with Node's base-field, parameter, super a
   const current = fixture(`${classes} const instance = new Derived();`);
   const derived = current.constructor("Derived");
   const allocation = current.construct("Derived");
-  const derivedFlow = flow(current, derived, allocation);
+  const derivedFlow = flow(current, derived);
   const before = marked(current, derivedFlow, "derived-parameter");
   const field = marked(current, derivedFlow, "derived-field");
   const after = marked(current, derivedFlow, "derived-body");
@@ -116,7 +116,7 @@ test("checked constructor flow agrees with Node's base-field, parameter, super a
   assert.equal(reachable(derivedFlow, field.id, superCall.id), false);
   const bindings = current.storage.bindingsForInvocation(derived, allocation);
   assert.equal(bindings.kind, "resolved");
-  const baseFlow = flow(current, current.constructor("Base"), superCall.source, bindings.bindings);
+  const baseFlow = flow(current, current.constructor("Base"));
   const baseField = marked(current, baseFlow, "base-field");
   const baseParameter = marked(current, baseFlow, "base-parameter");
   const baseBody = marked(current, baseFlow, "base-body");
@@ -228,25 +228,23 @@ test("declaration constructor regions fail closed for foreign input, selected-ro
 
 test("field initializers carry class activations while defaults and bodies carry constructor activations", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
-  const graph = flow(current, current.constructor("Derived"), current.construct("Derived"));
+  const graph = flow(current, current.constructor("Derived"));
   const field = marked(current, graph, "derived-field");
   const parameter = marked(current, graph, "derived-parameter");
   const fieldContext = graph.executionRegions.get(field.id);
   const parameterContext = graph.executionRegions.get(parameter.id);
   assert.equal(fieldContext.owner === current.named("Derived"), true);
   assert.equal(parameterContext.owner === current.constructor("Derived"), true);
-  assert.equal(fieldContext.selection.kind === "resolved" && parameterContext.selection.kind === "resolved", true);
-  assert.equal(fieldContext.selection.bindings !== parameterContext.selection.bindings, true, "distinct canonical source identities");
-  for (const context of [fieldContext, parameterContext]) {
-    const result = current.storage.boundActivationsFor(context.owner, context.selection.bindings);
-    assert.equal(result.kind === "resolved" && result.activations.length === 1 &&
-      result.activations[0].kind === "invocation" && result.activations[0].invocation === current.construct("Derived"), true);
-  }
+  assert.equal(fieldContext.role, "instance-initializer");
+  assert.equal(parameterContext.role, "parameter-initializer");
+  assert.equal(fieldContext.root === field.source && parameterContext.root === parameter.source, true, "original initializer identities");
+  assert.equal(fieldContext !== parameterContext, true, "distinct canonical declaration regions");
+  assert.equal("selection" in fieldContext || "selection" in parameterContext, false, "no runtime activation is a lexical region");
 });
 
 test("super or field failure bypasses subsequent initialization and constructor body", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
-  const graph = flow(current, current.constructor("Derived"), current.construct("Derived"));
+  const graph = flow(current, current.constructor("Derived"));
   const field = marked(current, graph, "derived-field");
   const body = marked(current, graph, "derived-body");
   const superCall = graph.points.find(point => point.operation.kind === "evaluate" && point.source !== undefined &&
@@ -261,7 +259,7 @@ test("super or field failure bypasses subsequent initialization and constructor 
 
 test("implicit base constructors execute their actual instance regions without a fabricated callable", () => {
   const current = fixture(`class Implicit { value = mark("implicit-field"); } const instance = new Implicit();`);
-  const graph = flow(current, current.named("Implicit"), current.construct("Implicit"));
+  const graph = flow(current, current.named("Implicit"));
   const field = marked(current, graph, "implicit-field");
   assert.equal(graph.declaration === current.named("Implicit"), true);
   assert.equal(reachable(graph, graph.entry, field.id) && reachable(graph, field.id, graph.exit), true);
@@ -271,7 +269,7 @@ test("implicit base constructors execute their actual instance regions without a
 test("computed field names execute at class evaluation and never again in construction", () => {
   const current = fixture(`const key = "value"; class Computed { [key] = mark("field-value"); constructor() { mark("body"); } }
     const instance = new Computed();`);
-  const graph = flow(current, current.constructor("Computed"), current.construct("Computed"));
+  const graph = flow(current, current.constructor("Computed"));
   const field = marked(current, graph, "field-value");
   assert.equal(reachable(graph, field.id, marked(current, graph, "body").id), true);
   const property = current.ast.members(current.named("Computed")).find(current.ast.is.IsPropertyDeclaration);
@@ -282,28 +280,26 @@ test("computed field names execute at class evaluation and never again in constr
 test("source implicit heritage uses its actual implementation while foreign and native construction remain unresolved", () => {
   const current = fixture(`${classes} class ImplicitDerived extends Base { extra = mark("extra"); }
     const instance = new ImplicitDerived(); const direct = new Derived();`);
-  const missing = createSourceControlFlow(current.source, current.named("ImplicitDerived"), {
+  const missing = createSourceDeclarationControlFlow(current.source, current.named("ImplicitDerived"), {
     domain: { kind: "source" },
-    invocation: { storage: current.storage, call: current.construct("ImplicitDerived") },
   });
-  assert.equal(missing.kind, "unresolved");
-  assert.match(missing.reason, /actual checked construction implementation/u);
-  const inherited = flow(current, current.constructor("Base"), current.construct("ImplicitDerived"));
+  assert.equal(missing.kind, "resolved", "checked implicit heritage selects its declared inherited implementation");
+  assert.equal(missing.graph.executionRegions.get(marked(current, missing.graph, "base-body").id).owner === current.constructor("Base"), true);
+  const inherited = flow(current, current.named("ImplicitDerived"));
   assert.equal(reachable(inherited, marked(current, inherited, "base-body").id, marked(current, inherited, "extra").id), true,
     "the actual source constructor completes before implicit derived fields");
-  const wrong = createSourceControlFlow(current.source, current.constructor("Base"), {
+  const wrong = createSourceDeclarationControlFlow(current.source, current.constructor("Base"), {
     domain: { kind: "source" },
     invocation: { storage: current.storage, call: current.construct("Derived") },
   });
   assert.equal(wrong.kind, "unresolved", "an unrelated constructor cannot borrow another allocation's regions");
   const native = fixture(`declare class External { constructor(); }
     class NativeDerived extends External { value = mark("value"); } const instance = new NativeDerived();`);
-  const opaque = createSourceControlFlow(native.source, native.named("NativeDerived"), {
+  const opaque = createSourceDeclarationControlFlow(native.source, native.named("NativeDerived"), {
     domain: { kind: "source" },
-    invocation: { storage: native.storage, call: native.construct("NativeDerived") },
   });
   assert.equal(opaque.kind, "unresolved", "implicit native heritage is not expanded into an invented constructor");
-  assert.match(opaque.reason, /native body contracts/u);
+  assert.match(opaque.reason, /selected native contract/u);
 });
 
 test("implicit inherited constructor order agrees with Node without replaying arguments or class-definition keys", () => {
@@ -320,7 +316,7 @@ test("implicit inherited constructor order agrees with Node without replaying ar
   assert.deepEqual(JSON.parse(output), ["base-field", "default", "base-body", "middle-field", "derived-field",
     "argument", "base-field", "base-body", "middle-field", "derived-field"]);
   const current = fixture(`${text} const instance = new Derived();`);
-  const graph = flow(current, current.constructor("Base"), current.construct("Derived"));
+  const graph = flow(current, current.named("Derived"));
   const points = ["base-field", "default", "base-body", "middle-field", "derived-field"].map(name => marked(current, graph, name));
   for (let index = 1; index < points.length; index += 1) {
     assert.equal(reachable(graph, points[index - 1].id, points[index].id), true);
@@ -340,7 +336,7 @@ test("a wholly implicit source lineage executes original field roots base-first 
     class Middle extends Base { second = mark("middle"); }
     class Derived extends Middle { third = mark("derived"); }
     const instance = new Derived();`);
-  const graph = flow(current, current.named("Derived"), current.construct("Derived"));
+  const graph = flow(current, current.named("Derived"));
   const base = marked(current, graph, "base");
   const middle = marked(current, graph, "middle");
   const derived = marked(current, graph, "derived");
@@ -356,7 +352,7 @@ test("an actual super call into an implicit source middle keeps the original cal
     class Middle extends Base { second = mark("middle-field"); }
     class Derived extends Middle { third = mark("derived-field"); constructor() { super(); mark("derived-body"); } }
     const instance = new Derived();`);
-  const outer = flow(current, current.constructor("Derived"), current.construct("Derived"));
+  const outer = flow(current, current.constructor("Derived"));
   const superCall = outer.points.find(point => point.operation.kind === "evaluate" && point.source !== undefined &&
     current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
   const caller = current.storage.bindingsForInvocation(current.constructor("Derived"), current.construct("Derived"));
@@ -366,14 +362,14 @@ test("an actual super call into an implicit source middle keeps the original cal
   const checked = selected.alternatives[0];
   assert.equal(checked.root === current.named("Middle") && checked.allocation === current.construct("Derived") &&
     checked.implementation.declaration === current.constructor("Base"), true);
-  const graph = flow(current, current.constructor("Base"), superCall.source, caller.bindings);
+  const graph = flow(current, current.named("Middle"));
   assert.equal(reachable(graph, marked(current, graph, "base-body").id, marked(current, graph, "middle-field").id), true);
   assert.equal([...graph.executionRegions.values()].some(region => region.owner === current.named("Derived")), false,
     "the caller's fields are not replayed by the inherited implementation");
   const field = graph.executionRegions.get(marked(current, graph, "middle-field").id);
-  const activation = current.storage.boundActivationsFor(field.owner, field.selection.bindings);
-  assert.equal(activation.kind === "resolved" && activation.activations.length === 1 &&
-    activation.activations[0].kind === "invocation" && activation.activations[0].invocation === current.construct("Derived"), true);
+  const middleField = propertyField(current, "Middle", "second");
+  assert.equal(field.owner === current.named("Middle") && field.root === current.ast.as.AsPropertyDeclaration(middleField).Initializer &&
+    field.role === "instance-initializer" && !("selection" in field), true, "the declared base region never borrows caller activations");
   assert.equal(reachable(outer, superCall.id, marked(current, outer, "derived-field").id), true);
 });
 
@@ -386,9 +382,8 @@ test("each finite class alternative has its own CFG and forged or ambiguous alte
   assert.equal(selected.kind === "resolved" && selected.alternatives.length === 2, true,
     "The checked conditional constructor contains both finite source alternatives.");
   for (const construction of selected.alternatives) {
-    const result = createSourceControlFlow(current.source, construction.root, {
+    const result = createSourceDeclarationControlFlow(current.source, construction.root, {
       domain: { kind: "source" },
-      invocation: { storage: current.storage, call, construction },
     });
     assert.equal(result.kind, "resolved", "The selected cache-owned alternative defines exactly one execution.");
     const expected = current.ast.text(current.ast.name(construction.root)) === "First" ? "first-only" : "second-only";
@@ -398,12 +393,12 @@ test("each finite class alternative has its own CFG and forged or ambiguous alte
     assert.equal(result.graph.points.some(point => point.source !== undefined && current.ast.is.IsCallExpression(point.source) &&
       current.ast.arguments(point.source).some(argument => current.ast.is.IsStringLiteral(argument) &&
         current.ast.text(argument).includes(other))), false, "Alternative initializers are never linearized into the same graph.");
-    const forged = createSourceControlFlow(current.source, construction.root, {
+    const forged = createSourceDeclarationControlFlow(current.source, construction.root, {
       domain: { kind: "source" },
       invocation: { storage: current.storage, call, construction: { ...construction } },
     });
-    assert.equal(forged.kind === "unresolved" && forged.reason.includes("cached construction alternative"), true,
-      "Copied alternative data is not the construction owner's actual evidence.");
+    assert.equal(forged.kind === "unresolved" && forged.reason.includes("source domain") && !("graph" in forged), true,
+      "Removed invocation data cannot authorize a declaration graph.");
   }
 });
 
@@ -416,7 +411,7 @@ test("normal constructor returns finish inherited fields after finally while abr
     }
     class Derived extends Base { last = mark("derived-field"); }
     const instance = new Derived(true);`);
-  const graph = flow(current, current.constructor("Base"), current.construct("Derived"));
+  const graph = flow(current, current.named("Derived"));
   const field = marked(current, graph, "derived-field");
   const returned = graph.points.find(point => point.operation.kind === "return");
   assert.equal(returned !== undefined && reachable(graph, returned.id, field.id), true,
@@ -440,7 +435,7 @@ test("each checked super branch performs only its own initializer sequence befor
       constructor(flag: boolean) { if (flag) super(); else super(); mark("body"); }
     }
     const instance = new Derived(true);`);
-  const graph = flow(current, current.constructor("Derived"), current.construct("Derived"));
+  const graph = flow(current, current.constructor("Derived"));
   const supers = graph.points.filter(point => point.operation.kind === "evaluate" && point.source !== undefined &&
     current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
   assert.equal(supers.length, 2);
@@ -457,14 +452,14 @@ test("each checked super branch performs only its own initializer sequence befor
 
 test("generic constructor graphs retain fields and checked constructor budgets remain finite", () => {
   const current = fixture(`${classes} const instance = new Derived();`);
-  const generic = createSourceControlFlow(current.source, current.constructor("Base"), { domain: { kind: "source" } });
+  const generic = createSourceDeclarationControlFlow(current.source, current.constructor("Base"), { domain: { kind: "source" } });
   assert.equal(generic.kind, "resolved");
   const field = marked(current, generic.graph, "base-field");
   assert.equal(reachable(generic.graph, field.id, marked(current, generic.graph, "base-parameter").id), true);
   for (const limits of [{ maximumPoints: 1 }, { maximumSteps: 1 }, { maximumDepth: 1 }]) {
-    const selected = createSourceControlFlow(current.source, current.constructor("Derived"), {
+    const selected = createSourceDeclarationControlFlow(current.source, current.constructor("Derived"), {
       domain: { kind: "source" },
-      limits, invocation: { storage: current.storage, call: current.construct("Derived") },
+      limits,
     });
     assert.equal(selected.kind, "unresolved", "bounded constructor proof never publishes partial regions");
     assert.match(selected.reason, /finite/u);
@@ -525,40 +520,27 @@ for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
     assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true,
       selected.kind === "unresolved" ? selected.reason : "One complete actual construction is published.");
     if (!capturesFirst) selectCaptures();
-    const construction = selected.alternatives[0];
-    const graphSelection = createSourceControlFlow(source, construction.root, {
-      domain: { kind: "source" },
-      invocation: { storage, call, construction },
-    });
+    const declaration = propertyField(current, "Layer", "field");
+    const graphSelection = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" } });
     assert.equal(graphSelection.kind === "resolved", true,
-      graphSelection.kind === "unresolved" ? graphSelection.reason : "One checked CFG contains all actual initializer occurrences.");
+      graphSelection.kind === "unresolved" ? graphSelection.reason : "One checked declaration CFG is independent of observed instances.");
     const graph = graphSelection.graph;
     const reads = graph.points.filter(point => point.operation.kind === "read" && point.source !== undefined && ast.text(point.source) === "value");
-    assert.equal(reads.length, depth, "The repeated field initializer executes once for each actual layer.");
+    assert.equal(reads.length, 1, "The declaration graph contains its original field read once, independently of runtime instance count.");
     assert.equal(reads.every(point => point.source === reads[0].source), true, "Original syntax is retained, not cloned to invent identities.");
     const expected = Array.from({ length: depth }, (_, index) => index + 1);
-    const byValue = new Map();
     for (const point of reads) {
       const context = graph.executionRegions.get(point.id);
-      assert.equal(context?.owner === captures[0].subject.node && context.selection.kind === "resolved", true,
-        "The original class owner carries the actual point's execution bindings.");
+      assert.equal(context?.owner === captures[0].subject.node && context.root === ast.as.AsPropertyDeclaration(declaration).Initializer &&
+        context.role === "instance-initializer" && !("selection" in context), true,
+        "The original class owner and initializer define the lexical region, never a caller activation.");
       const subject = storage.subjectFor(point.source);
       assert.equal(subject.kind, "resolved", "The original initializer read has exact storage identity.");
-      const producers = storage.storageProducersFor(subject.subject, context.selection.bindings);
-      assert.equal(producers.kind === "complete" && producers.producers.length === 1, true,
-        "Each repeated initializer reads only its own actual factory argument.");
-      const value = Number(ast.text(producers.producers[0].subject.node));
-      assert.equal(expected.includes(value) && !byValue.has(value), true, "No actual activation is dropped or overwritten by another layer.");
-      byValue.set(value, point);
     }
-    assert.equal(new Set(reads.map(point => graph.executionRegions.get(point.id).selection.bindings)).size, depth,
-      "Per-point contexts never collapse distinct factory activations into a node-keyed entry.");
-    for (let index = 1; index < expected.length; index += 1) {
-      const before = byValue.get(expected[index - 1]);
-      const after = byValue.get(expected[index]);
-      assert.equal(reachable(graph, before.id, after.id) && !reachable(graph, after.id, before.id), true,
-        "Base layers initialize before their actual derived layers.");
-    }
+    const native = runtimeLayers(layers, depth);
+    assert.deepEqual(native.values, expected, "Each runtime factory retains exactly its own argument without overwriting another layer.");
+    assert.equal(native.identities, depth, "All actual runtime factory instances remain distinct.");
+    assert.deepEqual(native.order, expected, "Original base layers initialize before their actual derived layers.");
     assert.equal(storage.failureReason() === undefined, true, "The finite activation model needs no increased budget.");
   });
 }
@@ -572,6 +554,18 @@ function propertyField(current, className, fieldName) {
   return declaration;
 }
 
+function runtimeLayers(layers, depth) {
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e",
+    `const order = []; class Root { root = 0; }
+     function layer(Parent, value) { return class Layer extends Parent { field = (order.push(value), value); }; }
+     ${layers}
+     const instances = [${Array.from({ length: depth }, (_, index) => `new Layer${index}()`).join(",")}];
+     order.length = 0; new Layer${depth - 1}();
+     process.stdout.write(JSON.stringify({ values: instances.map(instance => instance.field), identities: new Set(instances).size, order }));`],
+  { encoding: "utf8", timeout: 10000, maxBuffer: 65536 });
+  return JSON.parse(output);
+}
+
 for (const [label, expression, reads, writes] of [
   ["read", "this.value", true, false],
   ["overwrite", "(this.value = 2)", false, true],
@@ -580,7 +574,7 @@ for (const [label, expression, reads, writes] of [
   const current = fixture(`declare const flag: boolean;
     class Base { value = 1; } class Derived extends Base { observed = ${expression}; }`);
   const declaration = propertyField(current, "Derived", "observed");
-  const selected = createSourceControlFlow(current.source, declaration, { domain: { kind: "source" } });
+  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" } });
   assert.equal(selected.kind, "resolved", selected.reason ?? "the actual property initializer defines its source flow");
   const graph = selected.graph;
   assert.equal(graph.declaration === declaration, true, "the graph retains the original property identity");
@@ -601,7 +595,7 @@ test("property initializer closure captures are retained without executing the d
   const current = fixture(`function build(token: number) {
     return class Derived { observed = () => { mark("delayed-body"); return token; }; };
   } const Copy = build(1); const instance = new Copy();`);
-  const selected = createSourceControlFlow(current.source, propertyField(current, "Derived", "observed"), { domain: { kind: "source" } });
+  const selected = createSourceDeclarationControlFlow(current.source, propertyField(current, "Derived", "observed"), { domain: { kind: "source" } });
   assert.equal(selected.kind, "resolved", selected.reason ?? "the exact initializer closure is admitted");
   assert.equal(selected.graph.points.some(point => point.operation.kind === "capture" &&
     current.ast.text(current.ast.name(point.operation.binding)) === "token"), true, "the original outer binding is captured");
@@ -624,13 +618,14 @@ test("actual implicit property flow carries its class-entry binding and exceptio
   assert.equal(classEntry !== undefined, true, "the actual construction contains the field's exact class entry");
   const region = classEntry.regions.find(entry => entry.node === current.ast.as.AsPropertyDeclaration(declaration).Initializer);
   assert.equal(region !== undefined, true, "the original initializer belongs to that actual class region");
-  const result = createSourceControlFlow(current.source, declaration, {
-    domain: { kind: "source" }, invocation: { storage: current.storage, call, construction },
+  const result = createSourceDeclarationControlFlow(current.source, declaration, {
+    domain: { kind: "source" },
   });
   assert.equal(result.kind, "resolved", result.reason ?? "the property uses its actual cached construction region");
   const point = marked(current, result.graph, "selected-field");
   const context = result.graph.executionRegions.get(point.id);
-  assert.equal(context?.owner === owner && context.selection === region.selection, true, "the actual class-region selection is not copied or rebound");
+  assert.equal(context?.owner === owner && context.root === region.node && context.role === "instance-initializer" && !("selection" in context), true,
+    "the exact checked field region is published without construction or activation authority");
   assert.equal(point.successors.some(edge => edge.kind === "exception" && edge.to === result.graph.exceptionExit), true,
     "the same expression visitor retains the possible exceptional completion");
   assert.equal(reachable(result.graph, result.graph.entry, point.id) && reachable(result.graph, point.id, result.graph.exit), true,
@@ -649,28 +644,26 @@ test("property flow retains each repeated original class initializer with its di
   const call = current.construct("Layer2");
   const selected = current.storage.constructionFor(call);
   assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true, "one finite original construction alternative");
-  const result = createSourceControlFlow(current.source, declaration, {
-    domain: { kind: "source" }, invocation: { storage: current.storage, call, construction: selected.alternatives[0] },
+  const result = createSourceDeclarationControlFlow(current.source, declaration, {
+    domain: { kind: "source" },
   });
   assert.equal(result.kind, "resolved", result.reason ?? "all actual occurrences survive the property-root selection");
   const reads = result.graph.points.filter(point => point.operation.kind === "read" &&
     current.ast.text(current.ast.name(point.operation.binding)) === "value");
-  assert.equal(reads.length, 3, "each actual factory layer evaluates its one original initializer");
+  assert.equal(reads.length, 1, "one declaration graph contains the original initializer read regardless of actual factory count");
   assert.equal(reads.every(point => point.source === reads[0].source), true, "repetition never clones the source AST");
-  const actual = new Map();
   for (const point of reads) {
     const context = result.graph.executionRegions.get(point.id);
-    assert.equal(context?.owner === current.ast.parent(declaration) && context.selection.kind === "resolved", true, "each occurrence keeps its actual context");
+    assert.equal(context?.owner === current.ast.parent(declaration) &&
+      context.root === current.ast.as.AsPropertyDeclaration(declaration).Initializer && context.role === "instance-initializer" && !("selection" in context), true,
+      "the original field owns one exact checked lexical region");
     const subject = current.storage.subjectFor(point.source);
     assert.equal(subject.kind, "resolved", "the read has original checked storage identity");
-    const producers = current.storage.storageProducersFor(subject.subject, context.selection.bindings);
-    assert.equal(producers.kind === "complete" && producers.producers.length === 1, true, "one source value per actual class region");
-    const value = Number(current.ast.text(producers.producers[0].subject.node));
-    assert.equal([1, 2, 3].includes(value) && !actual.has(value), true, "no class-entry bindings are collapsed");
-    actual.set(value, point);
   }
-  for (const [before, after] of [[1, 2], [2, 3]]) assert.equal(
-    reachable(result.graph, actual.get(before).id, actual.get(after).id), true, "base initializers precede the actual derived initializer");
+  const native = runtimeLayers("const Layer0 = layer(Root, 1); const Layer1 = layer(Layer0, 2); const Layer2 = layer(Layer1, 3);", 3);
+  assert.deepEqual(native.values, [1, 2, 3], "each actual instance keeps its distinct captured factory value");
+  assert.equal(native.identities, 3, "all three original runtime factory instances stay distinct");
+  assert.deepEqual(native.order, [1, 2, 3], "base initializers precede the actual derived initializer");
 });
 
 test("property flow rejects static, missing, foreign and forged actual initializer evidence", () => {
@@ -681,15 +674,21 @@ test("property flow rejects static, missing, foreign and forged actual initializ
   const call = current.construct("Value");
   const selected = current.storage.constructionFor(call);
   assert.equal(selected.kind, "resolved", "the genuine construction exists for the inverse controls");
+  const shared = propertyField(current, "Value", "shared");
+  const sharedFlow = createSourceDeclarationControlFlow(current.source, shared, { domain: { kind: "source" } });
+  assert.equal(sharedFlow.kind, "resolved", "the original checked static initializer has its explicit declaration role");
+  const sharedInitializer = current.ast.as.AsPropertyDeclaration(shared).Initializer;
+  assert.equal([...sharedFlow.graph.executionRegions.values()].every(region => region.owner === current.ast.parent(shared) &&
+    region.root === sharedInitializer && region.role === "static-initializer" && !("selection" in region)), true,
+    "static initialization is never mistaken for an instance or invocation region");
   for (const [label, source, root, invocation] of [
-    ["static", current.source, propertyField(current, "Value", "shared"), undefined],
     ["missing initializer", current.source, propertyField(current, "Value", "missing"), undefined],
     ["foreign property", current.source, propertyField(foreign, "Value", "field"), undefined],
     ["foreign storage", current.source, declaration, { storage: foreign.storage, call }],
     ["foreign call", current.source, declaration, { storage: current.storage, call: foreign.construct("Value") }],
     ["copied construction", current.source, declaration, { storage: current.storage, call, construction: { ...selected.alternatives[0] } }],
   ]) {
-    const result = createSourceControlFlow(source, root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
+    const result = createSourceDeclarationControlFlow(source, root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
     assert.equal(result.kind, "unresolved", `${label}: incomplete identity cannot publish an empty initializer graph`);
     assert.equal("graph" in result, false, `${label}: no partial graph escapes`);
   }
@@ -710,7 +709,7 @@ for (const part of ["whole initializer", "nested read"]) test(`property flow ref
   }
   const domain = createSourceControlFlowDomain(current.source, nodes);
   assert.equal(domain.kind, "resolved", "the selected subset is a genuine parent-closed checked inventory");
-  const result = createSourceControlFlow(current.source, declaration, { domain: domain.domain });
+  const result = createSourceDeclarationControlFlow(current.source, declaration, { domain: domain.domain });
   assert.equal(result.kind, "unresolved", "the requested initializer requires its complete demanded domain");
   assert.equal(result.source === excluded, true, "the precise missing checked initializer node is reported");
   assert.match(result.reason, /complete initializer/u);
@@ -720,7 +719,7 @@ for (const part of ["whole initializer", "nested read"]) test(`property flow ref
 for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }])
   test(`property initializer flow retains ${Number.isFinite(Object.values(limits)[0]) ? "finite resource exhaustion" : "invalid limit rejection"} ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
     const current = fixture("class Value { value = 1; observed = mark('budget') + this.value; }");
-    const selected = createSourceControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
+    const selected = createSourceDeclarationControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
     assert.equal(selected.kind, "unresolved", "no property-entry path raises or bypasses a finite limit");
     assert.match(selected.reason, /finite/u);
     assert.equal("graph" in selected, false, "finite failure never publishes a partial initializer");

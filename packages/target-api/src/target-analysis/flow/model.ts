@@ -1,7 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -32,7 +31,7 @@ export interface SourceFlowPoint {
   readonly predecessors: readonly SourceFlowEdge[];
 }
 
-export interface SourceControlFlowGraph<Region = SourceFlowExecutionRegion> {
+export interface SourceControlFlowGraph<Region = SourceDeclarationFlowExecutionRegion> {
   readonly declaration: Node;
   readonly entry: number;
   readonly exit: number;
@@ -41,11 +40,6 @@ export interface SourceControlFlowGraph<Region = SourceFlowExecutionRegion> {
   readonly sourcePoints: ReadonlyMap<Node, readonly number[]>;
   readonly bindings: ReadonlySet<Node>;
   readonly executionRegions: ReadonlyMap<number, Region>;
-}
-
-export interface SourceFlowExecutionRegion {
-  readonly owner: Node;
-  readonly selection: SourceStorageBindingsSelection;
 }
 
 export interface SourceDeclarationFlowExecutionRegion {
@@ -65,7 +59,7 @@ export interface SourceFlowUnresolved {
   };
 }
 
-export type SourceControlFlowSelection<Region = SourceFlowExecutionRegion> =
+export type SourceControlFlowSelection<Region = SourceDeclarationFlowExecutionRegion> =
   | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph<Region> }
   | SourceFlowUnresolved;
 
@@ -85,12 +79,6 @@ export interface SourceControlFlowSelectedDomain {
 export interface SourceDeclarationControlFlowOptions {
   readonly domain: { readonly kind: "source" } | SourceControlFlowSelectedDomain;
   readonly limits?: Partial<SourceFlowLimits>;
-}
-
-export interface SourceControlFlowOptions extends SourceDeclarationControlFlowOptions {
-  readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
-    readonly callerBindings?: SourceStorageBindings;
-    readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number] };
 }
 
 export interface SourceFlowWork {
