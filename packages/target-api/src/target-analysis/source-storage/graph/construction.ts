@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";
-import { sourceStorageAllocations, sourceStorageConstructionExpression, sourceStorageInstanceInitializers, sourceStorageClassLineages } from "../model/construction.js";
+import { sourceStorageAllocations, sourceStorageClassLineages } from "../model/construction.js";
+import { sourceConstructionExpression, sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
@@ -20,7 +21,7 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
     const existing = cache.get(invocation)?.get(bindings);
     if (existing !== undefined) return existing;
     return budget.withRows(temporary => {
-      const expression = sourceStorageConstructionExpression(invocation, source, budget.step);
+      const expression = sourceConstructionExpression(invocation, source, budget.step);
       if (expression === undefined) return unresolved(budget.failure() ??
         "Construction execution requires its actual checked source class value.");
       const selected = source.semantics.forNode(invocation).operations.call(invocation);
@@ -71,7 +72,8 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
         for (const value of lineage.classes) {
           if (!budget.step()) return unresolved(budget.failure()!);
           const owner = value.subject.node;
-          const initializers = sourceStorageInstanceInitializers(owner, source, budget.step);
+          const initializers = sourceInstanceInitializers(owner, source, budget.step);
+          if (initializers === undefined) return unresolved(budget.failure() ?? "Source construction requires completed checked instance initializer evidence.");
           const regions: SourceStorageConstructionClass["regions"][number][] = [];
           if (initializers.length !== 0) {
             const selection = queries.bindingsForInvocation(owner, allocation.call, allocation.callerBindings, value);

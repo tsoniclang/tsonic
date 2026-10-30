@@ -15,7 +15,8 @@ import { createSourceStorageEdges } from "../graph/edges.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 import { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageClassLineages, sourceStorageConstructionExpression } from "../model/construction.js";
+import { sourceStorageClassLineages } from "../model/construction.js";
+import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
@@ -348,7 +349,7 @@ export function createSourceStorageTransport(
   const constructionLineagesFor = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
     mode?: "heritage") =>
-    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor, mode);
+    classLineagesFor(sourceConstructionExpression(invocation, source, step), originsFor, mode);
   const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     const subjects = new Set(walkAncestors(selected));
     return budget.failure() === undefined ? subjects : undefined;

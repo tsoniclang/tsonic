@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import { sourceStorageInstanceInitializers } from "../source-storage/model/construction.js";
+import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
 import type { SourceControlFlowOptions, SourceFlowExecutionRegion } from "./model.js";
 import { SourceFlowFailure } from "./resources.js";
 
@@ -136,7 +136,8 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
   }
   if (body === undefined || classRoot) throw new SourceFlowFailure("Source flow requires an implemented checked callable body.", declaration);
   const owner = ast.is.IsConstructorDeclaration(declaration) ? ast.parent(declaration) : undefined;
-  const fields = owner === undefined ? [] : sourceStorageInstanceInitializers(owner, source, () => { step(owner); return true; });
+  const fields = owner === undefined ? [] : sourceInstanceInitializers(owner, source, () => { step(owner); return true; });
+  if (fields === undefined) throw new SourceFlowFailure("Source flow requires completed instance initializer evidence.", owner);
   const heritage = owner === undefined ? undefined : source.navigation.declaredHeritage(owner);
   if (heritage?.kind === "unresolved") throw new SourceFlowFailure(heritage.reason, owner);
   const derived = heritage?.edges.some(edge => edge.kind === "extends") ?? false;
