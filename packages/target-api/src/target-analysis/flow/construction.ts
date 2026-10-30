@@ -36,12 +36,12 @@ export interface SourceFlowConstruction {
   readonly step: (source?: Node) => void;
 }
 
-export function createSourceFlowConstruction(declaration: Node,
+export function createSourceFlowConstruction<Region = SourceFlowExecutionRegion>(declaration: Node,
   limits: SourceFlowLimits) {
   const points: OpenPoint[] = [];
   const sourcePoints = new Map<Node, number[]>();
-  const executionRegions = new Map<number, SourceFlowExecutionRegion>();
-  let execution: SourceFlowExecutionRegion | undefined;
+  const executionRegions = new Map<number, Region>();
+  let execution: Region | undefined;
   const bindings = new Set<Node>();
   const budget = createSourceFlowBudget(limits);
   let edges = 0;
@@ -86,12 +86,12 @@ export function createSourceFlowConstruction(declaration: Node,
   return {
     point, edge, emit, step: budget.step,
     nested,
-    withExecution<Result>(selected: SourceFlowExecutionRegion | undefined, visit: () => Result): Result {
+    withExecution<Result>(selected: Region | undefined, visit: () => Result): Result {
       const previous = execution;
       execution = selected;
       try { return visit(); } finally { execution = previous; }
     },
-    finish(entry: number, exit: number, exceptionExit: number): SourceControlFlowGraph {
+    finish(entry: number, exit: number, exceptionExit: number): SourceControlFlowGraph<Region> {
       const sealed: SourceFlowPoint[] = points.map(selected => Object.freeze({ ...selected,
         successors: Object.freeze(selected.successors), predecessors: Object.freeze(selected.predecessors) }));
       return Object.freeze({ declaration, entry, exit, exceptionExit, points: Object.freeze(sealed),

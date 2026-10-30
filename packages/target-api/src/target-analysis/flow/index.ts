@@ -10,5 +10,6 @@ export { defaultSourceFlowLimits } from "./resources.js";
 export type { SourceControlFlowGraph, SourceControlFlowOptions, SourceControlFlowSelectedDomain, SourceControlFlowSelection, SourceFlowEdge, SourceFlowEdgeKind,
   SourceFlowExecutionRegion, SourceFlowLattice, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint, SourceFlowProblem,
   SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
+export type { SourceDeclarationFlowExecutionRegion, SourceDeclarationControlFlowOptions } from "./model.js";
 export type { SourceFlowWriteCount, SourceFlowLivenessSelection, SourceFlowDefiniteAssignmentSelection,
   SourceFlowWritesSelection } from "./instances.js";
