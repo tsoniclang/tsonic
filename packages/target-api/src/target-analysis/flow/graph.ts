@@ -91,7 +91,9 @@ export function createSourceDeclarationControlFlow(source: TargetSourceProgram, 
     const selectedEntry = sourceDeclarationFlowEntry(source, declaration, owner.step);
     for (const root of selectedEntry.rootExecutions.keys()) {
       owner.step(root);
-      if (!includes(root)) throw new SourceFlowFailure("Declaration flow requires each exact region root in its checked source domain.", root);
+      if (!includes(root)) throw new SourceFlowFailure(propertyRoot
+        ? "Property initializer flow requires its complete initializer in the checked source domain."
+        : "Declaration flow requires each exact region root in its checked source domain.", root);
     }
     const { body, superInitializers, bodyExecution } = selectedEntry;
     const pending = (propertyRoot ? selectedEntry.syntaxRoots : [declaration, ...selectedEntry.syntaxRoots])

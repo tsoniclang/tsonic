@@ -59,8 +59,24 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
       step(owner);
       if (visited.has(owner)) throw new SourceFlowFailure("Declaration construction requires acyclic checked class heritage.", owner);
       visited.add(owner);
-      if (!navigation.isProjectDeclaration(owner) || !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner))
+      if (!navigation.isProjectDeclaration(owner))
         throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
+      if (!ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner)) {
+        const semantics = source.semantics.forNode(owner);
+        const type = semantics.declarations.declaredValueType(owner);
+        const signatures = type === undefined ? [] : semantics.types.constructSignatures(type);
+        if (signatures.length === 0)
+          throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
+        for (const signature of signatures) {
+          const contract = semantics.declarations.signatureDeclaration(signature);
+          step(contract);
+          const file = ast.getSourceFile(contract);
+          if (contract === undefined || file === undefined || !source.semantics.includes(file) ||
+            !ast.is.IsConstructorTypeNode(contract) && !ast.is.IsConstructSignatureDeclaration(contract))
+            throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
+        }
+        break;
+      }
       classes.push(owner);
       const constructors = navigation.classConstructors(owner);
       if (constructors.kind !== "resolved") throw new SourceFlowFailure(constructors.reason, owner);
@@ -101,7 +117,7 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
   const initializers = owner === undefined ? [] : fields(owner);
   const heritage = owner === undefined ? undefined : navigation.declaredHeritage(owner);
   if (heritage?.kind === "unresolved") throw new SourceFlowFailure(heritage.reason, owner);
-  const derived = heritage?.edges.some(edge => edge.kind === "extends") ?? false;
+  const derived = body !== undefined && (heritage?.edges.some(edge => edge.kind === "extends") ?? false);
   const completionInitializers = classes.slice(0, -1).reverse().flatMap(fields);
   return { body, parameters, bodyExecution,
     entryInitializers: derived ? [] : initializers, superInitializers: derived ? initializers : [],
