@@ -1,4 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
+import { Node_Expression } from "../../source-navigation/index.js";
 import type { SourceFinalTypeQueries, TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
@@ -197,7 +198,7 @@ export function createSourceDeclarationSuspensionQuery(input: {
       if (!budget.step(operation)) return budget.failure()!;
       const file = source.ast.getSourceFile(operation);
       const expression = source.ast.is.IsAwaitExpression(operation)
-        ? source.ast.as.AsAwaitExpression(operation)?.Expression : undefined;
+        ? Node_Expression(source.ast, operation) : undefined;
       if (file === undefined || !source.semantics.includes(file) || expression === undefined)
         return sourceDeclarationOwnershipUnresolved(operation, "A pending await requires its original checked operation and operand.");
       return select(operation, expression);

@@ -2,6 +2,7 @@ import { providerVirtualDeclarationFactKey, type Node, type Type } from "@tsonic
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import { isTsonicSourceProfileDeclarationPath } from "../../source-profile.js";
 import {
+  Node_Expression, Node_Initializer,
   sourceCallableDefinitionIsDiscarded, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
   sourceNodesOutsideErasedSubtrees, sourceTransparentExpressionOperand,
 } from "../../source-navigation/index.js";
@@ -775,7 +776,7 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
     const direct = source.navigation.sourceReferenceFor(node)?.declaration;
     if (direct === undefined || !ast.is.IsVariableDeclaration(direct) || ast.variableDeclarationKind(direct) !== "const")
       return direct;
-    const initializer = ast.as.AsVariableDeclaration(direct)?.Initializer;
+    const initializer = Node_Initializer(ast, direct);
     return initializer === undefined ? direct : source.navigation.sourceReferenceFor(initializer)?.declaration ?? direct;
   };
   const relation = (callback: Node, parameter: Node, operation: Node): boolean => {
@@ -840,10 +841,6 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
           const problem = sourceDeclarationOwnershipContractProblem(source, node,
             { selectedType: selected.sourceResultType }, completion.contract);
           if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(node, problem);
-          const callee = source.navigation.sourceReferenceFor(selected.sourceCallee.expression)?.declaration;
-          if (callee !== undefined && ast.is.IsParameterDeclaration(callee) && ast.body(declaration) === undefined &&
-            (selected.sourceSelectedMethodTypeArguments?.length ?? 0) !== 0)
-            mark(node, selected.sourceResultType, semantics);
         }
         const member = sourceGenericAdoptionPromiseMember(source, declaration, semantics);
         const argument = ast.arguments(node)[0];
@@ -886,8 +883,7 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
             instance(node, binding.declaration, binding.argumentType);
         }
       }
-      const expression = ast.is.IsAwaitExpression(node) ? ast.as.AsAwaitExpression(node)?.Expression
-        : ast.is.IsReturnStatement(node) ? ast.as.AsReturnStatement(node)?.Expression
+      const expression = ast.is.IsAwaitExpression(node) || ast.is.IsReturnStatement(node) ? Node_Expression(ast, node)
         : ast.is.IsArrowFunction(node) && ast.body(node) !== undefined && !ast.is.IsBlock(ast.body(node)) ? ast.body(node) : undefined;
       if (expression === undefined) continue;
       const owner = ast.is.IsArrowFunction(node) ? node : sourceEnclosingCallable(node, ast);
