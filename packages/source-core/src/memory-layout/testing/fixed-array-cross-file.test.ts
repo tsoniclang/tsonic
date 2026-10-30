@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicPointerBackingDemands, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
+import { createTsonicPointerBackingDemands, readTsonicMemoryLayout, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
 import { arrayMemoryLayout, arraySession, arrayTestPrelude, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
@@ -108,7 +108,21 @@ for (const [name, declarations, type, size] of [
     assert.equal(operationType.sourceType, operation.pointeeType);
     assert.equal(second.sourceType, selected.layout.sourceType);
     assert.equal(operationType.identity, second.identity);
-    if (name !== "record of array") assert.notEqual(operation.pointeeType, selected.layout.sourceType);
+    if (name !== "record of array") {
+      const selectedCall = source.semantics.forNode(conversion).operations.call(conversion);
+      const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, operation.layoutExpression);
+      assert.equal(operation.call === conversion, true, `${name}: original checked conversion`);
+      assert.equal(operation.pointeeType === selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
+        true, `${name}: original checked pointee type`);
+      assert.equal(operation.layoutExpression === source.ast.arguments(conversion)[1], true,
+        `${name}: original selected layout argument`);
+      assert.equal(selectedLayout !== undefined && selectedLayout.call === layouts[1]!.call &&
+        selectedLayout.call === selected.layout.call, true, `${name}: same original selected layout declaration`);
+      assert.equal(first.call === layouts[0]!.call && second.call === layouts[1]!.call, true,
+        `${name}: both original layout sites retain their checked evidence`);
+      assert.equal(operationType.identity === first.identity && operationType.identity === selected.memoryType, true,
+        `${name}: one exact native layout and memory identity`);
+    }
     assert.equal(operation.layoutExpression, source.ast.arguments(conversion)[1]);
     for (const order of [calls, [...calls].reverse()]) {
       const demands = createTsonicPointerBackingDemands(source);
