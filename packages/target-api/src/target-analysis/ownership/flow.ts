@@ -227,7 +227,7 @@ export function resolveSourceDeclarationContinuationFlow(input: {
             if (problem !== undefined) return problem;
           }
         }
-        if (point.operation.kind === "return" && source.ast.hasModifierKind(at, "async")) {
+        if (point.operation.kind === "return") {
           const expression = source.ast.is.IsReturnStatement(point.source)
             ? source.ast.as.AsReturnStatement(point.source)?.Expression : point.source;
           if (expression === undefined || source.ast.is.IsAwaitExpression(expression)) continue;
