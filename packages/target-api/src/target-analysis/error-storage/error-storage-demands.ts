@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import { Node_Expression, Node_Initializer, sourceEnclosingCallable } from "../../source-navigation/index.js";
+import { Node_Initializer, sourceEnclosingCallable } from "../../source-navigation/index.js";
 import { createSourceErrorLocalInvalidationQuery } from "./error-invalidation.js";
 import type { SourceErrorCheckedValue, SourceErrorConstruction, SourceErrorDeclarationProtocol, SourceErrorDeclarationQueries,
   SourceErrorDeclarationSelection, SourceErrorDeclaredSlot, SourceErrorFieldUse, SourceErrorMutation, SourceErrorParameterUse,
