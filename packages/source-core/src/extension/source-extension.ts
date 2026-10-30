@@ -15,6 +15,7 @@ import { analyzeUnsafeContextCalls } from "../safety/unsafe-context-analysis.js"
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 
 import { forEachTsonicSourceFile } from "../analysis/context.js";
+import { visitPostOrder } from "../analysis/source-call.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
 
 import { analyzeTsonicMemoryOperations } from "../memory-layout/analysis.js";
@@ -94,6 +95,37 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
       analyzeTsonicSourceMarkerEvidence(context);
       analyzeTsonicAttributeBuilders(context);
       forEachTsonicSourceFile(context, (sourceContext): void => {
+        const { ast, checker } = sourceContext;
+        visitPostOrder(sourceContext.sourceFile, sourceContext, node => {
+          const selection = ast.is.IsPropertyAccessExpression(node)
+            ? checker.getResolvedPropertyAccessInfo(node)
+            : ast.is.IsElementAccessExpression(node)
+              ? checker.getResolvedElementAccessInfo(node) : undefined;
+          if (selection?.accessMode !== "write" && selection?.accessMode !== "read-write") return;
+          const indexed = "argument" in selection
+            ? sourceContext.typeShape.selectIndexedAccess(selection.receiver.type, selection.argument.type) : undefined;
+          const members = indexed?.kind === "resolved"
+            ? indexed.members.flatMap(member => member.kind === "property" ? [member.property] : [])
+            : selection.selectedSymbol === undefined ? [] : [{ symbol: selection.selectedSymbol,
+              rootSymbols: checker.getRootSymbols(selection.selectedSymbol), type: selection.sourceWriteType,
+              name: checker.getSymbolName(selection.selectedSymbol) }];
+          for (const member of members) {
+            const declarations = [member.symbol, ...member.rootSymbols].flatMap(symbol => checker.getSymbolDeclarations(symbol));
+            if (!declarations.some(declaration => ast.is.IsMethodDeclaration(declaration) ||
+              ast.is.IsMethodSignatureDeclaration(declaration))) continue;
+            sourceContext.diagnostics.append({
+              extensionId: tsonicCoreSourceExtensionId,
+              extensionCode: "TSONIC_METHOD_ASSIGNMENT_UNSUPPORTED",
+              numericCode: 9901190,
+              publicCode: "TSONIC_METHOD_ASSIGNMENT_UNSUPPORTED",
+              category: "error",
+              message: `Cannot assign to '${member.name}': it is declared as a method. Declare '${member.name}: ${checker.typeToString(member.type)}' for a replaceable function property.`,
+              nodeOrSpan: node,
+              evidence: [{ message: "Settled item 01: method syntax has a declaration-owned native method contract." }],
+              identity: ["source-core-method-assignment", ast.getPath(sourceContext.sourceFile), ast.pos(node), ast.end(node), member.name].join(":"),
+            });
+          }
+        });
         recordUnsupportedTsonicCoreReExportDiagnostics(
           sourceContext.sourceFile,
           sourceContext.ast,
