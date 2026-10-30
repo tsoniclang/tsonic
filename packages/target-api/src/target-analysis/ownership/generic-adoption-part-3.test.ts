@@ -12,6 +12,13 @@ for (const [name, declaration, invoked] of declarations) {
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
     if (selected.kind !== "resolved") return;
+    if (name === "generic callable body unknown") {
+      assert.equal(selected.issues.length, 0, "the selected void declaration has no native Promise adoption");
+      for (const actual of ["7", "promised"]) assert.equal(current.nodes.some(node =>
+        current.source.ast.is.IsCallExpression(node) && current.textFor(node) === `${invoked}(${actual})`), true,
+      "both original checked ordinary and Promise-valued calls remain");
+      return;
+    }
     assert.equal(selected.issues.length, 1, `${name}: exactly one concrete adopting instantiation`);
     const issue = selected.issues[0]!;
     assert.equal(current.textFor(issue.site), `${invoked}(promised)`, `${name}: refusal is on the actual call, not the generic body`);
@@ -105,8 +112,31 @@ for (const [name, declaration] of [
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
     if (selected.kind !== "resolved") return;
-    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["value.read()"],
-      "a bodyless native contract cannot erase the actual generic receiver instantiation");
+    assert.equal(selected.issues.length, 0, "the bodyless declaration keeps its completed native signature");
+    const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.textFor(node) === "value.read()");
+    assert.equal(call !== undefined, true, "the original native receiver call remains checked");
+    if (call === undefined) return;
+    const semantics = current.source.semantics.forNode(call);
+    const completed = semantics.operations.call(call);
+    const nativeDeclaration = completed === undefined ? undefined :
+      semantics.declarations.signatureDeclaration(completed.selectedSignature);
+    const receiver = completed?.sourceReceiver;
+    const bindings = receiver === undefined ? undefined : semantics.types.typeArgumentBindings(receiver.type);
+    assert.equal(nativeDeclaration !== undefined && current.nodes.includes(nativeDeclaration) &&
+      current.source.ast.body(nativeDeclaration) === undefined, true, "the selected signature is the original bodyless declaration");
+    assert.equal(bindings?.length === 1 && current.nodes.includes(bindings[0]!.declaration), true,
+      "the receiver retains its exact checked generic formal");
+    if (bindings?.length !== 1 || receiver === undefined) return;
+    const symbol = semantics.declarations.typeSymbol(receiver.type);
+    const owner = current.source.ast.parent(bindings[0]!.declaration);
+    assert.equal(symbol !== undefined && owner !== undefined &&
+      semantics.declarations.symbolDeclarations(symbol).includes(owner), true,
+      "the formal belongs to the actual native receiver declaration");
+    const argument = bindings[0]!.argumentType;
+    const awaited = semantics.types.awaitedType(argument);
+    assert.equal(awaited !== undefined && !semantics.types.isIdentical(awaited, argument), true,
+      "the completed receiver binding keeps its original Promise-valued native payload");
   });
 }
 
@@ -162,9 +192,15 @@ test("an opaque resolver result is unresolved, never an empty safe source summar
     function wrap<T>(value: T) { return new Promise<T>(resolve => { const done = opaque(resolve); done(value); }); }
     void wrap(Promise.resolve(7));`);
   const selected = current.query();
-  assert.equal(selected.kind, "unresolved", "an open opaque result is not a closed nonresolver");
-  if (selected.kind !== "unresolved") return;
-  assert.equal(current.textFor(selected.at), "done(value)", "the exact unresolved operation is preserved");
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "declared adoption completes");
+  if (selected.kind !== "resolved") return;
+  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(Promise.resolve(7))"],
+    "the original source-bodied declared Promise instantiation owns its one adoption issue");
+  const operation = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.textFor(node) === "done(value)");
+  assert.equal(operation !== undefined &&
+    current.source.semantics.forNode(operation).operations.call(operation)?.sourceSelectedSignatureKind === "resolved", true,
+    "the original inner operation remains authenticated without tracing its opaque callback");
 });
 
 test("an opaque resolver relation does not refuse a proven ordinary actual", () => {
@@ -194,9 +230,15 @@ for (const alias of [false, true]) for (const ordinary of [false, true]) {
       assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
         "a proven ordinary actual remains non-adopting through the same opaque relation");
     } else {
-      assert.equal(selected.kind, "unresolved", "opaque returned callable provenance stays unknown");
-      if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), operation,
-        "the actual demanded resolving call precedes an inferred latent native callback input");
+      assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "declared adoption completes");
+      if (selected.kind !== "resolved") return;
+      assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(Promise.resolve(7))"],
+        "the original outer declared instantiation owns its one adoption issue");
+      const inner = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+        current.textFor(node) === operation);
+      assert.equal(inner !== undefined &&
+        current.source.semantics.forNode(inner).operations.call(inner)?.sourceSelectedSignatureKind === "resolved", true,
+        "the original inner operation remains checked without following opaque callbacks or aliases");
     }
   });
 }
@@ -258,8 +300,11 @@ test("mutual generic forwarding uses one finite SCC and keeps exact actual insta
     assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["left(promised, 2)"]);
   }
   const exhausted = current.query(1);
-  assert.equal(exhausted.kind === "unresolved" && exhausted.reason.includes("budget"), true,
+  assert.equal(exhausted.kind === "unresolved" && exhausted.cause.kind === "resource-limit" &&
+    exhausted.cause.category === "step" && exhausted.cause.limit === 1 &&
+    current.nodes.includes(exhausted.cause.subject), true,
     "budget exhaustion publishes neither an empty safe summary nor a partial refusal set");
+  assert.equal("issues" in exhausted, false, "an exhausted relation never publishes partial issues");
 });
 
 test("native payload containers, ordinary library generics and primitive constraints do not become generic adoption", () => {
@@ -351,8 +396,28 @@ test("interface and abstract generic signatures stay fail-closed without a sourc
   const selected = current.query();
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "two unknown source contracts");
   if (selected.kind !== "resolved") return;
-  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(),
-    ["base.identity(promised)", "contract.identity(promised)"], "both actual generic signature instantiations require adoption");
+  assert.equal(selected.issues.length, 0, "both bodyless declarations keep their completed native signatures");
+  for (const expression of ["base.identity(promised)", "contract.identity(promised)"]) {
+    const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.textFor(node) === expression);
+    assert.equal(call !== undefined, true, "the original native generic call remains checked");
+    if (call === undefined) continue;
+    const semantics = current.source.semantics.forNode(call);
+    const completed = semantics.operations.call(call);
+    const nativeDeclaration = completed === undefined ? undefined :
+      semantics.declarations.signatureDeclaration(completed.selectedSignature);
+    assert.equal(nativeDeclaration !== undefined && current.nodes.includes(nativeDeclaration) &&
+      current.source.ast.body(nativeDeclaration) === undefined, true, "the actual selected native declaration has no source body");
+    const bindings = completed?.sourceSelectedMethodTypeArguments;
+    assert.equal(bindings?.length === 1 && semantics.types.awaitedType(bindings[0]!.selectedType) !== undefined &&
+      !semantics.types.isIdentical(semantics.types.awaitedType(bindings[0]!.selectedType)!, bindings[0]!.selectedType), true,
+      "the native signature preserves the original Promise-valued generic argument");
+    if (bindings?.length !== 1) continue;
+    const symbol = semantics.declarations.typeSymbol(bindings[0]!.typeParameter);
+    assert.equal(symbol !== undefined && semantics.declarations.symbolDeclarations(symbol)
+      .some(parameter => current.nodes.includes(parameter) && current.source.ast.is.IsTypeParameterDeclaration(parameter)), true,
+    "the generic argument remains bound to its original checked formal");
+  }
 });
 function declaredQuery(current: ReturnType<typeof fixture>, limits: SourceDeclarationOwnershipLimits = defaultSourceDeclarationOwnershipLimits) {
   const node = current.nodes[0]!;
