@@ -35,7 +35,7 @@ export function parseSourceNumericLiteral(text: string): ParsedSourceNumericLite
   const digits = ((decimal[1] ?? "0") + fraction).replace(/^0+/u, "");
   const sourceExponent = BigInt(decimal[4] ?? "0");
   const whole = (decimal[1] ?? "0").replace(/^0+(?=\d)/u, "");
-  const mantissa = fraction.length === 0 ? whole : `${whole}.${fraction}`;
+  const mantissa = decimal[2] === undefined && decimal[3] === undefined ? whole : `${whole}.${fraction}`;
   const suffix = decimal[4] === undefined ? "" : `e${sourceExponent < 0n ? "" : "+"}${sourceExponent}`;
   const decimalText = mantissa + suffix;
   if (digits.length === 0) {

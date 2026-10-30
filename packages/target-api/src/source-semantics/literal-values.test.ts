@@ -58,7 +58,7 @@ test("numeric facts preserve authored midpoint neighbors, normalize native gramm
   assert.equal(tokens[7]?.decimalText, "9");
   assert.equal(tokens[8]?.decimalText, "57");
   assert.equal(tokens[9]?.decimalText, "0.5");
-  assert.equal(tokens[10]?.decimalText, "1");
+  assert.equal(tokens[10]?.decimalText, "1.");
   assert.equal(tokens[11]?.decimalText, "12.34e+2");
   assert.equal(compareSourceNumericLiteralMagnitude(tokens[12]!, 1n), -1);
   assert.equal(tokens[12]!.decimalText.length < 40, true, "huge negative exponent remains compact");
@@ -156,7 +156,7 @@ test("exact magnitude comparison accepts scaled coefficient evidence without a f
 });
 
 test("neutral numeric spelling preserves authored decimal scale without forcing floating target grammar", () => {
-  for (const [text, expected] of [["1", "1"], ["1.", "1"], ["1.0", "1.0"], ["1.00e1", "1.00e+1"],
+  for (const [text, expected] of [["1", "1"], ["1.", "1."], ["1.0", "1.0"], ["1.00e1", "1.00e+1"],
     ["0", "0"], ["0.0", "0.0"], ["0.000", "0.000"], ["0e0", "0e+0"], ["0.000e2", "0.000e+2"],
     ["0e999999999999999999999", "0e+999999999999999999999"], ["0xff", "255"], ["1_0.0_0", "10.00"]] as const) {
     const parsed = parseSourceNumericLiteral(text);
