@@ -4,7 +4,8 @@ import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@t
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
+import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
+  createSourceDeclarationParameterUseQuery } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { createSourceControlFlowDomain } from "../flow/graph.js";
 import { createSourceDeclarationOwnershipValues } from "./flow.js";
@@ -48,6 +49,7 @@ function fixture(kind: "input-duration" | "type-argument",
   });
   const budget = createSourceDeclarationOwnershipBudget(nodes[0]!, defaultSourceDeclarationOwnershipLimits);
   const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const parameterUses = createSourceDeclarationParameterUseQuery({ source, budget });
   const declaration = (name: string): Node => {
     const selected = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
       source.ast.text(source.ast.name(node)) === name);
@@ -106,7 +108,7 @@ function fixture(kind: "input-duration" | "type-argument",
   const query = createSourceDeclarationOwnershipQuery({ source, nodes, budget, premises });
   const calls = nodes.filter(node => source.ast.is.IsCallExpression(node) && selectedDeclaration(node) === declaration("keep"));
   assert.equal(calls.length, 3, "all actual result-use demands");
-  return { source, nodes, storage, budget, context, values: context.values, premises, query,
+  return { source, nodes, storage, budget, context, values: context.values, parameterUses, premises, query,
     declaration, selectedDeclaration, calls };
 }
 
@@ -166,7 +168,7 @@ for (const kind of ["input-duration", "type-argument"] as const) {
       const completion = current.premises.completionFor(call, checked);
       for (const retention of [unknown, { kind: "resolved" as const, reference: call, premises: [] }]) {
         const rejected = decideSourceDeclarationAsyncResultUse({ ...current, call, completion, disposition: selected.disposition,
-          continuation: () => retention.kind === "unresolved" ? retention : unknown });
+          continuation: () => retention.kind === "unresolved" ? retention : unknown, retention: () => retention });
         assert.equal(rejected.kind === "unresolved", true,
           `${selected.disposition.kind}: use syntax does not replace unknown or empty retention evidence`);
       }
@@ -223,7 +225,8 @@ test("the native result-use owner admits explicit void only after actual continu
   const calls = current.storage.invocations.filter(call => current.source.ast.is.IsCallExpression(call) &&
     current.selectedDeclaration(call) === current.declaration("independent"));
   const selected = calls.map(call => ({ call,
-    disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget, regionFor: current.values.regionFor }) }));
+    disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget,
+      regionFor: current.values.regionFor, parameterUses: current.parameterUses }) }));
   const explicit = selected.find(value => value.disposition.kind === "discarded" &&
     current.source.ast.is.IsVoidExpression(value.disposition.use));
   const implicit = selected.find(value => value.disposition.kind === "discarded" &&
@@ -241,7 +244,8 @@ test("the native result-use owner admits explicit void only after actual continu
   const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: explicit.call, reason: "No completed continuation ownership." };
   const rejected = decideSourceDeclarationAsyncResultUse({ ...current, call: implicit.call, completion: completionFor(implicit.call),
     disposition: implicit.disposition,
-    continuation: () => { continuationReads += 1; return unknown; } });
+    continuation: () => { continuationReads += 1; return unknown; },
+    retention: () => { retentionReads += 1; return unknown; } });
   assert.equal(rejected.kind === "resolved" && rejected.decision === "rejected" &&
     rejected.diagnostic.code === "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", true,
   "an implicit native drop keeps its precise refusal independently of unknown continuation ownership");
@@ -249,7 +253,8 @@ test("the native result-use owner admits explicit void only after actual continu
   assert.equal(retentionReads, 0, "the result-use owner does not request irrelevant retention on that refusal");
   const unresolved = decideSourceDeclarationAsyncResultUse({ ...current, call: explicit.call, completion: completionFor(explicit.call),
     disposition: explicit.disposition,
-    continuation: () => { continuationReads += 1; return unknown; } });
+    continuation: () => { continuationReads += 1; return unknown; },
+    retention: () => { retentionReads += 1; return unknown; } });
   assert.equal(unresolved.kind === "unresolved" && unresolved.reason === unknown.reason, true,
     "explicit void is not an ownership waiver when both continuation and retention remain unknown");
   assert.equal(continuationReads, 1, "an explicit native discard requests its actual continuation evidence");
@@ -269,7 +274,8 @@ test("native discard and provider rejection observation remain distinct selected
   const calls = current.storage.invocations.filter(call => current.source.ast.is.IsCallExpression(call) &&
     current.selectedDeclaration(call) === current.declaration("independent"));
   const discarded = calls.filter(call =>
-    resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget, regionFor: current.values.regionFor }).kind === "discarded");
+    resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget,
+      regionFor: current.values.regionFor, parameterUses: current.parameterUses }).kind === "discarded");
   assert.equal(discarded.length, 2, "the implicit and explicit owned result uses both remain present");
   for (const policy of ["native-discard", "observe-rejection"] as const) {
     const premises: SourceDeclarationOwnershipPremises = {
@@ -294,8 +300,9 @@ test("native discard and provider rejection observation remain distinct selected
       const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: call, reason: "No completed native continuation or retention." };
       const unresolved = decideSourceDeclarationAsyncResultUse({ ...current, call,
         completion: premises.completionFor(call, contract),
-        disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget, regionFor: current.values.regionFor }),
-        continuation: () => unknown });
+        disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: call, budget: current.budget,
+          regionFor: current.values.regionFor, parameterUses: current.parameterUses }),
+        continuation: () => unknown, retention: () => unknown });
       assert.equal(unresolved.kind === "unresolved" && unresolved.reason === unknown.reason, true,
         `${policy}: an admitted native discard policy is not a fabricated ownership proof`);
     }
@@ -354,8 +361,9 @@ for (const kind of ["input-duration", "type-argument"] as const) {
       if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked async contract");
       const completion = current.premises.completionFor(selectedCall, selected);
       return decideSourceDeclarationAsyncResultUse({ ...current, budget: selectedBudget, call: selectedCall, completion,
-        disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: selectedCall, budget: selectedBudget, regionFor: current.values.regionFor }),
-        continuation: () => retention.kind === "unresolved" ? retention : unknown });
+        disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: selectedCall, budget: selectedBudget,
+          regionFor: current.values.regionFor, parameterUses: current.parameterUses }),
+        continuation: () => retention.kind === "unresolved" ? retention : unknown, retention: () => retention });
     };
     const unknownDecision = decide(unknown);
     assert.equal(unknownDecision.kind === "unresolved", true,
@@ -400,3 +408,46 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     "actual nonempty validated native retention remains authoritative when the source continuation is unresolved");
   });
 }
+
+test("an owning result never discharges a missing pending-input lifetime fact", () => {
+  const current = fixture("input-duration", premise => premise, `
+    declare function nativeFuture<Region>(view: Lease<number, Region>): Promise<number>;
+    async function use<Region>(view: Lease<number, Region>): Promise<number> {
+      await nativeFuture(view); return view.value;
+    }
+    function missingInputRoot<Region>(view: Lease<number, Region>): void { void use(view); }
+  `);
+  const owner = current.declaration("use");
+  const parameter = current.source.ast.parameters(owner)[0];
+  assert.equal(parameter !== undefined, true, "the pending input has its original checked formal");
+  const premises: SourceDeclarationOwnershipPremises = {
+    ...current.premises,
+    retentionFor(request) {
+      if (current.source.navigation.sourceReferenceFor(request.value.node)?.declaration === parameter)
+        return undefined;
+      return current.premises.retentionFor(request);
+    },
+    suspensionFor(value, use) {
+      return current.selectedDeclaration(value.node) === current.declaration("nativeFuture")
+        ? { kind: "may-suspend", value,
+            contract: { kind: "expression", expression: value.node, component: value.component } }
+        : current.premises.suspensionFor(value, use);
+    },
+  };
+  const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.selectedDeclaration(node) === owner);
+  assert.equal(call !== undefined, true, "the original caller explicitly discards use(view)");
+  if (call === undefined) throw new Error("missing checked owning-result call");
+  const retained = createSourceDeclarationRetentionQuery({ ...current, premises }).forReference(call);
+  assert.equal(retained.kind === "resolved" && retained.premises.length > 0 &&
+    retained.premises.every(premise => premise.kind === "retained" && premise.reason === "owned-value"),
+  true, "the completed owning result is not the missing continuation-input proof");
+  const query = createSourceDeclarationOwnershipQuery({ ...current, premises });
+  const continuation = query.continuationFor(call);
+  assert.equal(continuation.kind === "unresolved" && continuation.cause.kind === "required-fact", true,
+    "the pending input lifetime remains genuinely unavailable");
+  const selected = query.forCall(call);
+  assert.equal(selected.kind === "unresolved" && selected.cause.kind === "required-fact" &&
+    continuation.kind === "unresolved" && selected.at === continuation.at && current.nodes.includes(selected.at),
+  true, "an owning Task cannot erase the original missing checked safety subject");
+});

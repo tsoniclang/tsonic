@@ -4,6 +4,7 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipValues } from "./model.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
 
 export interface SourceNativeTaskSpawn {
   readonly node: Node;
@@ -43,6 +44,26 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
   const reject = (node: Node, kind: SourceNativeTaskIssue["kind"], reason: string): void => {
     if (rows.add(1)) issues.push(Object.freeze({ node, kind, reason }));
   };
+  const generator = (declaration: Node): boolean =>
+    (source.ast.is.IsFunctionDeclaration(declaration) || source.ast.is.IsFunctionExpression(declaration) ||
+      source.ast.is.IsMethodDeclaration(declaration)) && source.ast.children(declaration).some(child =>
+        child !== undefined && source.ast.kindName(child) === "KindAsteriskToken");
+  const unsupportedOwner = (node: Node): Node | undefined => {
+    const visited = new Set<Node>();
+    for (let current: Node | undefined = node; current !== undefined; current = source.ast.parent(current)) {
+      if (!budget.step(node)) { failure = budget.failure(); return undefined; }
+      if (visited.has(current)) {
+        failure = sourceDeclarationOwnershipUnresolved(node, "A native task operation requires acyclic checked declaration ancestry.");
+        return undefined;
+      }
+      visited.add(current);
+      if (source.ast.is.IsClassStaticBlockDeclaration(current)) return current;
+      if (isSourceCallableBodyBoundary(source.ast, current))
+        return generator(current) ? current : undefined;
+      if (source.ast.is.IsSourceFile(current)) return undefined;
+    }
+    return undefined;
+  };
   const scopeFor = (declaration: Node): "parameter" | "capture" | "none" | undefined => {
     if (!budget.step(declaration)) { failure = budget.failure(); return undefined; }
     const existing = scopes.get(declaration);
@@ -77,12 +98,15 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       reject(subject, "lifecycle-owner", "Native task scope requires its actual root lifecycle source identity.");
     for (const spawn of input.spawns) {
       if (!budget.step(spawn.node)) return budget.failure()!;
-      const region = values.regionFor(spawn.operand);
-      if ("kind" in region) return region;
+      const unsupported = unsupportedOwner(spawn.operand);
+      if (failure !== undefined) return failure;
+      const region = unsupported === undefined ? values.regionFor(spawn.operand) : undefined;
+      if (region !== undefined && "kind" in region) return region;
+      const owner = unsupported ?? region!.owner;
       if (!rows.add(3)) return budget.failure()!;
-      spawns.push(Object.freeze({ ...spawn, owner: region.owner }));
-      spawnedOwners.add(region.owner);
-      owners.add(region.owner);
+      spawns.push(Object.freeze({ ...spawn, owner }));
+      spawnedOwners.add(owner);
+      owners.add(owner);
     }
     for (const node of input.nodes) {
       if (!budget.step(node)) return budget.failure()!;
@@ -101,19 +125,24 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
           targets.push(access.selectedWriteDeclaration);
       }
       if (targets.length === 0) continue;
-      const region = values.regionFor(node);
-      if ("kind" in region) return region;
-      const previous = byOwner.get(region.owner);
+      const unsupported = unsupportedOwner(node);
+      if (failure !== undefined) return failure;
+      const region = unsupported === undefined ? values.regionFor(node) : undefined;
+      if (region !== undefined && "kind" in region) return region;
+      const owner = unsupported ?? region!.owner;
+      const previous = byOwner.get(owner);
       if (!rows.add(3 + targets.length)) return budget.failure()!;
-      const edge = Object.freeze({ node, owner: region.owner, targets: Object.freeze(targets) });
-      if (previous === undefined) byOwner.set(region.owner, [edge]); else previous.push(edge);
-      owners.add(region.owner);
+      const edge = Object.freeze({ node, owner, targets: Object.freeze(targets) });
+      if (previous === undefined) byOwner.set(owner, [edge]); else previous.push(edge);
+      owners.add(owner);
       for (const target of targets) owners.add(target);
     }
     const required = createTargetGraphComponentQuery<Node, boolean, boolean>(declaration => {
       if (!budget.step(declaration)) { failure = budget.failure(); return undefined; }
-      const ownScope = scopeFor(declaration);
-      if (ownScope === undefined) return undefined;
+      const declaredScope = source.ast.body(declaration) === undefined && !source.ast.is.IsSourceFile(declaration) &&
+        !source.ast.is.IsClassDeclaration(declaration) && !source.ast.is.IsClassExpression(declaration) &&
+        !source.ast.is.IsClassStaticBlockDeclaration(declaration) ? scopeFor(declaration) : undefined;
+      if (failure !== undefined) return undefined;
       const neighbours = new Set<Node>();
       for (const edge of byOwner.get(declaration) ?? []) {
         for (const target of edge.targets) {
@@ -121,7 +150,7 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
           neighbours.add(target);
         }
       }
-      return { data: spawnedOwners.has(declaration) || ownScope !== "none", neighbours };
+      return { data: spawnedOwners.has(declaration) || declaredScope !== undefined && declaredScope !== "none", neighbours };
     }, members => members.some(member => member.data || member.successors.some(Boolean)), {
       step: () => budget.step(subject), createRows: () => budget.createRows(subject),
     });
@@ -135,6 +164,12 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       if (!selected) continue;
       needed.add(declaration);
       if (source.ast.is.IsSourceFile(declaration)) continue;
+      if (source.ast.is.IsConstructorDeclaration(declaration) || source.ast.is.IsClassDeclaration(declaration) ||
+        source.ast.is.IsClassExpression(declaration) || source.ast.is.IsClassStaticBlockDeclaration(declaration) ||
+        generator(declaration)) {
+        reject(declaration, "scope-owner", "Native explicit void spawn is unsupported in this selected constructor, initializer or generator.");
+        continue;
+      }
       const scope = scopeFor(declaration);
       if (scope === undefined) return failure ?? budget.failure()!;
       if (scope !== "parameter") reject(declaration, "scope-owner",
@@ -143,10 +178,6 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       if (input.publishedDeclarations.has(declaration) || container !== undefined && input.publishedDeclarations.has(container))
         reject(declaration, "public-scope",
         "A public native signature cannot acquire an implicit executor input from its callers.");
-      if (source.ast.is.IsConstructorDeclaration(declaration) || source.ast.is.IsClassDeclaration(declaration) ||
-        source.ast.is.IsClassExpression(declaration) || source.ast.is.IsClassStaticBlockDeclaration(declaration) ||
-        source.semantics.forNode(declaration).operations.generator(declaration) !== undefined)
-        reject(declaration, "scope-owner", "Native explicit void spawn is unsupported in this selected constructor, initializer or generator.");
     }
     for (const edges of byOwner.values()) for (const edge of edges) {
       if (!budget.step(edge.node)) return budget.failure()!;

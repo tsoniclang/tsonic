@@ -10,7 +10,7 @@ import { createSourceDeclarationContinuationDependencyQuery } from "./dependenci
 import { createSourceDeclarationContinuationClosureQuery } from "./closure.js";
 import { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
 import { resolveSourceDeclarationAsyncResultDisposition } from "./result-use.js";
-import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { sourceDeclarationOwnershipUnresolved, createSourceDeclarationParameterUseQuery } from "./contracts.js";
 
 export function createSourceDeclarationOwnershipQuery(input: {
   readonly source: TargetSourceProgram;
@@ -25,6 +25,7 @@ export function createSourceDeclarationOwnershipQuery(input: {
     retentionFor: input.premises.retentionFor, suspensionFor: input.premises.suspensionFor });
   const limits = Object.freeze({ ...input.flowLimits });
   const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits });
+  const parameterUses = createSourceDeclarationParameterUseQuery({ source, budget });
   const retention = createSourceDeclarationRetentionQuery({ source, values: context.values, premises, budget });
   const suspensions = createSourceDeclarationSuspensionQuery({ source, values: context.values, premises, budget });
   const dependencies = createSourceDeclarationContinuationDependencyQuery({ source, budget, retention, suspensions });
@@ -49,8 +50,9 @@ export function createSourceDeclarationOwnershipQuery(input: {
       const decision = completion.kind !== "async" ? completion : decideSourceDeclarationAsyncResultUse({
         source, budget, call, completion,
         disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget,
-          regionFor: context.values.regionFor }),
+          regionFor: context.values.regionFor, parameterUses }),
         continuation: () => continuationFor(call),
+        retention: reference => retention.forReference(reference),
       });
       if (decision.kind === "unresolved") return decision;
       const rows = budget.createRows(call);
