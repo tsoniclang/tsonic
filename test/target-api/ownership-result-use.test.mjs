@@ -7,10 +7,16 @@ import { createSourceDeclarationContinuationDependencyQuery, createSourceContinu
   defaultSourceDeclarationOwnershipLimits,
   decideSourceDeclarationAsyncResultUse, resolveSourceDeclarationAsyncResultDisposition } from "../../packages/target-api/dist/public/analysis.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
+import { createSourceDeclarationParameterUseQuery } from "../../packages/target-api/dist/target-analysis/ownership/contracts.js";
 
 const fixture = ownershipFixture();
+const parameterUses = createSourceDeclarationParameterUseQuery(fixture);
 const dispositionFor = call => resolveSourceDeclarationAsyncResultDisposition({ source: fixture.source, expression: call,
-  budget: fixture.budget, regionFor: fixture.values.regionFor });
+  budget: fixture.budget, regionFor: fixture.values.regionFor, parameterUses });
+
+function retentionFor(call, premises = fixture.native) {
+  return createSourceDeclarationRetentionQuery({ ...fixture, premises }).forReference(call);
+}
 
 function dependencyFor(owner, native = fixture.native) {
   const { source, values, budget } = fixture;
@@ -38,7 +44,7 @@ for (const surface of ["csharp", "rust"]) {
       const call = fixture.readCall(owner);
       const disposition = dispositionFor(call);
       const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call), disposition,
-        continuation: () => dependencyFor(owner) });
+        continuation: () => dependencyFor(owner), retention: () => retentionFor(call) });
       assert.equal(selected.kind, "resolved", `${name}: complete shared proof`);
       assert.equal(selected.decision, expected, name);
       assert.equal(selected.dependencies.length > 0, true, "a real continuation lease was preserved");
@@ -55,7 +61,8 @@ test("native discarded async values reject independently of an unresolved contin
   const call = fixture.readCall(fixture.declaration("discarded"));
   const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call, "must-observe"),
     disposition: dispositionFor(call),
-    continuation: () => ({ kind: "unresolved", at: call, reason: "The shared CFG adapter has not supplied continuation closure." }) });
+    continuation: () => ({ kind: "unresolved", at: call, cause: { kind: "required-fact" },
+      reason: "The shared CFG adapter has not supplied continuation closure." }), retention: () => retentionFor(call) });
   assert.equal(selected.kind === "resolved" && selected.decision === "rejected", true);
   assert.equal(selected.diagnostic?.code, "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED");
 });
@@ -70,7 +77,12 @@ test("D11 marks a discarded completed owning computation without a new runtime r
         reason: "owned-value", contract: premise.contract })) };
     } });
   const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
-    disposition: dispositionFor(call), continuation: () => dependency });
+    disposition: dispositionFor(call), continuation: () => dependency,
+    retention: () => retentionFor(call, { ...fixture.native, retentionFor(request) {
+      const selected = fixture.native.retentionFor(request);
+      return { kind: "resolved", premises: selected.premises.map(premise => ({ kind: "retained",
+        value: request.value, reason: "owned-value", contract: premise.contract })) };
+    } }) });
   assert.equal(selected.kind === "resolved" && selected.decision === "observe-discarded-rejection", true);
   assert.equal(selected.dependencies.every(item => item.retention.kind === "retained"), true);
   assert.equal(selected.diagnostic === undefined, true, "observation is a sealed mark, not an ownership rejection");
@@ -81,7 +93,8 @@ test("missing continuation proof remains unresolved, never an empty borrowed-inp
     const call = fixture.readCall(fixture.declaration(name));
     const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
       disposition: dispositionFor(call),
-      continuation: () => ({ kind: "unresolved", at: call, reason: "The shared CFG owner has not closed the continuation." }) });
+      continuation: () => ({ kind: "unresolved", at: call, cause: { kind: "required-fact" },
+        reason: "The shared CFG owner has not closed the continuation." }), retention: () => retentionFor(call) });
     assert.equal(selected.kind, "unresolved", name);
     assert.match(selected.reason, /shared CFG/u);
   }
@@ -93,7 +106,7 @@ test("passing to an asynchronous consumer is not proof of an await in the caller
   const disposition = dispositionFor(call);
   assert.equal(disposition.kind, "passed");
   const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call), disposition,
-    continuation: () => dependencyFor(owner) });
+    continuation: () => dependencyFor(owner), retention: () => retentionFor(call) });
   assert.equal(selected.kind, "unresolved");
   assert.match(selected.reason, /caller's exact borrowed-input lifetime/u);
 });
@@ -103,7 +116,7 @@ test("result disposition rejects a different checked source owner before reading
   const foreign = ownershipFixture();
   const selected = resolveSourceDeclarationAsyncResultDisposition({ source: fixture.source,
     expression: foreign.readCall(foreign.declaration("awaited")), budget: fixture.budget,
-    regionFor: fixture.values.regionFor });
+    regionFor: fixture.values.regionFor, parameterUses });
   assert.equal(selected.kind, "unresolved");
   assert.match(selected.reason, /original checked declaration-local expression/u);
 });
@@ -114,7 +127,7 @@ test("the awaited lease must contain the actual await, not only the callee's bod
   const continuation = { kind: "resolved", dependencies: proof.dependencies.map(item => ({ ...item,
     retention: { ...item.retention, region: fixture.source.ast.body(fixture.declaration("returned")) } })) };
   const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
-    disposition: dispositionFor(call), continuation: () => continuation });
+    disposition: dispositionFor(call), continuation: () => continuation, retention: () => retentionFor(call) });
   assert.equal(selected.kind, "unresolved");
   assert.match(selected.reason, /same checked region and native lease owner/u);
 });
@@ -126,7 +139,7 @@ test("selected completion contracts reject foreign declarations and incompatible
   for (const contract of [{ ...completion.contract, declaration: fixture.declaration("identity") },
     { ...completion.contract, component: { selectedType: fixture.source.semantics.forNode(call).types.expressionType(fixture.source.ast.arguments(call)[0]) } }]) {
     const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: { ...completion, contract },
-      disposition, continuation: () => ({ kind: "resolved", dependencies: [] }) });
+      disposition, continuation: () => ({ kind: "resolved", dependencies: [] }), retention: () => retentionFor(call) });
     assert.equal(selected.kind, "unresolved", "a checked type or declaration mismatch cannot authorize a policy");
   }
 });
@@ -166,8 +179,14 @@ test("selected completion contracts retain checked dependency identity without e
   const completion = { kind: "async", resultPolicy: "observe-rejection",
     contract: { kind: "declaration", declaration, component: { selectedType: selected.sourceResultType } } };
   const decide = contract => decideSourceDeclarationAsyncResultUse({ source, budget, call, completion: contract,
-    disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget, regionFor: context.values.regionFor }),
-    continuation: () => ({ kind: "resolved", dependencies: [] }) });
+    disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget,
+      regionFor: context.values.regionFor, parameterUses: createSourceDeclarationParameterUseQuery({ source, budget }) }),
+    continuation: () => ({ kind: "resolved", dependencies: [] }), retention: () => {
+      const value = context.values.forNode(call);
+      assert.equal("kind" in value, false, "the provider result retains its original checked value");
+      return { kind: "resolved", reference: call, premises: [{ kind: "retained", value, reason: "owned-value",
+        contract: completion.contract }] };
+    } });
   const admitted = decide(completion);
   assert.equal(admitted.kind === "resolved" && admitted.decision === "admitted", true,
     "the actual selected dependency declaration authorizes its completion contract");
@@ -203,7 +222,6 @@ test("all four historically observed scoped source call shapes stay immediately 
 
 test("mutable source leases obey the same scoped-await and escape decision as shared leases", () => {
   const native = { ...fixture.native, retentionFor(request) {
-    if (request.kind === "read-value") return undefined;
     const selected = fixture.native.retentionFor(request);
     return { kind: "resolved", premises: selected.premises.map(premise => ({ ...premise, mode: "mutable" })) };
   } };
@@ -211,7 +229,7 @@ test("mutable source leases obey the same scoped-await and escape decision as sh
     const call = fixture.readCall(fixture.declaration(name));
     const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
       disposition: dispositionFor(call),
-      continuation: () => dependencyFor(fixture.declaration(name), native) });
+      continuation: () => dependencyFor(fixture.declaration(name), native), retention: () => retentionFor(call, native) });
     assert.equal(selected.kind, "resolved", name);
     assert.equal(selected.decision, name === "awaited" ? "admitted" : "rejected", name);
     assert.equal(selected.dependencies.every(item => item.retention.mode === "mutable"), true);
@@ -223,7 +241,7 @@ test("a program-duration native owner does not create a D12 storage prohibition"
   const call = fixture.readCall(owner);
   const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: fixture.completion(call),
     disposition: dispositionFor(call),
-    continuation: () => dependencyFor(owner) });
+    continuation: () => dependencyFor(owner), retention: () => retentionFor(call) });
   assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true);
   assert.equal(selected.disposition.kind, "stored");
   assert.equal(selected.dependencies.every(item => item.retention.kind === "retained" && item.retention.reason === "module-owner"), true);

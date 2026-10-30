@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";
+import { sourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
 
 export const defaultSourceDeclarationOwnershipLimits: SourceDeclarationOwnershipLimits = Object.freeze({
   maximumSteps: 33_554_432,
@@ -10,6 +11,83 @@ export const defaultSourceDeclarationOwnershipLimits: SourceDeclarationOwnership
 
 export function sourceDeclarationOwnershipUnresolved(at: Node, reason: string): SourceDeclarationOwnershipUnresolved {
   return Object.freeze({ kind: "unresolved", at, reason, cause: Object.freeze({ kind: "required-fact" }) });
+}
+
+export function createSourceDeclarationParameterUseQuery(input: {
+  readonly source: TargetSourceProgram;
+  readonly budget: SourceDeclarationOwnershipBudget;
+}) {
+  const { source, budget } = input;
+  type Contract = { readonly kind: "resolved"; readonly declaration: Node; readonly parameter: Node;
+    readonly use: "result" | "retained"; readonly sites: readonly Node[];
+    readonly contract: SourceDeclarationOwnershipContract };
+  const declarations = new Map<Node, ReadonlyMap<Node, Contract>>();
+  const publish = (declaration: Node): ReadonlyMap<Node, Contract> | SourceDeclarationOwnershipUnresolved => {
+    if (!budget.step(declaration)) return budget.failure()!;
+    const existing = declarations.get(declaration);
+    if (existing !== undefined) return existing;
+    const body = source.ast.body(declaration);
+    if (body === undefined || !source.navigation.isProjectDeclaration(declaration))
+      return sourceDeclarationOwnershipUnresolved(declaration, "A native parameter use requires its published declaration contract.");
+    const selected = new Map<Node, Contract>();
+    const rows = budget.createRows(declaration);
+    let published = false;
+    try {
+      for (const parameter of source.ast.parameters(declaration)) {
+        if (parameter === undefined) continue;
+        if (!budget.step(parameter)) return budget.failure()!;
+        const semantics = source.semantics.forNode(parameter);
+        const selectedType = semantics.declarations.declaredValueType(parameter);
+        if (selectedType === undefined) continue;
+        const sites: Node[] = [];
+        let use: "result" | "retained" | undefined;
+        let complete = true;
+        for (const reference of source.navigation.declarationUses(parameter)) {
+          if (!budget.step(reference.reference)) return budget.failure()!;
+          if (reference.kind === "type-only" || reference.kind === "source-linkage") continue;
+          if (reference.captured || reference.throughMember) { complete = false; break; }
+          const disposition = sourceExpressionResultDisposition(source.ast, reference.reference);
+          if (disposition.kind !== "returned" && disposition.kind !== "stored") { complete = false; break; }
+          sites.push(reference.reference);
+          if (disposition.kind === "stored") use = "retained";
+          else use ??= "result";
+        }
+        if (!complete || use === undefined) continue;
+        if (!rows.add(3 + sites.length)) return budget.failure()!;
+        selected.set(parameter, Object.freeze({ kind: "resolved", declaration, parameter, use,
+          sites: Object.freeze(sites), contract: Object.freeze({ kind: "declaration", declaration: parameter,
+            component: Object.freeze({ selectedType }) }) }));
+      }
+      if (!rows.add(1)) return budget.failure()!;
+      declarations.set(declaration, selected);
+      published = true;
+      return selected;
+    } finally { if (!published) rows.release(); }
+  };
+  return Object.freeze({
+    forArgument(call: Node, argument: Node): Contract | SourceDeclarationOwnershipUnresolved {
+      if (!budget.step(call)) return budget.failure()!;
+      const file = source.ast.getSourceFile(call);
+      if (file === undefined || !source.semantics.includes(file) || !source.ast.is.IsCallExpression(call))
+        return sourceDeclarationOwnershipUnresolved(call, "Native parameter consumption requires its original checked direct call.");
+      const semantics = source.semantics.forNode(call);
+      const selected = semantics.operations.call(call);
+      const declaration = selected?.sourceSelectedSignatureKind === "resolved"
+        ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+      if (declaration === undefined || selected?.sourceSelectedSignatureKind !== "resolved")
+        return sourceDeclarationOwnershipUnresolved(call, "Native parameter consumption requires its exact selected declaration.");
+      const index = source.ast.arguments(call).indexOf(argument);
+      const bindings = selected.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === index && binding.sourceForm === "value");
+      const parameter = bindings.length === 1 ? selected.sourceSelectedSignatureParameters.find(candidate =>
+        candidate.parameterIndex === bindings[0]!.sourceParameterIndex)?.parameterDeclaration : undefined;
+      if (index < 0 || parameter === undefined || !source.ast.parameters(declaration).includes(parameter))
+        return sourceDeclarationOwnershipUnresolved(call, "Native parameter use requires one exact checked argument-to-formal correspondence.");
+      const contracts = publish(declaration);
+      if ("kind" in contracts) return contracts;
+      return contracts.get(parameter) ?? sourceDeclarationOwnershipUnresolved(call,
+        "The selected native parameter has no completed direct result or retained-input contract.");
+    },
+  });
 }
 
 export function createSourceDeclarationOwnershipBudget(subject: Node,
