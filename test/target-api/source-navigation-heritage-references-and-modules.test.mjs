@@ -600,8 +600,10 @@ test("source navigation never queries declaration-provider files as project sour
     SourceFile: providerFile,
   };
   let queryCount = 0;
+  const sourceFiles = [projectFile, providerFile];
   const source = {
-    sourceFiles: [projectFile, providerFile],
+    sourceFiles,
+    containsSourceFile: (sourceFile) => sourceFiles.includes(sourceFile),
     ast: {
       getFileName: (sourceFile) => sourceFile.FileName,
       getPath: (sourceFile) => sourceFile.Path,
@@ -626,6 +628,18 @@ test("source navigation never queries declaration-provider files as project sour
   assert.equal(navigation.declarationFor(providerDeclaration), undefined);
   assert.equal(navigation.isProjectDeclaration(providerDeclaration), false);
   assert.equal(queryCount, 0);
+  assert.equal(navigation.nodes.length, 1, "the default inventory contains only the project file");
+  assert.equal(navigation.nodes[0] === projectFile, true, "the project inventory retains its original file identity");
+  assert.equal(navigation.nodesForFiles([projectFile]) === navigation.nodes, true,
+    "the default inventory preserves its published array identity");
+  const providerNodes = navigation.nodesForFiles([providerFile]);
+  assert.equal(providerNodes.length, 1, "an explicit checked provider file remains available outside the default inventory");
+  assert.equal(providerNodes[0] === providerFile, true, "explicit provider inventory retains checked file identity");
+  assert.throws(() => navigation.nodesForFiles([projectFile, projectFile]),
+    /Source node inventories require distinct source files\./u);
+  assert.throws(() => navigation.nodesForFiles([{ ...projectFile }]),
+    /Source node inventories require exact checked source-file ownership\./u);
+  assert.equal(queryCount, 0, "inventory ownership checks never query declaration-provider semantics");
 });
 
 test("source navigation resolves imported declaration references without treating them as project source", async () => {

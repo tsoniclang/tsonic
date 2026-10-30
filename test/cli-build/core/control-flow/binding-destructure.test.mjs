@@ -215,7 +215,13 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   assert.doesNotMatch(generatedSource, /\bis string __tsonic_value\d+/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> spread = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  const spread = generatedSource.match(/(?<carrier>ObjectShape_[a-f0-9]{12}) spread = new \k<carrier>\s*\{\s*label = label,\s*total = value \+ rest\.count,/u);
+  assert.equal(spread !== null, true, "the same concrete spread retains the original fields and ordered initialization");
+  const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const definition = shapes.match(new RegExp(`public class ${spread.groups.carrier} : ObjectShape_[a-f0-9]{12}<string, double>\\s*\\{(?<body>[\\s\\S]*?)\\n    \\}`, "u"));
+  assert.equal(definition !== null, true, "the captured concrete class implements the declared generic native contract");
+  assert.match(definition.groups.body, /public required string label\s*\{\s*get;\s*set;\s*\}/u);
+  assert.match(definition.groups.body, /public required double total\s*\{\s*get;\s*set;\s*\}/u);
   assert.match(generatedSource, /label = label,/);
   assert.match(generatedSource, /total = value \+ rest\.count,/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> (?<destination>__tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<double>\(\)\.AppendElement\(spread\.total\);\s*Tsonic\.CSharp\.Js\.JSArray<double> (?<source>__tsonic_sequence_\d+) = numbers;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>__tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}\s*Tsonic\.CSharp\.Js\.JSArray<double> composed = \k<destination>\.AppendElement\(rest\.count\);/);
