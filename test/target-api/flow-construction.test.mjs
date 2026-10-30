@@ -678,7 +678,10 @@ test("property flow rejects static, missing, foreign and forged actual initializ
   const sharedFlow = createSourceDeclarationControlFlow(current.source, shared, { domain: { kind: "source" } });
   assert.equal(sharedFlow.kind, "resolved", "the original checked static initializer has its explicit declaration role");
   const sharedInitializer = current.ast.as.AsPropertyDeclaration(shared).Initializer;
-  assert.equal([...sharedFlow.graph.executionRegions.values()].every(region => region.owner === current.ast.parent(shared) &&
+  const sharedRegions = [...sharedFlow.graph.executionRegions.values()];
+  assert.equal(sharedRegions.length > 0 && sharedFlow.graph.sourcePoints.has(sharedInitializer), true,
+    "the original static initializer publishes actual evaluation points and nonempty region evidence");
+  assert.equal(sharedRegions.every(region => region.owner === current.ast.parent(shared) &&
     region.root === sharedInitializer && region.role === "static-initializer" && !("selection" in region)), true,
     "static initialization is never mistaken for an instance or invocation region");
   for (const [label, source, root, invocation] of [
