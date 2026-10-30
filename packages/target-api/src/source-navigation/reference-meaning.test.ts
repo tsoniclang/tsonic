@@ -49,6 +49,99 @@ ${valueFirst ? values + types : types + values}
   });
 }
 
+test("shorthand values retain exact parameter, shadowed local and outer binding identities", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+export const extra = 1;
+export function parameter(extra: number) { return { extra }; }
+export function local() { const extra = 2; return { extra }; }
+export const outer = { extra };
+export const ordinary = { extra: 3 };
+export const selected = ordinary.extra;
+`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the original shorthand bindings check successfully");
+  const source = createTargetSourceProgram(checked);
+  const nodes = source.navigation.nodes;
+  const parameter = nodes.find(node => source.ast.is.IsParameter(node) && source.ast.text(source.ast.name(node)) === "extra");
+  const variables = nodes.filter(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "extra");
+  const shorthands = nodes.filter(node => source.ast.is.IsShorthandPropertyAssignment(node));
+  assert.equal(parameter !== undefined && variables.length === 2 && shorthands.length === 3, true,
+    "all three distinct lexical bindings and shorthand reads are present");
+  const expected = [parameter, variables[1], variables[0]];
+  for (const [index, shorthand] of shorthands.entries()) {
+    const name = source.ast.name(shorthand);
+    assert.equal(name !== undefined, true, `shorthand ${index}: the exact own name exists`);
+    if (name === undefined) throw new Error("Expected the shorthand's own name.");
+    const reference = source.navigation.sourceReferenceFor(name);
+    assert.equal(reference !== undefined && reference.declaration === expected[index], true,
+      `shorthand ${index}: the selected value is its lexical declaration, not the property`);
+    assert.equal(Object.isFrozen(reference), true, `shorthand ${index}: the selected reference is immutable`);
+    assert.equal(source.navigation.sourceReferenceFor(name) === reference, true,
+      `shorthand ${index}: repeated reads retain the canonical reference`);
+    assert.equal(source.navigation.referencesToDeclaration(expected[index]!).includes(name), true,
+      `shorthand ${index}: the reverse index belongs to the same value binding`);
+  }
+  const property = nodes.find(node => source.ast.is.IsPropertyAssignment(node));
+  const access = nodes.find(node => source.ast.is.IsPropertyAccessExpression(node));
+  assert.equal(property !== undefined && access !== undefined, true, "ordinary property and access controls exist");
+  if (property === undefined || access === undefined) throw new Error("Expected the ordinary property controls.");
+  assert.equal(source.navigation.sourceReferenceFor(source.ast.name(property)!)?.declaration === property, true,
+    "a nonshorthand property name retains its own declaration role");
+  assert.equal(source.navigation.sourceReferenceFor(access)?.declaration === property, true,
+    "a member read retains its selected property, not a same-spelled lexical value");
+});
+
+test("shorthand imported aliases retain their checked value facet across re-exports", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/library.ts": "export interface Token { readonly value: number; } export const Token = 7;",
+    "/src/public.ts": 'export { Token as PublicToken } from "./library.js";',
+    "/src/index.ts": `
+import { PublicToken as Imported } from "./public.js";
+export type Stored = Imported;
+export const value = { Imported };
+export const ordinary = Imported;
+`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the merged re-exported shorthand alias checks successfully");
+  const source = createTargetSourceProgram(checked);
+  const nodes = source.navigation.nodes;
+  const value = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "Token");
+  const type = nodes.find(node => source.ast.is.IsInterfaceDeclaration(node) && source.ast.text(source.ast.name(node)) === "Token");
+  const shorthand = nodes.find(node => source.ast.is.IsShorthandPropertyAssignment(node));
+  const typeUse = nodes.find(node => source.ast.is.IsTypeReferenceNode(node));
+  const ordinary = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "ordinary");
+  assert.equal(value !== undefined && type !== undefined && shorthand !== undefined && typeUse !== undefined && ordinary !== undefined,
+    true, "the original distinct library facets and all consumer forms are present");
+  if (shorthand === undefined || typeUse === undefined || ordinary === undefined) throw new Error("Expected imported reference controls.");
+  const name = source.ast.name(shorthand)!;
+  const selected = source.navigation.sourceReferenceFor(name);
+  assert.equal(selected !== undefined && selected.declaration === value, true,
+    "the lexical alias follows checked re-exports to the exact value declaration");
+  assert.equal(source.navigation.sourceReferenceFor(typeUse)?.declaration === type, true,
+    "the same imported alias still has an independent type declaration facet");
+  assert.equal(source.navigation.sourceReferenceFor(source.ast.initializer(ordinary)!)?.declaration === value, true,
+    "ordinary nonshorthand values retain their existing alias selection");
+  assert.equal(source.navigation.referencesToDeclaration(value!).includes(name), true,
+    "the shorthand occurrence is indexed against the actual imported value");
+});
+
+test("an unavailable shorthand value never falls back to its property declaration", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "export const value = { missing };",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length > 0, true, "the original missing lexical value remains a checked error");
+  const source = createTargetSourceProgram(checked);
+  const shorthand = source.navigation.nodes.find(node => source.ast.is.IsShorthandPropertyAssignment(node));
+  assert.equal(shorthand !== undefined, true, "the checked unresolved shorthand still has a property declaration");
+  if (shorthand === undefined) throw new Error("Expected the original unresolved shorthand.");
+  const name = source.ast.name(shorthand)!;
+  assert.equal(source.navigation.sourceReferenceFor(name) === undefined, true,
+    "missing checked lexical evidence stays unresolved instead of selecting the shorthand property");
+  assert.equal(source.navigation.referenceFor(name) === undefined, true,
+    "the ordinary reference projection does not invent a property-based value binding");
+});
+
 test("iteration collections are exact receiver uses while their assigned binding remains a write", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", compilerOptions: {
     strict: true, target: "es2022", module: "esnext",
