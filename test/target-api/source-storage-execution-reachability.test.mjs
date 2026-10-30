@@ -71,7 +71,7 @@ test("forward execution retains calls, accessors, constructor initializers and c
       IsForOfStatement: () => false, IsForInStatement: () => false,
       IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false },
     as: { AsNewExpression: node => ({ Expression: node.target }) },
-  } }, budget, {
+  }, navigation: { isProjectDeclaration: node => calls.includes(node) } }, budget, {
     invocations: new Set(calls), accessorTargets: new Map([[access, [access.target]]]),
     pointerInvocations: new Set(), invocationEffects: new Map(),
     regions: { enclosing: node => node.region, callable: node => [node],
