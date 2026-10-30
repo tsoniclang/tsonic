@@ -72,13 +72,16 @@ export function closureFixture(options = {}) {
         contract: { kind: "declaration", declaration: current,
           component: { selectedType: selected.sourceResultType, contextualCall: selected } } } : { kind: "not-async" };
     },
-    suspensionFor(value) {
+    suspensionFor(value, use) {
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
       const semantics = source.semantics.forNode(value.node);
       const awaited = semantics.types.awaitedType(value.component.selectedType);
       if (current !== undefined && !nativeDeclarations.has(current) && source.ast.body(current) === undefined) return undefined;
-      const kind = pendingDeclarations.has(current) || current !== undefined && source.ast.hasModifierKind(current, "async")
-        ? "may-suspend" : awaited !== undefined && semantics.types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
+      const kind = current === declaration("settledFuture") ? "never"
+        : pendingDeclarations.has(current) || current !== undefined && source.ast.hasModifierKind(current, "async") ||
+          use === "value" && current === undefined && awaited !== undefined &&
+            !semantics.types.isIdentical(awaited, value.component.selectedType) ? "may-suspend"
+          : awaited !== undefined && semantics.types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
       return kind === undefined ? undefined : { kind, value,
         contract: { kind: "expression", expression: value.node, component: value.component } };
     },
