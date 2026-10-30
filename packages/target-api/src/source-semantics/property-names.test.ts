@@ -14,6 +14,39 @@ function checked(sourceText: string, files: Readonly<Record<string, string>> = {
   return createTargetSourceProgram(source);
 }
 
+test("already checked literal aliases retain exact keys without an alias-length restriction", () => {
+  const aliases = Array.from({ length: 12 }, (_, index) =>
+    `const text${index} = ${index === 0 ? '"value"' : `text${index - 1}`};
+const numeric${index} = ${index === 0 ? "9007199254740993" : `numeric${index - 1}`};
+const selected${index} = ${index === 0 ? "Key.Wide" : `selected${index - 1}`};`).join("\n");
+  const source = checked(`enum Key { Wide = 9007199254740993 }
+${aliases}
+export const text = { [text11]: 1 };
+export const numeric: Record<number, string> = { [numeric11]: "numeric" };
+export const selected: Record<number, string> = { [selected11]: "enum" };`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "already typed aliases retain native indexed and named contracts");
+  assert.equal(index.entries.length, 3, "each actual computed occurrence has one selection");
+  assert.equal(index.entries[0]?.selection.kind === "resolved" && index.entries[0].selection.name === "value", true,
+    "the checked string literal is not reconstructed by a new runtime field path");
+  for (const entry of index.entries.slice(1)) {
+    assert.equal(entry.selection.kind === "resolved" && (entry.selection.constant.kind === "numeric"
+      ? entry.selection.constant.token.coefficient === 9007199254740993n
+      : entry.selection.constant.kind === "enum-member" && entry.selection.constant.entry.value === 9007199254740993n), true,
+    "the native integer is not replaced by its rounded checked member spelling");
+  }
+});
+
+test("long checked alias chains cannot hide a forged native property-key assertion", () => {
+  const aliases = Array.from({ length: 12 }, (_, index) =>
+    `const alias${index} = ${index === 0 ? "(5 as unknown as 7)" : `alias${index - 1}`};`).join("\n");
+  const source = checked(`${aliases}\nexport const result = { [alias11]: 1 };`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 1, "one original computed property occurrence");
+  assert.equal(index.issues.length, 1, "checked literal7 cannot replace the actual native operand5");
+  assert.equal(index.entries[0]?.selection.kind, "rejected", "real assertion validation remains required at its owner");
+});
+
 test("numeric index admission uses checked key types independently of the stored value type", () => {
   const source = checked(`
 enum Key { Wide = 9007199254740993 }
