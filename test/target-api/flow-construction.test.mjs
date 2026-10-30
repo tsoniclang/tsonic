@@ -468,6 +468,11 @@ test("generic constructor graphs retain fields and checked constructor budgets r
     });
     assert.equal(selected.kind, "unresolved", "bounded constructor proof never publishes partial regions");
     assert.match(selected.reason, /finite/u);
+    const [dimension, limit] = Object.entries(limits)[0];
+    assert.equal(selected.resource?.subject === current.constructor("Derived"), true, "the original checked constructor owns resource exhaustion");
+    assert.equal(selected.resource?.dimension, dimension, "constructor exhaustion retains its exact dimension");
+    assert.equal(selected.resource?.limit, limit, "constructor limits are unchanged");
+    assert.equal("graph" in selected, false, "no incomplete constructor graph is published");
   }
 });
 
@@ -713,10 +718,16 @@ for (const part of ["whole initializer", "nested read"]) test(`property flow ref
 });
 
 for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }])
-  test(`property initializer flow retains finite refusal ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
+  test(`property initializer flow retains ${Number.isFinite(Object.values(limits)[0]) ? "finite resource exhaustion" : "invalid limit rejection"} ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
     const current = fixture("class Value { value = 1; observed = mark('budget') + this.value; }");
     const selected = createSourceControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
     assert.equal(selected.kind, "unresolved", "no property-entry path raises or bypasses a finite limit");
     assert.match(selected.reason, /finite/u);
     assert.equal("graph" in selected, false, "finite failure never publishes a partial initializer");
+    const [dimension, limit] = Object.entries(limits)[0];
+    if (Number.isFinite(limit)) {
+      assert.equal(selected.resource?.subject === propertyField(current, "Value", "observed"), true, "the initializer declaration owns resource exhaustion");
+      assert.equal(selected.resource?.dimension, dimension, "the initializer reports the actual exhausted dimension");
+      assert.equal(selected.resource?.limit, limit, "the original initializer bound is retained");
+    } else assert.equal(selected.resource === undefined, true, "invalid Infinity is not an exhausted allowance");
   });

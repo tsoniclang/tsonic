@@ -402,6 +402,12 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
     assert.equal(selection.kind, "unresolved");
     assert.equal("graph" in selection, false);
     assert.match(selection.reason, /finite/u);
+    const [dimension, limit] = Object.entries(limits)[0];
+    if (Number.isFinite(limit)) {
+      assert.equal(selection.resource?.subject === current.declaration, true, "resource exhaustion retains the callable subject");
+      assert.equal(selection.resource?.dimension, dimension, "the actual construction dimension is preserved");
+      assert.equal(selection.resource?.limit, limit, "construction never raises its selected bound");
+    } else assert.equal(selection.resource === undefined, true, "invalid limits are not actual resource exhaustion");
   }
   const checked = createTargetSourceProgram(await checkedSource("flow-unsupported-import", {
     "src/index.ts": "function run() { return import('./value.js'); }",
@@ -411,6 +417,7 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false);
   assert.match(selection.reason, /KindImportKeyword/u);
+  assert.equal(selection.resource === undefined, true, "unsupported syntax is not relabelled as resource exhaustion");
 });
 
 test("flow call arguments, array elements and computed object keys preserve left-to-right order", async () => {
@@ -550,6 +557,9 @@ test("flow budgets include capture-free closure scanning after syntax preflight"
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false, "exhaustion never publishes a partial graph");
   assert.equal(selection.reason, "Source flow exceeds its finite work budget.");
+  assert.equal(selection.resource?.subject === declaration, true, "capture scanning charges the original callable");
+  assert.equal(selection.resource?.dimension, "maximumSteps", "capture scanning shares the work guard");
+  assert.equal(selection.resource?.limit, nodes.size + 64, "capture scanning preserves the exact finite allowance");
   assert.equal(nodes.has(selection.source), true, "the failure retains the exact checked source subject");
 });
 

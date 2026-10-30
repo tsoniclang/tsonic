@@ -117,7 +117,8 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
       }
       owner.step(current.node);
       if (current.depth >= selectedLimits.maximumDepth) {
-        throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node);
+        throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node,
+          { subject: declaration, dimension: "maximumDepth", limit: selectedLimits.maximumDepth });
       }
       for (const child of ast.children(current.node)) {
         if (child !== undefined) pending.push({ node: child, depth: current.depth + 1 });
@@ -197,6 +198,7 @@ function createControlFlow<Region>(source: TargetSourceProgram, declaration: Nod
     return Object.freeze({ kind: "resolved", graph: owner.finish(root, exit, exceptionExit) });
   } catch (error) {
     if (!(error instanceof SourceFlowFailure)) throw error;
-    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source });
+    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source,
+      ...(error.resource === undefined ? {} : { resource: error.resource }) });
   }
 }
