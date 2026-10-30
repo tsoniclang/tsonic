@@ -16,6 +16,7 @@ import type { SourceDeclarationOwnershipPremises } from "./model.js";
 
 export interface NativeFixtureLifetimeContract {
   readonly scope: string;
+  readonly getter?: string;
   readonly owner: string;
   readonly bindings?: readonly string[];
   readonly results?: readonly string[];
@@ -152,7 +153,15 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
     ...nativeLifetimes,
   ];
   for (const contract of nativeContracts) {
-    const scope = declaration(contract.scope);
+    const scopes = contract.getter === undefined ? [declaration(contract.scope)] : nodes.filter(node => {
+      if (!source.ast.is.IsGetAccessorDeclaration(node) || source.ast.text(source.ast.name(node)) !== contract.getter)
+        return false;
+      const owner = source.ast.parent(node);
+      return owner !== undefined && source.ast.is.IsClassDeclaration(owner) &&
+        source.ast.text(source.ast.name(owner)) === contract.scope;
+    });
+    assert.equal(scopes.length, 1, "a native fixture lifetime names one original checked function or getter");
+    const scope = scopes[0]!;
     const region = source.ast.body(scope);
     assert.equal(region !== undefined, true, "native fixture lifetimes require their original declared body");
     const localNodes = nodes.filter(node => context.declarationFor(node) === scope);

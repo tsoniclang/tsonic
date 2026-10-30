@@ -18,8 +18,21 @@ test("a complete structural source method remains a source continuation instead 
   const call = current.storage.invocations.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.selectedDeclaration(node) === current.declaration("shapeRead"));
   assert.equal(call !== undefined, true, "The original source read is invoked in its actual await.");
+  const nativeOwners = new Set([current.declaration("makeCounter"), current.declaration("shapeRead"),
+    current.declaration("shapeRoot")]);
+  const nativeOperations = new Map(current.nodes.filter(node => {
+    if (!current.source.ast.is.IsCallExpression(node) && !current.source.ast.is.IsNewExpression(node)) return false;
+    const owner = current.context.declarationFor(node);
+    return !("kind" in owner) && nativeOwners.has(owner);
+  }).map(node => [node,
+      current.selectedDeclaration(node) === current.declaration("shapeRead") ? "may-suspend" as const : "never" as const]));
+  assert.equal(nativeOperations.size, 4,
+    "the original checked structural read, factory, constructor and source call have completed native operation facts");
   const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
     suspensionFor(value, use) {
+      const native = nativeOperations.get(value.node);
+      if (native !== undefined) return { kind: native, value,
+        contract: { kind: "expression", expression: value.node, component: value.component } };
       const declaration = current.source.ast.is.IsCallExpression(value.node) ? current.selectedDeclaration(value.node) : undefined;
       return declaration === current.declaration("pending") || declaration === current.declaration("read")
         ? current.premises.suspensionFor(value, use) : undefined;
@@ -215,7 +228,10 @@ for (const accessor of [false, true]) {
           ${accessor ? "const holder = new ActivationHolder(); return await holder.local;" : "return await activationInner();"}
         }
         async function activationRoot(): Promise<void> { await activationMiddle(); await activationMiddle(); }
-      `);
+      `, [
+        { scope: "activationInner", owner: "localOwner", bindings: ["view"] },
+        { scope: "ActivationHolder", getter: "local", owner: "localOwner", results: ["produced"] },
+      ]);
       const { source, storage } = current;
       const middle = current.declaration("activationMiddle");
       const root = current.declaration("activationRoot");
@@ -557,14 +573,21 @@ for (const thrown of [false, true]) {
     const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
       current.selectedDeclaration(node) === candidate);
     assert.equal(call !== undefined, true, "the wave contains a valid child before a late unknown native leaf");
+    const nativeLeaf = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === current.declaration("unclassified"));
+    assert.equal(nativeLeaf !== undefined, true, "the late native failure keeps its original checked call subject");
     const budget = createSourceDeclarationOwnershipBudget(current.nodes[0]!, { ...defaultSourceDeclarationOwnershipLimits, maximumTransportRows: 65_536 });
     const original = new Error("native premise control");
     let fail = true;
     const { closure: query } = current.continuation({ ...current.premises,
       suspensionFor(value, use) {
-        if (fail && current.selectedDeclaration(value.node) === current.declaration("unclassified")) {
-          if (thrown) throw original;
-          return undefined;
+        if (value.node === nativeLeaf) {
+          if (fail) {
+            if (thrown) throw original;
+            return undefined;
+          }
+          return { kind: "never", value,
+            contract: { kind: "expression", expression: value.node, component: value.component } };
         }
         return current.premises.suspensionFor(value, use);
       },
@@ -578,7 +601,8 @@ for (const thrown of [false, true]) {
         "a thrown native premise retains its original identity");
       else {
         const rejected = query.forCall(call!);
-        assert.equal(rejected.kind === "unresolved" && rejected.reason.includes("native continuation contract"), true,
+        assert.equal(rejected.kind === "unresolved" && rejected.cause.kind === "required-fact" &&
+          rejected.at === nativeLeaf && rejected.reason.includes("missing declaration body or native completion record"), true,
           "a late semantic failure is not a resource refusal");
       }
       const usage = budget.usage().rows;
