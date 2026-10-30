@@ -1,24 +1,28 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceOwnershipBudget, SourcePendingOperation } from "./model.js";
+import type { SourceDeclarationOwnershipRows, SourceDeclarationPendingOperation } from "./model.js";
 
-export type SourceContinuationState = ReadonlySet<SourcePendingOperation>;
+export type SourceContinuationState<Witness = SourceDeclarationPendingOperation> = ReadonlySet<Witness>;
 
-export interface SourceContinuationLattice {
-  empty(): SourceContinuationState;
-  join(left: SourceContinuationState, right: SourceContinuationState): SourceContinuationState | undefined;
-  equals(left: SourceContinuationState, right: SourceContinuationState): boolean;
+export interface SourceContinuationLattice<Witness = SourceDeclarationPendingOperation> {
+  empty(): SourceContinuationState<Witness>;
+  join(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>): SourceContinuationState<Witness> | undefined;
+  equals(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>): boolean;
 }
 
-export function createSourceContinuationTransfer(budget: SourceOwnershipBudget) {
+export function createSourceContinuationTransfer<Witness = SourceDeclarationPendingOperation>(budget: {
+  step(): boolean;
+  createRows(): SourceDeclarationOwnershipRows;
+  failure(): string | undefined;
+}) {
   const rows = budget.createRows();
-  const empty: SourceContinuationState = new Set();
-  const lattice: SourceContinuationLattice = Object.freeze({
+  const empty: SourceContinuationState<Witness> = new Set();
+  const lattice: SourceContinuationLattice<Witness> = Object.freeze({
     empty: () => empty,
-    join(left: SourceContinuationState, right: SourceContinuationState) {
+    join(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>) {
       if (!budget.step()) return undefined;
       if (left === right || right.size === 0) return left;
       if (left.size === 0) return right;
-      let result: Set<SourcePendingOperation> | undefined;
+      let result: Set<Witness> | undefined;
       for (const witness of right) {
         if (!budget.step()) return undefined;
         if (left.has(witness)) continue;
@@ -31,7 +35,7 @@ export function createSourceContinuationTransfer(budget: SourceOwnershipBudget) 
       }
       return result ?? left;
     },
-    equals(left: SourceContinuationState, right: SourceContinuationState) {
+    equals(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>) {
       if (left === right) return true;
       if (left.size !== right.size) return false;
       for (const witness of left) {
@@ -42,7 +46,7 @@ export function createSourceContinuationTransfer(budget: SourceOwnershipBudget) 
   });
   return Object.freeze({
     lattice,
-    suspend(state: SourceContinuationState, witness: SourcePendingOperation): SourceContinuationState | undefined {
+    suspend(state: SourceContinuationState<Witness>, witness: Witness): SourceContinuationState<Witness> | undefined {
       if (!budget.step()) return undefined;
       if (state.has(witness)) return state;
       if (!rows.add(1 + state.size + 1)) return undefined;
@@ -50,8 +54,8 @@ export function createSourceContinuationTransfer(budget: SourceOwnershipBudget) 
       selected.add(witness);
       return selected;
     },
-    read(state: SourceContinuationState, reference: Node,
-      visit: (pending: SourcePendingOperation, reference: Node) => boolean): boolean {
+    read(state: SourceContinuationState<Witness>, reference: Node,
+      visit: (pending: Witness, reference: Node) => boolean): boolean {
       for (const pending of state) {
         if (!budget.step() || !visit(pending, reference)) return false;
       }
@@ -61,4 +65,4 @@ export function createSourceContinuationTransfer(budget: SourceOwnershipBudget) 
   });
 }
 
-export type SourceContinuationTransfer = ReturnType<typeof createSourceContinuationTransfer>;
+export type SourceContinuationTransfer<Witness = SourceDeclarationPendingOperation> = ReturnType<typeof createSourceContinuationTransfer<Witness>>;

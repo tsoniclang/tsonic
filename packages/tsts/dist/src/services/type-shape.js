@@ -4,7 +4,8 @@ import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-ap
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
-import { Program_GetSourceFile, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetSourceFile, Program_GetTypeChecker } from "../internal/compiler/program.js";
+import { CheckerLifetimeAPI, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
@@ -60,7 +61,14 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isTypeReference: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,
         isTuple: isTupleType,
         isArrayLike: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
-        isTypeIdenticalTo: (left, right) => withCheckerForType(program, left, defaultOptions, (checker) => Checker_isTypeIdenticalTo(checker, left, right)) === true,
+        isTypeIdenticalTo: (left, right) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
+            if (checker === undefined || left?.checker === undefined || right?.checker === undefined ||
+                left.checker !== checker || right.checker !== checker ||
+                left.checker.program.SourceFiles() !== checker.program.SourceFiles() ||
+                right.checker.program.SourceFiles() !== checker.program.SourceFiles())
+                return false;
+            return Checker_isTypeIdenticalTo(checker, left, right);
+        }) === true,
         couldContainTypeVariables: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
             if (checker === undefined) {
                 throw new Error("The source type has no owning checker for genericity analysis.");
@@ -319,10 +327,11 @@ function withCheckerForSignature(program, signature, defaultOptions, callback) {
     return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSourceFile(program, sourceFile, defaultOptions, callback) {
-    if (sourceFile === undefined) {
+    if (program === undefined || sourceFile === undefined ||
+        Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile) {
         return undefined;
     }
-    const [checker, done] = Program_GetTypeCheckerForFile(program, defaultOptions.context ?? Background(), sourceFile);
+    const [checker, done] = Program_GetTypeChecker(program, WithCheckerLifetime(defaultOptions.context ?? Background(), CheckerLifetimeAPI));
     try {
         return callback(checker);
     }

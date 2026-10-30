@@ -4,6 +4,8 @@ import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts"
 import { createTargetSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/source.js";
 import { analyzeSourceNativeTaskGraph, createSourceStorageQuery, createSourceStorageBudget,
   defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { analyzeSourceDeclarationNativeTaskGraph, createSourceDeclarationOwnershipValues,
+  createSourceDeclarationOwnershipBudget } from "../../packages/target-api/dist/public/analysis.js";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
@@ -26,6 +28,102 @@ function fixture(body) {
     spawns, lifecycleOwner: file, publishedDeclarations: new Set(), budget: createSourceStorageBudget(defaultSourceStorageLimits), ...changes });
   return { source, storage, file, nodes, declarations, ownerUses, callInputs, select };
 }
+
+function declaredTasks(current, required, changes = {}) {
+  const { source, file } = current;
+  const nodes = source.navigation.nodesForFiles([file]);
+  const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceStorageLimits);
+  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  return analyzeSourceDeclarationNativeTaskGraph({ source, nodes, values: context.values, budget,
+    lifecycleOwner: file, publishedDeclarations: new Set(),
+    spawns: nodes.filter(node => source.ast.is.IsVoidExpression(node))
+      .map(node => ({ node, operand: Node_Expression(source.ast, node) })),
+    scopeFor(declaration) {
+      const semantics = source.semantics.forNode(declaration);
+      const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
+        semantics.declarations.declaredValueType(declaration);
+      assert.equal(selectedType !== undefined, true, "the declared native scope uses a real checked component");
+      return { kind: required.has(declaration) ? "parameter" : "none",
+        contract: { kind: "declaration", declaration, component: { selectedType } } };
+    }, ...changes });
+}
+
+test("declaration-native task scope uses own-body and declared callee requirements, not invocation families", () => {
+  const current = fixture(`async function child(): Promise<void> {}
+    function inner(): void { void child(); }
+    function outer(): void { inner(); } outer();`);
+  const inner = current.declarations.get("inner");
+  const outer = current.declarations.get("outer");
+  const selected = declaredTasks(current, new Set([inner, outer]));
+  assert.equal(selected.kind === "resolved", true, "the declared native scope graph completes");
+  assert.equal(selected.graph.owners.length === 2 && selected.graph.owners.includes(inner) &&
+    selected.graph.owners.includes(outer), true, "only the own-body scope and its declared caller need input");
+  assert.equal(selected.graph.calls.length === 2 && selected.graph.spawns.length === 1, true, "actual source operations remain distinct");
+  assert.equal(selected.graph.entries.length === 1 && selected.graph.entries[0] === current.file, true, "the original lifecycle owner is retained");
+});
+
+test("declaration-native getter and setter scopes retain their distinct selected operation slots", () => {
+  const current = fixture(`async function child(): Promise<void> {}
+    class Holder { get value(): number { void child(); return 1; } set value(input: number) { void child(); } }
+    function work(holder: Holder): void { holder.value; holder.value = 2; } work(new Holder());`);
+  const getter = current.nodes.find(node => current.source.ast.is.IsGetAccessorDeclaration(node));
+  const setter = current.nodes.find(node => current.source.ast.is.IsSetAccessorDeclaration(node));
+  assert.equal(getter !== undefined && setter !== undefined && getter !== setter, true, "distinct original accessors");
+  const selected = declaredTasks(current, new Set([getter, setter, current.declarations.get("work")]));
+  assert.equal(selected.kind === "resolved", true, "both declared native access roles complete");
+  for (const declaration of [getter, setter]) {
+    const calls = selected.graph.calls.filter(call => call.targets.includes(declaration));
+    assert.equal(calls.length === 1 && current.source.ast.is.IsPropertyAccessExpression(calls[0].node), true,
+      "each accessor is consumed by its actual property operation, never a fabricated call");
+  }
+});
+
+test("declaration-native zero-task code has no scope state or speculative native contract lookup", () => {
+  const current = fixture("function work(): number { return 1; } work();");
+  const selected = declaredTasks(current, new Set(), { scopeFor: () => assert.fail("no task means no scope contract demand") });
+  assert.equal(selected.kind === "resolved", true, "the no-task graph is complete");
+  assert.equal(selected.graph.owners.length === 0 && selected.graph.calls.length === 0 &&
+    selected.graph.spawns.length === 0 && selected.graph.lifecycleOwner === undefined, true, "no hidden native scope ABI or lifecycle state");
+});
+
+for (const scope of ["capture", "none"]) {
+  test(`declaration-native task demand cannot invent a parameter from a ${scope} contract`, () => {
+    const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work();");
+    const selected = declaredTasks(current, new Set(), { scopeFor(declaration) {
+      const semantics = current.source.semantics.forNode(declaration);
+      const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType;
+      assert.equal(selectedType !== undefined, true, "the real selected native declaration result");
+      return { kind: scope, contract: { kind: "declaration", declaration, component: { selectedType } } };
+    } });
+    assert.equal(selected.kind === "unresolved" && selected.issues.some(issue => issue.kind === "scope-owner"), true,
+      "missing declared scope ownership cannot become a hidden signature parameter");
+    assert.equal("graph" in selected, false, "a rejected scope contract publishes no partial task graph");
+  });
+}
+
+test("declaration-native task scope rejects an unrelated checked component", () => {
+  const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work(); const unrelated = true;");
+  const literal = current.nodes.find(node => current.source.ast.kindName(node) === "KindTrueKeyword");
+  assert.equal(literal !== undefined, true, "the wrong component has a real checked source");
+  const selectedType = current.source.semantics.forNode(literal).types.expressionType(literal);
+  assert.equal(selectedType !== undefined, true, "the wrong native scope component is checked but unrelated");
+  const selected = declaredTasks(current, new Set(), { scopeFor: declaration => ({ kind: "parameter",
+    contract: { kind: "declaration", declaration, component: { selectedType } } }) });
+  assert.equal(selected.kind === "unresolved" && selected.cause?.kind === "required-fact", true,
+    "matching declaration spelling cannot replace its actual checked return component");
+  assert.equal("graph" in selected, false, "incompatible component evidence is not a partial success");
+});
+
+test("declaration-native task demand cannot add an executor slot to an exported container method", () => {
+  const current = fixture("declare function child(): Promise<void>; export class Holder { work(): void { void child(); } } new Holder().work();");
+  const container = current.nodes.find(node => current.source.ast.is.IsClassDeclaration(node));
+  const method = current.nodes.find(node => current.source.ast.is.IsMethodDeclaration(node));
+  assert.equal(container !== undefined && method !== undefined, true, "the actual public class and its declared method exist");
+  const selected = declaredTasks(current, new Set([method]), { publishedDeclarations: new Set([container]) });
+  assert.equal(selected.kind === "unresolved" && selected.issues.some(issue => issue.kind === "public-scope" && issue.node === method),
+    true, "publication of the container preserves its method's source-native ABI");
+  assert.equal("graph" in selected, false, "an exported signature mismatch publishes no partial native graph");
+});
 
 test("native task demand propagates from a source spawn through its original callers", () => {
   const current = fixture(`async function child(): Promise<void> {}
