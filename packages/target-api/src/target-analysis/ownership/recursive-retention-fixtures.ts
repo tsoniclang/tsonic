@@ -120,6 +120,15 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
     assert.equal(selected !== undefined, true, name);
     return selected!;
   };
+  const leaseDeclaration = nodes.find(node => source.ast.is.IsInterfaceDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "Lease");
+  assert.equal(leaseDeclaration !== undefined, true, "the original checked native lease declaration is required");
+  const isLeaseParameter = (parameter: Node): boolean => {
+    const semantics = source.semantics.forNode(parameter);
+    const type = semantics.declarations.declaredValueType(parameter);
+    const symbol = type === undefined ? undefined : semantics.declarations.typeSymbol(type);
+    return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(leaseDeclaration!);
+  };
   const premises: SourceDeclarationOwnershipPremises = {
     completionFor(call, selected) {
       const owner = selectedDeclaration(call);
@@ -162,7 +171,7 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
       const formal = source.ast.is.IsParameterDeclaration(value.node) ? value.node
         : reference !== undefined && source.ast.is.IsParameterDeclaration(reference) ? reference : undefined;
       if (formal !== undefined && source.ast.text(source.ast.name(formal)) === "value" &&
-        source.ast.text(source.ast.typeNode(formal)) === "Lease")
+        isLeaseParameter(formal))
         return { kind: "resolved", premises: [{ kind: "formal-borrowed", value,
           executionOwner: source.ast.parent(formal)!, region: { kind: "input-duration", parameter: formal },
           mode: "shared", contract }] };
@@ -171,7 +180,7 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
         const owner = selectedDeclaration(value.node);
         const parameter = owner === undefined ? undefined : source.ast.parameters(owner)[0];
         if (call?.sourceSelectedSignatureKind === "resolved" && owner !== undefined && parameter !== undefined &&
-          source.ast.hasModifierKind(owner, "async") && source.ast.text(source.ast.typeNode(parameter)) === "Lease")
+          source.ast.hasModifierKind(owner, "async") && isLeaseParameter(parameter))
           return { kind: "resolved", premises: [{ kind: "formal-borrowed", value, executionOwner: owner,
             region: { kind: "input-duration", parameter }, mode: "shared", contract }] };
       }
