@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativePayloadContinuationCases, fixture } from './generic-adoption-fixtures.js';
+import { assertDeclaredAdoption, nativePayloadContinuationCases, fixture } from './generic-adoption-fixtures.js';
 
 for (const form of nativePayloadContinuationCases) for (const adopting of [false, true]) {
   for (const ordinary of [false, true]) for (const reversed of [false, true]) {
@@ -28,12 +28,7 @@ for (const form of nativePayloadContinuationCases) for (const adopting of [false
       assert.equal(invoke !== undefined && source.ast.body(invoke) === undefined &&
         again !== undefined && source.ast.body(again) === undefined, true,
         "the original checked native declaration remains the selected contract, without a callback-execution hook");
-      const selected = current.query();
-      assert.equal(selected.kind, adopting && !ordinary ? "unresolved" : "resolved",
-        "possible helper invocations retain their demanded owner, not a source-global argument union");
-      if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
-        "ordinary identity or the actual observer/number inverse stays admitted");
-      else assert.equal(current.textFor(selected.at), form.expression, "the relevant resolving helper demand owns uncertainty");
+      assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
     });
   }
 }
@@ -59,9 +54,6 @@ for (const form of ["uncalled", "nonresolver", "ignored-source-argument", "unuse
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    const selected = current.query();
-    assert.equal(selected.kind, "resolved", "only relevant callable payloads may open resolver execution");
-    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
-      "unused or proven nonresolving payloads do not create a generic adoption refusal");
+    assertDeclaredAdoption(current, 1, "wrap(value)");
   });
 }
