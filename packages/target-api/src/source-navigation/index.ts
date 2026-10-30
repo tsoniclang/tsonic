@@ -57,10 +57,8 @@ export type { SourceExpressionResultDisposition, SourceValueInput, SourceValueIn
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
-export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
 export { sourceBindingCapturedBeforeInitialization, sourceBindingCapturedBeforeFirstWrite } from "./deferred-captures.js";
-export { sourceLexicalFunctionValueCreation, sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
-export type { SourceLexicalValueCreation } from "./lexical-value-creation.js";
+export { sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
   sourceNodesOutsideErasedSubtrees, createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
 export type { SourceSubtreeParticipation, SourceCallableInvocationReference } from "./callable-invocations.js";
@@ -72,7 +70,7 @@ export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 export type { SourceCallOnlyAlias } from "./callable-aliases.js";
 export { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 export type { SourceCallableValue } from "./callable-values.js";
-export { sourceClosedCallableArguments, sourceExpressionCallArgument } from "./callable-arguments.js";
+export { sourceExpressionCallArgument } from "./callable-arguments.js";
 export type { SourceClosedCallableArgument } from "./callable-arguments.js";
 export { createSourceArrayDensityQuery } from "./array-density.js";
 export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
