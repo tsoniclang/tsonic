@@ -60,8 +60,16 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       return undefined;
     }
     const file = source.ast.getSourceFile(declaration);
-    if (file === undefined || !source.semantics.includes(file)) {
+    if (file === undefined) {
       failure = sourceDeclarationOwnershipUnresolved(declaration, "A native task declaration must belong to the checked program.");
+      return undefined;
+    }
+    const semantics = source.semantics.forNode(declaration);
+    const component = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
+      semantics.declarations.declaredValueType(declaration);
+    if (component === undefined || !semantics.types.isIdentical(component, selected.contract.component.selectedType)) {
+      failure = sourceDeclarationOwnershipUnresolved(declaration,
+        "A native task scope needs its exact selected declaration component, not an unrelated checked type.");
       return undefined;
     }
     if (!rows.add(1)) { failure = budget.failure(); return undefined; }
@@ -91,9 +99,9 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
         if (declaration !== undefined) targets.push(declaration);
       } else if (source.ast.is.IsPropertyAccessExpression(node)) {
         const access = semantics.operations.propertyAccess(node);
-        if (access?.selectedReadDeclaration !== undefined && source.ast.is.IsGetAccessorDeclaration(access.selectedReadDeclaration))
+        if (access?.accessMode !== "write" && access?.selectedReadDeclaration !== undefined && source.ast.is.IsGetAccessorDeclaration(access.selectedReadDeclaration))
           targets.push(access.selectedReadDeclaration);
-        if (access?.selectedWriteDeclaration !== undefined && source.ast.is.IsSetAccessorDeclaration(access.selectedWriteDeclaration))
+        if (access?.accessMode !== "read" && access?.selectedWriteDeclaration !== undefined && source.ast.is.IsSetAccessorDeclaration(access.selectedWriteDeclaration))
           targets.push(access.selectedWriteDeclaration);
       }
       if (targets.length === 0) continue;
@@ -148,6 +156,8 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       if (!rows.add(1)) return budget.failure()!;
       calls.push(edge);
     }
+    const unresolved = failure ?? budget.failure();
+    if (unresolved !== undefined) return unresolved;
     if (issues.length !== 0) return Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });
     const declarations = [...needed].filter(owner => !source.ast.is.IsSourceFile(owner));
     published = true;

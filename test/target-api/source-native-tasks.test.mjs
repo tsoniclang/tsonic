@@ -86,6 +86,34 @@ test("declaration-native zero-task code has no scope state or speculative native
     selected.graph.spawns.length === 0 && selected.graph.lifecycleOwner === undefined, true, "no hidden native scope ABI or lifecycle state");
 });
 
+for (const scope of ["capture", "none"]) {
+  test(`declaration-native task demand cannot invent a parameter from a ${scope} contract`, () => {
+    const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work();");
+    const selected = declaredTasks(current, new Set(), { scopeFor(declaration) {
+      const semantics = current.source.semantics.forNode(declaration);
+      const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType;
+      assert.equal(selectedType !== undefined, true, "the real selected native declaration result");
+      return { kind: scope, contract: { kind: "declaration", declaration, component: { selectedType } } };
+    } });
+    assert.equal(selected.kind === "unresolved" && selected.issues.some(issue => issue.kind === "scope-owner"), true,
+      "missing declared scope ownership cannot become a hidden signature parameter");
+    assert.equal("graph" in selected, false, "a rejected scope contract publishes no partial task graph");
+  });
+}
+
+test("declaration-native task scope rejects an unrelated checked component", () => {
+  const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work(); const unrelated = true;");
+  const literal = current.nodes.find(node => current.source.ast.kindName(node) === "KindTrueKeyword");
+  assert.equal(literal !== undefined, true, "the wrong component has a real checked source");
+  const selectedType = current.source.semantics.forNode(literal).types.expressionType(literal);
+  assert.equal(selectedType !== undefined, true, "the wrong native scope component is checked but unrelated");
+  const selected = declaredTasks(current, new Set(), { scopeFor: declaration => ({ kind: "parameter",
+    contract: { kind: "declaration", declaration, component: { selectedType } } }) });
+  assert.equal(selected.kind === "unresolved" && selected.cause?.kind === "required-fact", true,
+    "matching declaration spelling cannot replace its actual checked return component");
+  assert.equal("graph" in selected, false, "incompatible component evidence is not a partial success");
+});
+
 test("native task demand propagates from a source spawn through its original callers", () => {
   const current = fixture(`async function child(): Promise<void> {}
     function inner(): void { void child(); }
