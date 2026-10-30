@@ -63,7 +63,7 @@ export const selected = ordinary.extra;
   assert.equal(checked.diagnostics.length, 0, "the original shorthand bindings check successfully");
   const source = createTargetSourceProgram(checked);
   const nodes = source.navigation.nodes;
-  const parameter = nodes.find(node => source.ast.is.IsParameter(node) && source.ast.text(source.ast.name(node)) === "extra");
+  const parameter = nodes.find(node => source.ast.is.IsParameterDeclaration(node) && source.ast.text(source.ast.name(node)) === "extra");
   const variables = nodes.filter(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "extra");
   const shorthands = nodes.filter(node => source.ast.is.IsShorthandPropertyAssignment(node));
   assert.equal(parameter !== undefined && variables.length === 2 && shorthands.length === 3, true,
@@ -120,7 +120,7 @@ export const ordinary = Imported;
     "the lexical alias follows checked re-exports to the exact value declaration");
   assert.equal(source.navigation.sourceReferenceFor(typeUse)?.declaration === type, true,
     "the same imported alias still has an independent type declaration facet");
-  assert.equal(source.navigation.sourceReferenceFor(source.ast.initializer(ordinary)!)?.declaration === value, true,
+  assert.equal(source.navigation.sourceReferenceFor(source.ast.as.AsVariableDeclaration(ordinary)!.Initializer!)?.declaration === value, true,
     "ordinary nonshorthand values retain their existing alias selection");
   assert.equal(source.navigation.referencesToDeclaration(value!).includes(name), true,
     "the shorthand occurrence is indexed against the actual imported value");
