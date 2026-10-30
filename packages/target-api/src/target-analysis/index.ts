@@ -62,8 +62,7 @@ export * from "./ownership/index.js";
 export * from "./flow/index.js";
 export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createTargetGraphComponentQuery } from "./graph-component-query.js";
-export { createSourceErrorStorageDemandQuery, createSourceErrorDeclarationQuery } from "./error-storage/error-storage-demands.js";
-export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
+export { createSourceErrorDeclarationQuery } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
 export { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
 export type { SourceGlobalCallStorageEffect } from "./source-storage/model/global-call-effects.js";
@@ -85,7 +84,6 @@ export type {
   SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection,
   SourceStorageCallEffect, SourceStorageEffects,
 } from "./source-storage/model/types.js";
-export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";
 export type { SourceErrorCheckedValue, SourceErrorDeclaredSlot, SourceErrorScalarSlot, SourceErrorDeclarationProtocol,
   SourceErrorDeclarationSelection, SourceErrorFieldUse, SourceErrorConstruction, SourceErrorScalarMutation,
   SourceErrorMutation, SourceErrorParameterUse, SourceErrorLocalInvalidation, SourceErrorDeclarationQueries } from "./error-storage/protocol.js";

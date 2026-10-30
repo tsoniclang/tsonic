@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, createSourceErrorStorageDemandQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, createSourceErrorDeclarationQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedMember, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -667,17 +667,18 @@ test("neutral graph results are immutable and Error consumes the identical graph
   const incoming = storage.incomingFor(selected);
   assert.equal(incoming.kind === "resolved" && Object.isFrozen(incoming) && Object.isFrozen(incoming.subjects), true);
   assert.throws(() => incoming.subjects.push(selected), TypeError);
-  const protocol = { fields: [], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) };
-  const first = createSourceErrorStorageDemandQuery(source, protocol, storage);
-  const second = createSourceErrorStorageDemandQuery(source, protocol, storage);
-  assert.equal(first.storageFor(selected).kind, "immutable");
-  assert.equal(second.storageOriginsFor(selected).kind, "resolved");
+  const protocol = { fields: [], constructors: [], scalarMutators: [] };
+  const first = createSourceErrorDeclarationQuery(source, protocol);
+  const second = createSourceErrorDeclarationQuery(source, protocol);
+  assert.equal(first.mutationFor(selected.node).kind, "not-applicable", "a neutral binding is not an Error mutation declaration");
+  assert.equal(storage.originsFor(selected).kind, "resolved", "the original independent storage query is still the origin owner");
   assert.equal(storage.subjectFor(variable("alias")).subject === selected, true, "shared subject is not rebuilt by Error consumers");
   const foreign = await checked("source-storage-foreign-query", `const original = 3;`);
   assert.equal(storage.incomingFor(foreign.subject("original")).kind, "unresolved", "foreign graph subject rejected");
   assert.equal(storage.subjectFor(foreign.variable("original")).kind, "unresolved", "foreign checker declaration rejected");
-  const invalid = createSourceErrorStorageDemandQuery(source, protocol, foreign.storage);
-  assert.equal(invalid.storageFor(selected).kind, "unresolved", "Error requires exact source owner");
+  const invalid = createSourceErrorDeclarationQuery(foreign.source, protocol);
+  assert.equal(invalid.mutationFor(selected.node).kind, "unresolved", "Error requires the exact checked source owner");
+  assert.equal(second.parameterFor(foreign.variable("original")).kind, "unresolved", "foreign declarations cannot publish a formal input");
 });
 
 test("the same checked source resolves with adequate limits and rejects every independently tightened graph budget", async () => {
@@ -694,8 +695,8 @@ const secondResult = identity(other);
     const rejected = createSourceStorageQuery(source, source.navigation.sourceFiles, { ...defaultSourceStorageLimits, [key]: 1 });
     assert.equal(rejected.failureReason() !== undefined, true, key);
     assert.equal(rejected.subjectFor(variable("firstResult")).kind, "unresolved", key);
-    const errors = createSourceErrorStorageDemandQuery(source,
-      { fields: [], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) }, rejected);
-    assert.equal(errors.storageFor(selected).kind, "unresolved", "exhaustion cannot manufacture Error immutability");
+    const errors = createSourceErrorDeclarationQuery(source, { fields: [], constructors: [], scalarMutators: [] });
+    assert.equal(rejected.originsFor(selected).kind, "unresolved", "exhaustion cannot manufacture an original storage proof");
+    assert.equal(errors.mutationFor(selected.node).kind, "not-applicable", "an unrelated exhausted graph does not decide native Error admission");
   }
 });

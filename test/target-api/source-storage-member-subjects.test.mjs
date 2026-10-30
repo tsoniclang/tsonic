@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorDeclarationQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 import { sourceStorageProjectComponents } from "../../packages/target-api/dist/target-analysis/source-storage/graph/component-projections.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -67,16 +67,15 @@ test("canonical Error carrier queries preserve entry versus local binding roles 
   const parameter = requiredNode(ast, box, node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === "value");
   const input = selected(storage.subject(parameter, "input"));
   const binding = selected(storage.subject(parameter, "value"));
-  const protocol = { fields: [], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) };
-  const demand = createSourceErrorStorageDemandQuery(source, protocol, storage);
+  const demand = createSourceErrorDeclarationQuery(source, { fields: [], constructors: [], scalarMutators: [] });
   const original = Node_Initializer(ast, namedVariable(ast, file, "original"));
   const replacement = Node_Initializer(ast, namedVariable(ast, file, "replacement"));
-  const entries = demand.storageOriginsFor(input);
-  const locals = demand.storageOriginsFor(binding);
+  const entries = storage.originsFor(input);
+  const locals = storage.originsFor(binding);
   assert.equal(entries.kind === "resolved" && locals.kind === "resolved", true);
-  assert.equal(entries.origins.some(origin => origin.node === original), true);
-  assert.equal(entries.origins.some(origin => origin.node === replacement), false, "rebinding is not an entry-input producer");
-  assert.equal(locals.origins.some(origin => origin.node === original) && locals.origins.some(origin => origin.node === replacement), true,
+  assert.equal(entries.origins.some(origin => origin.subject.node === original), true);
+  assert.equal(entries.origins.some(origin => origin.subject.node === replacement), false, "rebinding is not an entry-input producer");
+  assert.equal(locals.origins.some(origin => origin.subject.node === original) && locals.origins.some(origin => origin.subject.node === replacement), true,
     "the identical Node cannot erase the mutable binding's distinct producer set");
   const field = namedMember(ast, box, "items");
   const projection = [{ kind: "array-element" }, { kind: "tuple-element", index: 1 }];
@@ -84,9 +83,11 @@ test("canonical Error carrier queries preserve entry versus local binding roles 
   assert.equal(selected(storage.storageSubjectFor(field, projection)) === projected, true);
   assert.equal(projected.kind, "member");
   assert.equal(Object.isFrozen(projected) && Object.isFrozen(projected.projection), true);
-  const projectedDemand = demand.storageFor(projected);
-  assert.equal(projectedDemand.kind, "immutable", projectedDemand.kind === "unresolved"
-    ? projectedDemand.reason : "the exact projected member has no Error mutation demand");
+  const projectedDemand = demand.mutationFor(projected.node);
+  assert.equal(projectedDemand.kind, "not-applicable", "the exact projected member has no Error mutation owner");
+  const formal = demand.parameterFor(parameter);
+  assert.equal(formal.kind === "resolved" && formal.value.parameter.node === parameter && formal.value.access === "writable", true,
+    "the original constructor binding publishes its own checked local rebinding contract, not a merged entry/member carrier");
   assert.equal(storage.failureReason() === undefined, true);
 });
 

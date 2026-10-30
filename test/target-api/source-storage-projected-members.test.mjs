@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorDeclarationQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable } from "../fixtures/source-navigation.mjs";
 
 test("inline optional declaration members preserve correlated absence and real callback stores", () => {
@@ -27,8 +27,7 @@ test("inline optional declaration members preserve correlated absence and real c
   const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
   assert.equal(file !== undefined, true, "the original checked file is present");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
-  const demand = createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [],
-    storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
+  const demand = createSourceErrorDeclarationQuery(source, { fields: [], constructors: [], scalarMutators: [] });
   const original = Node_Initializer(ast, namedVariable(ast, file, "original"));
   const unrelated = Node_Initializer(ast, namedVariable(ast, file, "unrelated"));
   for (const name of ["receiver", "absent"]) {
@@ -43,11 +42,11 @@ test("inline optional declaration members preserve correlated absence and real c
     assert.equal(frontier.frontier.some(value => value.subject.node === unrelated), false,
       `${name}: another receiver's real callback store remains separate`);
     if (name === "absent") assert.equal(frontier.frontier.length, 0, "omitted inline initialization is completed absence, not an unknown producer");
-    assert.equal(demand.storageFor(subject.subject).kind, "immutable", `${name}: origin-member demands share the same completed native storage`);
+    assert.equal(demand.mutationFor(subject.subject.node).kind, "not-applicable", `${name}: a projected native declaration does not acquire an Error mutation owner`);
   }
   const read = storage.subject(Node_Initializer(ast, namedVariable(ast, file, "read")), "value");
   assert.equal(read.kind === "resolved", true, "the actual property read is admitted");
-  assert.equal(demand.storageFor(read.subject).kind, "immutable", "the property read and declaration origin use the same member owner");
+  assert.equal(demand.fieldFor(read.subject.node).kind, "not-applicable", "the property read does not acquire a same-spelling Error member owner");
   assert.equal(storage.failureReason() === undefined, true, "the original query completes within the unchanged budget");
 });
 
@@ -108,10 +107,9 @@ for (const [name, container, prefix, fieldType = "object", stored = "value", suf
       `${name}: the exact live callback producer is retained`);
     assert.equal(frontier.frontier.some(value => value.subject.node === unrelated), false,
       `${name}: a distinct receiver origin is not joined`);
-    const demand = createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [],
-      storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
-    assert.equal(demand.storageFor(subject.subject).kind, "immutable", `${name}: the completed member has no Error mutation demand`);
-    assert.equal(demand.storageFor(absentSubject.subject).kind, "immutable", `${name}: exact absence is not an unresolved Error owner`);
+    const demand = createSourceErrorDeclarationQuery(source, { fields: [], constructors: [], scalarMutators: [] });
+    assert.equal(demand.mutationFor(subject.subject.node).kind, "not-applicable", `${name}: the completed member has no Error mutation owner`);
+    assert.equal(demand.mutationFor(absentSubject.subject.node).kind, "not-applicable", `${name}: exact absence is not a fabricated Error owner`);
     const required = namedMember(ast, namedDeclaration(ast, file, "Required"), "value");
     const unknown = storage.subject(namedVariable(ast, file, "unknownContainer"), "value", [...prefix, { kind: "member", declaration: required }, ...suffix]);
     assert.equal(unknown.kind === "resolved", true, `${name}: the required external member has its original checked identity`);

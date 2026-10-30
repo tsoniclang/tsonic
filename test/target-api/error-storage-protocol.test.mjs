@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorDeclarationQuery, createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorDeclarationQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 
 test("destructured Error formals retain their unique checked signature slot and actual field reads", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/error-bindings", files: {
@@ -84,20 +84,40 @@ async function checked(name) {
 }
 
 function analyze(source, storageMutators, storage) {
-  return createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [], storageMutators,
-    retention: () => ({ kind: "ordinary" }) }, storage);
+  const provider = projectSourceFile(source, "src/provider.ts");
+  const field = source.ast.members(namedDeclaration(source.ast, provider, "Stored"))[0];
+  const component = declaration => ({ declaration, selectedType: declaration === undefined ? undefined
+    : source.semantics.forNode(declaration).declarations.declaredValueType(declaration) });
+  return createSourceErrorDeclarationQuery(source, {
+    fields: [{ declaration: field, component: component(field) }], constructors: [],
+    scalarMutators: storageMutators.map(({ signature, sourceParameterIndex }) => {
+      const parameterDeclaration = source.ast.parameters(signature)[sourceParameterIndex];
+      return { signatureDeclaration: signature, parameterDeclaration, parameterIndex: sourceParameterIndex,
+        component: component(parameterDeclaration), fields: [field] };
+    }),
+  });
 }
 
 test("physical Error storage mutation follows its exact selected cross-file scalar parameter and alias", async () => {
   const { source, signature, original, untouched, provider, storage } = await checked("error-storage-selected-mutator");
   const demand = analyze(source, [{ signature, sourceParameterIndex: 1 }], storage);
-  assert.equal(demand.storageFor(original).kind, "writable");
-  assert.equal(demand.storageFor(untouched).kind, "immutable");
-  assert.equal(demand.fieldWrites.length, 0);
-  assert.equal(demand.storageFor(original).writes.length, 1);
-  assert.equal(Object.isFrozen(demand.storageFor(original).writes), true);
+  const invocation = source.navigation.nodes.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.getSourceFile(node) !== provider);
+  const mutation = demand.mutationFor(invocation);
+  assert.equal(mutation.kind === "resolved" && mutation.value.length === 1, true, "one exact selected scalar mutation");
+  const selected = mutation.value[0];
+  assert.equal(selected.kind === "scalar" && selected.scalar.slot.parameterIndex === 1, true, "only the second scalar slot is writable");
+  const call = source.semantics.forNode(invocation).operations.call(invocation);
+  assert.equal(selected.scalar.argument.node === call.sourceArguments[1].expression, true, "the selected argument is the original alias");
+  assert.equal(selected.scalar.argument.node !== call.sourceArguments[0].expression, true, "the independent first argument is not selected");
+  assert.equal(source.navigation.nodes.some(node => demand.mutationFor(node).kind === "resolved" &&
+    demand.mutationFor(node).value.some(value => value.kind === "field")), false, "a scalar call is not a fabricated field write");
+  assert.equal(Object.isFrozen(mutation) && Object.isFrozen(mutation.value) && Object.isFrozen(selected), true);
+  assert.equal(storage.originsFor(original).kind, "resolved", "original identity remains at its actual independent storage owner");
+  assert.equal(storage.originsFor(untouched).kind, "resolved", "the independent original storage still resolves");
   const unrelated = namedDeclaration(source.ast, provider, "unrelated");
-  assert.equal(analyze(source, [{ signature: unrelated, sourceParameterIndex: 1 }], storage).storageFor(original).kind, "immutable");
+  assert.equal(analyze(source, [{ signature: unrelated, sourceParameterIndex: 1 }], storage).mutationFor(invocation).kind,
+    "not-applicable", "same-shaped foreign call identity is not the selected mutator");
 });
 
 test("physical Error storage protocol rejects malformed, foreign, duplicate and nonscalar selections", async () => {
@@ -110,12 +130,13 @@ test("physical Error storage protocol rejects malformed, foreign, duplicate and 
     [{ signature, sourceParameterIndex: 1 }, { signature, sourceParameterIndex: 1 }]);
   for (const selection of selections) {
     const demand = analyze(source, selection, query);
-    const storage = demand.storageFor(original);
-    assert.equal(storage.kind, "unresolved", "invalid selected mutation cannot manufacture writable evidence");
-    assert.equal(Object.isFrozen(storage), true);
-    assert.equal(demand.storageOriginsFor(original).kind, "unresolved");
-    assert.equal(demand.closedStorageOriginsFor(original).kind, "unresolved", "malformed protocol never publishes a closed origin proof");
-    assert.equal(demand.receivesWritableNative(original), false);
+    const invocation = source.navigation.nodes.find(node => source.ast.is.IsCallExpression(node) && source.ast.getSourceFile(node) !== provider);
+    const selected = demand.mutationFor(invocation);
+    assert.equal(selected.kind, "unresolved", "invalid selected mutation cannot manufacture writable evidence");
+    assert.equal(Object.isFrozen(selected), true);
+    assert.equal(demand.parameterFor(source.ast.parameters(signature)[1]).kind, "unresolved", "malformed protocol publishes no native formal");
+    assert.equal(demand.fieldFor(invocation).kind, "unresolved", "malformed protocol cannot publish unrelated field evidence");
+    assert.equal(query.originsFor(original).kind, "resolved", "a rejected Error protocol does not replace the independent original storage owner");
   }
 });
 
@@ -123,16 +144,20 @@ test("Error carrier queries require the exact owning subject and reject removed 
   const current = await checked("error-storage-canonical-subjects");
   const foreign = await checked("error-storage-canonical-foreign-subjects");
   const demand = analyze(current.source, [{ signature: current.signature, sourceParameterIndex: 1 }], current.storage);
-  for (const subject of [current.original.node, foreign.original, { ...current.original }, undefined]) {
-    for (const query of [demand.storageFor, demand.storageOriginsFor, demand.closedStorageOriginsFor]) {
+  const invocation = current.source.navigation.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.getSourceFile(node) === current.file);
+  const foreignInvocation = foreign.source.navigation.nodes.find(node => foreign.source.ast.is.IsCallExpression(node) &&
+    foreign.source.ast.getSourceFile(node) === foreign.file);
+  for (const subject of [foreignInvocation, foreign.original, { ...invocation }, undefined]) {
+    for (const query of [demand.mutationFor, demand.fieldFor, demand.parameterFor]) {
       const selected = query(subject);
-      assert.equal(selected.kind, "unresolved", "a Node or matching shape cannot supply canonical graph ownership");
+      assert.equal(selected.kind, "unresolved", "foreign or copied shapes cannot supply checked declaration ownership");
       assert.equal(Object.isFrozen(selected), true);
     }
-    assert.equal(demand.receivesWritableNative(subject), false);
   }
-  assert.equal(demand.storageFor(current.original).kind, "writable", "rejected foreign subjects do not poison admitted storage");
-  assert.equal(demand.storageFor(current.untouched).kind, "immutable");
+  assert.equal(demand.mutationFor(invocation).kind, "resolved", "rejected foreign subjects do not poison the exact checked selected call");
+  assert.equal(demand.parameterFor(current.original.node).kind, "unresolved", "a storage binding cannot impersonate a formal slot");
+  assert.equal(demand.mutationFor(current.untouched.node).kind, "not-applicable", "independent storage is not an invented mutation");
 });
 
 async function declarationProtocol(name) {
