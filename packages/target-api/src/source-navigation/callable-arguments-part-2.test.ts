@@ -5,6 +5,7 @@ import test from "node:test";
 import type { Node } from "@tsonic/tsts";
 
 import { sourceExpressionCallArgument } from "./callable-arguments.js";
+import * as callableArguments from "./callable-arguments.js";
 
 import { fixture } from "./callable-arguments-fixtures.js";
 
@@ -26,9 +27,10 @@ test("checked call arguments are selected independently of closed callable ABI e
     assert.equal(current.source.semantics.forNode(selected!.call).operations.call(selected!.call)
       ?.sourceArguments[0]?.expression === selected!.argument, true, body);
     assert.equal(Object.isFrozen(selected), true, body);
-    const named = current.source.ast.is.IsFunctionExpression(current.expression) &&
-      current.source.ast.name(current.expression) !== undefined;
-    assert.equal(current.select() === undefined, named, "only anonymous inline callbacks close their checked argument context");
+    assert.equal(current.select()?.length, 1, "approved C-1396: named and anonymous expressions keep the same direct slot");
+    assert.equal("sourceClosedCallableArguments" in callableArguments, false,
+      "the exact slot does not restore the deleted native ABI classifier");
+    assert.deepEqual(Object.keys(selected!).sort(), ["argument", "argumentIndex", "call"]);
   }
 });
 
@@ -41,7 +43,10 @@ test("checked argument selection does not authorize mutable or named callable AB
     const arguments_ = current.source.navigation.expressionValueFlow(current.expression).uses.filter(use => use.role === "argument");
     assert.equal(arguments_.length, 1, body);
     assert.equal(sourceExpressionCallArgument(arguments_[0]!.reference, current.source) !== undefined, true, body);
-    assert.equal(current.select() === undefined, true, body);
+    const selected = current.select();
+    assert.equal(selected?.length, 1, `${body}: approved C-1396 raw slot, not native callable admission`);
+    assert.deepEqual(Object.keys(selected![0]!).sort(), ["argument", "argumentIndex", "call"]);
+    assert.equal("sourceClosedCallableArguments" in callableArguments, false, "the removed selector is absent");
   }
 });
 
