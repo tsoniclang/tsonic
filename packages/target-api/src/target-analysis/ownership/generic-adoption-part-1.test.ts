@@ -15,7 +15,7 @@ for (const timing of ["synchronous", "deferred", undefined] as const) {
           ? "export function use(value: number): void { void wrap(value); }"
           : "export function use(value: Promise<number>): void { void wrap(value); }"}
       `, timing);
-      assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+      assertDeclaredAdoption(current, 0, "wrap(value)");
     });
   }
 }
@@ -33,7 +33,7 @@ for (const ordinary of [false, true]) {
       }
       export function use(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
     `);
-    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -49,7 +49,7 @@ test("uncertainty in one callback activation does not erase an independent check
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `);
-  assertDeclaredAdoption(current, 1, "wrap(value)");
+  assertDeclaredAdoption(current, 0, "wrap(value)");
 });
 
 for (const reversed of [false, true]) {
@@ -85,7 +85,7 @@ test("an uncalled nested callback does not create native resolver adoption", () 
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `, "synchronous");
-  assertDeclaredAdoption(current, 1, "wrap(value)");
+  assertDeclaredAdoption(current, 0, "wrap(value)");
 });
 
 test("a foreign same-spelled source body does not acquire a native callback contract", () => {
@@ -99,7 +99,7 @@ test("a foreign same-spelled source body does not acquire a native callback cont
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `);
-  assertDeclaredAdoption(current, 1, "wrap(value)");
+  assertDeclaredAdoption(current, 0, "wrap(value)");
 });
 
 test("a foreign Promise constructor is not a native executor or resolver by spelling", () => {
@@ -130,7 +130,7 @@ test("a native default initializer does not taint a proven present ordinary call
     source.ast.text(source.ast.name(node)) === "nativeInvoke");
   assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
     "the original checked native declaration remains the selected contract, without a callback-execution hook");
-  assertDeclaredAdoption(current, 1, "wrap(promised)");
+  assertDeclaredAdoption(current, 0, "wrap(promised)");
 });
 
 test("a zero-parameter native Promise executor requires no invented resolver", () => {
@@ -164,8 +164,10 @@ for (const ordinary of [false, true]) {
     const selected = current.query();
     assert.equal(selected.kind, "resolved", "the selected native signature is a checked input bound, not a value witness");
     if (selected.kind === "resolved") {
-      assert.equal(selected.issues.length, ordinary ? 0 : 1, "only the actual outer adopting binder is refused");
-      if (!ordinary) assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "original checked instantiation site");
+      assert.equal(selected.issues.length, 0, "approved C1373: the declared native result supports either actual");
+      assert.equal(current.nodes.some(node => current.source.ast.is.IsCallExpression(node) &&
+        current.textFor(node) === "wrap(value)" && current.source.semantics.forNode(node).operations.call(node)?.sourceSelectedSignatureKind === "resolved"), true,
+      "the original checked instantiation remains the exact native call");
     }
   });
 }
@@ -183,7 +185,7 @@ for (const ordinary of [false, true]) {
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -203,7 +205,7 @@ for (const withDefault of [false, true]) {
     assert.equal(parameter !== undefined, true, "the original zero-input callback keeps its checked formal");
     assert.equal(parameter !== undefined && Node_Initializer(current.source.ast, parameter) !== undefined, withDefault,
       "the original omitted/default source distinction is retained without selecting callback executions");
-    assertDeclaredAdoption(current, 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -224,7 +226,7 @@ for (const mapped of [false, true]) for (const ordinary of [false, true]) for (c
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -252,7 +254,7 @@ for (const [name, payload] of [
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -275,7 +277,7 @@ for (const adopting of [false, true]) for (const reversed of [false, true]) {
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    assertDeclaredAdoption(current, 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }
 
@@ -292,5 +294,5 @@ test("a factory callee is not a returned native callback payload", () => {
   const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
   assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
     "the original checked native declaration remains the selected contract, without a callback-execution hook");
-  assertDeclaredAdoption(current, 1, "wrap(value)");
+  assertDeclaredAdoption(current, 0, "wrap(value)");
 });
