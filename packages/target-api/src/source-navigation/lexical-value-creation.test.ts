@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { sourceLexicalFunctionValueCreation } from "./lexical-value-creation.js";
+import * as lexicalValues from "./lexical-value-creation.js";
+import { sourceBindingScope, sourceLexicalCaptures } from "./lexical-captures.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -18,10 +19,14 @@ function fixture(body: string) {
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file!);
-  return { source, statements: source.ast.statements(source.ast.body(declarations.get("outer"))), select(name: string, runtime = true) {
+  return { source, statements: source.ast.statements(source.ast.body(declarations.get("outer"))), select(name: string) {
     const declaration = declarations.get(name);
     assert.equal(declaration !== undefined, true);
-    return sourceLexicalFunctionValueCreation(declaration!, source.ast, source.navigation, () => runtime);
+    const scope = sourceBindingScope(declaration!, source.ast);
+    const captures = sourceLexicalCaptures(declaration!, [declaration!], source.ast, source.navigation, "source");
+    const references = source.navigation.declarationUseSummary(declaration!).uses.filter(use => use.kind === "first-class")
+      .map(use => use.reference);
+    return { declaration: declaration!, scope, captures, references };
   } };
 }
 
@@ -33,10 +38,13 @@ test("lexical values initialize at their first evaluated statement, after unrela
   ] as const) {
     const current = fixture(body);
     const selected = current.select("next");
-    assert.equal(selected.kind, "resolved");
-    if (selected.kind !== "resolved") return;
-    assert.equal(selected.statement === current.statements[index], true, "exact first evaluated statement");
-    assert.equal(current.select("next", false).kind, "unused");
+    assert.equal(selected.scope === current.source.ast.parent(current.statements[index]!), true,
+      "approved C-1388: the original evaluation statement and declaration keep their exact lexical scope");
+    assert.equal(selected.references.every(reference =>
+      current.source.navigation.sourceReferenceFor(reference)?.declaration === selected.declaration), true,
+    "each original source read keeps the same declaration, not a caller-chosen creation");
+    assert.equal(selected.captures.captures.length, index === 3 ? 1 : 0, "the declaration's own original captures");
+    assert.equal("sourceLexicalFunctionValueCreation" in lexicalValues, false, "the removed activation API is absent");
   }
 });
 
@@ -47,28 +55,35 @@ test("lexical creation follows named callers and literal capture creation withou
   ] as const) {
     const current = fixture(body);
     const selected = current.select("read");
-    assert.equal(selected.kind, "resolved");
-    if (selected.kind !== "resolved") return;
-    assert.equal(selected.statement === current.statements[index], true, "exact caller or closure creation statement");
+    assert.equal(selected.scope === current.source.ast.parent(current.statements[index]!), true,
+      "approved C-1388: the original caller statement does not select the earlier declaration's physical form");
+    assert.equal(selected.captures.captures.length, 0, "the original source declaration has no captures");
+    assert.equal(selected.references.every(reference =>
+      current.source.navigation.sourceReferenceFor(reference)?.declaration === selected.declaration), true,
+    "named callers and closures retain checked reference identity without creation scheduling");
   }
   const unused = fixture(`function read() { return 3; } function dormant() { return read; } return 0;`);
-  assert.equal(unused.select("read").kind, "unused");
+  assert.equal(unused.select("read").captures.captures.length, 0,
+    "the dormant caller does not erase the original declaration or invent native work");
 });
 
 test("one non-repeated lexical value read constructs at its exact expression without eager conditional allocation", () => {
   const direct = fixture(`function read() { return 3; } return flag ? read : null;`).select("read");
-  assert.equal(direct.kind, "resolved");
-  if (direct.kind !== "resolved") return;
-  assert.equal(direct.inlineReference !== undefined, true, "one evaluated reference");
+  assert.equal(direct.references.length, 1, "the same one original conditional read remains checked");
+  assert.equal(direct.captures.captures.length, 0, "the declaration itself has no capture or eager allocation decision");
   for (const body of [
     `function read() { return 3; } return () => read;`,
     `function read() { return 3; } function get() { return read; } return get;`,
     `function read() { return 3; } while (flag) { const value = read; return value; } return null;`,
     `function read() { return 3; } const first = read; return first === read;`,
   ]) {
-    const selected = fixture(body).select("read");
-    assert.equal(selected.kind, "resolved");
-    if (selected.kind !== "resolved") continue;
-    assert.equal(selected.inlineReference === undefined, true, "retained or repeated use requires one stable activation handle");
+    const current = fixture(body);
+    const selected = current.select("read");
+    assert.equal(selected.scope !== undefined && selected.references.length > 0, true,
+      "approved C-1388: repeated/retained reads retain their original declaration and checked scope");
+    assert.equal(selected.references.every(reference =>
+      current.source.navigation.sourceReferenceFor(reference)?.declaration === selected.declaration), true,
+    "no caller-selected inline or shared activation replaces the original callable identity");
+    assert.equal(selected.captures.captures.length, 0, "no physical environment is inferred from later reads");
   }
 });
