@@ -58,6 +58,11 @@ export interface SourceFlowUnresolved {
   readonly kind: "unresolved";
   readonly reason: string;
   readonly source: Node | undefined;
+  readonly resource?: {
+    readonly subject: Node;
+    readonly dimension: keyof SourceFlowLimits;
+    readonly limit: number;
+  };
 }
 
 export type SourceControlFlowSelection<Region = SourceFlowExecutionRegion> =

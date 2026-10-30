@@ -43,12 +43,13 @@ export function createSourceFlowConstruction<Region = SourceFlowExecutionRegion>
   const executionRegions = new Map<number, Region>();
   let execution: Region | undefined;
   const bindings = new Set<Node>();
-  const budget = createSourceFlowBudget(limits);
+  const budget = createSourceFlowBudget(limits, declaration);
   let edges = 0;
   let depth = 0;
   const point = (origin: Node | undefined, operation: SourceFlowOperation): number => {
     budget.step(origin);
-    if (points.length >= limits.maximumPoints) throw new SourceFlowFailure("Source flow exceeds its finite point budget.", origin);
+    if (points.length >= limits.maximumPoints) throw new SourceFlowFailure("Source flow exceeds its finite point budget.", origin,
+      { subject: declaration, dimension: "maximumPoints", limit: limits.maximumPoints });
     const id = points.length;
     points.push({ id, source: origin, operation: Object.freeze(operation), successors: [], predecessors: [] });
     if (execution !== undefined) executionRegions.set(id, execution);
@@ -65,7 +66,8 @@ export function createSourceFlowConstruction<Region = SourceFlowExecutionRegion>
     const sourcePoint = points[from];
     const targetPoint = points[to];
     if (sourcePoint === undefined || targetPoint === undefined) throw new Error("Source flow edge requires owned points.");
-    if (edges >= limits.maximumEdges) throw new SourceFlowFailure("Source flow exceeds its finite edge budget.", sourcePoint.source);
+    if (edges >= limits.maximumEdges) throw new SourceFlowFailure("Source flow exceeds its finite edge budget.", sourcePoint.source,
+      { subject: declaration, dimension: "maximumEdges", limit: limits.maximumEdges });
     const selected = Object.freeze({ from, to, kind });
     sourcePoint.successors.push(selected);
     targetPoint.predecessors.push(selected);
@@ -79,7 +81,8 @@ export function createSourceFlowConstruction<Region = SourceFlowExecutionRegion>
   };
   const nested = <Result>(node: Node, visit: () => Result): Result => {
     budget.step(node);
-    if (depth >= limits.maximumDepth) throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", node);
+    if (depth >= limits.maximumDepth) throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", node,
+      { subject: declaration, dimension: "maximumDepth", limit: limits.maximumDepth });
     depth += 1;
     try { return visit(); } finally { depth -= 1; }
   };

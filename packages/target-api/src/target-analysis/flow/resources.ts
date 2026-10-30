@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceFlowLimits } from "./model.js";
+import type { SourceFlowLimits, SourceFlowUnresolved } from "./model.js";
 
 export const defaultSourceFlowLimits: SourceFlowLimits = Object.freeze({
   maximumPoints: 262_144,
@@ -9,7 +9,13 @@ export const defaultSourceFlowLimits: SourceFlowLimits = Object.freeze({
 });
 
 export class SourceFlowFailure extends Error {
-  constructor(message: string, readonly source: Node | undefined) { super(message); }
+  readonly resource: SourceFlowUnresolved["resource"];
+
+  constructor(message: string, readonly source: Node | undefined,
+    resource?: NonNullable<SourceFlowUnresolved["resource"]>) {
+    super(message);
+    this.resource = resource === undefined ? undefined : Object.freeze(resource);
+  }
 }
 
 export function sourceFlowLimits(limits: Partial<SourceFlowLimits>): SourceFlowLimits {
@@ -23,12 +29,13 @@ export function sourceFlowLimits(limits: Partial<SourceFlowLimits>): SourceFlowL
   return Object.freeze(selected);
 }
 
-export function createSourceFlowBudget(limits: SourceFlowLimits) {
+export function createSourceFlowBudget(limits: SourceFlowLimits, subject: Node) {
   let steps = 0;
   return {
     step(source?: Node): void {
       steps += 1;
-      if (steps > limits.maximumSteps) throw new SourceFlowFailure("Source flow exceeds its finite work budget.", source);
+      if (steps > limits.maximumSteps) throw new SourceFlowFailure("Source flow exceeds its finite work budget.", source,
+        { subject, dimension: "maximumSteps", limit: limits.maximumSteps });
     },
     steps: (): number => steps,
   };
