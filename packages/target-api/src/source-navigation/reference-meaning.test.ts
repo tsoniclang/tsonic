@@ -111,16 +111,18 @@ export const ordinary = Imported;
   const shorthand = nodes.find(node => source.ast.is.IsShorthandPropertyAssignment(node));
   const typeUse = nodes.find(node => source.ast.is.IsTypeReferenceNode(node));
   const ordinary = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "ordinary");
-  assert.equal(value !== undefined && type !== undefined && shorthand !== undefined && typeUse !== undefined && ordinary !== undefined,
+  const ordinaryRead = nodes.find(node => source.ast.is.IsIdentifier(node) && source.ast.parent(node) === ordinary &&
+    source.ast.text(node) === "Imported");
+  assert.equal(value !== undefined && type !== undefined && shorthand !== undefined && typeUse !== undefined && ordinaryRead !== undefined,
     true, "the original distinct library facets and all consumer forms are present");
-  if (shorthand === undefined || typeUse === undefined || ordinary === undefined) throw new Error("Expected imported reference controls.");
+  if (shorthand === undefined || typeUse === undefined || ordinaryRead === undefined) throw new Error("Expected imported reference controls.");
   const name = source.ast.name(shorthand)!;
   const selected = source.navigation.sourceReferenceFor(name);
   assert.equal(selected !== undefined && selected.declaration === value, true,
     "the lexical alias follows checked re-exports to the exact value declaration");
   assert.equal(source.navigation.sourceReferenceFor(typeUse)?.declaration === type, true,
     "the same imported alias still has an independent type declaration facet");
-  assert.equal(source.navigation.sourceReferenceFor(source.ast.as.AsVariableDeclaration(ordinary)!.Initializer!)?.declaration === value, true,
+  assert.equal(source.navigation.sourceReferenceFor(ordinaryRead)?.declaration === value, true,
     "ordinary nonshorthand values retain their existing alias selection");
   assert.equal(source.navigation.referencesToDeclaration(value!).includes(name), true,
     "the shorthand occurrence is indexed against the actual imported value");
