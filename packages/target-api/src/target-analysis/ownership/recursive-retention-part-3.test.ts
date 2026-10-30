@@ -24,7 +24,10 @@ for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (c
         await pending(); return read(built.value);
       }
       async function fieldRoot() { const owner = { value: 3 }; const stored = fieldUse(owner); return stored; }
-    `);
+    `, [
+      { scope: "fieldUse", owner: "owner", fields: [{ receiver: "built", member: "value" }] },
+      { scope: "fieldRoot", owner: "owner", results: ["fieldUse"] },
+    ]);
     const { source, storage } = current;
     const use = current.declaration("fieldUse");
     const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
@@ -52,8 +55,10 @@ for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (c
     assert.equal(selected.kind === "resolved" && selected.decision === "rejected", true,
       selected.kind === "unresolved" ? selected.reason : "An escaping actual constructor-field loan is rejected, never silently admitted.");
     assert.equal(selected.kind === "resolved" && selected.dependencies.some(dependency => dependency.retention.kind === "scoped-borrowed" &&
-      source.ast.is.IsCallExpression(dependency.actual.node) && current.selectedDeclaration(dependency.actual.node) === current.declaration("borrow")), true,
-    "Rejection is backed by the actual scoped loan, not an invented unknown or budget refusal.");
+      dependency.reference === access && dependency.actual.node === access &&
+      dependency.retention.owner.node === source.ast.name(source.ast.parameters(use)[0]) &&
+      dependency.retention.region === source.ast.body(use) && dependency.actual.region.owner === use), true,
+    "Rejection keeps the original checked field read, native formal owner and actual lifetime region, not creation history.");
     if (!producersFirst) inspect();
     assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true, "Existing finite equations close the allocation/write relation.");
   });
@@ -78,7 +83,10 @@ for (const recursiveClass of ["LinkedNode", "LinkedLeaf"]) for (const producersF
         await pending(); return next === undefined ? 0 : read(next.value);
       }
       async function linkedRoot() { const owner = { value: 3 }; const stored = linkedUse(owner); return stored; }
-    `);
+    `, [
+      { scope: "linkedUse", owner: "owner", fields: [{ receiver: "next", member: "value" }] },
+      { scope: "linkedRoot", owner: "owner", results: ["linkedUse"] },
+    ]);
     const { source, storage } = current;
     const use = current.declaration("linkedUse");
     const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
@@ -163,7 +171,10 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
         await pending(); return read(built.value);
       }
       async function factoryRoot() { const owner = { value: 3 }; const stored = factoryUse(owner); return stored; }
-    `);
+    `, borrowed ? [
+      { scope: "factoryUse", owner: "owner", fields: [{ receiver: "built", member: "value" }] },
+      { scope: "factoryRoot", owner: "owner", results: ["factoryUse"] },
+    ] : []);
     const { source, storage } = current;
     const use = current.declaration("factoryUse");
     const factoryBodies = new Set(["makeBase", "makeDerived"].map(name => source.ast.body(current.declaration(name))));
@@ -207,8 +218,10 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
     assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
       selected.kind === "unresolved" ? selected.reason : "D12 follows the actual factory body capture and exact post-await field read.");
     assert.equal(selected.kind === "resolved" && selected.dependencies.some(dependency => dependency.retention.kind === "scoped-borrowed" &&
-      source.ast.is.IsCallExpression(dependency.actual.node) && current.selectedDeclaration(dependency.actual.node) === current.declaration("borrow")), borrowed,
-    "The retained concrete loan is present exactly when supplied, not hidden by an unknown or budget refusal.");
+      dependency.reference === access && dependency.actual.node === access &&
+      dependency.retention.owner.node === source.ast.name(source.ast.parameters(use)[0]) &&
+      dependency.retention.region === source.ast.body(use) && dependency.actual.region.owner === use), borrowed,
+    "The native field read keeps its exact selected formal owner and lifetime without merging the sibling's owner.");
     if (!producersFirst) inspect();
     assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true,
       "Both ownership/query orders remain finite without collapsing actual captures or allocation identities.");

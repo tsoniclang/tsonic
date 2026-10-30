@@ -163,7 +163,7 @@ for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "b
         const selected = ${choice};
         const local: Lease = { value: 1 }; const stored = selected(local, 2); return stored;
       }
-    `);
+    `, order === "owned-only" ? [] : [{ scope: "mixedRoot", owner: "owner", results: ["rec"] }]);
     const { source, storage } = current;
     const candidate = current.declaration("rec");
     const root = current.declaration("mixedRoot");
