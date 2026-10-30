@@ -1,4 +1,4 @@
-export { createSourceControlFlow, createSourceControlFlowDomain } from "./graph.js";
+export { createSourceControlFlow, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "./graph.js";
 export { solveSourceFlow } from "./solver.js";
 export { analyzeSourceStatementExits } from "./statement-exits.js";
 export { createSourceSwitchCoverage } from "./switch-coverage.js";
