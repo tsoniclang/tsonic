@@ -85,12 +85,23 @@ for (const [name, layout, type, value] of cases) {
     const right = readTsonicMemoryType(source.sourceFacts, layouts[1]!.call);
     assert.ok(left && right);
     assert.equal(left.identity, right.identity);
-    if (name !== "nested record") assert.notEqual(left.sourceType, right.sourceType);
-    else {
+    assert.equal(left.call === right.call, false, `${name}: distinct original layout sites`);
+    for (const [index, selection] of [left, right].entries()) {
+      assert.equal(selection.call === layouts[index]!.call, true, `${name}: original layout site ${index}`);
+      const checked = source.semantics.forNode(selection.call).operations.call(selection.call);
+      assert.equal(selection.sourceType === checked?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
+        true, `${name}: original checked layout type ${index}`);
+    }
+    if (name === "nested record") {
       const first = valueMemoryLayout(valueMemoryLayout(layouts[0]!).fields[0]!.fieldLayout).fields[0]!;
       const second = valueMemoryLayout(valueMemoryLayout(layouts[1]!).fields[0]!.fieldLayout).fields[0]!;
-      assert.equal(first.selectedDeclaration, second.selectedDeclaration);
-      assert.notEqual(first.fieldType, second.fieldType);
+      assert.equal(first.selectedDeclaration === second.selectedDeclaration, true, `${name}: same selected field declaration`);
+      assert.equal(first.call === second.call, false, `${name}: distinct original field sites`);
+      for (const field of [first, second]) {
+        const checked = source.semantics.forNode(field.call).operations.call(field.call);
+        assert.equal(field.fieldType === checked?.sourceSelectedMethodTypeArguments?.[1]?.selectedType,
+          true, `${name}: original checked field type`);
+      }
     }
     for (const order of [calls, [...calls].reverse()]) {
       const demands = createTsonicPointerBackingDemands(source);
@@ -126,7 +137,7 @@ for (const [name, local, remote, type, value] of [
         "One pointer origin has incompatible physical layout demands.",
       ]);
       assert.equal(demands.entries().length, 1);
-      assert.equal(demands.issues()[0]!.node, order[1]);
+      assert.equal(demands.issues()[0]!.node === order[1], true, `${name}: conflicting demand site`);
     }
   });
 }
@@ -158,7 +169,7 @@ test("backing reconciliation cannot accept missing, relocated, forged or foreign
     for (const call of calls) demands.record(call);
     assert.equal(demands.entries().length, 1, mutation);
     assert.equal(demands.issues().length, 1, mutation);
-    assert.equal(demands.issues()[0]!.node, calls[1], mutation);
+    assert.equal(demands.issues()[0]!.node === calls[1], true, mutation);
     assert.equal(selectTsonicRawLocationOperation(source.ast, facts, calls[1]!)?.kind, "rejected", mutation);
   }
 });
