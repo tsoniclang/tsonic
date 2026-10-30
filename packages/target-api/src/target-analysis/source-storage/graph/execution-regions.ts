@@ -2,7 +2,7 @@ import { sourceCallableValueParameters } from "../../../source-navigation/callab
 import type { Node, Type } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageInstanceInitializers } from "../model/construction.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -96,9 +96,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       const owner = selected.subject.node;
       if (checked.has(owner)) continue;
       checked.add(owner);
-      const initializers = sourceInstanceInitializers(owner, source, step);
-      if (initializers === undefined) return undefined;
-      for (const initializer of initializers) regions.push(Object.freeze({ owner, node: initializer }));
+      for (const initializer of sourceStorageInstanceInitializers(owner, source, step)) regions.push(Object.freeze({ owner, node: initializer }));
     }
     return Object.freeze({ regions: Object.freeze(regions), exact: lineages.length !== 0 && lineages.every(lineage => lineage.complete) });
   };

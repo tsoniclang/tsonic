@@ -2,19 +2,17 @@ import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowProblem, Sourc
 import { sourceFlowOrder } from "./ordering.js";
 import { createSourceFlowBudget, SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 
-export function solveSourceFlow<State>(graph: SourceControlFlowGraph<unknown>, problem: SourceFlowProblem<State>,
+export function solveSourceFlow<State>(graph: SourceControlFlowGraph, problem: SourceFlowProblem<State>,
   limits: Partial<SourceFlowLimits> = {}): SourceFlowSolution<State> {
   try {
     const selected = sourceFlowLimits(limits);
-    if (graph.points.length > selected.maximumPoints) throw new SourceFlowFailure("Source flow exceeds its finite point budget.", graph.declaration,
-      { subject: graph.declaration, dimension: "maximumPoints", limit: selected.maximumPoints });
-    const budget = createSourceFlowBudget(selected, graph.declaration);
+    if (graph.points.length > selected.maximumPoints) throw new SourceFlowFailure("Source flow exceeds its finite point budget.", graph.declaration);
+    const budget = createSourceFlowBudget(selected);
     let edges = 0;
     for (const point of graph.points) {
       budget.step();
       edges += point.successors.length;
-      if (edges > selected.maximumEdges) throw new SourceFlowFailure("Source flow exceeds its finite edge budget.", point.source,
-        { subject: graph.declaration, dimension: "maximumEdges", limit: selected.maximumEdges });
+      if (edges > selected.maximumEdges) throw new SourceFlowFailure("Source flow exceeds its finite edge budget.", point.source);
     }
     const { order, reachable } = sourceFlowOrder(graph, problem.direction, budget.step);
     const ranks = new Map(order.map((id, index) => [id, index]));
@@ -58,8 +56,7 @@ export function solveSourceFlow<State>(graph: SourceControlFlowGraph<unknown>, p
     return Object.freeze({ kind: "resolved", before, after, reachable, steps: budget.steps() });
   } catch (error) {
     if (!(error instanceof SourceFlowFailure)) throw error;
-    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source,
-      ...(error.resource === undefined ? {} : { resource: error.resource }) });
+    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source });
   }
 }
 

@@ -6,7 +6,7 @@ import { isSourceCallableBodyBoundary } from "../../../source-navigation/callabl
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
-import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
@@ -233,7 +233,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       ]));
       if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
         const target = subjectFor(Node_Expression(ast, node));
-        const base = sourceSuperConstructor(node, source, step);
+        const base = sourceStorageSuperConstructor(node, source, step);
         if (base !== undefined) connect(subjectFor(base.callee), target);
         const arguments_: SourceStorageArgumentTransport[] = [];
         const input = context.inputSlotsFor(node);

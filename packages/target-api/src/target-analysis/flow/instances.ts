@@ -21,7 +21,7 @@ export type SourceFlowWritesSelection = SourceFlowUnresolved |
     readonly maximum: ReadonlyMap<Node, SourceFlowWriteCount>;
   });
 
-export function analyzeSourceLiveness(graph: SourceControlFlowGraph<unknown>,
+export function analyzeSourceLiveness(graph: SourceControlFlowGraph,
   additionalReads: ReadonlyMap<number, readonly Node[]>,
   limits: Partial<SourceFlowLimits> = {}): SourceFlowLivenessSelection {
   if (additionalReads === undefined || additionalReads === null || typeof additionalReads.get !== "function" ||
@@ -70,7 +70,7 @@ export function analyzeSourceLiveness(graph: SourceControlFlowGraph<unknown>,
   return Object.freeze({ ...solution, lastUsePoints, lastUses });
 }
 
-export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph<unknown>,
+export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph,
   limits: Partial<SourceFlowLimits> = {}): SourceFlowDefiniteAssignmentSelection {
   const initial = new Set(graph.bindings);
   for (const point of graph.points) {
@@ -98,7 +98,7 @@ export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph<un
   return Object.freeze({ ...solution, unassignedReads });
 }
 
-export function analyzeSourceWrites(graph: SourceControlFlowGraph<unknown>,
+export function analyzeSourceWrites(graph: SourceControlFlowGraph,
   limits: Partial<SourceFlowLimits> = {}): SourceFlowWritesSelection {
   type State = ReadonlyMap<Node, SourceFlowWriteCount>;
   const empty: State = new Map();

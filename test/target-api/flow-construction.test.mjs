@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlow, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
@@ -38,12 +38,6 @@ function fixture(text) {
 function flow(current, declaration, call, callerBindings = current.storage.emptyBindings) {
   const selected = createSourceControlFlow(current.source, declaration, { domain: { kind: "source" }, invocation: { storage: current.storage, call, callerBindings } });
   assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked graph");
-  return selected.graph;
-}
-
-function declarationFlow(current, declaration, limits) {
-  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" }, limits });
-  assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "declaration graph");
   return selected.graph;
 }
 
@@ -125,105 +119,6 @@ test("checked constructor flow agrees with Node's base-field, parameter, super a
   const inventory = current.storage.instanceRegionsFor(allocation);
   assert.equal(inventory.kind, "resolved");
   assert.equal(inventory.regions[0].owner === current.named("Derived"), true, "inventory order is not used as execution order");
-});
-
-test("declaration constructor flow retains native ordering and exact field, default and body regions", () => {
-  const current = fixture(`${classes} const instance = new Derived();`);
-  const derived = declarationFlow(current, current.constructor("Derived"));
-  const base = declarationFlow(current, current.constructor("Base"));
-  for (const [graph, owner, labels] of [[base, "Base", ["base-field", "base-parameter", "base-body"]],
-    [derived, "Derived", ["derived-parameter", "derived-field", "derived-body"]]]) {
-    const selected = labels.map(label => marked(current, graph, label));
-    assert.equal(reachable(graph, selected[0].id, selected[1].id) && reachable(graph, selected[1].id, selected[2].id), true,
-      `${owner}: original native constructor ordering`);
-    for (const [index, point] of selected.entries()) {
-      const execution = graph.executionRegions.get(point.id);
-      assert.equal(execution !== undefined && execution.root !== undefined && !("selection" in execution), true, "required lexical evidence without activation");
-      const expectedRole = labels[index].includes("field") ? "instance-initializer"
-        : labels[index].includes("parameter") ? "parameter-initializer" : "body";
-      assert.equal(execution.role, expectedRole, `${owner}: exact lexical role`);
-      assert.equal(execution.owner === (expectedRole === "instance-initializer" ? current.named(owner) : current.constructor(owner)), true,
-        `${owner}: original checked owner`);
-    }
-  }
-  const superCall = derived.points.find(point => point.operation.kind === "evaluate" && point.source !== undefined &&
-    current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
-  assert.equal(reachable(derived, marked(current, derived, "derived-parameter").id, superCall.id) &&
-    reachable(derived, superCall.id, marked(current, derived, "derived-field").id), true, "super remains between default and derived fields");
-});
-
-test("declaration field flow retains the exact initializer and excludes neighboring fields", () => {
-  const current = fixture("class Fields { first = mark('first'); second = mark('second'); static shared = mark('shared'); }");
-  const owner = current.named("Fields");
-  for (const [name, role] of [["first", "instance-initializer"], ["shared", "static-initializer"]]) {
-    const field = current.ast.members(owner).find(member => member !== undefined && current.ast.text(current.ast.name(member)) === name);
-    const initializer = current.ast.as.AsPropertyDeclaration(field).Initializer;
-    const graph = declarationFlow(current, field);
-    const point = marked(current, graph, name);
-    const execution = graph.executionRegions.get(point.id);
-    assert.equal(execution?.owner === owner && execution.root === initializer && execution.role === role, true, `${name}: original checked field region`);
-    assert.equal(graph.points.some(candidate => candidate.source !== undefined && current.ast.is.IsCallExpression(candidate.source) &&
-      current.ast.arguments(candidate.source).some(argument => current.ast.is.IsStringLiteral(argument) && current.ast.text(argument) === "second")), false,
-      "a field graph never executes its neighbor");
-    assert.equal(point.successors.some(edge => edge.kind === "exception" && edge.to === graph.exceptionExit), true, "original initializer exception edge");
-  }
-});
-
-test("declaration implicit construction retains inherited body and base-first fields without invented nodes", () => {
-  const current = fixture("class Base { first = mark('base-field'); constructor(value = mark('base-parameter')) { mark('base-body'); } }\n" +
-    "class Middle extends Base { second = mark('middle-field'); } class Derived extends Middle { third = mark('derived-field'); }");
-  const graph = declarationFlow(current, current.named("Derived"));
-  const ordered = ["base-field", "base-parameter", "base-body", "middle-field", "derived-field"].map(label => marked(current, graph, label));
-  for (let index = 1; index < ordered.length; index += 1) assert.equal(reachable(graph, ordered[index - 1].id, ordered[index].id), true,
-    "declared inheritance preserves native initialization order");
-  assert.equal(graph.executionRegions.get(ordered[2].id).owner === current.constructor("Base"), true, "inherited actual constructor body owner");
-  assert.equal(graph.points.every(point => point.source === undefined || current.ast.getSourceFile(point.source) ===
-    current.ast.getSourceFile(current.named("Derived"))), true, "no fabricated constructor/body node");
-});
-
-for (const depth of [2, 3]) for (const capturesFirst of [false, true]) {
-  test(`declaration property graph is independent of actual factory depth and observation order: depth=${depth}, capturesFirst=${capturesFirst}`, () => {
-    const layers = Array.from({ length: depth }, (_, index) => `const Layer${index} = layer(${index === 0 ? "Root" : `Layer${index - 1}`}, ${index + 1});`).join("\n");
-    const current = fixture(`type Factory = new () => { root: number }; class Root { root = 0; }
-      function layer(Parent: Factory, value: number) { return class Layer extends Parent { field = value; }; }
-      ${layers} const instance = new Layer${depth - 1}();`);
-    const field = propertyField(current, "Layer", "field");
-    if (capturesFirst) current.storage.constructionFor(current.construct(`Layer${depth - 1}`));
-    const graph = declarationFlow(current, field);
-    if (!capturesFirst) current.storage.constructionFor(current.construct(`Layer${depth - 1}`));
-    const reads = graph.points.filter(point => point.operation.kind === "read" && current.ast.text(current.ast.name(point.operation.binding)) === "value");
-    assert.equal(reads.length, 1, "one declaration-local read, never one compiler region per observed instance");
-    const execution = graph.executionRegions.get(reads[0].id);
-    assert.equal(execution?.owner === current.ast.parent(field) && execution.root === current.ast.as.AsPropertyDeclaration(field).Initializer &&
-      execution.role === "instance-initializer" && !("selection" in execution), true, "same original field/owner/root");
-    const output = execFileSync(process.execPath, ["--input-type=module", "-e",
-      `class Root { root = 0; } function layer(Parent, value) { return class Layer extends Parent { field = value; }; }
-       ${layers} const instances = [${Array.from({ length: depth }, (_, index) => `new Layer${index}()`).join(",")}];
-       process.stdout.write(JSON.stringify([instances.map(value => value.field), new Set(instances).size]));`],
-      { encoding: "utf8", timeout: 10000, maxBuffer: 65536 });
-    const [values, identities] = JSON.parse(output);
-    assert.deepEqual(values, Array.from({ length: depth }, (_, index) => index + 1), "every original native factory capture survives");
-    assert.equal(identities, depth, "runtime instances remain distinct");
-  });
-}
-
-test("declaration constructor regions fail closed for foreign input, selected-root gaps and finite exhaustion", () => {
-  const current = fixture(`${classes} const instance = new Derived();`);
-  const foreign = fixture(`${classes} const instance = new Derived();`);
-  const declaration = current.constructor("Derived");
-  const ancestors = [];
-  for (let node = declaration; node !== undefined; node = current.ast.parent(node)) ancestors.push(node);
-  const selected = createSourceControlFlowDomain(current.source, ancestors);
-  assert.equal(selected.kind, "resolved", "the original checked declaration is a valid narrow inventory");
-  const missing = createSourceDeclarationControlFlow(current.source, declaration, { domain: selected.domain });
-  assert.equal(missing.kind === "unresolved" && !("graph" in missing), true, "missing exact initializer/body roots cannot publish a partial graph");
-  const foreignResult = createSourceDeclarationControlFlow(current.source, foreign.constructor("Derived"), { domain: { kind: "source" } });
-  assert.equal(foreignResult.kind === "unresolved" && !("graph" in foreignResult), true, "foreign checked constructor rejected");
-  for (const limits of [{ maximumPoints: 1 }, { maximumSteps: 1 }, { maximumDepth: 1 }]) {
-    const result = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" }, limits });
-    assert.equal(result.kind === "unresolved" && !("graph" in result), true, "finite failure never publishes partial regions");
-    assert.match(result.reason, /finite/u);
-  }
 });
 
 test("field initializers carry class activations while defaults and bodies carry constructor activations", () => {
@@ -468,11 +363,6 @@ test("generic constructor graphs retain fields and checked constructor budgets r
     });
     assert.equal(selected.kind, "unresolved", "bounded constructor proof never publishes partial regions");
     assert.match(selected.reason, /finite/u);
-    const [dimension, limit] = Object.entries(limits)[0];
-    assert.equal(selected.resource?.subject === current.constructor("Derived"), true, "the original checked constructor owns resource exhaustion");
-    assert.equal(selected.resource?.dimension, dimension, "constructor exhaustion retains its exact dimension");
-    assert.equal(selected.resource?.limit, limit, "constructor limits are unchanged");
-    assert.equal("graph" in selected, false, "no incomplete constructor graph is published");
   }
 });
 
@@ -718,16 +608,10 @@ for (const part of ["whole initializer", "nested read"]) test(`property flow ref
 });
 
 for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }])
-  test(`property initializer flow retains ${Number.isFinite(Object.values(limits)[0]) ? "finite resource exhaustion" : "invalid limit rejection"} ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
+  test(`property initializer flow retains finite refusal ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
     const current = fixture("class Value { value = 1; observed = mark('budget') + this.value; }");
     const selected = createSourceControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
     assert.equal(selected.kind, "unresolved", "no property-entry path raises or bypasses a finite limit");
     assert.match(selected.reason, /finite/u);
     assert.equal("graph" in selected, false, "finite failure never publishes a partial initializer");
-    const [dimension, limit] = Object.entries(limits)[0];
-    if (Number.isFinite(limit)) {
-      assert.equal(selected.resource?.subject === propertyField(current, "Value", "observed"), true, "the initializer declaration owns resource exhaustion");
-      assert.equal(selected.resource?.dimension, dimension, "the initializer reports the actual exhausted dimension");
-      assert.equal(selected.resource?.limit, limit, "the original initializer bound is retained");
-    } else assert.equal(selected.resource === undefined, true, "invalid Infinity is not an exhausted allowance");
   });

@@ -2,7 +2,7 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceControlFlowGraph } from "./model.js";
 import { SourceFlowFailure } from "./resources.js";
 
-export function sourceFlowOrder(graph: SourceControlFlowGraph<unknown>, direction: "forward" | "backward", step: () => void) {
+export function sourceFlowOrder(graph: SourceControlFlowGraph, direction: "forward" | "backward", step: () => void) {
   const reachable = new Set<number>();
   const visit = (roots: Iterable<number>, reverse: boolean, admitted?: ReadonlySet<number>): number[] => {
     const visited = new Set<number>();

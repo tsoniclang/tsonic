@@ -6,7 +6,7 @@ import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram }
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
-import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
@@ -530,7 +530,7 @@ export function createSourceStorageInvocationInputs(
     if (formal.kind === "receiver") {
       if (formal.node !== candidate) subjects.add(formal);
       else {
-        const base = sourceSuperConstructor(invocation, source, budget.step);
+        const base = sourceStorageSuperConstructor(invocation, source, budget.step);
         add(ast.is.IsNewExpression(invocation) ? subject(invocation)
           : base !== undefined ? subject(base.owner, "receiver")
           : subjectFor(accessorTargets.get(invocation)?.find(target => target.declaration === candidate)?.receiver

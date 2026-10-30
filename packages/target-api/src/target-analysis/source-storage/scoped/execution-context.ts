@@ -13,8 +13,8 @@ import { sourceStorageExecutionDemands, walkSourceStorageExecution,
   type createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations } from "../model/construction.js";
-import { sourceInstanceInitializers, sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations,
+  sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 
 export function createSourceStorageExecutionContext(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -39,7 +39,7 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
           if (!budget.step()) return;
           if (successor.kind === "effect" && successor.store !== store) continue;
           if (selection.kind === "own-construction" && term.kind === "region" && successor.kind !== "unresolved" &&
-            (successor.kind !== "application" || sourceSuperConstructor(successor.invocation, source, budget.step) === undefined)) continue;
+            (successor.kind !== "application" || sourceStorageSuperConstructor(successor.invocation, source, budget.step) === undefined)) continue;
           yield successor;
         }
       })();
@@ -111,9 +111,7 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
     if (construction !== undefined) for (const captured of construction.classes) {
       if (!budget.step()) return undefined;
       const owner = captured.subject.node;
-      const initializers = sourceInstanceInitializers(owner, source, budget.step);
-      if (initializers === undefined) return undefined;
-      for (const initializer of initializers) {
+      for (const initializer of sourceStorageInstanceInitializers(owner, source, budget.step)) {
         const reaches = reachability.region(initializer, demand);
         if (reaches === undefined) return undefined;
         if (!reaches) continue;

@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
 import type { SourceStorageReference, SourceStorageScope, SourceStorageScopedSubject as SourceStorageBoundSubject, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
@@ -139,7 +139,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
           if (!budget.step()) return undefined;
           for (const child of transport.regions.callable(frontier.subject.node, undefined)) if (!add(child)) return undefined;
         }
-        if (sourceConstructionExpression(invocation, source, budget.step) !== undefined) {
+        if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
           const instance = transport.regions.instance(invocation);
           if (instance === undefined) return undefined;
           for (const child of instance.regions) if (!add(child.node)) return undefined;

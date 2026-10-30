@@ -44,7 +44,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   return { source, owner: owner!, nodes, graph: selection.graph, named, points, disposal, calls };
 }
 
-function reachable(graph: SourceControlFlowGraph<unknown>, start: number, destination: number,
+function reachable(graph: SourceControlFlowGraph, start: number, destination: number,
   blocked: ReadonlySet<number> = new Set(), exceptions = false): boolean {
   const pending = [start];
   const visited = new Set<number>();

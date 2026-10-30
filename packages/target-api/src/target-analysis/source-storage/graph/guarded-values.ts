@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../value-flow-conditions.js";
-import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
@@ -65,7 +65,7 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       if (sourceStorageIsScalarType(type, semantics) || semantics.types.isNullish(type) ||
         semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
     }
-    const expression = sourceConstructionExpression(owner.node, source, budget.step);
+    const expression = sourceStorageConstructionExpression(owner.node, source, budget.step);
     const declaration = expression === undefined ? undefined : navigation.sourceReferenceFor(expression)?.declaration;
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)))
       return classMatches(declaration, target);

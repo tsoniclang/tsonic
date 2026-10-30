@@ -8,7 +8,7 @@ import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../mod
 import { sourceStorageSubjectType } from "../model/components.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
-import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 
 interface SourceStorageRejectionQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
@@ -185,7 +185,7 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       if (reason !== undefined) { unresolved(reason); return; }
       const targets = [...queries.implementationsFor(invocation)?.nodes ?? []].map(candidate => ({ candidate,
         regions: queries.regions.callable(candidate, queries.isAccessorInvocation(invocation) ? undefined : invocation) }));
-      if (sourceConstructionExpression(invocation, source, budget.step) !== undefined) {
+      if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
         const instance = queries.regions.instance(invocation);
         if (instance === undefined) return;
         for (const region of instance.regions) targets.push({ candidate: region.owner, regions: [region.node] });

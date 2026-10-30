@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
+import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageEquation, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
@@ -28,7 +28,7 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
     const previous = scopes.family(caller);
     const owner = recursion.ownerFor(invocation);
     if (previous?.component === component && owner !== undefined && component.has(owner)) {
-      const parent = sourceSuperConstructor(invocation, source, budget.step) === undefined
+      const parent = sourceStorageSuperConstructor(invocation, source, budget.step) === undefined
         ? scopes.variable(previous, owner) : caller;
       return parent === undefined ? undefined : scopes.frameFor(candidate, invocation, parent, captured, previous, term.callback);
     }
