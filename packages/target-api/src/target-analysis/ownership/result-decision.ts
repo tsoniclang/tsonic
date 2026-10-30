@@ -5,7 +5,7 @@ import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, Sou
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
 import type { SourceDeclarationAsyncCompletionSelection, SourceDeclarationAsyncOwnershipSelection,
   SourceDeclarationAsyncResultDisposition, SourceDeclarationContinuationSelection, SourceDeclarationOwnershipBudget,
-  SourceDeclarationOwnershipUnresolved, SourceDeclarationRetentionPremise, SourceDeclarationRetentionReadSelection } from "./model.js";
+  SourceDeclarationOwnershipUnresolved } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
 export function decideSourceAsyncResultUse(input: {
@@ -90,7 +90,6 @@ export function decideSourceDeclarationAsyncResultUse(input: {
   readonly completion: SourceDeclarationAsyncCompletionSelection;
   readonly disposition: SourceDeclarationAsyncResultDisposition | SourceDeclarationOwnershipUnresolved;
   readonly continuation: () => SourceDeclarationContinuationSelection;
-  readonly retention: () => SourceDeclarationRetentionReadSelection;
 }): SourceDeclarationAsyncOwnershipSelection {
   const { source, budget, call, completion, disposition } = input;
   if (!budget.step(call)) return budget.failure()!;
@@ -111,16 +110,9 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       diagnostic: Object.freeze({ code: "TSONIC_NATIVE_ASYNC_RESULT_DISCARDED", at: call,
         message: "A native asynchronous call result must be observed, not discarded." }) });
   const continuation = input.continuation();
-  let leases: readonly SourceDeclarationRetentionPremise[];
-  if (continuation.kind === "resolved") leases = continuation.dependencies.map(dependency => dependency.retention);
-  else {
-    const retention = input.retention();
-    if (retention.kind === "unresolved" || retention.premises.length === 0) return continuation;
-    if (retention.reference !== call)
-      return sourceDeclarationOwnershipUnresolved(call, "Native retention belongs to a different original result-use call.");
-    leases = retention.premises;
-  }
-  const dependencies = continuation.kind === "resolved" ? continuation.dependencies : Object.freeze([]);
+  if (continuation.kind === "unresolved") return continuation;
+  const dependencies = continuation.dependencies;
+  const leases = dependencies.map(dependency => dependency.retention);
   for (const lease of leases) {
     if (!budget.step(call)) return budget.failure()!;
     if (lease.kind !== "scoped-borrowed" && lease.kind !== "formal-borrowed") continue;

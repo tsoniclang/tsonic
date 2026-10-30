@@ -112,7 +112,7 @@ export function createSourceDeclarationOwnershipQuery(input: {
         source, budget, call, completion,
         disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget,
           regionFor: context.values.regionFor }),
-        continuation: () => continuationFor(call), retention: () => retention.forReference(call),
+        continuation: () => continuationFor(call),
       });
       if (decision.kind === "unresolved") return decision;
       const rows = budget.createRows(call);

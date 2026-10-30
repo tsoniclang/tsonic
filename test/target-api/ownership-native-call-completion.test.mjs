@@ -186,6 +186,25 @@ test("missing declaration-native evidence stays unresolved and is never cached a
   assert.equal(query.forCall(current.call).kind === "resolved", true, "an unresolved lookup was not retained as successful completion");
 });
 
+for (const category of ["required-fact", "resource-limit"]) {
+  test(`declared result retention cannot hide an unresolved native continuation (${category})`, () => {
+    const current = declarationFixture();
+    let complete = false;
+    const failure = category === "required-fact"
+      ? sourceDeclarationOwnershipUnresolved(current.call, "missing completed native operation")
+      : Object.freeze({ kind: "unresolved", at: current.call, reason: "native continuation work exhausted",
+          cause: Object.freeze({ kind: "resource-limit", subject: current.call, category: "step", limit: 1 }) });
+    const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
+      suspensionFor: value => complete ? current.premises.suspensionFor(value) : failure } });
+    assert.equal(query.forCall(current.call) === failure, true,
+      "an independently retained output does not replace the required continuation evidence or its exact failure");
+    complete = true;
+    const selected = query.forCall(current.call);
+    assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+      "the failed lookup was not cached as successful or permanent completion");
+  });
+}
+
 test("declaration-native retention rejects a copied descriptor and preserves both native borrow modes", () => {
   const current = declarationFixture();
   const value = current.context.values.forNode(current.call);
