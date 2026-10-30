@@ -163,7 +163,7 @@ for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "b
         const selected = ${choice};
         const local: Lease = { value: 1 }; const stored = selected(local, 2); return stored;
       }
-    `);
+    `, order === "owned-only" ? [] : [{ scope: "mixedRoot", owner: "owner", results: ["rec"] }]);
     const { source, storage } = current;
     const candidate = current.declaration("rec");
     const root = current.declaration("mixedRoot");
@@ -368,7 +368,7 @@ for (const choice of ["flag ? first.ping : second.pong", "flag ? second.pong : f
         const pick = ${choice};
         const local: Lease = { value: 1 }; const stored = pick(local, 2); return stored;
       }
-    `);
+    `, [{ scope: "pairRoot", owner: "owner", results: ["ping", "pong"] }]);
     const root = current.declaration("pairRoot");
     const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
       current.source.ast.text(current.source.ast.as.AsCallExpression(node)?.Expression) === "pick" &&

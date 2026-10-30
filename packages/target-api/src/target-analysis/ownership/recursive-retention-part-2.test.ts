@@ -81,7 +81,7 @@ for (const recursive of ["self", "mutual"] as const) {
       assert.equal(borrowed.kind === "resolved" && borrowed.decision === "rejected" &&
         borrowed.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES" && borrowed.diagnostic.at === call,
       true, borrowed.kind === "unresolved" ? borrowed.reason : "recursive lease remains tied to the actual escaping call");
-      assert.equal(current.budget.failure(), undefined, "canonical finite contexts converge under the unchanged budget");
+      assert.equal(current.budget.failure() === undefined, true, "canonical finite contexts converge under the unchanged budget");
     });
   }
 }
