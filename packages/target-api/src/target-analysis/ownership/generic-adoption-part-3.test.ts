@@ -375,6 +375,13 @@ for (const [name, declaration, invoked] of declarations) {
     const selected = declaredQuery(current);
     assert.equal(selected.kind === "resolved", true, "the declared native relation completes without invocation history");
     if (selected.kind !== "resolved") return;
+    if (name === "generic callable body unknown") {
+      assert.equal(selected.issues.length === 0, true, "C1298: the selected void return has no declared Promise adoption");
+      for (const actual of ["7", "promised"]) assert.equal(current.nodes.some(node =>
+        current.source.ast.is.IsCallExpression(node) && current.textFor(node) === `${invoked}(${actual})`), true,
+      "C1298 preserves both original checked ordinary and Promise-valued calls");
+      return;
+    }
     assert.equal(selected.issues.length === 1, true, "one exact adopting generic instantiation");
     assert.equal(current.textFor(selected.issues[0]!.site) === `${invoked}(promised)`, true,
       "the ordinary actual and the adopting actual never cross-bind");
@@ -411,6 +418,17 @@ test("declaration-native generic callback adoption uses the completed result rat
   const selected = declaredQuery(current);
   assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
     "the native void output does not adopt a separate Promise-valued input");
+});
+
+test("declaration-native generic result identity does not recognize a project Promise spelling", () => {
+  const current = fixture(`
+    namespace Project { export interface Promise<Value> { readonly value: Value; } }
+    function wrap<Value>(value: Value): Project.Promise<Value> { return { value }; }
+    void wrap(7); void wrap(Promise.resolve(7));
+  `);
+  const selected = declaredQuery(current);
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    "only the checked canonical Promise declaration owns the native adopting result contract");
 });
 
 test("declaration-native generic SCCs retain exact source instantiations independently of call order", () => {

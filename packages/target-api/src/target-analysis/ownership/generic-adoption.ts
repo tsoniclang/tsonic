@@ -687,20 +687,31 @@ export function analyzeSourceGenericAdoption(input: {
   return failure ?? Object.freeze({ kind: "resolved", issues: Object.freeze(issues) });
 }
 
-function sourceGenericAdoptionPromiseMember(source: TargetSourceProgram, declaration: Node,
-  semantics: SourceFileSemantics): string | undefined {
+function sourceGenericAdoptionPromiseOwner(source: TargetSourceProgram, declaration: Node,
+  semantics: SourceFileSemantics): "Promise" | "PromiseLike" | "PromiseConstructor" | undefined {
   const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
   if (fact?.providerId === "tsonic.js.source-virtual-modules" &&
     (fact.exportName === "Promise" || fact.exportName === "PromiseLike" || fact.exportName === "PromiseConstructor"))
-    return fact.memberKey?.kind === "property-key" ? fact.memberKey.name : fact.memberName ?? "construct";
+    return fact.exportName;
   const { ast } = source;
   const file = ast.getSourceFile(declaration);
   if (file === undefined || !ast.isDeclarationFile(file) || source.navigation.isProjectDeclaration(declaration) ||
     !(isTsonicSourceProfileDeclarationPath(ast.getFileName(file)) ||
       semantics.declarations.isDefaultLibraryDeclaration(declaration))) return undefined;
-  const owner = ast.parent(declaration);
+  const owner = ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsClassDeclaration(declaration)
+    ? declaration : ast.parent(declaration);
   const ownerName = ast.text(ast.name(owner));
   if (ownerName !== "Promise" && ownerName !== "PromiseLike" && ownerName !== "PromiseConstructor") return undefined;
+  return ownerName;
+}
+
+function sourceGenericAdoptionPromiseMember(source: TargetSourceProgram, declaration: Node,
+  semantics: SourceFileSemantics): string | undefined {
+  if (sourceGenericAdoptionPromiseOwner(source, declaration, semantics) === undefined) return undefined;
+  const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
+  if (fact?.providerId === "tsonic.js.source-virtual-modules")
+    return fact.memberKey?.kind === "property-key" ? fact.memberKey.name : fact.memberName ?? "construct";
+  const { ast } = source;
   return ast.is.IsConstructSignatureDeclaration(declaration) ? "construct" : ast.text(ast.name(declaration));
 }
 
@@ -819,11 +830,19 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
       if (!ast.is.IsTypeParameterDeclaration(node) || !source.navigation.isProjectDeclaration(node) ||
         input.exemptTypeParameter?.(node) === true) continue;
       const owner = ast.parent(node);
-      const type = source.semantics.forNode(node).declarations.declaredType(node);
+      const semantics = source.semantics.forNode(node);
+      const type = semantics.declarations.declaredType(node);
       if (owner === undefined || type === undefined)
         return sourceDeclarationOwnershipUnresolved(node, "Generic adoption requires the exact checked formal declaration.");
+      const result = ast.body(owner) === undefined ? undefined : semantics.types.declarationSignatureInfo(owner)?.returnType;
+      const resultSymbol = result === undefined ? undefined : semantics.declarations.typeSymbol(result);
+      const promise = resultSymbol !== undefined && semantics.declarations.symbolDeclarations(resultSymbol)
+        .some(declaration => sourceGenericAdoptionPromiseOwner(source, declaration, semantics) === "Promise");
+      const adopting = result !== undefined && (promise && semantics.types.typeArguments(result)
+        .some(argument => semantics.types.isIdentical(argument, type)) ||
+        ast.hasModifierKind(owner, "async") && semantics.types.isIdentical(result, type));
       if (!rows.add(2)) return budget.failure()!;
-      parameters.set(node, { owner, neighbours: new Set(), operation: undefined });
+      parameters.set(node, { owner, neighbours: new Set(), operation: adopting ? owner : undefined });
     }
     for (const node of domain.nodes) {
       if (!step(node)) break;
