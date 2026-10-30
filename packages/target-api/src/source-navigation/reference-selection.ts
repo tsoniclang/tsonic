@@ -76,13 +76,12 @@ function selectSourceDeclarationReferenceForNode(
       isProjectDeclaration,
     );
   }
-  const directSymbol = symbolAtReferenceNode(ast, checker, queryNode);
-  const resolvedSymbol = resolvedSymbolAtReferenceNode(ast, checker, queryNode);
   const parent = ast.parent(queryNode);
-  const orderedSymbols = parent !== undefined &&
-      ast.is.IsShorthandPropertyAssignment(parent)
-    ? [resolvedSymbol, directSymbol]
-    : [directSymbol, resolvedSymbol];
+  const orderedSymbols = meaning === "value" && ast.is.IsIdentifier(queryNode) &&
+      parent !== undefined && ast.is.IsShorthandPropertyAssignment(parent) &&
+      ast.name(parent) === queryNode
+    ? [checker.getLexicallyResolvedSymbol(queryNode)]
+    : [symbolAtReferenceNode(ast, checker, queryNode), resolvedSymbolAtReferenceNode(ast, checker, queryNode)];
   for (const selected of orderedSymbols) {
     if (selected === undefined) {
       continue;

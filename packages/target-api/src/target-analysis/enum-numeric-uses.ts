@@ -22,6 +22,9 @@ type EnumValueDomain = {
   readonly certainEnum?: Symbol;
 };
 
+type EnumValueStep = "initializer" | "alias" | "checked";
+type EnumValueInput = { readonly node: Node; readonly step: EnumValueStep };
+
 const emptyDomain: EnumValueDomain = Object.freeze({ possibleEnums: Object.freeze([]) });
 
 export function analyzeSourceEnumNumericUses(
@@ -39,7 +42,11 @@ export function analyzeSourceEnumNumericUses(
       .map(signature => checker.getSignatureDeclaration(signature)).filter(libraryDeclaration);
     const enumTypes = new WeakMap<Type, EnumValueDomain>();
     const expressionTypes = new WeakMap<Node, Type | null>();
-    const enumValues = new WeakMap<Node, EnumValueDomain>();
+    const enumValues = {
+      initializer: new WeakMap<Node, EnumValueDomain>(),
+      alias: new WeakMap<Node, EnumValueDomain>(),
+      checked: new WeakMap<Node, EnumValueDomain>(),
+    };
     const pending: Node[] = [file];
     let rejectedRoot: Node | undefined;
     while (pending.length !== 0) {
@@ -267,35 +274,39 @@ export function analyzeSourceEnumNumericUses(
       return undefined;
     }
     function enumValue(expression: Node): EnumValueDomain {
-      const pendingValues: { readonly node: Node; readonly children?: readonly Node[] }[] = [{ node: expression }];
-      const active = new Set<Node>();
+      const pendingValues: (EnumValueInput & { readonly children?: readonly EnumValueInput[] })[] = [
+        { node: expression, step: "initializer" },
+      ];
+      const active = { initializer: new Set<Node>(), alias: new Set<Node>(), checked: new Set<Node>() };
       while (pendingValues.length !== 0) {
         const current = pendingValues.pop()!;
-        if (enumValues.has(current.node)) continue;
+        const selectedValues = enumValues[current.step];
+        const activeValues = active[current.step];
+        if (selectedValues.has(current.node)) continue;
         if (current.children !== undefined) {
           const domains = current.children.filter(child => {
-            const type = checkedType(child);
+            const type = checkedType(child.node);
             return type === undefined || !types.isNullish(type) && !types.isNever(type);
-          }).map(child => enumValues.get(child)!);
-          enumValues.set(current.node, joinDomains(domains));
-          active.delete(current.node);
+          }).map(child => enumValues[child.step].get(child.node)!);
+          selectedValues.set(current.node, joinDomains(domains));
+          activeValues.delete(current.node);
           continue;
         }
-        if (active.has(current.node)) {
-          enumValues.set(current.node, emptyDomain);
+        if (activeValues.has(current.node)) {
+          selectedValues.set(current.node, emptyDomain);
           continue;
         }
-        active.add(current.node);
+        activeValues.add(current.node);
         const type = checkedType(current.node);
         const selected = enumDomain(type);
         if (selected.possibleEnums.length !== 0) {
-          enumValues.set(current.node, selected);
-          active.delete(current.node);
+          selectedValues.set(current.node, selected);
+          activeValues.delete(current.node);
           continue;
         }
         const operator = ast.operatorKindName(current.node);
         const declaration = ast.is.IsIdentifier(current.node) ? navigation.sourceReferenceFor(current.node)?.declaration : undefined;
-        const initializer = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) &&
+        const initializer = current.step !== "checked" && declaration !== undefined && ast.is.IsVariableDeclaration(declaration) &&
           ast.typeNode(declaration) === undefined && (ast.variableDeclarationKind(declaration) === "const" ||
             !navigation.declarationUseSummary(declaration).bindingWritten)
           ? ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
@@ -316,14 +327,17 @@ export function analyzeSourceEnumNumericUses(
           : binary?.Right !== undefined && operator === "KindCommaToken" ? [binary.Right]
           : binary?.Left !== undefined && binary.Right !== undefined ? [binary.Left, binary.Right] : undefined;
         if (children === undefined) {
-          enumValues.set(current.node, emptyDomain);
-          active.delete(current.node);
+          selectedValues.set(current.node, emptyDomain);
+          activeValues.delete(current.node);
           continue;
         }
-        pendingValues.push({ node: current.node, children });
-        for (const child of children) pendingValues.push({ node: child });
+        const childStep = initializer !== undefined
+          ? current.step === "initializer" ? "alias" : "checked" : current.step;
+        const inputs = children.map(node => ({ node, step: childStep }));
+        pendingValues.push({ ...current, children: inputs });
+        for (const child of inputs) pendingValues.push(child);
       }
-      return enumValues.get(expression)!;
+      return enumValues.initializer.get(expression)!;
     }
 
     function excludesEnum(type: Type): boolean {
