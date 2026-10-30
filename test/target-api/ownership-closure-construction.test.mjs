@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { closureFixture, borrowed } from "./ownership-closure-fixture.mjs";
+import { closureFixture, borrowed, nativeLeaseWitness } from "./ownership-closure-fixture.mjs";
 
 const forwarded = argument => `
   function target(value = view.item) { return value; }
@@ -45,8 +45,8 @@ test("field reads, captures and constructor default captures retain their distin
   const ast = fixture.source.ast;
   assert.equal(leases.some(dependency => ast.is.IsClassDeclaration(dependency.candidate)), true, "field initialization has the class identity");
   assert.equal(leases.some(dependency => ast.is.IsConstructorDeclaration(dependency.candidate)), true, "default captures have the constructor identity");
-  assert.equal(leases.every(dependency => fixture.selectedDeclaration(dependency.retention.value.node) === fixture.declaration("borrow")), true,
-    "both regions substitute the actual lease rather than a formal, receiver temporary or invented witness");
+  assert.equal(leases.every(dependency => nativeLeaseWitness(fixture, dependency)), true,
+    "both regions retain the original checked read and its exact native owner, region and lifetime");
 });
 
 test("implicit source heritage closes actual inherited fields instead of treating a missing authored constructor as a native body", () => {
@@ -86,7 +86,7 @@ test("inherited source constructor defaults, fields and nested real super calls 
   `${name}: original field identity`);
   assert.equal(dependencies.some(dependency => current.source.ast.is.IsConstructorDeclaration(dependency.candidate)), true,
     "the inherited default closure is entered through its actual constructor binding");
-  assert.equal(dependencies.every(dependency => current.selectedDeclaration(dependency.retention.value.node) === current.declaration("borrow")), true);
+  assert.equal(dependencies.every(dependency => nativeLeaseWitness(current, dependency)), true);
 });
 
 for (const [argument, expected] of [["() => 1", false], ["", true]]) {

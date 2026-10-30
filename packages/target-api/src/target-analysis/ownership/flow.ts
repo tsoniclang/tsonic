@@ -38,7 +38,7 @@ export function createSourceDeclarationOwnershipValues(input: {
 }) {
   const { source, budget } = input;
   const domain = createSourceControlFlowDomain(source, input.nodes);
-  const checkedNodes = new Set(input.nodes);
+  const checkedNodes = new Set(domain.kind === "resolved" ? domain.domain.nodes : []);
   const graphs = new Map<Node, SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion>>();
   const values = new Map<Node, SourceDeclarationOwnershipValue>();
   const owned = new WeakSet<SourceDeclarationOwnershipValue>();
@@ -58,7 +58,10 @@ export function createSourceDeclarationOwnershipValues(input: {
   };
   const declarationFor = (node: Node): Node | SourceDeclarationOwnershipUnresolved => {
     const visited = new Set<Node>();
-    for (let current: Node | undefined = node; current !== undefined; current = source.ast.parent(current)) {
+    const creation = isSourceCallableBodyBoundary(source.ast, node) || source.ast.is.IsClassDeclaration(node) ||
+      source.ast.is.IsClassExpression(node);
+    for (let current: Node | undefined = creation ? source.ast.parent(node) : node;
+      current !== undefined; current = source.ast.parent(current)) {
       if (!budget.step(node)) return budget.failure()!;
       if (visited.has(current)) return sourceDeclarationOwnershipUnresolved(node, "A declaration-local value has cyclic checked ancestry.");
       visited.add(current);
