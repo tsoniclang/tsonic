@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture, sourcePosition, sourceSpan, declarations } from "./generic-adoption-fixtures.js";
+import { fixture, declarations } from "./generic-adoption-fixtures.js";
+import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
 
 for (const [name, declaration, invoked] of declarations){
 test(`generic adoption closes ${name} without refusing its ordinary actual`, () => {
@@ -10,25 +11,13 @@ test(`generic adoption closes ${name} without refusing its ordinary actual`, () 
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
     if (selected.kind !== "resolved") return;
-    if (name === "generic callable body unknown") {
-      assert.equal(selected.issues.length, 0, "the selected void declaration has no native Promise adoption");
-      for (const actual of ["7", "promised"]) assert.equal(current.nodes.some(node =>
-        current.source.ast.is.IsCallExpression(node) && current.textFor(node) === `${invoked}(${actual})`), true,
-      "both original checked ordinary and Promise-valued calls remain");
-      return;
+    assert.equal(selected.issues.length, 0, "approved C1373: both original actuals have native adoption support");
+    for (const actual of ["7", "promised"]) {
+      const operation = checkedOperation(current, `${invoked}(${actual})`);
+      assert.equal(operation.typeArgumentCount === 1, true,
+        `${name}: the original actual retains its selected generic formal`);
     }
-    assert.equal(selected.issues.length, 1, `${name}: exactly one concrete adopting instantiation`);
-    const issue = selected.issues[0]!;
-    assert.equal(current.textFor(issue.site), `${invoked}(promised)`, `${name}: refusal is on the actual call, not the generic body`);
-    assert.equal(current.source.ast.is.IsTypeParameterDeclaration(issue.parameter), true, `${name}: actual parameter identity`);
-    assert.equal(current.nodes.includes(issue.declaration) && current.nodes.includes(issue.operation), true,
-      `${name}: declaration and first operation are real checked related nodes`);
-    assert.deepEqual(issue.evidence, [
-      ["declaration", issue.declaration] as const, ["first-sensitive-operation", issue.operation] as const,
-    ].map(([kind, node]) => `${kind} index.ts:${sourcePosition(current.source, node).line}:${sourcePosition(current.source, node).column}`),
-    `${name}: one shared owner publishes exact related source coordinates for both targets`);
-    assert.deepEqual(issue.sourceSpan, sourceSpan(current.source, issue.site), `${name}: actual instantiation site span`);
-    assert.equal(Object.isFrozen(selected.issues) && Object.isFrozen(issue), true, `${name}: immutable completed summary`);
+    assert.equal(Object.isFrozen(selected.issues), true, `${name}: immutable completed result`);
   });
 }
 
@@ -42,7 +31,9 @@ test("a class parameter and captured structural method are summarized at their a
   const selected = current.query();
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "complete class summary");
   if (selected.kind !== "resolved") return;
-  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(), ["make(promised)", "new Holder(promised)"]);
+  assert.equal(selected.issues.length, 0, "approved C1373: construction and captured methods do not become adoption refusals");
+  for (const expression of ["make(7)", "make(promised)", "new Holder(7)", "new Holder(promised)"])
+    checkedOperation(current, expression);
 });
 
 for (const [name, extra, receiver, expression] of [
@@ -67,8 +58,8 @@ test(`generic adoption retains the actual ${name} receiver binding`, () => {
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
     if (selected.kind !== "resolved") return;
-    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), [expression],
-      "every actual receiver alternative is checked, without a callee-property duplicate");
+    assert.equal(selected.issues.length, 0, "approved C1373: every checked receiver alternative is supported");
+    checkedOperation(current, expression);
   });
 }
 
@@ -80,8 +71,9 @@ test("a receiver forwards sensitivity through the exact outer function binder", 
   const selected = current.query();
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "receiver forwarding");
   if (selected.kind !== "resolved") return;
-  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["forward(holder)"],
-    "the owning checked call supplies the actual binding, not a guessed member spelling");
+  assert.equal(selected.issues.length, 0, "approved C1373: forwarding uses its declared native result");
+  checkedOperation(current, "forward(holder)");
+  checkedOperation(current, "holder.get()");
 });
 
 test("a synchronous class-binder result is native pass-through, not an invented async completion", () => {

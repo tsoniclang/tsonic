@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { fixture, identity } from "./generic-adoption-fixtures.js";
+import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
 
 test("an ordinary helper does not become a resolver merely because its callback has the same signature", () => {
   const current = fixture(`function use<T>(value: T): Promise<number> { return new Promise<number>(resolve => {
@@ -47,8 +48,8 @@ test(`a genuinely adopting ${recursive ? "recursive" : "direct"} resolver row re
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "same resolver activation");
     if (selected.kind !== "resolved") return;
-    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(promised)"],
-      "the matching value reaches the resolver through the exact finite helper executions");
+    assert.equal(selected.issues.length, 0, "approved C1373: a matching declared Promise payload adopts natively");
+    checkedOperation(current, "wrap(promised)");
   });
 }
 
@@ -59,8 +60,8 @@ test("an opaque resolver result is unresolved, never an empty safe source summar
   const selected = current.query();
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "declared adoption completes");
   if (selected.kind !== "resolved") return;
-  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(Promise.resolve(7))"],
-    "the original source-bodied declared Promise instantiation owns its one adoption issue");
+  assert.equal(selected.issues.length, 0, "approved C1373 E: the declared native callback type is sufficient");
+  checkedOperation(current, "wrap(Promise.resolve(7))");
   const operation = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.textFor(node) === "done(value)");
   assert.equal(operation !== undefined &&
@@ -98,8 +99,8 @@ test(`observed resolving calls own latent native input uncertainty (${alias}, ${
     } else {
       assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "declared adoption completes");
       if (selected.kind !== "resolved") return;
-      assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["wrap(Promise.resolve(7))"],
-        "the original outer declared instantiation owns its one adoption issue");
+      assert.equal(selected.issues.length, 0, "approved C1373 E: the original outer instantiation adopts natively");
+      checkedOperation(current, "wrap(Promise.resolve(7))");
       const inner = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
         current.textFor(node) === operation);
       assert.equal(inner !== undefined &&
@@ -117,8 +118,8 @@ test("a canonical Promise wrapper is adopting even when its payload still has an
   const selected = current.query();
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "canonical Awaited wrapper");
   if (selected.kind !== "resolved") return;
-  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["identity(Promise.resolve(value))"],
-    "Awaited(actual) differs from the actual outer Promise regardless of the inner free parameter");
+  assert.equal(selected.issues.length, 0, "approved C1373: a closed outer Promise supports its still-generic payload");
+  checkedOperation(current, "identity(Promise.resolve(value))");
 });
 
 test("an open direct binder and a native payload container propagate without becoming Promise wrappers", () => {
