@@ -71,10 +71,12 @@ export type SourceDeclarationAsyncCompletionSelection =
 
 export interface SourceDeclarationOwnershipPremises {
   completionFor(call: Node, selected: ResolvedSourceCallInfo): SourceDeclarationAsyncCompletionSelection;
-  retentionFor(request:
+  retentionFor(request: {
+    readonly valueFor: SourceDeclarationOwnershipValues["forNode"];
+  } & (
     | { readonly kind: "value"; readonly value: SourceDeclarationOwnershipValue }
     | { readonly kind: "read-value"; readonly reference: Node; readonly value: SourceDeclarationOwnershipValue }
-  ): SourceDeclarationRetentionSelection | undefined;
+  )): SourceDeclarationRetentionSelection | undefined;
   suspensionFor(value: SourceDeclarationOwnershipValue): SourceDeclarationSuspensionSelection | undefined;
 }
 
@@ -130,6 +132,7 @@ export interface SourceDeclarationOwnershipBudget {
   step(subject: Node): boolean;
   createRows(subject: Node): SourceDeclarationOwnershipRows;
   failure(): SourceDeclarationOwnershipUnresolved | undefined;
+  usage(): { readonly steps: number; readonly rows: number };
 }
 
 export interface SourceDeclarationOwnershipValues {
