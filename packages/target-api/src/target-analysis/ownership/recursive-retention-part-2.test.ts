@@ -214,9 +214,7 @@ for (const depth of [2, 3]) for (const reverse of [false, true]) {
     const checkedDeclarations = new Set<Node>();
     for (const alternative of construction.alternatives) for (const selectedClass of alternative.classes) {
       for (const region of selectedClass.regions) {
-        if (region.selection.kind !== "resolved") {
-          assert.fail(region.selection.reason);
-        }
+        assert.equal(region.selection.kind === "resolved", true, "the original checked class region has its actual construction bindings");
         const references = current.nodes.filter(node => {
           if (!source.ast.is.IsIdentifier(node) || source.ast.text(node) !== "lease") return false;
           for (let parent: Node | undefined = node; parent !== undefined; parent = source.ast.parent(parent))

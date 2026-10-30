@@ -3,6 +3,7 @@ import { Node_Expression } from "../../source-navigation/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { type Node } from "@tsonic/tsts";
+import type { SourceDeclarationFlowExecutionRegion } from "../flow/model.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { fixture } from './recursive-retention-fixtures.js';
@@ -257,7 +258,7 @@ for (const accessor of [false, true]) {
         assert.equal(closure.forDeclaration(candidate!) === selected, true,
           "the two runtime factory calls do not create competing declaration summaries");
         for (const point of [...reads, ...results]) {
-          const region = graph.graph.executionRegions.get(point.id);
+          const region: SourceDeclarationFlowExecutionRegion | undefined = graph.graph.executionRegions.get(point.id);
           assert.equal(region !== undefined && region.owner === candidate && region.root === source.ast.body(candidate!) &&
             region.role === "body", true,
           "every real read and result retains its original declaration owner and body, never a caller activation");
