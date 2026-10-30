@@ -77,6 +77,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/flow/statements.ts": 10,
   "packages/target-api/src/target-analysis/guard-preservation.ts": 4,
   "packages/target-api/src/target-analysis/native-control-flow.ts": 2,
+  "packages/target-api/src/target-analysis/ownership/flow.ts": 1,
   "packages/target-api/src/target-analysis/ownership/receiver-occurrences.ts": 2,
   "packages/target-api/src/target-analysis/ownership/recursive-retention-part-1.test.ts": 2,
   "packages/target-api/src/target-analysis/property-names.ts": 40,
