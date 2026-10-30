@@ -44,6 +44,10 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
   const reject = (node: Node, kind: SourceNativeTaskIssue["kind"], reason: string): void => {
     if (rows.add(1)) issues.push(Object.freeze({ node, kind, reason }));
   };
+  const generator = (declaration: Node): boolean =>
+    (source.ast.is.IsFunctionDeclaration(declaration) || source.ast.is.IsFunctionExpression(declaration) ||
+      source.ast.is.IsMethodDeclaration(declaration)) && source.ast.children(declaration).some(child =>
+        child !== undefined && source.ast.kindName(child) === "KindAsteriskToken");
   const unsupportedOwner = (node: Node): Node | undefined => {
     const visited = new Set<Node>();
     for (let current: Node | undefined = node; current !== undefined; current = source.ast.parent(current)) {
@@ -55,7 +59,7 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       visited.add(current);
       if (source.ast.is.IsClassStaticBlockDeclaration(current)) return current;
       if (isSourceCallableBodyBoundary(source.ast, current))
-        return source.semantics.forNode(current).operations.generator(current) === undefined ? undefined : current;
+        return generator(current) ? current : undefined;
       if (source.ast.is.IsSourceFile(current)) return undefined;
     }
     return undefined;
@@ -162,7 +166,7 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       if (source.ast.is.IsSourceFile(declaration)) continue;
       if (source.ast.is.IsConstructorDeclaration(declaration) || source.ast.is.IsClassDeclaration(declaration) ||
         source.ast.is.IsClassExpression(declaration) || source.ast.is.IsClassStaticBlockDeclaration(declaration) ||
-        source.semantics.forNode(declaration).operations.generator(declaration) !== undefined) {
+        generator(declaration)) {
         reject(declaration, "scope-owner", "Native explicit void spawn is unsupported in this selected constructor, initializer or generator.");
         continue;
       }

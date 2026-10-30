@@ -57,11 +57,27 @@ export function decideSourceDeclarationAsyncResultUse(input: {
     if (!budget.step(call)) return budget.failure()!;
     let effective: readonly SourceDeclarationRetentionPremise[] = [premise];
     if (premise.kind === "formal-borrowed" && premise.value.node !== call &&
-      declaration === premise.executionOwner) {
-      const executionOwner = premise.executionOwner;
-      const formal = premise.region.kind === "input-duration" ? premise.region.parameter
+      (declaration === premise.executionOwner || declaration === premise.value.region.owner)) {
+      let formal = premise.region.kind === "input-duration" ? premise.region.parameter
         : source.ast.is.IsParameterDeclaration(premise.value.node) ? premise.value.node
           : source.navigation.sourceReferenceFor(premise.value.node)?.declaration;
+      if (declaration !== premise.executionOwner) {
+        const node = premise.value.node;
+        const semantics = source.semantics.forNode(node);
+        const operation = source.ast.is.IsCallExpression(node) ? semantics.operations.call(node) : undefined;
+        const native = operation?.sourceSelectedSignatureKind === "resolved"
+          ? semantics.declarations.signatureDeclaration(operation.selectedSignature) : undefined;
+        const parameter = operation?.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
+        const bindings = native !== premise.executionOwner || parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
+          binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
+        const argument = bindings.length === 1 ? source.ast.arguments(node)[bindings[0]!.sourceArgumentIndex] : undefined;
+        const reference = argument === undefined ? undefined : source.navigation.sourceReferenceFor(argument)?.declaration;
+        if (reference === undefined || !source.ast.is.IsParameterDeclaration(reference) || source.ast.parent(reference) !== declaration)
+          return sourceDeclarationOwnershipUnresolved(call,
+            "A declaration-native pending input requires its original direct formal read, not an alias or caller history.");
+        formal = reference;
+      }
+      const executionOwner = declaration;
       const parameter = selected.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
       const bindings = parameter === undefined ? [] : selected.sourceArgumentBindings.filter(binding =>
         binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
