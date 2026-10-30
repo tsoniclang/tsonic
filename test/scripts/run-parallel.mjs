@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { readTestResourceBudget, testTaskEnvironment } from "./test-resource-budget.mjs";
 import { runOomRetryQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
@@ -22,8 +22,10 @@ import {
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
-const timeouts = options.baselineReport === undefined ? new Map()
-  : taskTimeoutsFromBaseline(JSON.parse(readFileSync(options.baselineReport, "utf8")));
+const baseline = options.baselineReport === undefined ? lastCompletedReport()
+  : JSON.parse(readFileSync(options.baselineReport, "utf8"));
+const timeouts = options.baselineReport === undefined ? new Map() : taskTimeoutsFromBaseline(baseline);
+const durations = new Map((baseline?.results ?? []).map(result => [result.id, result.durationMs]));
 const repos = { ...testRepositoryRoots };
 if (options.repositoryRoot !== undefined) {
   if (options.scopes.size !== 1) throw new Error("--repository-root requires exactly one selected scope.");
@@ -114,7 +116,9 @@ const report = writeParallelReport({ options, runId, tsonicRoot, resourceBudget,
 process.exitCode = report.taskCounts.failed === 0 && report.testCountReporting.missing === 0 ? 0 : 1;
 
 async function runShards(allShards) {
-  const results = await runOomRetryQueue(allShards, {
+  const ordered = [...allShards].sort((left, right) =>
+    (durations.get(right.id) ?? -1) - (durations.get(left.id) ?? -1) || left.id.localeCompare(right.id));
+  const results = await runOomRetryQueue(ordered, {
     ...resourceBudget,
     groupWorkerLimits: suiteDefinition.groupWorkerLimits,
   }, runShard);
@@ -124,6 +128,22 @@ async function runShards(allShards) {
     }
   }
   return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
+}
+
+function lastCompletedReport() {
+  const directory = resolve(tsonicRoot, ".temp/test-runs/parallel-runs");
+  if (!existsSync(directory)) return undefined;
+  const reports = readdirSync(directory, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => resolve(directory, entry.name, "report.json"))
+    .filter(file => existsSync(file))
+    .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs);
+  for (const file of reports) {
+    const report = JSON.parse(readFileSync(file, "utf8"));
+    if (Array.isArray(report.results) && report.results.length === report.taskCounts?.total &&
+      report.results.every(result => Number.isFinite(result.durationMs) && result.durationMs >= 0)) return report;
+  }
+  return undefined;
 }
 
 function runShard(shard, attempt, workers) {

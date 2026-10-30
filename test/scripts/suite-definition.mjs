@@ -156,7 +156,7 @@ export function createParallelSuiteDefinition(repos) {
       {
         ...targetSuite("csharp-backend-toolchain", "test/integration/generated"),
         fileMetadata: Object.fromEntries([
-          "direct-translation-source-profile-elements", "js-api-capability-closure", "regexp-complete",
+          "direct-translation-source-profile-elements", "js-api-capability-closure", "regexp-complete.part-01", "regexp-complete.part-02",
           "source-profile-contract",
         ].map(name => [`test/integration/generated/${name}.test.mjs`, { group: "csharp-provider", preRunIds: providerPreRuns }])),
       },

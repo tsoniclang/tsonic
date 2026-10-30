@@ -1,0 +1,301 @@
+import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+
+test("CLI lists installed target plugins", async () => {
+  const projectDirectory = resolve(tempRoot, "installed-target-list");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export const value = 1;\n",
+  });
+
+  const result = runNode([cliPath, "targets", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^csharp\t@tsonic\/target-csharp$/m);
+});
+
+test("CLI prints current architecture help without legacy command aliases", () => {
+  for (const helpArg of [undefined, "help", "--help", "-h"]) {
+    const args = helpArg === undefined ? [cliPath] : [cliPath, helpArg];
+    const result = runNode(args);
+    assert.equal(result.status, 0, helpArg ?? "default");
+    assert.match(result.stdout, /tsonic build --project <tsonic\.json>/);
+    assert.match(result.stdout, /TSTS owns TypeScript parse\/bind\/check\/flow\/narrowing/);
+    assert.doesNotMatch(result.stdout, /\badd\b|\brestore\b|\btest-command\b/);
+  }
+});
+
+test("CLI rejects unknown commands instead of routing legacy command shims", () => {
+  for (const command of ["add", "restore", "test", "run", "unknown"]) {
+    const result = runNode([cliPath, command]);
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, new RegExp(`Unknown command '${command}'`, "u"));
+    assert.match(result.stderr, /tsonic build --project <tsonic\.json>/);
+  }
+});
+
+test("CLI reports missing project path argument before project loading", () => {
+  for (const flag of ["--project", "-p"]) {
+    const missing = runNode([cliPath, "build", flag]);
+    assert.equal(missing.status, 1, flag);
+    assert.match(missing.stderr, /Expected a path after --project/);
+
+    const optionLike = runNode([cliPath, "build", flag, "--other"]);
+    assert.equal(optionLike.status, 1, flag);
+    assert.match(optionLike.stderr, /Expected a path after --project/);
+  }
+});
+
+test("CLI build uses tsonic.json in the current directory when --project is omitted", async () => {
+  const projectDirectory = resolve(tempRoot, "default-project-path");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDefaultProject",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNodeInDirectory(projectDirectory, [cliPath, "build"]);
+  assert.equal(build.status, 0, build.stderr);
+  assert.match(build.stdout, /Entry: index\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultProject.csproj")), true);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), true);
+});
+
+test("CLI rejects duplicate target ids before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "duplicate-targets");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }, { id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /target 'csharp' is declared more than once/);
+});
+
+test("CLI rejects unsafe target and surface ids before output path creation", async () => {
+  const cases = [
+    {
+      name: "unsafe-target-id",
+      target: { id: "../csharp" },
+      expected: /Target at index 0 id '\.\.\/csharp' must match/,
+    },
+    {
+      name: "unsafe-surface-id",
+      target: { id: "csharp", surfaces: ["../js"] },
+      expected: /Target 'csharp' surface '\.\.\/js' must match/,
+    },
+  ];
+
+  for (const { name, target, expected } of cases) {
+    const projectDirectory = resolve(tempRoot, name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [target],
+      }, null, 2),
+      "src/index.ts": "export const value = 1;\n",
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, name);
+    assert.match(build.stderr, expected, name);
+    assert.equal(existsSync(resolve(projectDirectory, "out")), false, name);
+  }
+});
+
+test("CLI rejects non-final entrypoint source extensions before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-entry-extension");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.cts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.cts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /entryPoint must use a final ESM TypeScript source extension: \.ts or \.mts/);
+});
+
+test("CLI rejects unsupported top-level project config fields before compiling", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-project-config-field");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      output: {
+        type: "Library",
+      },
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Project config has unsupported field 'output'/);
+});
+
+test("CLI rejects TypeScript path-mapping config fields instead of ignoring them", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-path-mapping-config");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      compilerOptions: {
+        baseUrl: ".",
+        paths: {
+          "@app/*": ["app/*"],
+        },
+      },
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Project config field 'compilerOptions' is not supported/);
+  assert.doesNotMatch(build.stderr, /Cannot find module/);
+});
+
+test("CLI rejects top-level path-mapping aliases before module resolution", async () => {
+  const cases = [
+    {
+      name: "unsupported-base-url",
+      config: { baseUrl: "." },
+      expected: /Project config field 'baseUrl' is not supported/,
+    },
+    {
+      name: "unsupported-paths",
+      config: { paths: { "@app/*": ["src/app/*"] } },
+      expected: /Project config field 'paths' is not supported/,
+    },
+    {
+      name: "unsupported-tsconfig-link",
+      config: { tsconfig: "tsconfig.json" },
+      expected: /Project config field 'tsconfig' is not supported/,
+    },
+    {
+      name: "unsupported-project-references",
+      config: { references: [{ path: "../shared" }] },
+      expected: /Project config field 'references' is not supported/,
+    },
+  ];
+
+  for (const { name, config, expected } of cases) {
+    const projectDirectory = resolve(tempRoot, name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        ...config,
+        targets: [{ id: "csharp" }],
+      }, null, 2),
+      "src/index.ts": "import { value } from \"@app/value.js\";\nexport const result = value;\n",
+      "src/app/value.ts": "export const value = 1;\n",
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, name);
+    assert.match(build.stderr, expected, name);
+    assert.doesNotMatch(build.stderr, /Cannot find module/, name);
+  }
+});
+
+test("CLI rejects unsupported target entry fields outside target options", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-target-config-field");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          namespace: "Bad.Legacy",
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Target at index 0 has unsupported field 'namespace'/);
+});
+
+test("CLI rejects unsupported C# target options instead of ignoring them", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-csharp-target-option");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            rootNamespace: "Legacy.Generated",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# target option 'options\.rootNamespace' is not supported/);
+});
+
+test("CLI rejects duplicate configured surfaces before target composition", async () => {
+  const projectDirectory = resolve(tempRoot, "duplicate-configured-surfaces");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js", "js"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Target 'csharp' surface 'js' is declared more than once/);
+});
