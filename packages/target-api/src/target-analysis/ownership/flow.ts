@@ -16,7 +16,7 @@ import { sourceOwnershipUnresolved } from "./contracts.js";
 import { sourceOwnershipImmediateType } from "./suspension.js";
 import type { SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
 import { createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../flow/graph.js";
-import { sourceEnclosingCallable, isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
+import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationContinuationDependency, SourceDeclarationPendingOperation } from "./model.js";
 import type { SourceDeclarationContinuationDependencyQueries } from "./dependencies.js";
