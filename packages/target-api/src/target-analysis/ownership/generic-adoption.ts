@@ -119,7 +119,11 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
     return found;
   };
   const mark = (operation: Node, type: Type, semantics: SourceFileSemantics): void => {
-    for (const declaration of parametersIn(type, semantics)) parameters.get(declaration)!.operation ??= operation;
+    for (const declaration of parametersIn(type, semantics)) {
+      const selected = parameters.get(declaration)!;
+      if (selected.operation === undefined || selected.operation === selected.owner &&
+          sourceEnclosingCallable(operation, ast) === selected.owner) selected.operation = operation;
+    }
   };
   const referenceDeclaration = (node: Node): Node | undefined => {
     if (ast.is.IsParameterDeclaration(node)) return node;
@@ -163,6 +167,25 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
       }
     }
   };
+  const receiver = (site: Node, type: Type): void => {
+    const semantics = source.semantics.forNode(site);
+    const pending = [type];
+    const visited = new Set<Type>();
+    while (pending.length !== 0 && failure === undefined) {
+      if (!step(site)) break;
+      const selected = pending.pop()!;
+      if (visited.has(selected)) continue;
+      if (!rows.add(1)) { failure ??= budget.failure(); break; }
+      visited.add(selected);
+      if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+        pending.push(...semantics.types.unionOrIntersectionTypes(selected));
+        continue;
+      }
+      for (const binding of semantics.types.typeArgumentBindings(selected) ?? [])
+        instance(site, binding.declaration, binding.argumentType);
+      for (const base of semantics.types.instantiatedBaseTypes(selected) ?? []) pending.push(base);
+    }
+  };
   try {
     for (const node of domain.nodes) {
       if (!step(node)) break;
@@ -173,15 +196,24 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
       const type = semantics.declarations.declaredType(node);
       if (owner === undefined || type === undefined)
         return sourceDeclarationOwnershipUnresolved(node, "Generic adoption requires the exact checked formal declaration.");
-      const result = ast.body(owner) === undefined ? undefined : semantics.types.declarationSignatureInfo(owner)?.returnType;
+      if (!rows.add(2)) return budget.failure()!;
+      parameters.set(node, { owner, neighbours: new Set(), operation: undefined });
+    }
+    for (const [parameter, selected] of parameters) {
+      if (!step(parameter)) break;
+      const { owner } = selected;
+      const semantics = source.semantics.forNode(parameter);
+      const type = semantics.declarations.declaredType(parameter)!;
+      const implementation = ast.body(owner) === undefined ? source.navigation.callableImplementation(owner) : undefined;
+      const sourceBody = ast.body(owner) !== undefined || implementation?.kind === "resolved";
+      const result = sourceBody ? semantics.types.declarationSignatureInfo(owner)?.returnType : undefined;
       const resultSymbol = result === undefined ? undefined : semantics.declarations.typeSymbol(result);
       const promise = resultSymbol !== undefined && semantics.declarations.symbolDeclarations(resultSymbol)
         .some(declaration => sourceGenericAdoptionPromiseOwner(source, declaration, semantics) === "Promise");
       const adopting = result !== undefined && (promise && semantics.types.typeArguments(result)
-        .some(argument => semantics.types.isIdentical(argument, type)) ||
+        .some(argument => parametersIn(argument, semantics).has(parameter)) ||
         ast.hasModifierKind(owner, "async") && semantics.types.isIdentical(result, type));
-      if (!rows.add(2)) return budget.failure()!;
-      parameters.set(node, { owner, neighbours: new Set(), operation: adopting ? owner : undefined });
+      if (adopting) selected.operation = owner;
     }
     for (const node of domain.nodes) {
       if (!step(node)) break;
@@ -237,9 +269,17 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
         for (const type of [selected.sourceReceiver?.type,
           ...(ast.is.IsNewExpression(node) ? [selected.sourceResultType] : [])]) {
           if (type === undefined) continue;
-          for (const binding of semantics.types.typeArgumentBindings(type) ?? [])
-            instance(node, binding.declaration, binding.argumentType);
+          receiver(node, type);
         }
+      }
+      if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+        const access = ast.is.IsPropertyAccessExpression(node)
+          ? semantics.operations.propertyAccess(node) : semantics.operations.elementAccess(node);
+        const declaration = access !== undefined && "selectedReadDeclaration" in access
+          ? access.selectedReadDeclaration ?? access.selectedDeclaration : access?.selectedDeclaration;
+        if (access !== undefined && !access.callCallee && declaration !== undefined &&
+            (ast.is.IsMethodDeclaration(declaration) || ast.kindName(declaration) === "KindGetAccessor"))
+          receiver(node, access.receiver.type);
       }
       const expression = ast.is.IsAwaitExpression(node) || ast.is.IsReturnStatement(node) ? Node_Expression(ast, node)
         : ast.is.IsArrowFunction(node) && ast.body(node) !== undefined && !ast.is.IsBlock(ast.body(node)) ? ast.body(node) : undefined;
