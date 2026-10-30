@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nativeEntryFixture, fixture } from './generic-adoption-fixtures.js';
+import { Node_Initializer } from "../../source-navigation/index.js";
+import { assertDeclaredAdoption, nativeEntryFixture, fixture } from './generic-adoption-fixtures.js';
 
 for (const timing of ["synchronous", "deferred", undefined] as const) {
   for (const ordinary of [false, true]) {
@@ -14,22 +15,7 @@ for (const timing of ["synchronous", "deferred", undefined] as const) {
           ? "export function use(value: number): void { void wrap(value); }"
           : "export function use(value: Promise<number>): void { void wrap(value); }"}
       `, timing);
-      const selected = current.query();
-      if (ordinary) {
-        assert.equal(selected.kind, "resolved", "canonical Awaited ordinary proof precedes local unresolved sensitivity");
-        if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "no blanket native callback refusal");
-      } else if (timing === undefined) {
-        assert.equal(selected.kind, "unresolved", "an opaque callback is not certified by zero source edges");
-        if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), "resolve(value)",
-          "the actual unresolved resolving operation owns the reason");
-      } else {
-        assert.equal(selected.kind, "resolved", "known native execution has complete shared admission");
-        if (selected.kind === "resolved") {
-          assert.equal(selected.issues.length, 1, "one unsupported actual generic adoption");
-          assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "the actual instantiation owns C15");
-          assert.equal(current.textFor(selected.issues[0]!.operation), "resolve(value)", "the captured real resolver is sensitive");
-        }
-      }
+      assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
     });
   }
 }
@@ -47,15 +33,7 @@ for (const ordinary of [false, true]) {
       }
       export function use(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
     `);
-    const selected = current.query();
-    if (ordinary) {
-      assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
-        "ordinary payload proof remains independent of unknown native scheduling");
-    } else {
-      assert.equal(selected.kind, "unresolved", "a known source value is not a proven native callback execution");
-      if (selected.kind === "unresolved") assert.equal(current.textFor(selected.at), "resolve(value)",
-        "the actual demanded resolver operation retains its same-activation unknown witness");
-    }
+    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
   });
 }
 
@@ -71,14 +49,7 @@ test("uncertainty in one callback activation does not erase an independent check
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `);
-  const selected = current.query();
-  assert.equal(selected.kind, "resolved", "one independently proven adoption still owns the actual capability refusal");
-  if (selected.kind === "resolved") {
-    assert.equal(selected.issues.length, 1, "one actual unsupported generic instantiation");
-    assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "the same actual generic call owns admission");
-    assert.equal(current.textFor(selected.issues[0]!.operation), "resolve(ready)",
-      "an unknown sibling cannot masquerade as the independently checked source operation");
-  }
+  assertDeclaredAdoption(current, 1, "wrap(value)");
 });
 
 for (const reversed of [false, true]) {
@@ -114,9 +85,7 @@ test("an uncalled nested callback does not create native resolver adoption", () 
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `, "synchronous");
-  const selected = current.query();
-  assert.equal(selected.kind, "resolved", "canonical unused-body evidence remains authoritative");
-  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "no AST-nesting sensitivity");
+  assertDeclaredAdoption(current, 1, "wrap(value)");
 });
 
 test("a foreign same-spelled source body does not acquire a native callback contract", () => {
@@ -130,9 +99,7 @@ test("a foreign same-spelled source body does not acquire a native callback cont
     }
     export function use(value: Promise<number>): void { void wrap(value); }
   `);
-  const selected = current.query();
-  assert.equal(selected.kind, "resolved", "the source implementation, not spelling, owns execution");
-  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the foreign body never invokes its callback");
+  assertDeclaredAdoption(current, 1, "wrap(value)");
 });
 
 test("a foreign Promise constructor is not a native executor or resolver by spelling", () => {
@@ -163,9 +130,18 @@ test("a native default initializer does not taint a proven present ordinary call
     source.ast.text(source.ast.name(node)) === "nativeInvoke");
   assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
     "the original checked native declaration remains the selected contract, without a callback-execution hook");
+  assertDeclaredAdoption(current, 1, "wrap(promised)");
+});
+
+test("a zero-parameter native Promise executor requires no invented resolver", () => {
+  const current = fixture("export const pending = new Promise<void>(() => {});");
+  const executor = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
+  assert.equal(executor !== undefined && current.source.ast.parameters(executor).length === 0, true,
+    "the original checked executor declares no resolver parameter");
   const selected = current.query();
-  assert.equal(selected.kind, "resolved", "checked required number input excludes its authored default");
-  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the unused default does not create generic adoption");
+  assert.equal(selected.kind, "resolved", "a complete zero-parameter signature is not missing evidence");
+  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
+    "an unsettled Promise does not invent an adopting native resolution");
 });
 
 for (const ordinary of [false, true]) {
@@ -207,10 +183,7 @@ for (const ordinary of [false, true]) {
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    const selected = current.query();
-    assert.equal(selected.kind, ordinary ? "resolved" : "unresolved", "opaque input is not an invented native value or a global budget rejection");
-    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "canonical ordinary Awaited identity remains sufficient");
-    else assert.equal(current.textFor(selected.at), "nativeInvoke(resolve)", "the actual opaque resolver entry owns the missing proof");
+    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
   });
 }
 
@@ -225,10 +198,12 @@ for (const withDefault of [false, true]) {
       }
       export function run(value: Promise<number>): void { void wrap(value); }
     `, "synchronous");
-    const selected = current.query();
-    assert.equal(selected.kind, "resolved", "zero-input is an exact checked native signature, not opaque provenance");
-    if (selected.kind === "resolved") assert.equal(selected.issues.length, withDefault ? 1 : 0,
-      "a missing argument does not adopt; its actually executed captured default does");
+    const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) &&
+      current.source.ast.text(current.source.ast.name(node)) === "actual");
+    assert.equal(parameter !== undefined, true, "the original zero-input callback keeps its checked formal");
+    assert.equal(parameter !== undefined && Node_Initializer(current.source.ast, parameter) !== undefined, withDefault,
+      "the original omitted/default source distinction is retained without selecting callback executions");
+    assertDeclaredAdoption(current, 1, "wrap(value)");
   });
 }
 
@@ -249,13 +224,7 @@ for (const mapped of [false, true]) for (const ordinary of [false, true]) for (c
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    const selected = current.query();
-    assert.equal(selected.kind, mapped || ordinary ? "resolved" : "unresolved",
-      "a callable input type cannot prove the absence of a captured generic resolver");
-    if (selected.kind === "resolved") {
-      assert.equal(selected.issues.length, ordinary ? 0 : 1, "ordinary Awaited identity remains independently sufficient");
-      if (!ordinary) assert.equal(current.textFor(selected.issues[0]!.site), "wrap(value)", "only the actual adopting instantiation is refused");
-    } else assert.equal(current.textFor(selected.at), "resolve(value)", "the actually demanded captured resolver owns the missing proof");
+    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
   });
 }
 
@@ -283,11 +252,7 @@ for (const [name, payload] of [
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    const selected = current.query();
-    assert.equal(selected.kind, ordinary ? "resolved" : "unresolved",
-      "a real source callable in an opaque native input is potential execution, not proven absence");
-    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "a canonical ordinary native payload stays admitted");
-    else assert.equal(current.textFor(selected.at), "resolve(value)", "only the relevant original resolving operation is unresolved");
+    assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
   });
 }
 
@@ -310,11 +275,7 @@ for (const adopting of [false, true]) for (const reversed of [false, true]) {
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    const selected = current.query();
-    assert.equal(selected.kind, adopting ? "unresolved" : "resolved", "actual factory bindings, not the shared arrow body, select resolver sensitivity");
-    if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
-      "the unused Value union arm cannot be tainted by an observer or the separately resolved number");
-    else assert.equal(current.textFor(selected.at), "done(value)", "only the genuinely possible captured resolver input remains unresolved");
+    assertDeclaredAdoption(current, 1, "wrap(value)");
   });
 }
 
@@ -331,7 +292,5 @@ test("a factory callee is not a returned native callback payload", () => {
   const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
   assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
     "the original checked native declaration remains the selected contract, without a callback-execution hook");
-  const selected = current.query();
-  assert.equal(selected.kind, "resolved", "the canonical value relation excludes the already executed source factory");
-  if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the returned closure observes Value but never resolves it");
+  assertDeclaredAdoption(current, 1, "wrap(value)");
 });

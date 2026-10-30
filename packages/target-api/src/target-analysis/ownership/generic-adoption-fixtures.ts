@@ -110,6 +110,20 @@ export function sourcePosition(source: TargetSourceProgram, node: Node, finish =
   return { line: lines.length, column: [...lines[lines.length - 1]!].length + 1 };
 }
 
+export function assertDeclaredAdoption(current: ReturnType<typeof fixture>, expected: 0 | 1, call: string): void {
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", "the checked declaration decides without callback execution history");
+  if (selected.kind !== "resolved") return;
+  assert.equal(selected.issues.length, expected, "only a declared native adoption at this instantiation is refused");
+  if (expected === 0) return;
+  const issue = selected.issues[0]!;
+  assert.equal(current.textFor(issue.site), call, "the original checked instantiation owns the issue");
+  assert.equal(current.source.ast.parent(issue.parameter) === issue.declaration, true,
+    "the issue retains its exact original generic formal and declaration");
+  assert.equal(issue.operation === issue.declaration, true,
+    "the declared result contract, not a callback execution, owns sensitivity");
+}
+
 export function sourceSpan(source: TargetSourceProgram, node: Node) {
   const start = sourcePosition(source, node);
   const finish = sourcePosition(source, node, true);
