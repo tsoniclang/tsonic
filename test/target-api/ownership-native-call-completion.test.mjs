@@ -83,7 +83,7 @@ function sourceType(current, node) {
   return selected;
 }
 
-function declarationFixture() {
+function declarationFixture(hideNativeDeclaration = false) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/declared", files: {
     "/declared/native.d.ts": "export declare function nativeRead<Value>(value: Value): Promise<Value>;",
     "/declared/index.ts": `
@@ -95,7 +95,8 @@ function declarationFixture() {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createTargetSourceProgram(hideNativeDeclaration ? { ...checked,
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) } : checked);
   const file = checked.getSourceFile("/declared/index.ts");
   assert.equal(file !== undefined, true, "the declaration-local owner is checked");
   const nodes = source.navigation.nodesForFiles([file]);
@@ -132,6 +133,25 @@ test("declaration-native completion accepts an exact external generic operation 
   assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true, "the actual native operation is immediately awaited");
   assert.equal(selected.disposition.kind === "awaited-in-scope", true, "the original caller's await is retained");
   assert.equal(query.forCall(current.call) === selected, true, "one immutable declaration-local decision");
+});
+
+test("declaration-native completion keeps checked provider identity outside the emitted-source inventory", () => {
+  const current = declarationFixture(true);
+  const provider = current.source.ast.getSourceFile(current.declaration);
+  assert.equal(provider !== undefined && !current.source.semantics.includes(provider), true,
+    "the real checked native declaration has no emitted body or synthetic project region");
+  const query = createSourceDeclarationOwnershipQuery({ ...current, premises: current.premises });
+  const selected = query.forCall(current.call);
+  assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+    "selected checked-signature identity, not project-file membership, authorizes the provider contract");
+  const foreign = declarationFixture(true);
+  const wrong = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
+    completionFor(node, selection) {
+      const completed = current.premises.completionFor(node, selection);
+      return { ...completed, contract: { ...completed.contract, declaration: foreign.declaration } };
+    } } });
+  assert.equal(wrong.forCall(current.call).kind === "unresolved", true,
+    "a same-URI declaration from another checked program cannot replace that selected native declaration");
 });
 
 test("declaration-native values preserve exact region identity independently of unrelated call order", () => {

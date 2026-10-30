@@ -94,7 +94,7 @@ export function sourceDeclarationOwnershipContractProblem(source: TargetSourcePr
   if (contract.kind === "expression") return contract.expression === node ? undefined
     : "Ownership expression evidence belongs to a different checked operation or value.";
   const declarationFile = source.ast.getSourceFile(contract.declaration);
-  if (declarationFile === undefined || !source.semantics.includes(declarationFile))
+  if (declarationFile === undefined)
     return "Ownership evidence requires the actual checked declaration, including checked provider declarations.";
   const declarations = new Set<Node>();
   const declaration = semantics.declarations.declarationSignature(node);
