@@ -94,21 +94,43 @@ test("CLI runs object rest defaults with nested object spread from finalized fac
   assert.doesNotMatch(generatedSource, /\bis string __tsonic_value\d+/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double> child = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = __tsonic_param\d+\.note,\s*extra = __tsonic_param\d+\.extra,\s*\};/);
-  assert.match(generatedSource, /(?<shape>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\d+) = child;\s*double (?<id>_*tsonic_value_\d+) = \k<child>\.id;\s*double (?<value>_*tsonic_value_\d+) = \k<child>\.value;\s*\k<value> = value;\s*\k<shape> updatedChild = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = \k<id>,\s*value = \k<value>,\s*\};/);
-  assert.match(generatedSource, new RegExp([
+  const updatedChild = /(?<contract>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\d+) = child;\s*double (?<id>_*tsonic_value_\d+) = \k<child>\.id;\s*double (?<value>_*tsonic_value_\d+) = \k<child>\.value;\s*\k<value> = value;\s*(?<implementation>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}) updatedChild = new \k<implementation>\s*\{\s*id = \k<id>,\s*value = \k<value>,\s*\};/u.exec(generatedSource);
+  assert.equal(updatedChild !== null, true, "updated child retains exact contract, ordered reads, overwrite and fresh construction");
+  const output = new RegExp([
     "ObjectShape_[a-f0-9]{12} (?<rest>__tsonic_value_\\d+) = rest;",
     "string (?<note>_*tsonic_value_\\d+) = \\k<rest>\\.note;",
     "double (?<extra>_*tsonic_value_\\d+) = \\k<rest>\\.extra;",
     "string (?<label>_*tsonic_value_\\d+) = label;",
-    "(?<shape>ObjectShape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\\d+) = updatedChild;",
+    "(?<childImplementation>ObjectShape_[a-f0-9]{12}) (?<child>__tsonic_value_\\d+) = updatedChild;",
     "double (?<id>_*tsonic_value_\\d+) = \\k<child>\\.id;",
     "double (?<value>_*tsonic_value_\\d+) = \\k<child>\\.value;",
-    "\\k<shape> (?<copy>_*tsonic_value_\\d+) = new ObjectShape_[a-f0-9]{12}",
+    "(?<contract>ObjectShape_[a-f0-9]{12}<double, double>) (?<copy>_*tsonic_value_\\d+) = new \\k<childImplementation>",
     "\\{\\s*id = \\k<id>,\\s*value = \\k<value>,\\s*\\};",
     "double (?<count>_*tsonic_value_\\d+) = count;",
-    "ObjectShape_[a-f0-9]{12}<\\k<shape>, double, double, string, string> output = new ObjectShape_[a-f0-9]{12}",
+    "(?<implementation>ObjectShape_[a-f0-9]{12}) output = new \\k<implementation>",
     "\\{\\s*note = \\k<note>,\\s*extra = \\k<extra>,\\s*label = \\k<label>,\\s*child = \\k<copy>,\\s*count = \\k<count>,\\s*\\};",
-  ].join("\\s*"), "u"));
+  ].join("\\s*"), "u").exec(generatedSource);
+  assert.equal(output !== null, true, "output retains exact rest, read, nested-copy and field-assignment order");
+  assert.equal(output.groups.childImplementation, updatedChild.groups.implementation, "nested copy uses the same native child implementation");
+  assert.equal(output.groups.contract, updatedChild.groups.contract, "both child copies retain the exact generic native contract");
+  const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const childDeclaration = new RegExp(`public class ${updatedChild.groups.implementation} : ${updatedChild.groups.contract}\\s*\\{(?<body>[\\s\\S]*?)\\n    \\}`, "u").exec(generatedShapes);
+  assert.equal(childDeclaration !== null, true, "concrete child implements its exact instantiated native interface");
+  for (const name of ["id", "value"]) {
+    assert.match(childDeclaration.groups.body, new RegExp(`public required double ${name}\\s*\\{\\s*get;\\s*set;\\s*\\}`, "u"));
+  }
+  const outputDeclaration = new RegExp(`public class ${output.groups.implementation} : ObjectShape_[a-f0-9]{12}<${updatedChild.groups.contract}, double, double, string, string>\\s*\\{(?<body>[\\s\\S]*?)\\n    \\}`, "u").exec(generatedShapes);
+  assert.equal(outputDeclaration !== null, true, "concrete output implements its exact instantiated native contract");
+  assert.match(outputDeclaration.groups.body, new RegExp(`public required ${updatedChild.groups.contract} child\\s*\\{\\s*get;\\s*set;\\s*\\}`, "u"));
+  for (const [type, name] of [["double", "count"], ["double", "extra"], ["string", "label"], ["string", "note"]]) {
+    assert.match(outputDeclaration.groups.body, new RegExp(`public required ${type} ${name}\\s*\\{\\s*get;\\s*set;\\s*\\}`, "u"));
+  }
+  const sourceStorage = /public static (?<implementation>ObjectShape_[a-f0-9]{12}) first/u.exec(generatedSource);
+  assert.equal(sourceStorage !== null, true, "original source storage has an exact native implementation");
+  const sourceDeclaration = new RegExp(`public class ${sourceStorage.groups.implementation} : (?<contract>ObjectShape_[a-f0-9]{12}<${updatedChild.groups.contract}, double, double, string\\?, string>)\\s*\\{(?<body>[\\s\\S]*?)\\n    \\}`, "u").exec(generatedShapes);
+  assert.equal(sourceDeclaration !== null, true, "source storage retains the exact child and optional-label contract");
+  assert.match(generatedSource, new RegExp(`public static string rewrite\\(${sourceDeclaration.groups.contract.replaceAll("?", "\\?")} __tsonic_param\\d+, double value\\)`, "u"));
+  assert.match(sourceDeclaration.groups.body, /public string\? label\s*\{\s*get;\s*set;\s*\}/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
