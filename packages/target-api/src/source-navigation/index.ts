@@ -47,6 +47,7 @@ export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";
 export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary } from "./declaration-use-summary.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
+export { sourceConstructionExpression, sourceSuperConstructor, sourceInstanceInitializers } from "./class-initialization.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { sourceReceiverBoundary, sourceReceiverOwner } from "./receiver-owner.js";
 export type { SourceReceiverBoundary } from "./receiver-owner.js";

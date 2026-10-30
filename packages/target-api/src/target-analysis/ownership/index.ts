@@ -23,3 +23,27 @@ export type {
   SourcePendingOperation, SourcePendingSelection, SourceRetentionPremise, SourceRetentionQueries,
   SourceRetentionReadSelection, SourceRetentionSelection, SourceSuspensionSelection, SourceCallableRetentionSelection,
 } from "./model.js";
+
+export { createSourceDeclarationOwnershipQuery } from "./query.js";
+export type { SourceDeclarationOwnershipQueries } from "./query.js";
+export { createSourceDeclarationOwnershipBudget, sourceDeclarationOwnershipUnresolved,
+  sourceDeclarationOwnershipContractProblem } from "./contracts.js";
+export { createSourceDeclarationOwnershipValues } from "./flow.js";
+export { createSourceDeclarationRetentionQuery } from "./retention.js";
+export { createSourceDeclarationSuspensionQuery } from "./suspension.js";
+export type { SourceDeclarationSuspensionQueries } from "./suspension.js";
+export { createSourceDeclarationContinuationDependencyQuery } from "./dependencies.js";
+export type { SourceDeclarationContinuationDependencyQueries } from "./dependencies.js";
+export { resolveSourceDeclarationAsyncResultDisposition } from "./result-use.js";
+export { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
+export { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
+export { analyzeSourceDeclarationNativeTaskGraph } from "./native-tasks.js";
+export type {
+  SourceDeclarationOwnershipCause, SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipContract,
+  SourceDeclarationOwnershipEvidence, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
+  SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipRows, SourceDeclarationOwnershipPremises,
+  SourceDeclarationRetentionPremise, SourceDeclarationRetentionSelection, SourceDeclarationRetentionReadSelection,
+  SourceDeclarationSuspensionSelection, SourceDeclarationAsyncCompletionSelection, SourceDeclarationPendingOperation,
+  SourceDeclarationPendingSelection, SourceDeclarationContinuationDependency, SourceDeclarationContinuationSelection,
+  SourceDeclarationAsyncResultDisposition, SourceDeclarationAsyncOwnershipSelection,
+} from "./model.js";

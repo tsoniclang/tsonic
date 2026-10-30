@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { fixture, sourcePosition, sourceSpan, identity, declarations } from './generic-adoption-fixtures.js';
+import { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
+import { createSourceDeclarationOwnershipBudget, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import type { SourceStorageLimits } from "../source-storage/model/types.js";
 
 for (const [name, declaration, invoked] of declarations) {
   test(`generic adoption closes ${name} without refusing its ordinary actual`, () => {
@@ -350,4 +353,73 @@ test("interface and abstract generic signatures stay fail-closed without a sourc
   if (selected.kind !== "resolved") return;
   assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(),
     ["base.identity(promised)", "contract.identity(promised)"], "both actual generic signature instantiations require adoption");
+});
+function declaredQuery(current: ReturnType<typeof fixture>, limits: SourceStorageLimits = defaultSourceStorageLimits) {
+  const node = current.nodes[0]!;
+  const budget = createSourceDeclarationOwnershipBudget(node, limits);
+  return analyzeSourceDeclarationGenericAdoption({ source: current.source, nodes: current.nodes, projectRoot: "/src", budget,
+    premises: { completionFor(call, selected) {
+      const semantics = current.source.semantics.forNode(call);
+      const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+      if (declaration === undefined) return sourceDeclarationOwnershipUnresolved(call, "The unit native contract requires its real selected declaration.");
+      const awaited = semantics.types.awaitedType(selected.sourceResultType);
+      if (awaited !== undefined && semantics.types.isIdentical(awaited, selected.sourceResultType)) return { kind: "not-async" };
+      return { kind: "async", resultPolicy: "must-observe", contract: { kind: "declaration", declaration,
+        component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
+    } } });
+}
+
+for (const [name, declaration, invoked] of declarations) {
+  test(`declaration-native adoption keeps the original ${name} source and exact generic call correspondence`, () => {
+    const current = fixture(`${declaration}\nconst promised = Promise.resolve(7); void ${invoked}(7); void ${invoked}(promised);`);
+    const selected = declaredQuery(current);
+    assert.equal(selected.kind === "resolved", true, "the declared native relation completes without invocation history");
+    if (selected.kind !== "resolved") return;
+    assert.equal(selected.issues.length === 1, true, "one exact adopting generic instantiation");
+    assert.equal(current.textFor(selected.issues[0]!.site) === `${invoked}(promised)`, true,
+      "the ordinary actual and the adopting actual never cross-bind");
+    assert.equal(current.source.ast.is.IsTypeParameterDeclaration(selected.issues[0]!.parameter), true, "the exact original binder remains");
+  });
+}
+
+test("declaration-native generic completion supports an adequate abstract signature without a source body", () => {
+  const current = fixture("declare function nativeRead<Value>(value: Value): Promise<Value>; void nativeRead(Promise.resolve(7));");
+  const selected = declaredQuery(current);
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    "an actual checked native declaration contract is not a missing runtime producer");
+});
+
+test("declaration-native generic SCCs retain exact source instantiations independently of call order", () => {
+  for (const reversed of [false, true]) {
+    const calls = ["void left(7, 2);", "void left(promised, 2);"];
+    if (reversed) calls.reverse();
+    const current = fixture(`
+      async function left<T>(value: T, count: number): Promise<void> { if (count > 0) await right(value, count - 1); }
+      async function right<U>(value: U, count: number): Promise<void> {
+        if (count > 0) await left(value, count - 1); void Promise.resolve(value);
+      }
+      const promised = Promise.resolve(7); ${calls.join(" ")}
+    `);
+    const selected = declaredQuery(current);
+    assert.equal(selected.kind === "resolved", true, `finite declared SCC order=${reversed}`);
+    if (selected.kind !== "resolved") continue;
+    assert.equal(selected.issues.length === 1 && current.textFor(selected.issues[0]!.site) === "left(promised, 2)", true,
+      "one declared generic relation preserves the actual promised call, not runtime rows");
+  }
+});
+
+test("declaration-native canonical Promise wrappers keep their adoption boundary through an outer binder", () => {
+  const current = fixture(`${identity}\nfunction wrap<Value>(value: Value) { return identity(Promise.resolve(value)); } void wrap(7);`);
+  const selected = declaredQuery(current);
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 1 &&
+    current.textFor(selected.issues[0]!.site) === "identity(Promise.resolve(value))", true,
+    "a checked outer Promise is not erased merely because its payload contains a free binder");
+});
+
+test("declaration-native generic exhaustion is a resource result with the actual source and no partial issue publication", () => {
+  const current = fixture(`${identity}\nvoid identity(Promise.resolve(7));`);
+  const selected = declaredQuery(current, { ...defaultSourceStorageLimits, maximumSteps: 1 });
+  assert.equal(selected.kind === "unresolved" && selected.cause.kind === "resource-limit" &&
+    selected.cause.limit === 1 && current.nodes.includes(selected.cause.subject), true, "typed exact work exhaustion");
+  assert.equal("issues" in selected, false, "an incomplete declared relation cannot publish successful partial issues");
 });

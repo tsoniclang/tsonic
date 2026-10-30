@@ -15,7 +15,7 @@ import { createSourceStorageDomainWitnesses, type SourceStorageDomainWitness } f
 import { createSourceStorageDomainPublications, type SourceStoragePublication } from "../graph/domain-publications.js";
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
 import { sourceStorageClassLineages } from "../model/construction.js";
-import { sourceStorageConstructionExpression } from "../model/construction.js";
+import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { createSourceStoragePublicationDemands } from "./publication-demands.js";
 import { sourceStorageProjectionSubject, sourceStorageProjectionType } from "../scoped/projection-views.js";
@@ -385,7 +385,7 @@ export function createSourceStorageDomains(
       }
       return true;
     }
-    if (sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
+    if (sourceConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
     if (target === undefined) return false;
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, bindings), {

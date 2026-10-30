@@ -32,7 +32,7 @@ export interface SourceFlowPoint {
   readonly predecessors: readonly SourceFlowEdge[];
 }
 
-export interface SourceControlFlowGraph {
+export interface SourceControlFlowGraph<Region = SourceFlowExecutionRegion> {
   readonly declaration: Node;
   readonly entry: number;
   readonly exit: number;
@@ -40,12 +40,18 @@ export interface SourceControlFlowGraph {
   readonly points: readonly SourceFlowPoint[];
   readonly sourcePoints: ReadonlyMap<Node, readonly number[]>;
   readonly bindings: ReadonlySet<Node>;
-  readonly executionRegions: ReadonlyMap<number, SourceFlowExecutionRegion>;
+  readonly executionRegions: ReadonlyMap<number, Region>;
 }
 
 export interface SourceFlowExecutionRegion {
   readonly owner: Node;
   readonly selection: SourceStorageBindingsSelection;
+}
+
+export interface SourceDeclarationFlowExecutionRegion {
+  readonly owner: Node;
+  readonly root: Node;
+  readonly role: "body" | "parameter-initializer" | "instance-initializer" | "module" | "static-initializer";
 }
 
 export interface SourceFlowUnresolved {
@@ -54,8 +60,8 @@ export interface SourceFlowUnresolved {
   readonly source: Node | undefined;
 }
 
-export type SourceControlFlowSelection =
-  | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph }
+export type SourceControlFlowSelection<Region = SourceFlowExecutionRegion> =
+  | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph<Region> }
   | SourceFlowUnresolved;
 
 export interface SourceFlowLimits {
@@ -71,9 +77,12 @@ export interface SourceControlFlowSelectedDomain {
   readonly nodes: readonly Node[];
 }
 
-export interface SourceControlFlowOptions {
+export interface SourceDeclarationControlFlowOptions {
   readonly domain: { readonly kind: "source" } | SourceControlFlowSelectedDomain;
   readonly limits?: Partial<SourceFlowLimits>;
+}
+
+export interface SourceControlFlowOptions extends SourceDeclarationControlFlowOptions {
   readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
     readonly callerBindings?: SourceStorageBindings;
     readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number] };
