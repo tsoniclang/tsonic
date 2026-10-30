@@ -53,9 +53,11 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       if (declaration === undefined)
         return sourceDeclarationOwnershipUnresolved(call, "A native continuation needs its exact selected declaration contract.");
       const body = source.ast.body(declaration);
+      let declarationDependencies: readonly SourceDeclarationContinuationDependency[] = [];
       if (body !== undefined && source.navigation.isProjectDeclaration(declaration)) {
         const summary = forDeclaration(declaration);
         if (summary.kind === "unresolved") return summary;
+        declarationDependencies = summary.dependencies;
       }
       const pending = input.suspensions.forCall(call);
       if (pending.kind === "unresolved") return pending;
@@ -63,10 +65,15 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       let published = false;
       try {
         const dependencies: SourceDeclarationContinuationDependency[] = [];
+        for (const dependency of declarationDependencies) {
+          if (!budget.step(dependency.reference) || !rows.add(1)) return budget.failure()!;
+          dependencies.push(dependency);
+        }
         if (pending.kind === "resolved") {
           const retained = input.retention.forReference(call);
           if (retained.kind === "unresolved") return retained;
           for (const premise of retained.premises) {
+            if (premise.kind === "retained" && premise.reason === "owned-value") continue;
             if (!budget.step(call) || !rows.add(1)) return budget.failure()!;
             dependencies.push(Object.freeze({ candidate: declaration, reference: call, actual: premise.value,
               suspension: pending.pending, retention: premise }));

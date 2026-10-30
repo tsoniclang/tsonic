@@ -38,6 +38,7 @@ export function createSourceDeclarationOwnershipValues(input: {
 }) {
   const { source, budget } = input;
   const domain = createSourceControlFlowDomain(source, input.nodes);
+  const checkedNodes = new Set(input.nodes);
   const graphs = new Map<Node, SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion>>();
   const values = new Map<Node, SourceDeclarationOwnershipValue>();
   const owned = new WeakSet<SourceDeclarationOwnershipValue>();
@@ -69,7 +70,7 @@ export function createSourceDeclarationOwnershipValues(input: {
   const regionFor = (node: Node): SourceDeclarationFlowExecutionRegion | SourceDeclarationOwnershipUnresolved => {
     if (!budget.step(node)) return budget.failure()!;
     const file = source.ast.getSourceFile(node);
-    if (file === undefined || !source.semantics.includes(file))
+    if (file === undefined || !source.semantics.includes(file) || !checkedNodes.has(node))
       return sourceDeclarationOwnershipUnresolved(node, "A local region requires an original node from this checked source program.");
     const declaration = declarationFor(node);
     if ("kind" in declaration) return declaration;
@@ -133,6 +134,17 @@ export interface SourceDeclarationContinuationFlowSelection {
   readonly declaration: Node;
   readonly dependencies: readonly SourceDeclarationContinuationDependency[];
   readonly maySuspend: boolean;
+  readonly reads: readonly {
+    readonly reference: Node;
+    readonly candidate: Node;
+    readonly region: SourceDeclarationFlowExecutionRegion;
+    readonly pending: ReadonlySet<SourceDeclarationPendingOperation>;
+  }[];
+  readonly calls: readonly {
+    readonly call: Node;
+    readonly region: SourceDeclarationFlowExecutionRegion;
+    readonly pending: ReadonlySet<SourceDeclarationPendingOperation>;
+  }[];
 }
 
 export function resolveSourceDeclarationContinuationFlow(input: {
@@ -165,8 +177,13 @@ export function resolveSourceDeclarationContinuationFlow(input: {
     let published = false;
     try {
       const dependencies: SourceDeclarationContinuationDependency[] = [];
-      const append = (state: ReadonlySet<SourceDeclarationPendingOperation>, reference: Node): SourceDeclarationOwnershipUnresolved | undefined => {
-        const selected = input.dependencies.forRead(state, reference, at);
+      const reads: SourceDeclarationContinuationFlowSelection["reads"][number][] = [];
+      const calls: SourceDeclarationContinuationFlowSelection["calls"][number][] = [];
+      const append = (state: ReadonlySet<SourceDeclarationPendingOperation>, reference: Node,
+        region: SourceDeclarationFlowExecutionRegion): SourceDeclarationOwnershipUnresolved | undefined => {
+        if (!rows.add(1)) return budget.failure();
+        reads.push(Object.freeze({ reference, candidate: region.owner, region, pending: state }));
+        const selected = input.dependencies.forRead(state, reference, region.owner);
         if (selected.kind === "unresolved") return selected;
         for (const dependency of selected.dependencies) {
           if (!budget.step(reference)) return budget.failure();
@@ -184,10 +201,17 @@ export function resolveSourceDeclarationContinuationFlow(input: {
         const state = solution.before.get(point.id);
         if (state === undefined)
           return sourceDeclarationOwnershipUnresolved(point.source, "A reachable local continuation lacks its completed flow state.");
+        const region = graph.executionRegions.get(point.id);
+        if (region === undefined) continue;
         const reference = sourceContinuationRead(source, point);
         if (reference !== undefined) {
-          const problem = append(state, reference);
+          const problem = append(state, reference, region);
           if (problem !== undefined) return problem;
+        }
+        if (point.operation.kind === "evaluate" &&
+          (source.ast.is.IsCallExpression(point.source) || source.ast.is.IsNewExpression(point.source))) {
+          if (!rows.add(1)) return budget.failure()!;
+          calls.push(Object.freeze({ call: point.source, region, pending: state }));
         }
         if (point.operation.kind === "await") {
           const selected = suspensions.forAwait(point.source);
@@ -196,13 +220,28 @@ export function resolveSourceDeclarationContinuationFlow(input: {
             maySuspend = true;
             const held = transfer.suspend(transfer.lattice.empty(), selected.pending);
             if (held === undefined) return budget.failure()!;
-            const problem = append(held, selected.pending.expression);
+            const problem = append(held, selected.pending.expression, region);
+            if (problem !== undefined) return problem;
+          }
+        }
+        if (point.operation.kind === "return" && source.ast.hasModifierKind(at, "async")) {
+          const expression = source.ast.is.IsReturnStatement(point.source)
+            ? source.ast.as.AsReturnStatement(point.source)?.Expression : point.source;
+          if (expression === undefined || source.ast.is.IsAwaitExpression(expression)) continue;
+          const selected = suspensions.forResult(expression);
+          if (selected.kind === "unresolved") return selected;
+          if (selected.kind === "resolved") {
+            maySuspend = true;
+            const held = transfer.suspend(transfer.lattice.empty(), selected.pending);
+            if (held === undefined) return budget.failure()!;
+            const problem = append(held, expression, region);
             if (problem !== undefined) return problem;
           }
         }
       }
       published = true;
-      return Object.freeze({ kind: "resolved", declaration: at, dependencies: Object.freeze(dependencies), maySuspend });
+      return Object.freeze({ kind: "resolved", declaration: at, dependencies: Object.freeze(dependencies), maySuspend,
+        reads: Object.freeze(reads), calls: Object.freeze(calls) });
     } finally { if (!published) rows.release(); }
   } finally { transfer.release(); }
 }
