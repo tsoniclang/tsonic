@@ -299,7 +299,7 @@ test("source implicit heritage uses its actual implementation while foreign and 
     domain: { kind: "source" },
   });
   assert.equal(opaque.kind, "unresolved", "implicit native heritage is not expanded into an invented constructor");
-  assert.match(opaque.reason, /selected native contract/u);
+  assert.match(opaque.reason, /checked constructor implementation/u);
 });
 
 test("implicit inherited constructor order agrees with Node without replaying arguments or class-definition keys", () => {
