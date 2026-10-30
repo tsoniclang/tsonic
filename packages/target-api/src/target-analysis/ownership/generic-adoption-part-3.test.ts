@@ -290,7 +290,7 @@ test("target-owned erased lifetime parameters use their exact declarations, neve
     const promised = Promise.resolve(7); void marker(promised);`);
   const parameter = current.nodes.find(node => current.source.ast.is.IsTypeParameterDeclaration(node));
   assert.equal(parameter !== undefined, true, "actual target-marked parameter");
-  const selection = current.query(defaultSourceStorageLimits.maximumSteps, node => node === parameter);
+  const selection = current.query(defaultSourceDeclarationOwnershipLimits.maximumSteps, node => node === parameter);
   assert.equal(selection.kind === "resolved" && selection.issues.length === 0, true, "one explicit target-owned erased marker");
   const ordinary = current.query();
   assert.equal(ordinary.kind === "resolved" && ordinary.issues.length === 1, true, "the same name alone is never an exemption");

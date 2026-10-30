@@ -157,15 +157,12 @@ test("a native default initializer does not taint a proven present ordinary call
       });
     }
     export function run(promised: Promise<number>): void { void wrap(promised); }
-  `, "/src", (source, nodes) => {
-    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
-      source.ast.text(source.ast.name(node)) === "nativeInvoke");
-    return { callbackEntries(node, selected) {
-      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-        ? [{ parameterIndex: 1, timing: "synchronous", inputs: [{ parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 }] }]
-        : undefined;
-    } };
-  });
+  `);
+  const { source, nodes } = current;
+  const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "nativeInvoke");
+  assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+    "the original checked native declaration remains the selected contract, without a callback-execution hook");
   const selected = current.query();
   assert.equal(selected.kind, "resolved", "checked required number input excludes its authored default");
   if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the unused default does not create generic adoption");
@@ -182,14 +179,12 @@ for (const ordinary of [false, true]) {
         });
       }
       export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
-    `, "/src", (source, nodes) => {
-      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
-        source.ast.text(source.ast.name(node)) === "nativeInvoke");
-      return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
-      } };
-    });
+    `);
+    const { source, nodes } = current;
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the original checked native declaration remains the selected contract, without a callback-execution hook");
     const selected = current.query();
     assert.equal(selected.kind, "resolved", "the selected native signature is a checked input bound, not a value witness");
     if (selected.kind === "resolved") {
@@ -207,13 +202,11 @@ for (const ordinary of [false, true]) {
         return new Promise<Value>(resolve => { nativeInvoke(resolve); });
       }
       export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
-    `, "/src", (source, nodes) => {
-      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
-      return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-          ? [{ parameterIndex: 0, timing: "synchronous" }] : undefined;
-      } };
-    });
+    `);
+    const { source, nodes } = current;
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the original checked native declaration remains the selected contract, without a callback-execution hook");
     const selected = current.query();
     assert.equal(selected.kind, ordinary ? "resolved" : "unresolved", "opaque input is not an invented native value or a global budget rejection");
     if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "canonical ordinary Awaited identity remains sufficient");
@@ -251,15 +244,11 @@ for (const mapped of [false, true]) for (const ordinary of [false, true]) for (c
         });
       }
       export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
-    `, "/src", (source, nodes) => {
-      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
-      return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-          ? [{ parameterIndex: 1, timing: "synchronous", ...(mapped ? { inputs: [
-            { parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 },
-          ] } : {}) }] : undefined;
-      } };
-    });
+    `);
+    const { source, nodes } = current;
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the original checked native declaration remains the selected contract, without a callback-execution hook");
     const selected = current.query();
     assert.equal(selected.kind, mapped || ordinary ? "resolved" : "unresolved",
       "a callable input type cannot prove the absence of a captured generic resolver");
@@ -289,13 +278,11 @@ for (const [name, payload] of [
         });
       }
       export function run(value: ${ordinary ? "number" : "Promise<number>"}): void { void wrap(value); }
-    `, "/src", (source, nodes) => {
-      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
-      return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
-      } };
-    });
+    `);
+    const { source, nodes } = current;
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the original checked native declaration remains the selected contract, without a callback-execution hook");
     const selected = current.query();
     assert.equal(selected.kind, ordinary ? "resolved" : "unresolved",
       "a real source callable in an opaque native input is potential execution, not proven absence");
@@ -318,13 +305,11 @@ for (const adopting of [false, true]) for (const reversed of [false, true]) {
         });
       }
       export function run(value: Promise<number>): void { void wrap(value); }
-    `, "/src", (source, nodes) => {
-      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
-      return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-          ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
-      } };
-    });
+    `);
+    const { source, nodes } = current;
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the original checked native declaration remains the selected contract, without a callback-execution hook");
     const selected = current.query();
     assert.equal(selected.kind, adopting ? "unresolved" : "resolved", "actual factory bindings, not the shared arrow body, select resolver sensitivity");
     if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
@@ -341,13 +326,11 @@ test("a factory callee is not a returned native callback payload", () => {
       return new Promise<Value | number>(resolve => { const observer = make(value, resolve); nativeInvoke([observer], next => { next(); }); });
     }
     export function run(value: Promise<number>): void { void wrap(value); }
-  `, "/src", (source, nodes) => {
-    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
-    return { callbackEntries(node, selected) {
-      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
-        ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
-    } };
-  });
+  `);
+  const { source, nodes } = current;
+  const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+  assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+    "the original checked native declaration remains the selected contract, without a callback-execution hook");
   const selected = current.query();
   assert.equal(selected.kind, "resolved", "the canonical value relation excludes the already executed source factory");
   if (selected.kind === "resolved") assert.equal(selected.issues.length, 0, "the returned closure observes Value but never resolves it");

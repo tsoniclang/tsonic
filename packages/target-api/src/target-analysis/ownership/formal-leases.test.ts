@@ -94,7 +94,7 @@ function fixture(kind: "input-duration" | "type-argument",
         const symbol = semantics.declarations.typeSymbol(argument.argumentType);
         return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(regionDeclaration!);
       }) : { declaration: source.ast.typeParameters(owner)[0]!, parameterType: direct.typeParameter,
-        argumentType: direct.selectedType };
+        argumentType: direct.selectedType, scope: "local" as const };
       assert.equal(kind !== "type-argument" || binding !== undefined && regionDeclaration !== undefined, true,
         "exact native formal-region substitution");
       const premise: SourceDeclarationRetentionPremise = { kind: "formal-borrowed", value, executionOwner: owner, mode: "shared",
