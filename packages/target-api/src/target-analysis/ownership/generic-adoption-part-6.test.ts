@@ -4,25 +4,32 @@ import test from "node:test";
 
 import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 
-import { fixture, identity } from "./generic-adoption-fixtures.js";
+import { fixture, identity, sourcePosition } from "./generic-adoption-fixtures.js";
+import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
 
 test("generic adoption provenance has one canonical Unicode/CRLF span and project-relative format", () => {
   const text = 'const marker = "界😀";\r\nasync function identity<Value>(value: Value) {\r\n\treturn value;\r\n}\r\n' +
     "export function reject(promised: Promise<number>): void {\r\n\tvoid identity(promised);\r\n}";
   const expectedSpan = { fileName: "index.ts", line: 6, column: 7, endLine: 6, endColumn: 25 };
-  const expectedEvidence = ["declaration index.ts:2:1", "first-sensitive-operation index.ts:3:2"];
+  const expectedCoordinates = { declaration: { line: 2, column: 1 }, operation: { line: 3, column: 2 } };
   const results = ["/checkout/rust/src", "/another/csharp/src"].map(root => {
     const current = fixture(text, root);
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "complete provenance");
     if (selected.kind !== "resolved") return undefined;
-    assert.equal(selected.issues.length, 1, `${root}: one actual instantiation`);
-    const issue = selected.issues[0]!;
-    assert.equal(current.textFor(issue.site), "identity(promised)", `${root}: unchanged original site`);
-    assert.deepEqual(issue.sourceSpan, expectedSpan, `${root}: UTF-8 offsets, scalar columns and CRLF lines`);
-    assert.deepEqual(issue.evidence, expectedEvidence, `${root}: one fixed shared related-location format`);
-    assert.equal(Object.isFrozen(issue.sourceSpan) && Object.isFrozen(issue.evidence), true, `${root}: immutable publication`);
-    return { sourceSpan: issue.sourceSpan, evidence: issue.evidence };
+    assert.equal(selected.issues.length, 0, `${root}: approved C1373, one supported original instantiation`);
+    const operation = checkedOperation(current, "identity(promised)");
+    const declaration = operation.declaration;
+    const returned = current.nodes.find(node => current.source.ast.is.IsReturnStatement(node) &&
+      current.textFor(node) === "return value;");
+    assert.equal(declaration !== undefined && returned !== undefined, true, `${root}: original related nodes remain`);
+    if (declaration === undefined || returned === undefined) return undefined;
+    const coordinates = { declaration: sourcePosition(current.source, declaration),
+      operation: sourcePosition(current.source, returned) };
+    assert.deepEqual(operation.sourceSpan, expectedSpan, `${root}: UTF-8 offsets, scalar columns and CRLF lines`);
+    assert.deepEqual(coordinates, expectedCoordinates, `${root}: exact original declaration and return coordinates`);
+    assert.equal(Object.isFrozen(selected.issues), true, `${root}: immutable completed publication`);
+    return { sourceSpan: operation.sourceSpan, coordinates };
   });
   assert.deepEqual(results[0], results[1], "a different target checkout cannot change diagnostic provenance bytes");
 });
@@ -39,7 +46,9 @@ test("mutual generic forwarding uses one finite SCC and keeps exact actual insta
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "finite mutually recursive summary");
     if (selected.kind !== "resolved") continue;
-    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["left(promised, 2)"]);
+    assert.equal(selected.issues.length, 0, "approved C1373: recursive declarations retain supported native results");
+    checkedOperation(current, "left(7, 2)");
+    checkedOperation(current, "left(promised, 2)");
   }
   const exhausted = current.query(1);
   assert.equal(exhausted.kind === "unresolved" && exhausted.cause.kind === "resource-limit" &&
@@ -80,7 +89,18 @@ test("target-owned erased lifetime parameters use their exact declarations, neve
   const selection = current.query(defaultSourceDeclarationOwnershipLimits.maximumSteps, node => node === parameter);
   assert.equal(selection.kind === "resolved" && selection.issues.length === 0, true, "one explicit target-owned erased marker");
   const ordinary = current.query();
-  assert.equal(ordinary.kind === "resolved" && ordinary.issues.length === 1, true, "the same name alone is never an exemption");
+  assert.equal(ordinary.kind === "resolved" && ordinary.issues.length === 0, true,
+    "approved C1373: the original declared result is supported with or without an erased marker");
+  checkedOperation(current, "marker(promised)");
+  const used = fixture("async function marker<Region>(value: Region) { return await value; }");
+  const marked = used.nodes.find(node => used.source.ast.is.IsTypeParameterDeclaration(node));
+  assert.equal(marked !== undefined, true, "the local used-result control has its exact checked formal");
+  const exempt = used.query(defaultSourceDeclarationOwnershipLimits.maximumSteps, node => node === marked);
+  assert.equal(exempt.kind === "resolved" && exempt.issues.length === 0, true, "only the exact target-marked formal is exempt");
+  const required = used.query();
+  assert.equal(required.kind === "resolved" && required.issues.length === 1 &&
+    required.issues[0]!.parameter === marked && used.textFor(required.issues[0]!.site) === "await value", true,
+  "the same parameter name alone never exempts a used-result bare-parameter await");
 });
 
 test("a project member named Promise.resolve is not a native Promise resolving owner", () => {
@@ -122,8 +142,8 @@ test(`generic adoption retains the complete ${name} source domain`, () => {
     const selected = current.query();
     assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
     if (selected.kind !== "resolved") return;
-    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), [`${invoked}(promised)`],
-      "a runtime-reachable nested body or overload is never erased from adoption evidence");
+    assert.equal(selected.issues.length, 0, "approved C1373: the complete declared source domain adopts natively");
+    checkedOperation(current, `${invoked}(promised)`);
   });
 }
 

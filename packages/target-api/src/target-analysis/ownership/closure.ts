@@ -1,4 +1,4 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node, Signature, Type } from "@tsonic/tsts";
 import { Node_Initializer, sourceSuperConstructor } from "../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
@@ -14,9 +14,13 @@ import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
 type SourceDeclaredArguments = ReadonlyMap<Node, readonly (Node | undefined)[]>;
 
-interface SourceContinuationConsumption {
-  readonly call: Node;
+interface SourceContinuationTarget {
   readonly declaration: Node;
+  readonly signature: Signature;
+}
+
+interface SourceContinuationConsumption extends SourceContinuationTarget {
+  readonly call: Node;
   readonly pending: Set<SourceDeclarationPendingOperation>;
   readonly arguments: Map<Node, (Node | undefined)[]>;
 }
@@ -89,7 +93,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
     const supplied = parameter === undefined ? undefined : arguments_.get(parameter);
     return supplied === undefined || supplied.some(value => value === region.root);
   };
-  const targetsFor = (call: Node, selected: ResolvedSourceCallInfo, arguments_: SourceDeclaredArguments): readonly Node[] => {
+  const targetsFor = (call: Node, selected: ResolvedSourceCallInfo, arguments_: SourceDeclaredArguments): readonly SourceContinuationTarget[] => {
     const semantics = source.semantics.forNode(call);
     if (source.ast.is.IsCallExpression(call) && source.ast.kindName(selected.sourceCallee.expression) === "KindSuperKeyword") {
       const superCall = sourceSuperConstructor(call, source, () => budget.step(call));
@@ -100,24 +104,26 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       const bases = heritage.edges.filter(edge => edge.kind === "extends");
       if (bases.length !== 1) return [];
       const base = bases[0]!.target.declaration;
-      if (source.navigation.isProjectDeclaration(base) && !source.ast.hasModifierKind(base, "ambient")) return [base];
+      if (source.navigation.isProjectDeclaration(base) && !source.ast.hasModifierKind(base, "ambient"))
+        return [{ declaration: base, signature: selected.selectedSignature }];
       const native = semantics.declarations.signatureDeclaration(selected.selectedSignature);
-      return native === undefined ? [] : [native];
+      return native === undefined ? [] : [{ declaration: native, signature: selected.selectedSignature }];
     }
     if (source.ast.is.IsNewExpression(call)) {
       const symbol = semantics.declarations.typeSymbol(selected.sourceResultType);
       const classes = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol).filter(declaration =>
         (source.ast.is.IsClassDeclaration(declaration) || source.ast.is.IsClassExpression(declaration)) &&
         source.navigation.isProjectDeclaration(declaration) && !source.ast.hasModifierKind(declaration, "ambient"));
-      if (classes.length === 1) return classes;
+      if (classes.length === 1) return [{ declaration: classes[0]!, signature: selected.selectedSignature }];
     }
     const expression = selected.sourceCallee.expression;
     const actuals = argumentsFor(expression, arguments_);
-    const targets = new Set<Node>();
+    const targets = new Map<Signature, SourceContinuationTarget>();
     for (const actual of actuals) {
       if (!budget.step(call) || actual === undefined) continue;
       if (source.ast.is.IsArrowFunction(actual) || source.ast.is.IsFunctionExpression(actual)) {
-        targets.add(actual);
+        const signature = source.semantics.forNode(actual).declarations.declarationSignature(actual);
+        if (signature !== undefined) targets.set(signature, { declaration: actual, signature });
         continue;
       }
       const actualSemantics = source.semantics.forNode(actual);
@@ -129,15 +135,16 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
           if (!budget.step(call)) break;
           for (const signature of actualSemantics.types.callSignatures(part)) {
             const declaration = actualSemantics.declarations.signatureDeclaration(signature);
-            if (declaration !== undefined) targets.add(declaration);
+            if (declaration !== undefined) targets.set(signature, { declaration, signature });
           }
         }
       } else {
         const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
-        if (declaration !== undefined) targets.add(declaration);
+        if (declaration !== undefined)
+          targets.set(selected.selectedSignature, { declaration, signature: selected.selectedSignature });
       }
     }
-    return [...targets];
+    return [...targets.values()];
   };
   const forDeclaration = (declaration: Node): SourceDeclarationContinuationFlowSelection | SourceDeclarationOwnershipUnresolved => {
     if (!budget.step(declaration)) return budget.failure()!;
@@ -179,7 +186,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
         const dependencies: SourceDeclarationContinuationDependency[] = [];
         const queue: SourceContinuationConsumption[] = [];
         const queued = new Set<SourceContinuationConsumption>();
-        const consumers = new Map<Node, Map<Node, SourceContinuationConsumption>>();
+        const consumers = new Map<Node, Map<Signature, SourceContinuationConsumption>>();
         const append = (selection: SourceDeclarationContinuationSelection): SourceDeclarationOwnershipUnresolved | undefined => {
           if (selection.kind === "unresolved") return selection;
           for (const dependency of selection.dependencies) {
@@ -192,17 +199,17 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
           }
           return undefined;
         };
-        const enqueue = (operation: Node, owner: Node, state: ReadonlySet<SourceDeclarationPendingOperation>,
+        const enqueue = (operation: Node, target: SourceContinuationTarget, state: ReadonlySet<SourceDeclarationPendingOperation>,
           arguments_: SourceDeclaredArguments): boolean => {
           if (!budget.step(operation)) return false;
-          const owners = consumers.get(operation) ?? new Map<Node, SourceContinuationConsumption>();
+          const owners = consumers.get(operation) ?? new Map<Signature, SourceContinuationConsumption>();
           consumers.set(operation, owners);
-          let consumer = owners.get(owner);
+          let consumer = owners.get(target.signature);
           let changed = consumer === undefined;
           if (consumer === undefined) {
             if (!workRows.add(2)) return false;
-            consumer = { call: operation, declaration: owner, pending: new Set(), arguments: new Map() };
-            owners.set(owner, consumer);
+            consumer = { call: operation, ...target, pending: new Set(), arguments: new Map() };
+            owners.set(target.signature, consumer);
           }
           for (const witness of state) {
             if (!budget.step(operation)) return false;
@@ -242,10 +249,10 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
           if (!source.navigation.isProjectDeclaration(consumer.declaration) || !hasBody) {
             const native = input.suspensions.forCall(consumer.call);
             if (native.kind === "unresolved") return native;
-            const nativeCall = source.semantics.forNode(consumer.call).operations.call(consumer.call);
-            const nativeDeclaration = nativeCall?.sourceSelectedSignatureKind === "resolved"
-              ? source.semantics.forNode(consumer.call).declarations.signatureDeclaration(nativeCall.selectedSignature) : undefined;
-            if (nativeDeclaration !== consumer.declaration)
+            const nativeSemantics = source.semantics.forNode(consumer.call);
+            const nativeDeclaration = nativeSemantics.declarations.signatureDeclaration(consumer.signature);
+            const nativeOutput = nativeSemantics.types.returnType(consumer.signature);
+            if (nativeDeclaration !== consumer.declaration || nativeOutput === undefined)
               return sourceDeclarationOwnershipUnresolved(consumer.call,
                 "A callable alternative requires its complete selected native body contracts.");
             continue;
