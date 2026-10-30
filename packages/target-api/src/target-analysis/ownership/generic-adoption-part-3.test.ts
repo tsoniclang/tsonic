@@ -389,6 +389,30 @@ test("declaration-native generic completion supports an adequate abstract signat
     "an actual checked native declaration contract is not a missing runtime producer");
 });
 
+test("declaration-native generic callback inputs do not invent an asynchronous result contract", () => {
+  const current = fixture(`
+    function same<Part>(value: Part): Part { return value; }
+    function invoke<Value>(callback: <Part>(value: Part) => Part, value: Value): void { void callback(value); }
+    function root<Value>(value: Value): void { invoke(same, value); }
+    void root(7); void root(Promise.resolve(7));
+  `);
+  const selected = declaredQuery(current);
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    "a generic callable input alone is not a native adopting operation");
+});
+
+test("declaration-native generic callback adoption uses the completed result rather than every input", () => {
+  const current = fixture(`
+    async function ignore<Part>(value: Part): Promise<void> { void value; }
+    function invoke<Value>(callback: <Part>(value: Part) => Promise<void>, value: Value): void { void callback(value); }
+    function root<Value>(value: Value): void { invoke(ignore, value); }
+    void root(7); void root(Promise.resolve(7));
+  `);
+  const selected = declaredQuery(current);
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    "the native void output does not adopt a separate Promise-valued input");
+});
+
 test("declaration-native generic SCCs retain exact source instantiations independently of call order", () => {
   for (const reversed of [false, true]) {
     const calls = ["void left(7, 2);", "void left(promised, 2);"];

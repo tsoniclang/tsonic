@@ -840,6 +840,10 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
           const problem = sourceDeclarationOwnershipContractProblem(source, node,
             { selectedType: selected.sourceResultType }, completion.contract);
           if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(node, problem);
+          const callee = source.navigation.sourceReferenceFor(selected.sourceCallee.expression)?.declaration;
+          if (callee !== undefined && ast.is.IsParameterDeclaration(callee) && ast.body(declaration) === undefined &&
+            (selected.sourceSelectedMethodTypeArguments?.length ?? 0) !== 0)
+            mark(node, selected.sourceResultType, semantics);
         }
         const member = sourceGenericAdoptionPromiseMember(source, declaration, semantics);
         const argument = ast.arguments(node)[0];
