@@ -1,15 +1,19 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceOwnershipBudget, SourcePendingOperation } from "./model.js";
+import type { SourceDeclarationOwnershipRows, SourceDeclarationPendingOperation } from "./model.js";
 
-export type SourceContinuationState<Witness = SourcePendingOperation> = ReadonlySet<Witness>;
+export type SourceContinuationState<Witness = SourceDeclarationPendingOperation> = ReadonlySet<Witness>;
 
-export interface SourceContinuationLattice<Witness = SourcePendingOperation> {
+export interface SourceContinuationLattice<Witness = SourceDeclarationPendingOperation> {
   empty(): SourceContinuationState<Witness>;
   join(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>): SourceContinuationState<Witness> | undefined;
   equals(left: SourceContinuationState<Witness>, right: SourceContinuationState<Witness>): boolean;
 }
 
-export function createSourceContinuationTransfer<Witness = SourcePendingOperation>(budget: SourceOwnershipBudget) {
+export function createSourceContinuationTransfer<Witness = SourceDeclarationPendingOperation>(budget: {
+  step(): boolean;
+  createRows(): SourceDeclarationOwnershipRows;
+  failure(): string | undefined;
+}) {
   const rows = budget.createRows();
   const empty: SourceContinuationState<Witness> = new Set();
   const lattice: SourceContinuationLattice<Witness> = Object.freeze({
@@ -61,4 +65,4 @@ export function createSourceContinuationTransfer<Witness = SourcePendingOperatio
   });
 }
 
-export type SourceContinuationTransfer<Witness = SourcePendingOperation> = ReturnType<typeof createSourceContinuationTransfer<Witness>>;
+export type SourceContinuationTransfer<Witness = SourceDeclarationPendingOperation> = ReturnType<typeof createSourceContinuationTransfer<Witness>>;

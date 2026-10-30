@@ -1,82 +1,74 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceOwnershipContractEvidence, SourceOwnershipUnresolved } from "./model.js";
-import type { SourceTypeComponentEvidence } from "../../source-semantics/types.js";
-import type { SourceStorageLimits } from "../source-storage/model/types.js";
-import { createSourceStorageBudget } from "../source-storage/model/resource-budget.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
-  SourceDeclarationOwnershipUnresolved } from "./model.js";
+  SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";
 
-export function sourceOwnershipContractProblem(source: TargetSourceProgram, node: Node, type: Type,
-  evidence: SourceOwnershipContractEvidence): string | undefined {
-  const file = source.ast.getSourceFile(node);
-  const declarationFile = source.ast.getSourceFile(evidence.contractDeclaration);
-  if (file === undefined || declarationFile === undefined || !source.semantics.includes(file)) {
-    return "Ownership contract evidence must belong to the exact checked source program.";
-  }
-  const semantics = source.semantics.forNode(node);
-  if (!semantics.types.isIdentical(type, evidence.checkedType)) {
-    return "Ownership contract evidence does not describe the exact instantiated source type.";
-  }
-  const selectedDeclarations = new Set<Node>([node]);
-  const reference = source.navigation.sourceReferenceFor(node);
-  if (reference !== undefined) selectedDeclarations.add(reference.declaration);
-  if (source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)) {
-    const selected = semantics.operations.call(node);
-    const declaration = selected?.sourceSelectedSignatureKind === "resolved"
-      ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
-    if (declaration !== undefined) selectedDeclarations.add(declaration);
-  }
-  for (const symbol of [semantics.declarations.typeSymbol(type), semantics.declarations.typeAliasSymbol(type)]) {
-    if (symbol !== undefined) {
-      for (const declaration of semantics.declarations.symbolDeclarations(symbol)) selectedDeclarations.add(declaration);
-    }
-  }
-  return selectedDeclarations.has(evidence.contractDeclaration) ? undefined
-    : "Ownership contract evidence is not attached to the selected declaration or exact native type.";
-}
-
-export function sourceOwnershipUnresolved(at: Node, reason: string): SourceOwnershipUnresolved {
-  return Object.freeze({ kind: "unresolved", at, reason });
-}
+export const defaultSourceDeclarationOwnershipLimits: SourceDeclarationOwnershipLimits = Object.freeze({
+  maximumSteps: 33_554_432,
+  maximumTransportRows: 4_194_304,
+});
 
 export function sourceDeclarationOwnershipUnresolved(at: Node, reason: string): SourceDeclarationOwnershipUnresolved {
   return Object.freeze({ kind: "unresolved", at, reason, cause: Object.freeze({ kind: "required-fact" }) });
 }
 
 export function createSourceDeclarationOwnershipBudget(subject: Node,
-  limits: SourceStorageLimits): SourceDeclarationOwnershipBudget {
-  const counter = createSourceStorageBudget(limits);
-  const initial = counter.failure();
-  let failure: SourceDeclarationOwnershipUnresolved | undefined = initial === undefined ? undefined
-    : Object.freeze({ kind: "unresolved", at: subject, reason: initial,
-        cause: Object.freeze({ kind: "invalid-input" }) });
-  const fail = (at: Node, category: "step" | "row", limit: number, exhausted: boolean): void => {
-    failure ??= Object.freeze({ kind: "unresolved", at,
-      reason: counter.failure() ?? "Ownership accounting requires a live finite reservation.",
-      cause: exhausted ? Object.freeze({ kind: "resource-limit", subject: at, category, limit })
-        : Object.freeze({ kind: "invalid-input" }) });
+  limits: SourceDeclarationOwnershipLimits): SourceDeclarationOwnershipBudget {
+  let failure: SourceDeclarationOwnershipUnresolved | undefined;
+  const invalid = (at: Node, reason: string): false => {
+    failure ??= Object.freeze({ kind: "unresolved", at, reason, cause: Object.freeze({ kind: "invalid-input" }) });
+    return false;
   };
+  const exhausted = (at: Node, category: "step" | "row", limit: number): false => {
+    failure ??= Object.freeze({ kind: "unresolved", at,
+      reason: `Declaration ownership exhausted its ${category} limit (${limit}).`,
+      cause: Object.freeze({ kind: "resource-limit", subject: at, category, limit }) });
+    return false;
+  };
+  let maximumSteps = 0;
+  let maximumRows = 0;
+  if (typeof limits !== "object" || limits === null) {
+    invalid(subject, "Declaration ownership limits require finite own data values.");
+  } else {
+    for (const key of ["maximumSteps", "maximumTransportRows"] as const) {
+      const descriptor = Object.getOwnPropertyDescriptor(limits, key);
+      if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "number" ||
+        !Number.isSafeInteger(descriptor.value) || descriptor.value <= 0 ||
+        descriptor.value > defaultSourceDeclarationOwnershipLimits[key]) {
+        invalid(subject, `Declaration ownership ${key} must be a positive safe integer within its finite default.`);
+        break;
+      }
+      if (key === "maximumSteps") maximumSteps = descriptor.value;
+      else maximumRows = descriptor.value;
+    }
+  }
+  let steps = 0;
+  let rows = 0;
   return Object.freeze({
     step(at: Node): boolean {
       if (failure !== undefined) return false;
-      if (counter.step()) return true;
-      fail(at, "step", counter.limits.maximumSteps, counter.usage().steps > counter.limits.maximumSteps);
-      return false;
+      steps++;
+      return steps <= maximumSteps || exhausted(at, "step", maximumSteps);
     },
     createRows(at: Node) {
-      const rows = counter.createRows();
+      let retained = 0;
       let released = false;
       return Object.freeze({
         add(cost: number): boolean {
           if (failure !== undefined) return false;
-          const exhausted = !released && Number.isSafeInteger(cost) && cost > 0 &&
-            counter.usage().rows + cost > counter.limits.maximumTransportRows;
-          if (rows.add(cost)) return true;
-          fail(at, "row", counter.limits.maximumTransportRows, exhausted);
-          return false;
+          if (released || !Number.isSafeInteger(cost) || cost <= 0)
+            return invalid(at, "Declaration ownership accounting requires a live positive finite row reservation.");
+          if (rows + cost > maximumRows) return exhausted(at, "row", maximumRows);
+          rows += cost;
+          retained += cost;
+          return true;
         },
-        release(): void { rows.release(); released = true; },
+        release(): void {
+          if (released) return;
+          released = true;
+          rows -= retained;
+          retained = 0;
+        },
       });
     },
     failure: () => failure,
