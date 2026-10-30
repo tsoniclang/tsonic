@@ -34,6 +34,7 @@ export function createSourceDeclarationContinuationDependencyQuery(input: {
             return sourceDeclarationOwnershipUnresolved(reference,
               "A continuation requires this immutable query's real pending native operation, not a copied witness.");
           for (const premise of selected.premises) {
+            if (premise.kind === "retained" && premise.reason === "owned-value") continue;
             if (!budget.step(reference) || !rows.add(1)) return budget.failure()!;
             dependencies.push(Object.freeze({ candidate, reference, actual: premise.value,
               suspension: pending, retention: premise }));
