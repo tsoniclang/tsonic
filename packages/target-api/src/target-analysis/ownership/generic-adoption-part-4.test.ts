@@ -25,6 +25,6 @@ test("opaque native inputs do not taint unrelated resolving paths: " + form, () 
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the original checked native declaration remains the selected contract, without a callback-execution hook");
-    assertDeclaredAdoption(current, 1, "wrap(value)");
+    assertDeclaredAdoption(current, 0, "wrap(value)");
   });
 }

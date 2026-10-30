@@ -6,7 +6,7 @@ import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 
 import { fixture, identity, declarations } from "./generic-adoption-fixtures.js";
 
-import { declaredQuery } from "./generic-adoption-part-3-fixtures.js";
+import { declaredQuery, checkedOperation } from "./generic-adoption-part-3-fixtures.js";
 
 for (const [name, declaration, invoked] of declarations){
 test(`declaration-native adoption keeps the original ${name} source and exact generic call correspondence`, () => {
@@ -14,17 +14,12 @@ test(`declaration-native adoption keeps the original ${name} source and exact ge
     const selected = declaredQuery(current);
     assert.equal(selected.kind === "resolved", true, "the declared native relation completes without invocation history");
     if (selected.kind !== "resolved") return;
-    if (name === "generic callable body unknown") {
-      assert.equal(selected.issues.length === 0, true, "C1298: the selected void return has no declared Promise adoption");
-      for (const actual of ["7", "promised"]) assert.equal(current.nodes.some(node =>
-        current.source.ast.is.IsCallExpression(node) && current.textFor(node) === `${invoked}(${actual})`), true,
-      "C1298 preserves both original checked ordinary and Promise-valued calls");
-      return;
+    assert.equal(selected.issues.length, 0, "approved C1373: declared native adoption supports both original actuals");
+    for (const actual of ["7", "promised"]) {
+      const operation = checkedOperation(current, `${invoked}(${actual})`);
+      assert.equal(operation.typeArgumentCount === 1, true,
+        "the ordinary actual and the adopting actual retain their exact original generic formal");
     }
-    assert.equal(selected.issues.length === 1, true, "one exact adopting generic instantiation");
-    assert.equal(current.textFor(selected.issues[0]!.site) === `${invoked}(promised)`, true,
-      "the ordinary actual and the adopting actual never cross-bind");
-    assert.equal(current.source.ast.is.IsTypeParameterDeclaration(selected.issues[0]!.parameter), true, "the exact original binder remains");
   });
 }
 
@@ -84,17 +79,18 @@ test("declaration-native generic SCCs retain exact source instantiations indepen
     const selected = declaredQuery(current);
     assert.equal(selected.kind === "resolved", true, `finite declared SCC order=${reversed}`);
     if (selected.kind !== "resolved") continue;
-    assert.equal(selected.issues.length === 1 && current.textFor(selected.issues[0]!.site) === "left(promised, 2)", true,
-      "one declared generic relation preserves the actual promised call, not runtime rows");
+    assert.equal(selected.issues.length, 0, "approved C1373: native recursive declarations do not depend on call order");
+    checkedOperation(current, "left(7, 2)");
+    checkedOperation(current, "left(promised, 2)");
   }
 });
 
 test("declaration-native canonical Promise wrappers keep their adoption boundary through an outer binder", () => {
   const current = fixture(`${identity}\nfunction wrap<Value>(value: Value) { return identity(Promise.resolve(value)); } void wrap(7);`);
   const selected = declaredQuery(current);
-  assert.equal(selected.kind === "resolved" && selected.issues.length === 1 &&
-    current.textFor(selected.issues[0]!.site) === "identity(Promise.resolve(value))", true,
-    "a checked outer Promise is not erased merely because its payload contains a free binder");
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    "approved C1373: the checked outer Promise adopts without erasing its free inner binder");
+  checkedOperation(current, "identity(Promise.resolve(value))");
 });
 
 test("declaration-native generic exhaustion is a resource result with the actual source and no partial issue publication", () => {

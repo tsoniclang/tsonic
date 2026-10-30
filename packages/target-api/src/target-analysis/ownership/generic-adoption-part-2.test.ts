@@ -32,7 +32,7 @@ test("native payload demand-owner continuation keeps exact " + form.name + "/" +
       assert.equal(invoke !== undefined && source.ast.body(invoke) === undefined &&
         again !== undefined && source.ast.body(again) === undefined, true,
         "the original checked native declaration remains the selected contract, without a callback-execution hook");
-      assertDeclaredAdoption(current, ordinary ? 0 : 1, "wrap(value)");
+      assertDeclaredAdoption(current, 0, "wrap(value)");
     });
 }
 }
