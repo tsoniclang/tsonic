@@ -235,7 +235,7 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
-  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return input \+ 4;\s*\}\s*return global::Smoke\.Generated\.Index\.apply\(3, new Func<double, double>\(\k<callable>\)\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.apply\(3, \(double input\) => input \+ 4\);/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
@@ -285,11 +285,11 @@ test("CLI emits closure-capturing returned lambdas from TSTS callable facts", as
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Func<double> makeCounter\(\)/);
   assert.match(generatedSource, /double count = 0;/);
-  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(\)\s*\{\s*count\+\+;\s*return count;\s*\}\s*return new Func<double>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(\) =>\s*\{\s*count\+\+;\s*return count;\s*\};/);
   assert.match(generatedSource, /count\+\+;/);
   assert.match(generatedSource, /return count;/);
   assert.match(generatedSource, /public static Func<double, double> makeAdder\(double left\)/);
-  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<double, double>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(double right\) => left \+ right;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedClosureReturnedLambdas.csproj"), "--nologo", "--v:minimal"]);

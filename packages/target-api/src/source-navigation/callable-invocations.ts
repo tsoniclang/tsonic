@@ -80,6 +80,18 @@ function lexicalFunctionUseSummaries(declaration: Node, ast: AstReader,
   if (symbol === undefined || implementation.kind !== "resolved" || implementation.implementation.symbol !== symbol)
     return undefined;
   const declarations = new Set([declaration, implementation.implementation.declaration]);
+  const owner = ast.parent(declaration);
+  let familyValid = true;
+  if (owner !== undefined) ast.forEachChild(owner, candidate => {
+    if (candidate === undefined || !ast.is.IsFunctionDeclaration(candidate) ||
+        navigation.declarationSymbol(candidate, sourceFile) !== symbol) return;
+    const selected = navigation.callableImplementation(candidate);
+    if (selected.kind !== "resolved" || selected.implementation.symbol !== symbol ||
+        selected.implementation.declaration !== implementation.implementation.declaration ||
+        selected.implementation.sourceFile !== sourceFile) familyValid = false;
+    else declarations.add(candidate);
+  });
+  if (!familyValid) return undefined;
   for (const reference of navigation.referencesWithin(symbol, sourceFile)) {
     const selected = navigation.sourceReferenceFor(reference);
     if (selected === undefined || selected.symbol !== symbol) return undefined;

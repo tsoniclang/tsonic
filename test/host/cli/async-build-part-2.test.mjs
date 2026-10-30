@@ -31,7 +31,7 @@ test("CLI emits and executes native Promise constructors through core Task compl
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static System\.Threading\.Tasks\.Task<double> create\(\)/u);
-  assert.match(generatedSource, /void (?<executor>__tsonic_callable_\d+)\(Tsonic\.CSharp\.Runtime\.TaskResolve<double> resolve, Tsonic\.CSharp\.Runtime\.TaskReject __tsonic_param0\)\s*\{\s*resolve\(Tsonic\.CSharp\.Runtime\.Union<double, System\.Threading\.Tasks\.Task<double>>\.From1\(1\)\);\s*return;\s*\}\s*return Tsonic\.CSharp\.Runtime\.TaskCompletion<double>\.Create\(new Tsonic\.CSharp\.Runtime\.TaskExecutor<double>\(\k<executor>\)\);/u);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TaskCompletion<double>\.Create\(\(Tsonic\.CSharp\.Runtime\.TaskResolve<double> resolve, Tsonic\.CSharp\.Runtime\.TaskReject __tsonic_param0\) =>\s*\{\s*resolve\(Tsonic\.CSharp\.Runtime\.Union<double, System\.Threading\.Tasks\.Task<double>>\.From1\(1\)\);\s*return;\s*\}\);/u);
   assert.doesNotMatch(generatedSource, /Tsonic\.CSharp\.Js|__unsupported|System\.Reflection|\bdynamic\b/u);
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
     "using System;",

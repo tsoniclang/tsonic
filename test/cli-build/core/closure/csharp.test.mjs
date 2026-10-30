@@ -57,7 +57,7 @@ test("Slice 4 emits source functions, lambdas, block scopes, if/else, and return
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 4;/);
   assert.match(generatedSource, /public static Func<double, double> makeAdder\(double left\)/);
-  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<double, double>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(double right\) => left \+ right;/);
   assert.match(generatedSource, /public static T identity<T>\(T value\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|dynamic|object mapper/);
 

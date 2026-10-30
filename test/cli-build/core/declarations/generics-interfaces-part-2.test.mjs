@@ -115,7 +115,7 @@ test("CLI emits generic Action and Func delegate signatures from TSTS callable t
   assert.match(generatedSource, /public static R applyFunc<T, R>\(Func<T, R> fn, T value\)/);
   assert.match(generatedSource, /public static R applyFunc2<T1, T2, R>\(Func<T1, T2, R> fn, T1 left, T2 right\)/);
   assert.match(generatedSource, /public static Func<A, C> compose<A, B, C>\(Func<A, B> f, Func<B, C> g\)/);
-  assert.match(generatedSource, /C (?<callable>__tsonic_callable_\d+)\(A value\)\s*\{\s*return g\(f\(value\)\);\s*\}\s*return new Func<A, C>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(A value\) => g\(f\(value\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedActionFuncDelegates.csproj"), "--nologo", "--v:minimal"]);
@@ -178,11 +178,11 @@ test("CLI emits higher-order callable returns and generic function type aliases"
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Func<int, int> add\(int left\)/);
-  assert.match(generatedSource, /int (?<callable>__tsonic_callable_\d+)\(int right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<int, int>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(int right\) => left \+ right;/);
   assert.match(generatedSource, /public static Func<string> makeRepeater\(string value\)/);
-  assert.match(generatedSource, /string (?<callable>__tsonic_callable_\d+)\(\)\s*\{\s*return value;\s*\}\s*return new Func<string>\(\k<callable>\);/);
+  assert.match(generatedSource, /return \(\) => value;/);
   assert.match(generatedSource, /public static Func<Func<string>> createNested\(\)/);
-  assert.match(generatedSource, /static Func<string> (?<outer>__tsonic_callable_\d+)\(\)\s*\{\s*static string (?<inner>__tsonic_callable_\d+)\(\)\s*\{\s*return "deeply nested";\s*\}\s*return new Func<string>\(\k<inner>\);\s*\}\s*return new Func<Func<string>>\(\k<outer>\);/);
+  assert.match(generatedSource, /return \(\) => \(\) => "deeply nested";/);
   assert.match(generatedSource, /public static bool test<T>\(T value, Func<T, bool> predicate\)/);
   assert.match(generatedSource, /public static U transform<T, U>\(T value, Func<T, U> fn\)/);
   assert.match(generatedSource, /public static int compare<T>\(T left, T right, Func<T, T, int> comparer\)/);
@@ -234,7 +234,7 @@ test("CLI emits arrays and interfaces containing callable target types", async (
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Func<int, int, int>\[\] operations\s*\{\s*get;\s*private set;\s*\} = default\(Func<int, int, int>\[\]\)!;/);
-  assert.match(generatedSource, /static int (?<add>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left \+ right;\s*\}\s*Func<int, int, int> (?<first>_*tsonic_value_\d+) = new Func<int, int, int>\(\k<add>\);\s*static int (?<subtract>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left - right;\s*\}\s*Func<int, int, int> (?<second>_*tsonic_value_\d+) = new Func<int, int, int>\(\k<subtract>\);\s*static int (?<multiply>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left \* right;\s*\}\s*operations = new Func<int, int, int>\[\] \{ \k<first>, \k<second>, new Func<int, int, int>\(\k<multiply>\) \};/);
+  assert.match(generatedSource, /operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
   assert.match(generatedSource, /public interface OperationMap/);
   assert.match(generatedSource, /Func<int, int, int> add \{ get; set; \}/);
   assert.match(generatedSource, /Func<int, int, int> subtract \{ get; set; \}/);

@@ -251,11 +251,17 @@ test("CLI emits closed module-scope arrow functions as direct C# methods", async
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double add\(double left, double right\)\s*\{\s*return left \+ right;/);
-  assert.match(generatedSource, /public static string greet\(string name\)\s*\{\s*return \$"Hello \{name\}";/);
-  assert.match(generatedSource, /public static double @double\(double value\)\s*\{\s*return value \* 2;/);
-  assert.match(generatedSource, /public static double triple\(double value\)\s*\{\s*return value \* 3;/);
-  assert.doesNotMatch(generatedSource, /Func<|__unsupported/);
+  assert.match(generatedSource, /public static Func<double, double, double> add\s*\{\s*get;\s*private set;/);
+  assert.match(generatedSource, /public static Func<string, string> greet\s*\{\s*get;\s*private set;/);
+  assert.match(generatedSource, /public static Func<double, double> @double\s*\{\s*get;\s*private set;/);
+  assert.match(generatedSource, /public static Func<double, double> triple\s*\{\s*get;\s*private set;/);
+  assert.match(generatedSource, /add = \(double left, double right\) => left \+ right;/);
+  assert.match(generatedSource, /greet = \(string name\) => \$"Hello \{name\}";/);
+  assert.match(generatedSource, /@double = \(double value\) => value \* 2;/);
+  assert.match(generatedSource, /triple = \(double value\) => value \* 3;/);
+  const initializations = [...generatedSource.matchAll(/^\s*(add|greet|@double|triple) = /gmu)].map(match => match[1]);
+  assert.deepEqual(initializations, ["add", "greet", "@double", "triple"], "one native binding initialization in original source order");
+  assert.doesNotMatch(generatedSource, /public static double add\(|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleArrowValues.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
