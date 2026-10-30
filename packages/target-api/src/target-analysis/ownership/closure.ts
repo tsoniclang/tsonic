@@ -268,11 +268,46 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
             for (const reference of argumentsFor(read.reference, consumer.arguments)) {
               if (reference === undefined) continue;
               const selection = input.dependencies.forRead(state, reference, read.candidate);
-              const problem = append(selection.kind === "unresolved" ? selection : {
+              if (selection.kind === "unresolved") return selection;
+              const appendRead = (selection: SourceDeclarationContinuationSelection) => append(selection.kind === "unresolved" ? selection : {
                 kind: "resolved", dependencies: selection.dependencies.map(dependency =>
                   dependency.reference === read.reference ? dependency : Object.freeze({ ...dependency, reference: read.reference })),
               });
-              if (problem !== undefined) return problem;
+              for (const dependency of selection.dependencies) {
+                if (!budget.step(reference)) return budget.failure()!;
+                const premise = dependency.retention;
+                const node = premise.value.node;
+                if (premise.kind !== "formal-borrowed" || premise.region.kind !== "input-duration" ||
+                  !source.ast.is.IsCallExpression(node) && !source.ast.is.IsNewExpression(node)) {
+                  const problem = appendRead({ kind: "resolved", dependencies: [dependency] });
+                  if (problem !== undefined) return problem;
+                  continue;
+                }
+                const parameterDeclaration = premise.region.parameter;
+                const semantics = source.semantics.forNode(node);
+                const operation = semantics.operations.call(node);
+                const parameter = operation?.sourceSelectedSignatureKind !== "resolved" ||
+                  semantics.declarations.signatureDeclaration(operation.selectedSignature) !== premise.executionOwner
+                  ? undefined : operation.sourceSelectedSignatureParameters.find(parameter =>
+                    parameter.parameterDeclaration === parameterDeclaration);
+                const bindings = parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
+                  binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
+                const argument = bindings.length === 1 ? source.ast.arguments(node)[bindings[0]!.sourceArgumentIndex] : undefined;
+                if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
+                  "A pending native continuation requires its exact selected input-duration correspondence.");
+                const actuals = argumentsFor(argument, consumer.arguments);
+                if (actuals.length === 0)
+                  return sourceDeclarationOwnershipUnresolved(node,
+                    "A pending native continuation requires every completed original caller input.");
+                for (const actual of actuals) {
+                  if (actual === undefined) return sourceDeclarationOwnershipUnresolved(node,
+                    "A pending native continuation requires every completed original caller input.");
+                  if (!budget.step(actual)) return budget.failure()!;
+                  const completed = input.dependencies.forRead(new Set([dependency.suspension]), actual, read.candidate);
+                  const problem = appendRead(completed);
+                  if (problem !== undefined) return problem;
+                }
+              }
             }
           }
           for (const operation of summary.calls) {
