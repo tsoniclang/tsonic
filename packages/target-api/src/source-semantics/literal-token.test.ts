@@ -9,6 +9,23 @@ function token(text: string) {
   return parsed!.token;
 }
 
+test("numeric spelling preserves an authored decimal point and exponent independently of its exact integer value", () => {
+  for (const [text, expected] of [
+    ["1", "1"], ["1.", "1."], ["1.0", "1.0"], ["1.e0", "1.e+0"], ["1e0", "1e+0"],
+    ["0.", "0."], ["0.e2", "0.e+2"], ["1_0.", "10."], [".5", "0.5"], ["0xff", "255"],
+  ] as const) {
+    const parsed = parseSourceNumericLiteral(text);
+    assert.equal(parsed?.token.decimalText, expected, text);
+    assert.equal(parsed?.token.negative, false, `unsigned token ${text}`);
+  }
+  for (const text of ["1", "1.", "1.0", "1.e0", "1e0"]) {
+    const parsed = parseSourceNumericLiteral(text);
+    assert.equal(parsed?.integer, 1n, `unchanged exact integer ${text}`);
+    assert.equal(parsed?.token.coefficient, 1n, `unchanged coefficient ${text}`);
+    assert.equal(parsed?.token.exponent, 0n, `unchanged native exponent ${text}`);
+  }
+});
+
 test("binary float exactness uses the authored rational, not a rounded double", () => {
   for (const [text, expected] of [
     ["0.1", false], ["0.5", true], ["1.25", true], ["16777216", true],
