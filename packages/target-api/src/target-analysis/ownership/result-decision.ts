@@ -50,65 +50,75 @@ export function decideSourceDeclarationAsyncResultUse(input: {
     if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(call, problem);
   }
   const dependencies = continuation.dependencies;
+  const nativeRetention = (reference: Node): SourceDeclarationRetentionReadSelection => {
+    const actual = input.retention(reference);
+    if (actual.kind === "unresolved") return actual;
+    if (actual.reference !== reference || actual.premises.length === 0)
+      return sourceDeclarationOwnershipUnresolved(reference,
+        "Native continuation retention must describe its exact nonempty checked input or capture read.");
+    for (const premise of actual.premises) {
+      if (!budget.step(reference)) return budget.failure()!;
+      if (premise.value.node !== reference)
+        return sourceDeclarationOwnershipUnresolved(reference,
+          "Native continuation retention belongs to a different checked input or capture value.");
+      const problem = sourceDeclarationOwnershipContractProblem(source, reference,
+        premise.value.component, premise.contract);
+      if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(reference, problem);
+    }
+    return actual;
+  };
+  const callerRetention = (reference: Node): SourceDeclarationRetentionReadSelection => {
+    const formal = source.ast.is.IsParameterDeclaration(reference) ? reference
+      : source.navigation.sourceReferenceFor(reference)?.declaration;
+    if (formal === undefined || !source.ast.is.IsParameterDeclaration(formal))
+      return nativeRetention(reference);
+    const owner = source.ast.parent(formal);
+    if (owner === declaration) {
+      const parameter = selected.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
+      const bindings = parameter === undefined ? [] : selected.sourceArgumentBindings.filter(binding =>
+        binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
+      const argument = bindings.length === 1 ? source.ast.arguments(call)[bindings[0]!.sourceArgumentIndex] : undefined;
+      return argument === undefined ? sourceDeclarationOwnershipUnresolved(call,
+        "A native formal continuation requires its exact selected caller input.") : nativeRetention(argument);
+    }
+    let current = declaration;
+    const visited = new Set<Node>();
+    while (current !== undefined && current !== owner) {
+      if (!budget.step(reference)) return budget.failure()!;
+      if (visited.has(current)) return sourceDeclarationOwnershipUnresolved(reference,
+        "A native capture requires acyclic checked declaration ancestry.");
+      visited.add(current);
+      current = source.ast.parent(current);
+    }
+    return current === undefined || owner === undefined ? sourceDeclarationOwnershipUnresolved(reference,
+      "A native continuation requires its exact selected formal or lexical capture owner.")
+      : nativeRetention(selected.sourceCallee.expression);
+  };
   const leases = [...dependencies.map(dependency => dependency.retention), ...retention.premises];
   for (const premise of leases) {
     if (!budget.step(call)) return budget.failure()!;
     let effective: readonly SourceDeclarationRetentionPremise[] = [premise];
     if (premise.kind === "formal-borrowed" && premise.value.node !== call &&
       (declaration === premise.executionOwner || declaration === premise.value.region.owner)) {
-      let formal = premise.region.kind === "input-duration" ? premise.region.parameter
-        : source.ast.is.IsParameterDeclaration(premise.value.node) ? premise.value.node
-          : source.navigation.sourceReferenceFor(premise.value.node)?.declaration;
-      if (declaration !== premise.executionOwner) {
-        const node = premise.value.node;
-        const semantics = source.semantics.forNode(node);
-        const operation = source.ast.is.IsCallExpression(node) ? semantics.operations.call(node) : undefined;
-        const native = operation?.sourceSelectedSignatureKind === "resolved"
-          ? semantics.declarations.signatureDeclaration(operation.selectedSignature) : undefined;
-        const parameter = operation?.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
-        const bindings = native !== premise.executionOwner || parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
+      const node = premise.value.node;
+      const semantics = source.semantics.forNode(node);
+      const operation = source.ast.is.IsCallExpression(node) ? semantics.operations.call(node) : undefined;
+      const native = operation?.sourceSelectedSignatureKind === "resolved"
+        ? semantics.declarations.signatureDeclaration(operation.selectedSignature) : undefined;
+      let reference = node;
+      const region = premise.region;
+      if (native === premise.executionOwner && region.kind === "input-duration") {
+        const parameter = operation!.sourceSelectedSignatureParameters.find(candidate =>
+          candidate.parameterDeclaration === region.parameter);
+        const bindings = parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
           binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
         const argument = bindings.length === 1 ? source.ast.arguments(node)[bindings[0]!.sourceArgumentIndex] : undefined;
-        const reference = argument === undefined ? undefined : source.navigation.sourceReferenceFor(argument)?.declaration;
-        if (reference === undefined || !source.ast.is.IsParameterDeclaration(reference) || source.ast.parent(reference) !== declaration)
-          return sourceDeclarationOwnershipUnresolved(call,
-            "A declaration-native pending input requires its original direct formal read, not an alias or caller history.");
-        formal = reference;
+        if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
+          "A pending native result requires its exact completed input-duration relation.");
+        reference = argument;
       }
-      const executionOwner = declaration;
-      const parameter = selected.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
-      const bindings = parameter === undefined ? [] : selected.sourceArgumentBindings.filter(binding =>
-        binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
-      const argument = bindings.length === 1 ? source.ast.arguments(call)[bindings[0]!.sourceArgumentIndex] : undefined;
-      if (argument === undefined) return sourceDeclarationOwnershipUnresolved(call,
-        "A native formal continuation requires its exact selected caller input.");
-      const actual = input.retention(argument);
+      const actual = callerRetention(reference);
       if (actual.kind === "unresolved") return actual;
-      if (actual.reference !== argument || actual.premises.length === 0)
-        return sourceDeclarationOwnershipUnresolved(call, "Native formal retention must describe its exact actual input read.");
-      for (const inputPremise of actual.premises) {
-        if (!budget.step(call)) return budget.failure()!;
-        if (inputPremise.value.node !== argument) return sourceDeclarationOwnershipUnresolved(call,
-          "Native formal retention belongs to a different checked input value.");
-        const problem = sourceDeclarationOwnershipContractProblem(source, argument,
-          inputPremise.value.component, inputPremise.contract);
-        if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(call, problem);
-        let matched = false;
-        for (const output of retention.premises) {
-          if (!budget.step(call)) return budget.failure()!;
-          if (output.kind === "formal-borrowed" && output.executionOwner === executionOwner &&
-            output.region.kind === "input-duration" && output.region.parameter === formal ||
-            output.kind === "formal-borrowed" && output.executionOwner === executionOwner &&
-              output.region.kind === "type-argument" && inputPremise.kind === "formal-borrowed" &&
-              inputPremise.region.kind === "type-argument" && output.region.declaration === inputPremise.region.declaration &&
-              source.semantics.forNode(call).types.isIdentical(output.region.binding.argumentType, inputPremise.region.binding.argumentType) ||
-            output.kind === "scoped-borrowed" && inputPremise.kind === "scoped-borrowed" &&
-              output.owner === inputPremise.owner && output.region === inputPremise.region && output.mode === inputPremise.mode ||
-            output.kind === "retained" && inputPremise.kind === "retained") matched = true;
-        }
-        if (!matched) return sourceDeclarationOwnershipUnresolved(call,
-          "A native continuation needs every completed input-to-result lifetime correspondence.");
-      }
       effective = actual.premises;
     }
     for (const lease of effective) {
@@ -131,7 +141,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
         if (current === undefined || disposition.region.owner !== lease.value.region.owner)
           return sourceDeclarationOwnershipUnresolved(disposition.use,
             "The actual await must be inside the same checked region and native lease owner.");
-      } else if (completion.resultPolicy === "observe-rejection" || completion.resultPolicy === "native-discard")
+      } else
         return Object.freeze({ kind: "resolved", call, disposition, dependencies, decision: "rejected",
           diagnostic: Object.freeze({ code: "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", at: call,
             message: "An asynchronous result retaining a source-scoped lease across pending work cannot be discarded, stored or returned." }) });

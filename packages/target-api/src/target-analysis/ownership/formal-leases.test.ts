@@ -13,7 +13,7 @@ import { createSourceDeclarationRetentionQuery } from "./retention.js";
 import { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
 import { resolveSourceDeclarationAsyncResultDisposition } from "./result-use.js";
 import type { SourceDeclarationOwnershipPremises, SourceDeclarationRetentionPremise,
-  SourceDeclarationRetentionReadSelection } from "./model.js";
+  SourceDeclarationRetentionReadSelection, SourceDeclarationContinuationSelection } from "./model.js";
 
 function fixture(kind: "input-duration" | "type-argument",
   amend: (premise: SourceDeclarationRetentionPremise) => SourceDeclarationRetentionPremise = premise => premise,
@@ -355,7 +355,8 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     const unresolved = createSourceDeclarationOwnershipQuery({ ...current, budget }).forCall(call);
     assert.equal(unresolved.kind === "unresolved" && budget.failure() !== undefined, true, "the actual continuation budget is exhausted");
     const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: call, reason: "The native projection has no completed lease premise." };
-    const decide = (retention: SourceDeclarationRetentionReadSelection, selectedBudget = current.budget, selectedCall = call) => {
+    const decide = (retention: SourceDeclarationRetentionReadSelection, selectedBudget = current.budget, selectedCall = call,
+      continuation: SourceDeclarationContinuationSelection = unknown) => {
       const selected = current.source.semantics.forNode(selectedCall).operations.call(selectedCall);
       assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "the actual async call contract");
       if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked async contract");
@@ -363,7 +364,7 @@ for (const kind of ["input-duration", "type-argument"] as const) {
       return decideSourceDeclarationAsyncResultUse({ ...current, budget: selectedBudget, call: selectedCall, completion,
         disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: selectedCall, budget: selectedBudget,
           regionFor: current.values.regionFor, parameterUses: current.parameterUses }),
-        continuation: () => retention.kind === "unresolved" ? retention : unknown, retention: () => retention });
+        continuation: () => retention.kind === "unresolved" ? retention : continuation, retention: () => retention });
     };
     const unknownDecision = decide(unknown);
     assert.equal(unknownDecision.kind === "unresolved", true,
@@ -401,11 +402,125 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     const unrelatedDecision = decide(nativeRetention);
     assert.equal(unrelatedDecision.kind === "unresolved", true,
       "owned native evidence from another call cannot discharge this result's unresolved lease");
-    const nativeDecision = decide(nativeRetention, current.budget, nativeCall!);
+    const nativeContinuation = current.query.continuationFor(nativeCall!);
+    assert.equal(nativeContinuation.kind === "resolved", true,
+      nativeContinuation.kind === "unresolved" ? nativeContinuation.reason : "the canonical producer completed this exact native continuation");
+    const nativeDecision = decide(nativeRetention, current.budget, nativeCall!, nativeContinuation);
     assert.equal(nativeRetention.kind === "resolved" && nativeRetention.premises.length > 0 &&
       nativeRetention.premises.every(premise => premise.kind === "retained") &&
       nativeDecision.kind === "resolved" && nativeDecision.decision === "observe-discarded-rejection", true,
-    "actual nonempty validated native retention remains authoritative when the source continuation is unresolved");
+    "actual nonempty validated native retention and completed continuation preserve the supported owned result");
+  });
+}
+
+for (const disposition of ["stored", "returned", "explicit-void"] as const) {
+  test(`must-observe rejects the actual ${disposition} scoped-borrowed result independently of discard policy`, () => {
+    const use = disposition === "stored" ? "const stored = scoped(view); return stored;"
+      : disposition === "returned" ? "return scoped(view);" : "void scoped(view);";
+    const current = fixture("input-duration", premise => premise, `
+      async function scoped<Region>(view: Lease<number, Region>): Promise<number> {
+        await pending(); return read(view);
+      }
+      function scopedRoot<Region>(view: Lease<number, Region>) { ${use} }
+      async function awaitedScopedRoot<Region>(view: Lease<number, Region>) { return await scoped(view); }
+    `);
+    const owner = current.declaration("scoped");
+    const premises: SourceDeclarationOwnershipPremises = {
+      ...current.premises,
+      completionFor(call, selected) {
+        const completion = current.premises.completionFor(call, selected);
+        return completion.kind === "async" ? { ...completion, resultPolicy: "must-observe" } : completion;
+      },
+      retentionFor(request) {
+        const { value } = request;
+        if (current.selectedDeclaration(value.node) !== owner) return current.premises.retentionFor(request);
+        const argument = current.source.ast.arguments(value.node)[0];
+        if (argument === undefined) throw new Error("missing checked scoped native input");
+        const nativeOwner = request.valueFor(argument);
+        if ("kind" in nativeOwner) return nativeOwner;
+        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner: nativeOwner,
+          region: value.region.root, mode: "shared",
+          contract: { kind: "expression", expression: value.node, component: value.component } }] };
+      },
+    };
+    const calls = current.nodes.filter(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === owner);
+    const escaped = calls.find(node => current.context.declarationFor(node) === current.declaration("scopedRoot"));
+    const awaited = calls.find(node => current.context.declarationFor(node) === current.declaration("awaitedScopedRoot"));
+    assert.equal(escaped !== undefined && awaited !== undefined, true, "original escape and immediate-await calls");
+    if (escaped === undefined || awaited === undefined) throw new Error("missing checked native result-use calls");
+    const query = createSourceDeclarationOwnershipQuery({ ...current, premises });
+    const continuation = query.continuationFor(escaped);
+    assert.equal(continuation.kind === "resolved" && continuation.dependencies.length > 0, true,
+      continuation.kind === "unresolved" ? continuation.reason : "the original pending native inputs remain completed");
+    const rejected = query.forCall(escaped);
+    assert.equal(rejected.kind === "resolved" && rejected.decision === "rejected" &&
+      rejected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES" && rejected.diagnostic.at === escaped, true,
+    rejected.kind === "unresolved" ? rejected.reason : `${disposition}: must-observe never waives a native scoped lease`);
+    const admitted = query.forCall(awaited);
+    assert.equal(admitted.kind === "resolved" && admitted.decision === "admitted", true,
+      admitted.kind === "unresolved" ? admitted.reason : "the same native owner survives its immediate checked await");
+  });
+}
+
+for (const nativeCapture of ["owned", "scoped", "missing", "empty"] as const) {
+  test(`a completed ${nativeCapture} capture contract decides the original callable read independently of its owned payload`, () => {
+    const current = fixture("input-duration", premise => premise, `
+      function factory<Region>(view: Lease<number, Region>) {
+        async function captured(): Promise<number> { await pending(); return read(view); }
+        return captured;
+      }
+      async function captureRoot<Region>(view: Lease<number, Region>) {
+        const callback = factory(view); const stored = callback(); return stored;
+      }
+      async function awaitedCaptureRoot<Region>(view: Lease<number, Region>) {
+        const callback = factory(view); return await callback();
+      }
+    `);
+    const owner = current.declaration("captured");
+    const calls = current.nodes.filter(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === owner);
+    assert.equal(calls.length, 2, "both original selected closure calls remain checked");
+    const calleeReads = new Set(calls.map(call => {
+      const selected = current.source.semantics.forNode(call).operations.call(call);
+      if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked captured callable");
+      return selected.sourceCallee.expression;
+    }));
+    const premises: SourceDeclarationOwnershipPremises = {
+      ...current.premises,
+      retentionFor(request) {
+        const { value } = request;
+        if (!calleeReads.has(value.node)) return current.premises.retentionFor(request);
+        if (nativeCapture === "missing") return undefined;
+        if (nativeCapture === "empty") return { kind: "resolved", premises: [] };
+        const contract = { kind: "expression" as const, expression: value.node, component: value.component };
+        if (nativeCapture === "owned") return { kind: "resolved", premises: [{ kind: "retained",
+          value, reason: "owned-value", contract }] };
+        const parameter = current.source.ast.parameters(value.region.owner)[0];
+        if (parameter === undefined) throw new Error("missing original native capture owner");
+        const nativeOwner = request.valueFor(parameter);
+        if ("kind" in nativeOwner) return nativeOwner;
+        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner: nativeOwner,
+          region: value.region.root, mode: "shared", contract }] };
+      },
+    };
+    const query = createSourceDeclarationOwnershipQuery({ ...current, premises });
+    for (const call of calls) {
+      const retention = query.forReference(call);
+      assert.equal(retention.kind === "resolved" && retention.premises.every(premise =>
+        premise.kind === "retained" && premise.reason === "owned-value"), true,
+      "the owning result payload is not a capture lifetime proof");
+      const awaited = current.context.declarationFor(call) === current.declaration("awaitedCaptureRoot");
+      const selected = query.forCall(call);
+      if (nativeCapture === "missing" || nativeCapture === "empty") {
+        assert.equal(selected.kind === "unresolved" && selected.cause.kind === "required-fact" &&
+          calleeReads.has(selected.at), true, "unknown or empty native capture evidence remains unresolved at its original read");
+      } else {
+        assert.equal(selected.kind === "resolved" && selected.decision ===
+          (nativeCapture === "owned" || awaited ? "admitted" : "rejected"), true,
+        selected.kind === "unresolved" ? selected.reason : "exact native capture ownership and checked caller disposition");
+      }
+    }
   });
 }
 
