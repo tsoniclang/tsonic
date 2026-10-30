@@ -1,9 +1,10 @@
 import { sourceCallableValueParameters } from "../../source-navigation/callable-parameters.js";
-import type { Node } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceReceiverBoundary } from "../../source-navigation/receiver-owner.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import type { SourceStorageLimits, SourceStorageQueries, SourceStorageUnresolved } from "../source-storage/model/types.js";
+import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import { createSourceReceiverResourceBudget, type SourceReceiverInvalidEvidence,
+  type SourceReceiverResourceFailure, type SourceReceiverResourceLimits } from "./receiver-resources.js";
 
 interface ReceiverScope {
   readonly declaration: Node;
@@ -12,27 +13,29 @@ interface ReceiverScope {
 
 export type SourceReceiverOccurrencesSelection =
   | { readonly kind: "resolved"; readonly occurrences: ReadonlyMap<Node, readonly Node[]> }
-  | SourceStorageUnresolved;
+  | SourceReceiverInvalidEvidence
+  | SourceReceiverResourceFailure;
 
-export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
-  limits?: Partial<SourceStorageLimits>): SourceReceiverOccurrencesSelection {
-  const { ast } = storage.source;
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
+export function analyzeSourceReceiverOccurrences(source: Pick<TargetSourceProgram, "ast" | "navigation" | "semantics">,
+  sourceFiles: readonly SourceFile[], limits?: Partial<SourceReceiverResourceLimits>): SourceReceiverOccurrencesSelection {
+  const { ast } = source;
+  const nodes = source.navigation.nodesForFiles(sourceFiles);
+  const budget = createSourceReceiverResourceBudget(limits);
   const states = new Map<Node, { readonly scope: ReceiverScope | undefined; readonly ambient: boolean }>();
   const bodies = new Map<Node, ReceiverScope>();
   const boundaries = new Set<Node>();
-  const files = new Set<Node>(storage.sourceFiles);
+  const files = new Set<Node>(sourceFiles);
   const evaluated = new Set<Node>(files);
   const occurrences = new Map<Node, Node[]>();
-  const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
-  const exhausted = (): SourceStorageUnresolved => unresolved(budget.failure()!);
-  const sourceFailure = storage.failureReason();
-  if (sourceFailure !== undefined) return unresolved(sourceFailure);
-  for (const node of storage.nodes) {
+  const unresolved = (reason: string): SourceReceiverInvalidEvidence => Object.freeze({ kind: "unresolved", reason });
+  const exhausted = (): SourceReceiverInvalidEvidence | SourceReceiverResourceFailure => budget.failure()!;
+  const invalidLimits = budget.failure();
+  if (invalidLimits !== undefined) return invalidLimits;
+  for (const node of nodes) {
     if (!budget.node() || !budget.step()) return exhausted();
     const parent = ast.parent(node);
     const inherited = parent === undefined ? undefined : states.get(parent);
-    if (states.has(node) || (ast.is.IsSourceFile(node) ? !files.has(node) : inherited === undefined)) {
+    if (states.has(node) || (ast.is.IsSourceFile(node) ? !files.has(node) || parent !== undefined : inherited === undefined)) {
       return unresolved("Receiver occurrences require unique checked nodes after their exact source parents.");
     }
     const ambient = inherited?.ambient === true || ast.modifiers(node).some(modifier =>
@@ -48,7 +51,7 @@ export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
       bodies.set(body, { declaration: node, outer: arrow ? scope : undefined });
       occurrences.set(node, []);
       evaluated.add(body);
-      const parameters = sourceCallableValueParameters(ast, node, storage.source.semantics.forNode(node), { kind: "declaration" });
+      const parameters = sourceCallableValueParameters(ast, node, source.semantics.forNode(node), { kind: "declaration" });
       if (parameters === undefined) return unresolved("Receiver scopes require their exact checked value parameters.");
       for (const parameter of parameters) {
         if (!budget.step()) return exhausted();

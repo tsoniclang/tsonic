@@ -16,6 +16,7 @@ export { createSourceOwnershipQuery } from "./query.js";
 export type { SourceOwnershipQueries } from "./query.js";
 export { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
 export type { SourceReceiverOccurrencesSelection } from "./receiver-occurrences.js";
+export type { SourceReceiverInvalidEvidence, SourceReceiverResourceFailure, SourceReceiverResourceLimits } from "./receiver-resources.js";
 export type {
   SourceAsyncCompletionSelection, SourceAsyncOwnershipDiagnostic, SourceAsyncOwnershipSelection,
   SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceContinuationDependency,
