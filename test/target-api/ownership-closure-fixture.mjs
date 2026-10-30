@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { ownershipFixture, sourceText } from "./ownership-fixture.mjs";
 import { createSourceStorageQuery, defaultSourceStorageLimits, createSourceDeclarationOwnershipQuery }
   from "../../packages/target-api/dist/public/analysis.js";
+import { sourceLexicalCaptures } from "../../packages/target-api/dist/public/source.js";
 
 export const closureText = `
   declare function nativeFuture<T>(view: Lease<T>): Promise<T>;
@@ -50,6 +51,34 @@ export function closureFixture(options = {}) {
   const nativeDeclarations = new Set(["borrow", "pending", "anotherPending", "sharedGlobal", "nativeFuture", "settledFuture", "nativeScalar"]
     .map(name => declaration(name)));
   const pendingDeclarations = new Set(["pending", "anotherPending", "nativeFuture"].map(name => declaration(name)));
+  const unprovenNativeCalls = new Set(base.nodes.filter(node => source.ast.is.IsFunctionDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "openAlternative").flatMap(owner => base.calls(owner)));
+  const nativeOwners = new Map();
+  const nodeDomain = new Set(base.nodes);
+  for (const node of base.nodes) {
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+      if (initializer !== undefined && source.ast.is.IsCallExpression(initializer) &&
+        selectedDeclaration(initializer) === declaration("borrow")) {
+        const owner = source.ast.arguments(initializer)[0];
+        if (owner !== undefined) nativeOwners.set(node, owner);
+      }
+    }
+    if (!source.ast.is.IsArrowFunction(node) && !source.ast.is.IsFunctionExpression(node) &&
+      !source.ast.is.IsFunctionDeclaration(node)) continue;
+    const body = source.ast.body(node);
+    if (body === undefined) continue;
+    const captures = sourceLexicalCaptures(node, [body], source.ast, source.navigation, nodeDomain).captures;
+    const parameters = captures.map(capture => capture.declaration).filter(capture =>
+      source.ast.is.IsParameterDeclaration(capture) && source.ast.text(source.ast.name(capture)) === "view");
+    if (parameters.length === 1) nativeOwners.set(node, parameters[0]);
+  }
+  for (const [name, locals] of [["aliasRead", ["alias"]], ["conditionalAlias", ["alias"]],
+    ["nativeAlias", ["task", "alias"]]]) {
+    const owner = declaration(name);
+    const parameter = source.ast.parameters(owner)[0];
+    for (const local of locals) nativeOwners.set(base.named(owner, local), parameter);
+  }
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits, {
     call(node) { return nativeDeclarations.has(selectedDeclaration(node)) ? { resultAllocation: node } : undefined; },
   });
@@ -73,6 +102,7 @@ export function closureFixture(options = {}) {
           component: { selectedType: selected.sourceResultType, contextualCall: selected } } } : { kind: "not-async" };
     },
     suspensionFor(value, use) {
+      if (unprovenNativeCalls.has(value.node)) return undefined;
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
       const semantics = source.semantics.forNode(value.node);
       const awaited = semantics.types.awaitedType(value.component.selectedType);
@@ -87,6 +117,15 @@ export function closureFixture(options = {}) {
     },
     retentionFor(request) {
       const { value } = request;
+      const declared = source.navigation.sourceReferenceFor(value.node)?.declaration;
+      const nativeOwner = nativeOwners.get(declared ?? value.node);
+      if (nativeOwner !== undefined) {
+        const owner = request.valueFor(nativeOwner);
+        if ("kind" in owner) return owner;
+        return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner,
+          region: owner.region.owner, mode: options.mode ?? "shared",
+          contract: { kind: "expression", expression: value.node, component: value.component } }] };
+      }
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
       if (current === declaration("nativeFuture") || current === declaration("settledFuture")) {
         const parameter = source.ast.parameters(current)[0];
@@ -113,4 +152,26 @@ export function closureFixture(options = {}) {
 export function borrowed(selection, label) {
   assert.equal(selection.kind === "resolved", true, selection.kind === "unresolved" ? `${label}: ${selection.reason}` : label);
   return selection.dependencies.filter(dependency => dependency.retention.kind === "scoped-borrowed" || dependency.retention.kind === "formal-borrowed");
+}
+
+export function nativeLeaseWitness(fixture, dependency) {
+  const { source, nodes } = fixture;
+  const { actual, retention, reference } = dependency;
+  const { owner, root, role } = actual.region;
+  if (actual !== retention.value || !nodes.includes(reference) || !nodes.includes(actual.node) ||
+    !nodes.includes(owner) || !nodes.includes(root) || "selection" in actual.region ||
+    !["body", "parameter-initializer", "instance-initializer", "module", "static-initializer"].includes(role) ||
+    retention.contract.component !== actual.component) return false;
+  if (retention.kind === "formal-borrowed") {
+    return retention.region.kind === "input-duration" &&
+      source.ast.is.IsParameterDeclaration(retention.region.parameter) &&
+      source.ast.parent(retention.region.parameter) === retention.executionOwner &&
+      source.ast.parameters(retention.executionOwner).includes(retention.region.parameter);
+  }
+  if (retention.kind !== "scoped-borrowed" || !nodes.includes(retention.owner.node) ||
+    retention.region !== retention.owner.region.owner && retention.region !== retention.owner.region.root) return false;
+  for (let current = actual.node; current !== undefined; current = source.ast.parent(current)) {
+    if (current === retention.region) return true;
+  }
+  return false;
 }
