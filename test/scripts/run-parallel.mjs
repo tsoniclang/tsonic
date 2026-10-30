@@ -50,7 +50,6 @@ const env = {
   DOTNET_PROCESSOR_COUNT: String(resourceBudget.childJobs),
   TSONIC_TEST_RUN_ID: runId,
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
-  NUGET_HTTP_CACHE_PATH: resolve(runRoot, "nuget-http-cache", "preruns"),
 };
 
 const suiteDefinition = selectParallelSuiteDefinition(repos, options.scopes);
@@ -136,7 +135,6 @@ function runShard(shard, attempt, workers) {
     const taskEnvironment = testTaskEnvironment(env, resourceBudget, shard);
     const startedAt = Date.now();
     const shardSafeName = `${testTaskName(shard.id)}${attempt === 1 ? "" : `.attempt-${attempt}`}`;
-    taskEnvironment.NUGET_HTTP_CACHE_PATH = resolve(runRoot, "nuget-http-cache", shardSafeName);
     const logPath = resolve(logRoot, `${shardSafeName}.log`);
     const statusPath = resolve(statusRoot, `${shardSafeName}.json`);
     const usagePath = resolve(statusRoot, `${shardSafeName}.usage.json`);
