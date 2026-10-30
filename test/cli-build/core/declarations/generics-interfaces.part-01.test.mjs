@@ -1,0 +1,239 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { bannedGeneratedRuntimeSemantics } from "./generics-interfaces.split-fixtures.mjs";
+
+test("CLI emits finalized generic constraints as C# where clauses", async () => {
+  const projectDirectory = resolve(tempRoot, "generic-constraints");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedGenericConstraints",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Named {",
+      "  name: string;",
+      "}",
+      "",
+      "export interface Timestamped {",
+      "  createdAt: string;",
+      "}",
+      "",
+      "export function constrained<T extends Named & Timestamped>(value: T): string {",
+      "  return `${value.name}:${value.createdAt}`;",
+      "}",
+      "",
+      "export function referenceOnly<T extends object>(value: T): T {",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string constrained<T>\(T value\)/);
+  assert.match(generatedSource, /where T : Named, Timestamped/);
+  assert.match(generatedSource, /return \$"\{value\.name\}:\{value\.createdAt\}";/);
+  assert.match(generatedSource, /public static T referenceOnly<T>\(T value\)/);
+  assert.match(generatedSource, /where T : class/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenericConstraints.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits generic Action and Func delegate signatures from TSTS callable types", async () => {
+  const projectDirectory = resolve(tempRoot, "action-func-delegates");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedActionFuncDelegates",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "export function runAction(action: () => void): void {",
+      "  action();",
+      "}",
+      "",
+      "export function runActionWithArg(action: (value: int) => void, value: int): void {",
+      "  action(value);",
+      "}",
+      "",
+      "export function applyFunc<T, R>(fn: (arg: T) => R, value: T): R {",
+      "  return fn(value);",
+      "}",
+      "",
+      "export function applyFunc2<T1, T2, R>(fn: (left: T1, right: T2) => R, left: T1, right: T2): R {",
+      "  return fn(left, right);",
+      "}",
+      "",
+      "export function compose<A, B, C>(f: (value: A) => B, g: (value: B) => C): (value: A) => C {",
+      "  return (value: A): C => g(f(value));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void runAction\(Action action\)/);
+  assert.match(generatedSource, /action\(\);/);
+  assert.match(generatedSource, /public static void runActionWithArg\(Action<int> action, int value\)/);
+  assert.match(generatedSource, /public static R applyFunc<T, R>\(Func<T, R> fn, T value\)/);
+  assert.match(generatedSource, /public static R applyFunc2<T1, T2, R>\(Func<T1, T2, R> fn, T1 left, T2 right\)/);
+  assert.match(generatedSource, /public static Func<A, C> compose<A, B, C>\(Func<A, B> f, Func<B, C> g\)/);
+  assert.match(generatedSource, /C (?<callable>__tsonic_callable_\d+)\(A value\)\s*\{\s*return g\(f\(value\)\);\s*\}\s*return new Func<A, C>\(\k<callable>\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedActionFuncDelegates.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits higher-order callable returns and generic function type aliases", async () => {
+  const projectDirectory = resolve(tempRoot, "higher-order-callables");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedHigherOrderCallables",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "type Predicate<T> = (value: T) => boolean;",
+      "type Transform<T, U> = (value: T) => U;",
+      "type Comparer<T> = (left: T, right: T) => int;",
+      "",
+      "export function add(left: int): (right: int) => int {",
+      "  return (right: int): int => left + right;",
+      "}",
+      "",
+      "export function makeRepeater(value: string): () => string {",
+      "  return (): string => value;",
+      "}",
+      "",
+      "export function createNested(): () => () => string {",
+      "  return (): (() => string) => (): string => \"deeply nested\";",
+      "}",
+      "",
+      "export function test<T>(value: T, predicate: Predicate<T>): boolean {",
+      "  return predicate(value);",
+      "}",
+      "",
+      "export function transform<T, U>(value: T, fn: Transform<T, U>): U {",
+      "  return fn(value);",
+      "}",
+      "",
+      "export function compare<T>(left: T, right: T, comparer: Comparer<T>): int {",
+      "  return comparer(left, right);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Func<int, int> add\(int left\)/);
+  assert.match(generatedSource, /int (?<callable>__tsonic_callable_\d+)\(int right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<int, int>\(\k<callable>\);/);
+  assert.match(generatedSource, /public static Func<string> makeRepeater\(string value\)/);
+  assert.match(generatedSource, /string (?<callable>__tsonic_callable_\d+)\(\)\s*\{\s*return value;\s*\}\s*return new Func<string>\(\k<callable>\);/);
+  assert.match(generatedSource, /public static Func<Func<string>> createNested\(\)/);
+  assert.match(generatedSource, /static Func<string> (?<outer>__tsonic_callable_\d+)\(\)\s*\{\s*static string (?<inner>__tsonic_callable_\d+)\(\)\s*\{\s*return "deeply nested";\s*\}\s*return new Func<string>\(\k<inner>\);\s*\}\s*return new Func<Func<string>>\(\k<outer>\);/);
+  assert.match(generatedSource, /public static bool test<T>\(T value, Func<T, bool> predicate\)/);
+  assert.match(generatedSource, /public static U transform<T, U>\(T value, Func<T, U> fn\)/);
+  assert.match(generatedSource, /public static int compare<T>\(T left, T right, Func<T, T, int> comparer\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedHigherOrderCallables.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI emits arrays and interfaces containing callable target types", async () => {
+  const projectDirectory = resolve(tempRoot, "callable-containers");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedCallableContainers",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "export type Operation = (left: int, right: int) => int;",
+      "",
+      "export const operations: Operation[] = [",
+      "  (left, right) => left + right,",
+      "  (left, right) => left - right,",
+      "  (left, right) => left * right,",
+      "];",
+      "",
+      "export interface OperationMap {",
+      "  add: Operation;",
+      "  subtract: Operation;",
+      "  multiply: Operation;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Func<int, int, int>\[\] operations\s*\{\s*get;\s*private set;\s*\} = default\(Func<int, int, int>\[\]\)!;/);
+  assert.match(generatedSource, /static int (?<add>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left \+ right;\s*\}\s*Func<int, int, int> (?<first>_*tsonic_value_\d+) = new Func<int, int, int>\(\k<add>\);\s*static int (?<subtract>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left - right;\s*\}\s*Func<int, int, int> (?<second>_*tsonic_value_\d+) = new Func<int, int, int>\(\k<subtract>\);\s*static int (?<multiply>__tsonic_callable_\d+)\(int left, int right\)\s*\{\s*return left \* right;\s*\}\s*operations = new Func<int, int, int>\[\] \{ \k<first>, \k<second>, new Func<int, int, int>\(\k<multiply>\) \};/);
+  assert.match(generatedSource, /public interface OperationMap/);
+  assert.match(generatedSource, /Func<int, int, int> add \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; set; \}/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCallableContainers.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
