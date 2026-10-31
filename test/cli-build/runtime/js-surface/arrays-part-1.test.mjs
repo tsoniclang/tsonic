@@ -242,7 +242,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> make\(int left, int right\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.of<int>\(left, right\);/);
   assert.match(generatedSource, /public static bool isActuallyArray\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /public static bool isActuallyArray\(Tsonic\.CSharp\.Js\.JSArray<int> values\)\s*\{\s*return \(values\) switch \{ _ => true \};/);
+  assert.match(generatedSource, /public static bool isActuallyArray\(Tsonic\.CSharp\.Js\.JSArray<int> values\)\s*\{\s*return true;/);
   assert.doesNotMatch(generatedSource, /ArrayHelpers/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraySurfaceOperations.csproj"), "--nologo", "--v:minimal"]);

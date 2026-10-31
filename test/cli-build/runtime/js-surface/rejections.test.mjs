@@ -160,13 +160,13 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
   assert.match(generatedSource, /public static bool isBoolean\(bool\? value\)/);
   assert.match(generatedSource, /return \(value\) switch \{ null => false, bool __tsonic_value\d+ => true \};/);
   assert.match(generatedSource, /public static string kindOfString\(string value\)/);
-  assert.match(generatedSource, /return \(value\) switch \{ _ => "string" \};/);
+  assert.match(generatedSource, /return "string";/);
   assert.match(generatedSource, /public static string kindOfNumber\(double value\)/);
-  assert.match(generatedSource, /return \(value\) switch \{ _ => "number" \};/);
+  assert.match(generatedSource, /return "number";/);
   assert.match(generatedSource, /public static string kindOfBoolean\(bool value\)/);
-  assert.match(generatedSource, /return \(value\) switch \{ _ => "boolean" \};/);
+  assert.match(generatedSource, /return "boolean";/);
   assert.match(generatedSource, /public static string kindOfInt32\(int value\)/);
-  assert.match(generatedSource, /public static string kindOfInt32\(int value\)\s*\{\s*return \(value\) switch \{ _ => "number" \};/);
+  assert.match(generatedSource, /public static string kindOfInt32\(int value\)\s*\{\s*return "number";/);
   assert.doesNotMatch(generatedSource, /typeof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
