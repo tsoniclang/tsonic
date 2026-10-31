@@ -42,3 +42,26 @@ export function headerValue(response: ServerResponse, name: string): string | un
 }
 export function run(): boolean { return true; }
 `;
+
+export const nativeGuardGetterEffectsSource = `
+let reads = 0;
+function count(): number { return reads; }
+class Probe {
+  get value(): string {
+    reads++;
+    if (reads === 3) throw new Error("guard getter");
+    return "kept";
+  }
+}
+function inspect(probe: Probe): string {
+  if (typeof probe.value === "string") return "kept";
+  return "wrong";
+}
+export function run(): boolean {
+  const probe = new Probe();
+  if (inspect(probe) !== "kept" || count() !== 1) return false;
+  if (inspect(probe) !== "kept" || count() !== 2) return false;
+  try { inspect(probe); return false; }
+  catch (failure) { return count() === 3 && failure instanceof Error && failure.message === "guard getter"; }
+}
+`;
