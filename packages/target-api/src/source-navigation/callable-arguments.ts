@@ -1,5 +1,40 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { ResolvedSourceCallInfo } from "../source-semantics/call-result-selection.js";
+
+export interface SourceCallArgumentCorrespondence {
+  readonly bindingIndex: number;
+  readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
+  readonly argument: ResolvedSourceCallInfo["sourceArguments"][number];
+  readonly parameter: ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number];
+}
+
+export function sourceCallArgumentCorrespondences(
+  ast: TargetSourceProgram["ast"],
+  selected: ResolvedSourceCallInfo,
+): readonly SourceCallArgumentCorrespondence[] | undefined {
+  if (selected.sourceSelectedSignatureKind !== "resolved") return undefined;
+  const arguments_ = ast.arguments(selected.call);
+  if (arguments_.length !== selected.sourceArguments.length ||
+    selected.sourceArguments.some((argument, index) => argument.expression !== arguments_[index])) return undefined;
+  const effectiveIndexes = new Set<number>();
+  const result: SourceCallArgumentCorrespondence[] = [];
+  for (const [bindingIndex, binding] of selected.sourceArgumentBindings.entries()) {
+    if (!Number.isSafeInteger(binding.sourceArgumentIndex) || binding.sourceArgumentIndex < 0 ||
+      !Number.isSafeInteger(binding.effectiveArgumentIndex) || binding.effectiveArgumentIndex < 0 ||
+      !Number.isSafeInteger(binding.sourceParameterIndex) || binding.sourceParameterIndex < 0 ||
+      effectiveIndexes.has(binding.effectiveArgumentIndex)) return undefined;
+    const argument = selected.sourceArguments[binding.sourceArgumentIndex];
+    const parameter = selected.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
+    if (argument === undefined || parameter?.parameterIndex !== binding.sourceParameterIndex ||
+      (binding.sourceForm === "spread-element"
+        ? !Number.isSafeInteger(binding.spreadElementIndex) || binding.spreadElementIndex! < 0
+        : binding.spreadElementIndex !== undefined)) return undefined;
+    effectiveIndexes.add(binding.effectiveArgumentIndex);
+    result.push(Object.freeze({ bindingIndex, binding, argument, parameter }));
+  }
+  return Object.freeze(result);
+}
 
 export interface SourceClosedCallableArgument {
   readonly call: Node;

@@ -1,5 +1,5 @@
 import type { Node, Signature, Type } from "@tsonic/tsts";
-import { Node_Initializer, sourceSuperConstructor } from "../../source-navigation/index.js";
+import { Node_Initializer, sourceSuperConstructor, sourceCallArgumentCorrespondences } from "../../source-navigation/index.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../flow/model.js";
@@ -61,16 +61,19 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
   const bind = (call: Node, selected: ResolvedSourceCallInfo, arguments_: SourceDeclaredArguments):
     SourceDeclaredArguments | SourceDeclarationOwnershipUnresolved => {
     const result = new Map(arguments_);
+    const correspondence = sourceCallArgumentCorrespondences(source.ast, selected);
+    if (correspondence === undefined) return sourceDeclarationOwnershipUnresolved(call,
+      "A continuation needs the completed native spread-to-formal input relation.");
     for (const parameter of selected.sourceSelectedSignatureParameters) {
       if (!budget.step(call)) break;
       const declaration = parameter.parameterDeclaration;
       if (declaration === undefined) continue;
-      const actuals = selected.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === parameter.parameterIndex);
+      const actuals = correspondence.filter(row => row.parameter === parameter);
       const values: (Node | undefined)[] = [];
       for (const actual of actuals) {
         if (!budget.step(call)) break;
-        const argument = source.ast.arguments(call)[actual.sourceArgumentIndex];
-        if (actual.sourceForm !== "value" || argument === undefined)
+        const argument = actual.argument.expression;
+        if (actual.binding.sourceForm !== "value")
           return sourceDeclarationOwnershipUnresolved(call,
             "A continuation needs the completed native spread-to-formal input relation.");
         for (const value of argumentsFor(argument, arguments_)) {
@@ -291,9 +294,9 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
                   semantics.declarations.signatureDeclaration(operation.selectedSignature) !== premise.executionOwner
                   ? undefined : operation.sourceSelectedSignatureParameters.find(parameter =>
                     parameter.parameterDeclaration === parameterDeclaration);
-                const bindings = parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
-                  binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
-                const argument = bindings.length === 1 ? source.ast.arguments(node)[bindings[0]!.sourceArgumentIndex] : undefined;
+                const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, operation!)?.filter(row =>
+                  row.parameter === parameter && row.binding.sourceForm === "value");
+                const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
                 if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
                   "A pending native continuation requires its exact selected input-duration correspondence.");
                 const actuals = argumentsFor(argument, consumer.arguments);

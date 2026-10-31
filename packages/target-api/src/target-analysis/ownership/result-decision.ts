@@ -5,6 +5,7 @@ import type { SourceDeclarationAsyncCompletionSelection, SourceDeclarationAsyncO
   SourceDeclarationOwnershipUnresolved, SourceDeclarationRetentionReadSelection,
   SourceDeclarationRetentionPremise } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { sourceCallArgumentCorrespondences } from "../../source-navigation/callable-arguments.js";
 
 export function decideSourceDeclarationAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
@@ -75,9 +76,9 @@ export function decideSourceDeclarationAsyncResultUse(input: {
     const owner = source.ast.parent(formal);
     if (owner === declaration) {
       const parameter = selected.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
-      const bindings = parameter === undefined ? [] : selected.sourceArgumentBindings.filter(binding =>
-        binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
-      const argument = bindings.length === 1 ? source.ast.arguments(call)[bindings[0]!.sourceArgumentIndex] : undefined;
+      const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, selected)?.filter(row =>
+        row.parameter === parameter && row.binding.sourceForm === "value");
+      const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
       return argument === undefined ? sourceDeclarationOwnershipUnresolved(call,
         "A native formal continuation requires its exact selected caller input.") : nativeRetention(argument);
     }
@@ -110,9 +111,9 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       if (native === premise.executionOwner && region.kind === "input-duration") {
         const parameter = operation!.sourceSelectedSignatureParameters.find(candidate =>
           candidate.parameterDeclaration === region.parameter);
-        const bindings = parameter === undefined ? [] : operation!.sourceArgumentBindings.filter(binding =>
-          binding.sourceParameterIndex === parameter.parameterIndex && binding.sourceForm === "value");
-        const argument = bindings.length === 1 ? source.ast.arguments(node)[bindings[0]!.sourceArgumentIndex] : undefined;
+        const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, operation!)?.filter(row =>
+          row.parameter === parameter && row.binding.sourceForm === "value");
+        const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
         if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
           "A pending native result requires its exact completed input-duration relation.");
         reference = argument;
