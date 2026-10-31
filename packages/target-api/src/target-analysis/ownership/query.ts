@@ -14,17 +14,19 @@ import { sourceDeclarationOwnershipUnresolved, createSourceDeclarationParameterU
 
 export function createSourceDeclarationOwnershipQuery(input: {
   readonly source: TargetSourceProgram;
+  readonly sourceNodes: readonly Node[];
   readonly nodes: readonly Node[];
   readonly premises: SourceDeclarationOwnershipPremises;
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly flowLimits?: Partial<SourceFlowLimits>;
 }) {
   const { source, budget } = input;
+  const sourceNodes = Object.freeze([...input.sourceNodes]);
   const nodes = Object.freeze([...input.nodes]);
   const premises = Object.freeze({ completionFor: input.premises.completionFor,
     retentionFor: input.premises.retentionFor, suspensionFor: input.premises.suspensionFor });
   const limits = Object.freeze({ ...input.flowLimits });
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes, nodes, budget, limits });
   const parameterUses = createSourceDeclarationParameterUseQuery({ source, budget });
   const retention = createSourceDeclarationRetentionQuery({ source, values: context.values, premises, budget });
   const suspensions = createSourceDeclarationSuspensionQuery({ source, values: context.values, premises, budget });

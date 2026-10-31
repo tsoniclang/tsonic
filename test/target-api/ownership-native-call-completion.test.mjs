@@ -36,7 +36,7 @@ function fixture() {
   assert.equal(type.kind === "resolved" && contractDeclaration !== undefined, true, "exact contract type and native declaration");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
   const nodes = source.navigation.nodesForFiles([file]);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const value = context.values.forNode(call);
   assert.equal("kind" in value, false, "the original operation has its required checked component and declaration region");
   const evidence = { kind: "never", value, contract: { kind: "declaration", declaration: contractDeclaration, component: value.component } };
@@ -108,7 +108,7 @@ function declarationFixture(hideNativeDeclaration = false) {
   const call = nodes.find(node => source.ast.is.IsCallExpression(node));
   assert.equal(call !== undefined, true, "the exact native invocation exists");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const selected = source.semantics.forNode(call).operations.call(call);
   assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "a real checked generic native signature");
   const declaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
@@ -128,7 +128,7 @@ function declarationFixture(hideNativeDeclaration = false) {
         contract: { kind: "expression", expression: value.node, component: value.component } };
     },
   };
-  return { source, file, nodes, call, selected, declaration, budget, context, premises };
+  return { source, sourceNodes: nodes, file, nodes, call, selected, declaration, budget, context, premises };
 }
 
 test("declaration-native completion accepts an exact external generic operation without source storage", () => {

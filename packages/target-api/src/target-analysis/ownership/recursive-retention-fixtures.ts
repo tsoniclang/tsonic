@@ -125,7 +125,7 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
   });
   const nodes = source.navigation.nodes;
   const budget = createSourceDeclarationOwnershipBudget(nodes[0]!, defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const declaration = (name: string): Node => {
     const selected = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
     assert.equal(selected !== undefined, true, name);
@@ -271,7 +271,7 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
       return { kind: "resolved", premises: [{ kind: "retained", value, reason: "owned-value", contract }] };
     },
   };
-  const query = createSourceDeclarationOwnershipQuery({ source, nodes, budget, premises });
+  const query = createSourceDeclarationOwnershipQuery({ source, sourceNodes: nodes, nodes, budget, premises });
   const callIn = (name: string): Node => {
     const root = declaration(name);
     const selected = nodes.find(node => source.ast.is.IsCallExpression(node) &&
@@ -280,7 +280,7 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
     return selected!;
   };
   const continuation = (premises: SourceDeclarationOwnershipPremises, budget: SourceDeclarationOwnershipBudget) => {
-    const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+    const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
     const retention = createSourceDeclarationRetentionQuery({ source, values: context.values, premises, budget });
     const suspensions = createSourceDeclarationSuspensionQuery({ source, values: context.values, premises, budget });
     const dependencies = createSourceDeclarationContinuationDependencyQuery({ source, budget, retention, suspensions });
@@ -288,6 +288,6 @@ export function fixture(reverse: boolean, recursive: "self" | "mutual", addition
       dependencies, limits: {} });
     return { context, closure };
   };
-  return { source, nodes, storage, budget, context, values: context.values, premises, query, callIn, declaration,
+  return { source, sourceNodes: nodes, nodes, storage, budget, context, values: context.values, premises, query, callIn, declaration,
     selectedDeclaration, continuation };
 }

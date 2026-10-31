@@ -13,7 +13,7 @@ function fixture(body, nativeAvailable = true) {
   const storage = createSourceStorageQuery(source, [checked.getSourceFile("/src/index.ts")]);
   const nodes = source.navigation.nodes;
   const budget = createSourceDeclarationOwnershipBudget(nodes[0], defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const query = createSourceDeclarationRetentionQuery({ source, values: context.values, budget,
     premises: { retentionFor({ value }) {
       if (!nativeAvailable) return undefined;

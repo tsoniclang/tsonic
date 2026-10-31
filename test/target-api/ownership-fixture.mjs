@@ -113,7 +113,7 @@ export function ownershipFixture(options = {}) {
     },
   });
   const budget = createSourceDeclarationOwnershipBudget(file, { ...defaultSourceDeclarationOwnershipLimits, ...options.limits });
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const transferBudget = { step: () => budget.step(file), createRows: () => budget.createRows(file),
     failure: () => budget.failure()?.reason };
   const subject = node => {
@@ -209,7 +209,7 @@ export function ownershipFixture(options = {}) {
   const readReference = () => required(nodes.find(node => within(node, declaration("read")) &&
     source.ast.is.IsIdentifier(node) && source.ast.text(node) === "view" &&
     source.ast.is.IsPropertyAccessExpression(source.ast.parent(node))), "actual view read");
-  return { source, storage, file, budget, context, values: context.values, transferBudget, nativeReads, native, nodes, declaration, named, calls, readCall, awaitNode,
+  return { source, sourceNodes: nodes, storage, file, budget, context, values: context.values, transferBudget, nativeReads, native, nodes, declaration, named, calls, readCall, awaitNode,
     readReference, selectedDeclaration, subject, typeFor, completion, within };
 }
 

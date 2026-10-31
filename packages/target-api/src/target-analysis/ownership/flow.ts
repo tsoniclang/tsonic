@@ -32,13 +32,16 @@ export function sourceDeclarationOwnershipFlowFailure(selected: SourceFlowUnreso
 
 export function createSourceDeclarationOwnershipValues(input: {
   readonly source: TargetSourceProgram;
+  readonly sourceNodes: readonly Node[];
   readonly nodes: readonly Node[];
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly limits: Partial<SourceFlowLimits>;
 }) {
   const { source, budget } = input;
-  const domain = createSourceControlFlowDomain(source, input.nodes);
-  const checkedNodes = new Set(domain.kind === "resolved" ? domain.domain.nodes : []);
+  const domain = createSourceControlFlowDomain(source, input.sourceNodes);
+  const checkedNodes: ReadonlySet<Node> = new Set(input.nodes);
+  const runtimeSubset = domain.kind === "resolved" && domain.domain.nodes.reduce(
+    (count, node) => count + (checkedNodes.has(node) ? 1 : 0), 0) === checkedNodes.size;
   const graphs = new Map<Node, SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion>>();
   const values = new Map<Node, SourceDeclarationOwnershipValue>();
   const owned = new WeakSet<SourceDeclarationOwnershipValue>();
@@ -47,6 +50,8 @@ export function createSourceDeclarationOwnershipValues(input: {
     { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion> } => {
     if (!budget.step(declaration)) return budget.failure()!;
     if (domain.kind === "unresolved") return sourceDeclarationOwnershipFlowFailure(domain, declaration);
+    if (!runtimeSubset) return sourceDeclarationOwnershipUnresolved(declaration,
+      "Materialized continuation nodes must belong to their complete checked source syntax domain.");
     const existing = graphs.get(declaration);
     if (existing !== undefined) return Object.freeze({ kind: "resolved", graph: existing });
     const selected = createSourceDeclarationControlFlow(source, declaration, { domain: domain.domain, limits: input.limits });
@@ -129,7 +134,7 @@ export function createSourceDeclarationOwnershipValues(input: {
       return value;
     },
   });
-  return Object.freeze({ values: query, graphFor, declarationFor });
+  return Object.freeze({ values: query, graphFor, declarationFor, runtimeNodes: checkedNodes });
 }
 
 export interface SourceDeclarationContinuationFlowSelection {
@@ -153,6 +158,7 @@ export interface SourceDeclarationContinuationFlowSelection {
 export function resolveSourceDeclarationContinuationFlow(input: {
   readonly source: TargetSourceProgram;
   readonly graph: SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion>;
+  readonly runtimeNodes: ReadonlySet<Node>;
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly suspensions: SourceDeclarationSuspensionQueries;
   readonly dependencies: SourceDeclarationContinuationDependencyQueries;
@@ -207,7 +213,7 @@ export function resolveSourceDeclarationContinuationFlow(input: {
         const region = graph.executionRegions.get(point.id);
         if (region === undefined) continue;
         const reference = sourceContinuationRead(source, point);
-        if (reference !== undefined) {
+        if (reference !== undefined && input.runtimeNodes.has(reference)) {
           const problem = append(state, reference, region);
           if (problem !== undefined) return problem;
         }

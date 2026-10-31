@@ -251,17 +251,17 @@ test("CLI emits closed module-scope arrow functions as direct C# methods", async
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static Func<double, double, double> add\s*\{\s*get;\s*private set;/);
-  assert.match(generatedSource, /public static Func<string, string> greet\s*\{\s*get;\s*private set;/);
-  assert.match(generatedSource, /public static Func<double, double> @double\s*\{\s*get;\s*private set;/);
-  assert.match(generatedSource, /public static Func<double, double> triple\s*\{\s*get;\s*private set;/);
-  assert.match(generatedSource, /add = \(double left, double right\) => left \+ right;/);
-  assert.match(generatedSource, /greet = \(string name\) => \$"Hello \{name\}";/);
-  assert.match(generatedSource, /@double = \(double value\) => value \* 2;/);
-  assert.match(generatedSource, /triple = \(double value\) => value \* 3;/);
-  const initializations = [...generatedSource.matchAll(/^\s*(add|greet|@double|triple) = /gmu)].map(match => match[1]);
-  assert.deepEqual(initializations, ["add", "greet", "@double", "triple"], "one native binding initialization in original source order");
-  assert.doesNotMatch(generatedSource, /public static double add\(|__unsupported/);
+  assert.match(generatedSource, /public static double add\(double left, double right\)/);
+  assert.match(generatedSource, /public static string greet\(string name\)/);
+  assert.match(generatedSource, /public static double @double\(double value\)/);
+  assert.match(generatedSource, /public static double triple\(double value\)/);
+  assert.match(generatedSource, /public static double add\(double left, double right\)\s*\{\s*return left \+ right;\s*\}/);
+  assert.match(generatedSource, /public static string greet\(string name\)\s*\{\s*return \$"Hello \{name\}";\s*\}/);
+  assert.match(generatedSource, /public static double @double\(double value\)\s*\{\s*return value \* 2;\s*\}/);
+  assert.match(generatedSource, /public static double triple\(double value\)\s*\{\s*return value \* 3;\s*\}/);
+  assert.doesNotMatch(generatedSource, /Func</);
+  assert.doesNotMatch(generatedSource, /^\s*(?:add|greet|@double|triple) = /gmu);
+  assert.doesNotMatch(generatedSource, /__tsonic_module_init|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleArrowValues.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
