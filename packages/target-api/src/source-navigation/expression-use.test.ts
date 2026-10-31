@@ -254,6 +254,13 @@ test("async result dispositions preserve selected values and distinguish storage
       if (argument !== undefined && source.ast.is.IsStringLiteral(argument)) {
         const label = source.ast.text(argument);
         const disposition = sourceExpressionResultDisposition(source.ast, node);
+        const canonical = source.navigation.expressionResultDisposition(node);
+        assert.equal(canonical === source.navigation.expressionResultDisposition(node), true,
+          label + ": one canonical immutable fact owns the original checked read");
+        assert.equal(Object.isFrozen(canonical), true, label);
+        assert.equal(canonical.kind === disposition.kind && canonical.use === disposition.use, true,
+          label + ": memoization preserves the original disposition and source-use identity");
+        assert.equal(source.navigation.expressionResultUse(node) === sourceExpressionResultUse(source.ast, node), true, label);
         assert.equal(Object.isFrozen(disposition), true, label);
         assert.equal(sourceExpressionResultUse(source.ast, node) === "discarded", disposition.kind === "discarded", label);
         selected.set(label, { kind: disposition.kind,

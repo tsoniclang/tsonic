@@ -1,5 +1,4 @@
 import type { Node } from "@tsonic/tsts";
-import { sourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationFlowExecutionRegion } from "../flow/model.js";
 import type { SourceDeclarationAsyncResultDisposition, SourceDeclarationOwnershipBudget,
@@ -26,7 +25,7 @@ export function resolveSourceDeclarationAsyncResultDisposition(input: {
     if (visited.has(current)) return sourceDeclarationOwnershipUnresolved(current,
       "Native result use requires acyclic checked local expressions.");
     visited.add(current);
-    const selected = sourceExpressionResultDisposition(source.ast, current);
+    const selected = source.navigation.expressionResultDisposition(current);
     if (selected.kind === "awaited-in-scope") {
       const region = input.regionFor(selected.use);
       return "kind" in region ? region : Object.freeze({ ...selected, region });

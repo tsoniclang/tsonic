@@ -6,8 +6,8 @@ import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations
 import { sourceEnclosingCallable } from "./callable-invocations.js";
 
 export function sourceImmediatelyAwaitedLocal(ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationUses">, call: Node): boolean {
-  const disposition = sourceExpressionResultDisposition(ast, call);
+  navigation: Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationUses" | "expressionResultDisposition">, call: Node): boolean {
+  const disposition = navigation.expressionResultDisposition(call);
   const declaration = disposition.use;
   if (disposition.kind !== "stored" || !ast.is.IsVariableDeclaration(declaration)) return false;
   let initializer = Node_Initializer(ast, declaration);
@@ -30,7 +30,7 @@ export function sourceImmediatelyAwaitedLocal(ast: AstReader,
   const reads = navigation.declarationUses(declaration).filter(use => use.kind !== "type-only");
   if (reads.length !== 1) return false;
   const read = reads[0]!.reference;
-  const awaited = sourceExpressionResultDisposition(ast, read);
+  const awaited = navigation.expressionResultDisposition(read);
   if (awaited.kind !== "awaited-in-scope" || sourceEnclosingCallable(read, ast) !== sourceEnclosingCallable(call, ast)) return false;
   for (let current: Node = awaited.use; current !== next;) {
     const parent = ast.parent(current);
@@ -183,7 +183,7 @@ export function sourceExpressionResultUse(ast: AstReader, expression: Node): "co
 export function sourceCallableDefinitionIsDiscarded(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceFiles">,
+  navigation: Pick<SourceProgramNavigation, "sourceFiles" | "expressionResultDisposition">,
 ): boolean {
   if (navigation === undefined) throw new Error("Callable creation demand requires its checked source navigation.");
   const visited = new Set<Node>();
@@ -200,7 +200,7 @@ export function sourceCallableDefinitionIsDiscarded(
   if (!ast.is.IsSourceFile(root) || !navigation.sourceFiles.some(file => file === root)) return false;
   // RULINGS 2026-10-22: a callable stored in a binding is created (its captures are evaluated) even when the binding is
   // never read; only a definition whose own value is discarded is erased.
-  return definitions.some(definition => sourceExpressionResultDisposition(ast, definition).kind === "discarded");
+  return definitions.some(definition => navigation.expressionResultDisposition(definition).kind === "discarded");
 }
 
 export type SourceValueInputSlot =
