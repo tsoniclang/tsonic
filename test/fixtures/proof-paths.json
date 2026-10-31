@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 1,
+  "moves": {
+    "tsonic-csharp/test/analysis/callables/generic-adoption-admission.part-01.test.mjs": [
+      "tsonic-csharp/test/analysis/callables/generic-adoption-admission.part-01.test.mjs",
+      "tsonic-csharp/test/analysis/callables/generic-adoption-admission.part-10.test.mjs",
+      "tsonic-csharp/test/analysis/callables/generic-adoption-admission.part-11.test.mjs"
+    ],
+    "tsonic-csharp/test/analysis/declarations/enum-admission.part-01.test.mjs": [
+      "tsonic-csharp/test/analysis/declarations/enum-admission.part-01.test.mjs",
+      "tsonic-csharp/test/analysis/declarations/enum-admission.part-03.test.mjs"
+    ],
+    "tsonic-csharp/test/analysis/objects/computed-field-names.test.mjs": [
+      "tsonic-csharp/test/analysis/objects/computed-field-names.part-01.test.mjs",
+      "tsonic-csharp/test/analysis/objects/computed-field-names.part-02.test.mjs",
+      "tsonic-csharp/test/analysis/objects/computed-field-names.part-03.test.mjs"
+    ],
+    "tsonic-csharp/test/analysis/operations/absent-fulfilled-promise.test.mjs": [
+      "tsonic-csharp/test/analysis/operations/absent-fulfilled-promise.part-01.test.mjs",
+      "tsonic-csharp/test/analysis/operations/absent-fulfilled-promise.part-02.test.mjs"
+    ],
+    "tsonic-csharp/test/analysis/operations/inferred-numeric-array-elements.test.mjs": [
+      "tsonic-csharp/test/analysis/operations/inferred-numeric-array-elements.part-01.test.mjs",
+      "tsonic-csharp/test/analysis/operations/inferred-numeric-array-elements.part-02.test.mjs",
+      "tsonic-csharp/test/analysis/operations/inferred-numeric-array-elements.part-03.test.mjs"
+    ],
+    "tsonic-csharp/test/integration/generated/regexp-complete.test.mjs": [
+      "tsonic-csharp/test/integration/generated/regexp-complete.part-01.test.mjs",
+      "tsonic-csharp/test/integration/generated/regexp-complete.part-02.test.mjs"
+    ],
+    "tsonic-csharp/test/integration/generated/source-generic-contracts.part-02.test.mjs": [
+      "tsonic-csharp/test/integration/generated/source-generic-contracts.part-02.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-generic-contracts.part-04.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-generic-contracts.part-05.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-generic-contracts.part-06.test.mjs"
+    ],
+    "tsonic-csharp/test/integration/generated/source-memory-and-collections.part-03.test.mjs": [
+      "tsonic-csharp/test/integration/generated/source-memory-and-collections.part-03.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-memory-and-collections.part-04.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-memory-and-collections.part-05.test.mjs",
+      "tsonic-csharp/test/integration/generated/source-memory-and-collections.part-06.test.mjs"
+    ],
+    "tsonic-csharp/test/providers/runtime/native-metadata.test.mjs": [
+      "tsonic-csharp/test/providers/runtime/native-metadata.part-01.test.mjs",
+      "tsonic-csharp/test/providers/runtime/native-metadata.part-02.test.mjs"
+    ],
+    "tsonic/packages/source-core/src/memory-layout/testing/address-integers.test.ts": [
+      "tsonic/packages/source-core/src/memory-layout/testing/address-integers-part-1.test.ts",
+      "tsonic/packages/source-core/src/memory-layout/testing/address-integers-part-2.test.ts",
+      "tsonic/packages/source-core/src/memory-layout/testing/address-integers-part-3.test.ts"
+    ],
+    "tsonic/packages/source-core/src/memory-layout/testing/cross-file-types.test.ts": [
+      "tsonic/packages/source-core/src/memory-layout/testing/cross-file-types-part-1.test.ts",
+      "tsonic/packages/source-core/src/memory-layout/testing/cross-file-types-part-2.test.ts"
+    ],
+    "tsonic/packages/source-core/src/pointers/backing/requirements.test.ts": [
+      "tsonic/packages/source-core/src/pointers/backing/requirements-part-1.test.ts",
+      "tsonic/packages/source-core/src/pointers/backing/requirements-part-2.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-navigation/absence-use.test.ts": [
+      "tsonic/packages/target-api/src/source-navigation/absence-use-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-navigation/absence-use-part-2.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-navigation/callable-arguments.test.ts": [
+      "tsonic/packages/target-api/src/source-navigation/callable-arguments-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-navigation/callable-arguments-part-2.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/contextual-type-selection-part-1.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/contextual-type-selection-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/contextual-type-selection-part-3.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-1.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-4.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-2.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-2.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-5.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-3.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-3.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-6.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/enum-numeric-uses-part-7.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/property-names.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/property-names-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/property-names-part-2.test.ts"
+    ],
+    "tsonic/packages/target-api/src/source-semantics/structural-members.test.ts": [
+      "tsonic/packages/target-api/src/source-semantics/structural-members-part-1.test.ts",
+      "tsonic/packages/target-api/src/source-semantics/structural-members-part-2.test.ts"
+    ],
+    "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-2.test.ts": [
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-2.test.ts",
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-4.test.ts"
+    ],
+    "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-3.test.ts": [
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-3.test.ts",
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-5.test.ts",
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-6.test.ts",
+      "tsonic/packages/target-api/src/target-analysis/ownership/generic-adoption-part-7.test.ts"
+    ],
+    "tsonic/packages/target-api/src/target-analysis/ownership/recursive-retention-part-2.test.ts": [
+      "tsonic/packages/target-api/src/target-analysis/ownership/recursive-retention-part-2.test.ts",
+      "tsonic/packages/target-api/src/target-analysis/ownership/recursive-retention-part-4.test.ts"
+    ],
+    "tsonic/test/architecture/keel-layer-checks-part-1.test.mjs": [
+      "tsonic/test/architecture/keel-layer-checks-part-1.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-4.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-5.test.mjs"
+    ],
+    "tsonic/test/architecture/keel-layer-checks-part-2.test.mjs": [
+      "tsonic/test/architecture/keel-layer-checks-part-2.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-6.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-7.test.mjs"
+    ],
+    "tsonic/test/architecture/keel-layer-checks-part-3.test.mjs": [
+      "tsonic/test/architecture/keel-layer-checks-part-3.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-8.test.mjs",
+      "tsonic/test/architecture/keel-layer-checks-part-9.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/arrays/literals-spread.test.mjs": [
+      "tsonic/test/cli-build/core/arrays/literals-spread-part-1.test.mjs",
+      "tsonic/test/cli-build/core/arrays/literals-spread-part-2.test.mjs",
+      "tsonic/test/cli-build/core/arrays/literals-spread-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/control-flow/binding-destructure.test.mjs": [
+      "tsonic/test/cli-build/core/control-flow/binding-destructure-part-1.test.mjs",
+      "tsonic/test/cli-build/core/control-flow/binding-destructure-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/control-flow/expressions.test.mjs": [
+      "tsonic/test/cli-build/core/control-flow/expressions-part-1.test.mjs",
+      "tsonic/test/cli-build/core/control-flow/expressions-part-2.test.mjs",
+      "tsonic/test/cli-build/core/control-flow/expressions-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/control-flow/functions-this-async.test.mjs": [
+      "tsonic/test/cli-build/core/control-flow/functions-this-async-part-1.test.mjs",
+      "tsonic/test/cli-build/core/control-flow/functions-this-async-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/control-flow/statements.test.mjs": [
+      "tsonic/test/cli-build/core/control-flow/statements-part-1.test.mjs",
+      "tsonic/test/cli-build/core/control-flow/statements-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/declarations/classes.test.mjs": [
+      "tsonic/test/cli-build/core/declarations/classes-part-1.test.mjs",
+      "tsonic/test/cli-build/core/declarations/classes-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/declarations/generics-interfaces.test.mjs": [
+      "tsonic/test/cli-build/core/declarations/generics-interfaces-part-1.test.mjs",
+      "tsonic/test/cli-build/core/declarations/generics-interfaces-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/modules/modules-part-1.test.mjs": [
+      "tsonic/test/cli-build/core/modules/modules-part-1.test.mjs",
+      "tsonic/test/cli-build/core/modules/modules-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/object-shapes/basic-part-1.test.mjs": [
+      "tsonic/test/cli-build/core/object-shapes/basic-part-1.test.mjs",
+      "tsonic/test/cli-build/core/object-shapes/basic-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/core/object-shapes/generated-carriers.test.mjs": [
+      "tsonic/test/cli-build/core/object-shapes/generated-carriers-part-1.test.mjs",
+      "tsonic/test/cli-build/core/object-shapes/generated-carriers-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/dotnet/arrays-collections.test.mjs": [
+      "tsonic/test/cli-build/providers/dotnet/arrays-collections-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/arrays-collections-part-2.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/arrays-collections-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/dotnet/core-part-1.test.mjs": [
+      "tsonic/test/cli-build/providers/dotnet/core-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/core-part-3.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/core-part-4.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/dotnet/delegates-attributes-exceptions.test.mjs": [
+      "tsonic/test/cli-build/providers/dotnet/delegates-attributes-exceptions-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/delegates-attributes-exceptions-part-2.test.mjs",
+      "tsonic/test/cli-build/providers/dotnet/delegates-attributes-exceptions-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/source-profile/target-config.test.mjs": [
+      "tsonic/test/cli-build/providers/source-profile/target-config-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/source-profile/target-config-part-2.test.mjs",
+      "tsonic/test/cli-build/providers/source-profile/target-config-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/source-semantics/core.test.mjs": [
+      "tsonic/test/cli-build/providers/source-semantics/core-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/source-semantics/core-part-2.test.mjs",
+      "tsonic/test/cli-build/providers/source-semantics/core-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/providers/tsts-type-forms/core-part-1.test.mjs": [
+      "tsonic/test/cli-build/providers/tsts-type-forms/core-part-1.test.mjs",
+      "tsonic/test/cli-build/providers/tsts-type-forms/core-part-3.test.mjs",
+      "tsonic/test/cli-build/providers/tsts-type-forms/core-part-4.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/iteration/facts.test.mjs": [
+      "tsonic/test/cli-build/runtime/iteration/facts-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/iteration/facts-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/iteration/facts-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/js-surface/arrays.test.mjs": [
+      "tsonic/test/cli-build/runtime/js-surface/arrays-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/arrays-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/arrays-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/js-surface/collections.test.mjs": [
+      "tsonic/test/cli-build/runtime/js-surface/collections-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/collections-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/js-surface/math-console-json.test.mjs": [
+      "tsonic/test/cli-build/runtime/js-surface/math-console-json-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/math-console-json-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/math-console-json-part-3.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/math-console-json-part-4.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/js-surface/strings-regexp-date.test.mjs": [
+      "tsonic/test/cli-build/runtime/js-surface/strings-regexp-date-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/strings-regexp-date-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/js-surface/strings-regexp-date-part-3.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/nodejs/modules-path-fs-part-1.test.mjs": [
+      "tsonic/test/cli-build/runtime/nodejs/modules-path-fs-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/modules-path-fs-part-3.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/modules-path-fs-part-4.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/modules-path-fs-part-5.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs": [
+      "tsonic/test/cli-build/runtime/nodejs/process-buffer-crypto-os-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/process-buffer-crypto-os-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/process-buffer-crypto-os-part-3.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/process-buffer-crypto-os-part-4.test.mjs"
+    ],
+    "tsonic/test/cli-build/runtime/nodejs/rejections.test.mjs": [
+      "tsonic/test/cli-build/runtime/nodejs/rejections-part-1.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/rejections-part-2.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/rejections-part-3.test.mjs",
+      "tsonic/test/cli-build/runtime/nodejs/rejections-part-4.test.mjs"
+    ],
+    "tsonic/test/cli-build/toolchain/downstream-smoke.test.mjs": [
+      "tsonic/test/cli-build/toolchain/downstream-smoke-part-1.test.mjs",
+      "tsonic/test/cli-build/toolchain/downstream-smoke-part-2.test.mjs"
+    ],
+    "tsonic/test/cli-build/toolchain/runtime-toolchain-proof.test.mjs": [
+      "tsonic/test/cli-build/toolchain/runtime-toolchain-proof-part-1.test.mjs",
+      "tsonic/test/cli-build/toolchain/runtime-toolchain-proof-part-2.test.mjs",
+      "tsonic/test/cli-build/toolchain/runtime-toolchain-proof-part-3.test.mjs",
+      "tsonic/test/cli-build/toolchain/runtime-toolchain-proof-part-4.test.mjs"
+    ],
+    "tsonic/test/host/cli/async-build-part-1.test.mjs": [
+      "tsonic/test/host/cli/async-build-part-1.test.mjs",
+      "tsonic/test/host/cli/async-build-part-3.test.mjs",
+      "tsonic/test/host/cli/async-build-part-4.test.mjs"
+    ],
+    "tsonic/test/target-api/flow-construction.test.mjs": [
+      "tsonic/test/target-api/flow-construction-part-1.test.mjs",
+      "tsonic/test/target-api/flow-construction-part-2.test.mjs",
+      "tsonic/test/target-api/flow-construction-part-3.test.mjs"
+    ],
+    "tsonic/test/target-api/source-storage-construction-part-1.test.mjs": [
+      "tsonic/test/target-api/source-storage-construction-part-1.test.mjs",
+      "tsonic/test/target-api/source-storage-construction-part-3.test.mjs"
+    ],
+    "tsonic/test/target-api/source-storage-member-selection.test.mjs": [
+      "tsonic/test/target-api/source-storage-member-selection-part-1.test.mjs",
+      "tsonic/test/target-api/source-storage-member-selection-part-2.test.mjs",
+      "tsonic/test/target-api/source-storage-member-selection-part-3.test.mjs"
+    ],
+    "tsonic/test/target-api/source-storage-recursive-projections.test.mjs": [
+      "tsonic/test/target-api/source-storage-recursive-projections-part-1.test.mjs",
+      "tsonic/test/target-api/source-storage-recursive-projections-part-2.test.mjs",
+      "tsonic/test/target-api/source-storage-recursive-projections-part-3.test.mjs"
+    ],
+    "tsonic/test/target-api/source-storage-retention-case-map.test.mjs": [
+      "tsonic/test/target-api/source-storage-retention-case-map-part-1.test.mjs",
+      "tsonic/test/target-api/source-storage-retention-case-map-part-2.test.mjs"
+    ],
+    "tsonic/test/target-api/source-storage-structural-writes-part-1.test.mjs": [
+      "tsonic/test/target-api/source-storage-structural-writes-part-1.test.mjs",
+      "tsonic/test/target-api/source-storage-structural-writes-part-3.test.mjs",
+      "tsonic/test/target-api/source-storage-structural-writes-part-4.test.mjs"
+    ]
+  }
+}

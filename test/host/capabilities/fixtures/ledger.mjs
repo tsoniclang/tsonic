@@ -1,3 +1,8 @@
+import { fileURLToPath } from "node:url";
+import { currentProofs } from "../../../scripts/proof-paths.mjs";
+
+const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+
 export const capabilityStatuses = Object.freeze([
   "not-started",
   "partial",
@@ -2037,12 +2042,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "module.emit.multi-file": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/source-output-identity.test.mjs",
-      "../tsonic-csharp/test/module-graph.test.mjs",
+      "../tsonic-csharp/test/backend/planner/artifacts/direct-translation-artifacts.test.mjs",
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/source-output-identity.test.mjs",
+      "../tsonic-csharp/test/backend/planner/artifacts/direct-translation-artifacts.test.mjs",
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2058,11 +2062,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "module.emit.top-level-order": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+      "../tsonic-csharp/test/backend/planner/artifacts/direct-translation-artifacts.test.mjs",
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/entrypoint-planner.test.mjs",
+      "../tsonic-csharp/test/backend/planner/artifacts/direct-translation-artifacts.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/top-level-code/",
@@ -10753,7 +10757,7 @@ function freezeSurfaceEvidence(surfaceEvidence) {
   return Object.freeze(Object.fromEntries(
     capabilitySurfaceEvidenceGateNames.map((gateName) => [
       gateName,
-      Object.freeze([...(surfaceEvidence?.[gateName] ?? [])]),
+      currentProofs.paths(repositoryRoot, surfaceEvidence?.[gateName] ?? []),
     ]),
   ));
 }
@@ -10784,8 +10788,8 @@ function capability([capabilityId, title, status, owner]) {
     backendContract: reviewedEvidence?.backendContract ?? defaults.backendContract,
     runtimeContract: reviewedEvidence?.runtimeContract ?? defaults.runtimeContract,
     evidenceReview: reviewedEvidence === undefined ? "seeded" : "reviewed",
-    positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
-    negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
+    positiveTests: currentProofs.paths(repositoryRoot, reviewedEvidence?.positiveTests ?? []),
+    negativeTests: currentProofs.paths(repositoryRoot, reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
     ...(reviewedEvidence?.oldEvidenceAbsence === undefined ? {} : {
       oldEvidenceAbsence: freezeOldEvidenceAbsence(reviewedEvidence.oldEvidenceAbsence),

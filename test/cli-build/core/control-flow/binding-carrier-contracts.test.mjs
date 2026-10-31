@@ -1,12 +1,13 @@
 import { assert, cliPath, readFile, repoRoot, resolve, runGeneratedCsharpRunner, runGeneratedProject, runNode,
   tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { currentProofs } from "../../../scripts/proof-paths.mjs";
 
 test("CLI preserves original binding carriers with native identity and allocation cost", { timeout: 300_000 }, async () => {
-  const original = await readFile(resolve(repoRoot, "test/cli-build/core/control-flow/binding-destructure.test.mjs"), "utf8");
-  const start = original.indexOf('test("CLI runs non-Node carrier binding spread nullish and exception flow"');
-  assert.equal(start >= 0, true, "the exact original supported case exists");
-  const end = original.indexOf('\ntest("', start + 1);
-  const sourceArray = original.slice(start, end).match(/"src\/index\.ts": \[([\s\S]*?)\]\.join\("\\n"\)/u);
+  const original = await currentProofs.readTest(repoRoot,
+    "test/cli-build/core/control-flow/binding-destructure.test.mjs",
+    "CLI runs non-Node carrier binding spread nullish and exception flow");
+  assert.equal(original.name, "CLI runs non-Node carrier binding spread nullish and exception flow", "the exact original supported case exists");
+  const sourceArray = original.source.match(/"src\/index\.ts": \[([\s\S]*?)\]\.join\("\\n"\)/u);
   assert.equal(sourceArray !== null, true, "the original source remains a literal array, never executed to extract it");
   const sourceText = JSON.parse(`[${sourceArray[1].trim().replace(/,$/u, "")}]`).join("\n");
   const assemblyName = "SmokeGeneratedBindingCarrierContracts";
