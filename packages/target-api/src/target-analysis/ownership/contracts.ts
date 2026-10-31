@@ -2,7 +2,6 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";
-import { sourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
 
 export const defaultSourceDeclarationOwnershipLimits: SourceDeclarationOwnershipLimits = Object.freeze({
   maximumSteps: 33_554_432,
@@ -46,7 +45,7 @@ export function createSourceDeclarationParameterUseQuery(input: {
           if (!budget.step(reference.reference)) return budget.failure()!;
           if (reference.kind === "type-only" || reference.kind === "source-linkage") continue;
           if (reference.captured || reference.throughMember) { complete = false; break; }
-          const disposition = sourceExpressionResultDisposition(source.ast, reference.reference);
+          const disposition = source.navigation.expressionResultDisposition(reference.reference);
           if (disposition.kind !== "returned" && disposition.kind !== "stored") { complete = false; break; }
           sites.push(reference.reference);
           if (disposition.kind === "stored") use = "retained";

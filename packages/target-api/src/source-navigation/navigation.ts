@@ -16,7 +16,7 @@ import { projectDeclarationForType } from "./reference-selection.js";
 import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
 import { semanticTypeForNode } from "./syntax.js";
 import { sourceBindingWritesWithin, sourceSymbolHasReferenceOutside, sourceSymbolReferencesWithin } from "./references-usage.js";
-import { sourceExpressionResultUse } from "./expression-use.js";
+import { sourceExpressionResultDisposition } from "./expression-use.js";
 import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceDeclarationUseSummary, sourceParameterUseSummary } from "./declaration-use-summary.js";
@@ -91,6 +91,14 @@ export function createSourceProgramNavigation(
   const expressionEffectsCache = new WeakMap<Node, ReturnType<
     typeof sourceExpressionEffects
   >>();
+  const expressionResultDispositions = new WeakMap<Node, ReturnType<typeof sourceExpressionResultDisposition>>();
+  const expressionResultDisposition = (expression: Node) => {
+    const cached = expressionResultDispositions.get(expression);
+    if (cached !== undefined) return cached;
+    const selected = sourceExpressionResultDisposition(source.ast, expression);
+    expressionResultDispositions.set(expression, selected);
+    return selected;
+  };
 
   const declarationUses = (declaration: Node): ReturnType<
     SourceProgramNavigation["declarationUses"]
@@ -307,9 +315,8 @@ export function createSourceProgramNavigation(
       expressionValueFlowCache.set(expression, summary);
       return summary;
     },
-    expressionResultUse(expression: Node) {
-      return sourceExpressionResultUse(source.ast, expression);
-    },
+    expressionResultDisposition,
+    expressionResultUse: (expression: Node) => expressionResultDisposition(expression).kind === "discarded" ? "discarded" : "consumed",
     expressionEffects(expression: Node) {
       const cached = expressionEffectsCache.get(expression);
       if (cached !== undefined) {

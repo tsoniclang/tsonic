@@ -52,7 +52,7 @@ const resourceExhausted = (reason: string): Constant => Object.freeze({ kind: "r
 
 export function analyzeSourceEnumConstants(
   source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationSymbol" | "declarationUseSummary" | "sourceFiles">,
+  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationSymbol" | "declarationUseSummary" | "sourceFiles" | "expressionResultDisposition">,
 ): SourceEnumConstantIndex {
   const { ast } = source;
   const members: Node[] = [];

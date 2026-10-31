@@ -51,7 +51,7 @@ export { sourceConstructionExpression, sourceSuperConstructor, sourceInstanceIni
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { sourceReceiverBoundary, sourceReceiverOwner } from "./receiver-owner.js";
 export type { SourceReceiverBoundary } from "./receiver-owner.js";
-export { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceConstructValueInputs,
+export { sourceCallableDefinitionIsDiscarded, sourceConstructValueInputs,
   sourceExpressionValueInputs, sourceImmediatelyAwaitedLocal } from "./expression-use.js";
 export type { SourceExpressionResultDisposition, SourceValueInput, SourceValueInputSlot } from "./expression-use.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";

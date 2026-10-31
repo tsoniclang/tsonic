@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import {
-  Node_Expression, sourceExpressionResultDisposition, sourceCallableDefinitionIsDiscarded,
+  Node_Expression, sourceCallableDefinitionIsDiscarded,
   sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
 } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
@@ -68,7 +68,7 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
       const type = operand === undefined ? undefined : semantics.types.expressionType(operand);
       if (operand === undefined || type === undefined)
         return sourceDeclarationOwnershipUnresolved(node, "Await admission requires its original checked operand and type.");
-      if (sourceExpressionResultDisposition(ast, node).kind === "discarded") continue;
+      if (source.navigation.expressionResultUse(node) === "discarded") continue;
       const symbol = semantics.declarations.typeSymbol(type);
       if (symbol === undefined) continue;
       let parameter: Node | undefined;

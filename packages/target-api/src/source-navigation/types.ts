@@ -1,4 +1,5 @@
 import type { Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
+import type { SourceExpressionResultDisposition } from "./expression-use.js";
 
 export interface SourceProjectReference {
   readonly symbol: Symbol;
@@ -297,6 +298,7 @@ export interface SourceProgramNavigation {
   countedLoop(statement: Node): SourceCountedLoop | undefined;
   expressionValueFlow(expression: Node): SourceExpressionValueFlowSummary;
   expressionResultUse(expression: Node): "consumed" | "discarded";
+  expressionResultDisposition(expression: Node): SourceExpressionResultDisposition;
   expressionEffects(expression: Node): SourceExpressionEffects;
   hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;

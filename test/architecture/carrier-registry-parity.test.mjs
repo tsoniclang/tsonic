@@ -62,7 +62,17 @@ test("authored node admission pairs by its checked owner rather than a fabricate
   assert.equal(carrierParityDifferences.some(row => row.responsibility === "producers/resolve-node"), false,
     "source admission is not a signed native-language divergence");
   assert.equal(registries.rust.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), true);
-  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), true);
+  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), false,
+    "the completed node result is not a concrete native carrier constructor");
+  const stateOwner = registries.csharp.roles.filter(role => role.carrierResponsibility === "producers/resolve-node-with-state");
+  assert.equal(stateOwner.length, 1, "one canonical completed node-result owner");
+  assert.equal(stateOwner[0].role, "analysis");
+  assert.equal(stateOwner[0].file, "src/analysis/source-evidence/types/resolution/nodes.ts");
+  assert.equal(stateOwner[0].symbol, "resolveNodeValueWithState");
+  assert.equal(registries.csharp.vocabulary.declarationBodies.get(`${stateOwner[0].file}#${stateOwner[0].symbol}`),
+    stateOwner[0].bodySha256, "the actual completed-result declaration owns the same responsibility");
+  assert.equal(carrierParityDifferences.some(row => row.responsibility === "producers/resolve-node-with-state"), false,
+    "the canonical result owner is not a signed native-language divergence");
 });
 
 test("the native trait constructor pairs with the named-contract owner and preserves native arguments", async () => {
