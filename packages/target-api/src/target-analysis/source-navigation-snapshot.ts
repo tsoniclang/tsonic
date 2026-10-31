@@ -1,5 +1,6 @@
 import type { AstReader, Node, SourceFile, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceExpressionResultDisposition } from "../source-navigation/expression-use.js";
 import { sourceBindingWriteAtReference } from "../source-navigation/index.js";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import type { SourceBindingWrite, SourceCallableImplementationResult, SourceCountedLoop, SourceDeclarationReference, SourceDeclarationUseSummary, SourceDeclaredHeritageResult, SourceExpressionEffects, SourceProjectMemberContractsResult, SourceProjectMemberDispatch, SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectReference } from "../source-navigation/index.js";
@@ -21,6 +22,8 @@ export interface TargetPlanningSourceNavigation {
   declarationUseSummary(node: Node): SourceDeclarationUseSummary;
   countedLoop(node: Node): SourceCountedLoop | undefined;
   expressionEffects(node: Node): SourceExpressionEffects;
+  expressionResultDisposition(node: Node): SourceExpressionResultDisposition;
+  expressionResultUse(node: Node): "consumed" | "discarded";
   isProjectConstructibleObject(node: Node | undefined): boolean;
   isProjectDeclaration(node: Node | undefined): boolean;
 }
@@ -130,6 +133,8 @@ export function snapshotTargetPlanningSourceNavigation(
   const noDependencies: readonly SourceProjectModuleDependency[] = Object.freeze([]);
   const noExports: readonly SourceProjectModuleExport[] = Object.freeze([]);
   const snapshot: TargetPlanningSourceNavigation = {
+    expressionResultDisposition: source.navigation.expressionResultDisposition,
+    expressionResultUse: source.navigation.expressionResultUse,
     sourceFiles: Object.freeze([...source.navigation.sourceFiles]),
     sourceReferenceFor: source.navigation.sourceReferenceFor,
     referenceFor: (node) => node === undefined ? undefined : projectReferences.get(node),

@@ -2,7 +2,6 @@ import { AsCaseBlock } from "../source-navigation/checked-casts.js";
 import type { CheckedSourceProgram, Node, Symbol, Type } from "@tsonic/tsts";
 import { ContextFlagsSkipBindingPatterns } from "@tsonic/tsts";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
-import { sourceExpressionResultDisposition } from "../source-navigation/expression-use.js";
 import { isTsonicSourceProfileDeclarationPath } from "../source-profile.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-constants.js";
@@ -29,7 +28,7 @@ const emptyDomain: EnumValueDomain = Object.freeze({ possibleEnums: Object.freez
 
 export function analyzeSourceEnumNumericUses(
   source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles" | "sourceReferenceFor" | "declarationUseSummary">,
+  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles" | "sourceReferenceFor" | "declarationUseSummary" | "expressionResultDisposition">,
   enumConstants: Pick<SourceEnumConstantIndex, "get" | "integerWidth">,
 ): readonly SourceEnumAdmissionIssue[] {
   const { ast } = source;
@@ -168,7 +167,7 @@ export function analyzeSourceEnumNumericUses(
 
     function refusedUse(expression: Node, value: EnumValueDomain): { readonly root: Node; readonly stringProjection: boolean } | undefined {
       const parent = ast.parent(expression)!;
-      const resultUse = sourceExpressionResultDisposition(ast, expression);
+      const resultUse = navigation.expressionResultDisposition(expression);
       if (resultUse.kind === "discarded" && resultUse.use === parent) return undefined;
       const operator = ast.operatorKindName(parent);
       const conditional = ast.is.IsConditionalExpression(parent) ? ast.as.AsConditionalExpression(parent) : undefined;
