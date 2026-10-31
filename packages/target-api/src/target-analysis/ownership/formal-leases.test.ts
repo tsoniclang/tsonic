@@ -48,7 +48,7 @@ function fixture(kind: "input-duration" | "type-argument",
     },
   });
   const budget = createSourceDeclarationOwnershipBudget(nodes[0]!, defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const parameterUses = createSourceDeclarationParameterUseQuery({ source, budget });
   const declaration = (name: string): Node => {
     const selected = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
@@ -105,10 +105,10 @@ function fixture(kind: "input-duration" | "type-argument",
       return { kind: "resolved", premises: [amend(premise)] };
     },
   };
-  const query = createSourceDeclarationOwnershipQuery({ source, nodes, budget, premises });
+  const query = createSourceDeclarationOwnershipQuery({ source, sourceNodes: nodes, nodes, budget, premises });
   const calls = nodes.filter(node => source.ast.is.IsCallExpression(node) && selectedDeclaration(node) === declaration("keep"));
   assert.equal(calls.length, 3, "all actual result-use demands");
-  return { source, nodes, storage, budget, context, values: context.values, parameterUses, premises, query,
+  return { source, sourceNodes: nodes, nodes, storage, budget, context, values: context.values, parameterUses, premises, query,
     declaration, selectedDeclaration, calls };
 }
 

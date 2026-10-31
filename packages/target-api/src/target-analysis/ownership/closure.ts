@@ -152,7 +152,8 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
     if (existing !== undefined) return existing;
     const graph = input.context.graphFor(declaration);
     if (graph.kind === "unresolved") return graph;
-    const selected = resolveSourceDeclarationContinuationFlow({ source, graph: graph.graph, budget,
+    const selected = resolveSourceDeclarationContinuationFlow({ source, graph: graph.graph,
+      runtimeNodes: input.context.runtimeNodes, budget,
       suspensions: input.suspensions, dependencies: input.dependencies, limits: input.limits });
     if (selected.kind === "unresolved") return selected.cause.kind === "required-fact"
       ? Object.freeze({ ...selected, reason: `The declaration continuation requires its native contract: ${selected.reason}` }) : selected;

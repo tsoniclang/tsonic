@@ -26,7 +26,7 @@ function fixture(body) {
   const spawns = nodes.filter(node => source.ast.is.IsVoidExpression(node)).map(node => ({ node, operand: Node_Expression(source.ast, node) }));
   const select = (changes = {}) => {
     const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
-    const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+    const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
     return analyzeSourceDeclarationNativeTaskGraph({ source, nodes, values: context.values, spawns,
       lifecycleOwner: Object.hasOwn(changes, "lifecycleOwner") ? changes.lifecycleOwner : file,
       publishedDeclarations: changes.publishedDeclarations ?? new Set(), budget,
@@ -53,7 +53,7 @@ function declaredTasks(current, required, changes = {}) {
   const { source, file } = current;
   const nodes = source.navigation.nodesForFiles([file]);
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   return analyzeSourceDeclarationNativeTaskGraph({ source, nodes, values: context.values, budget,
     lifecycleOwner: file, publishedDeclarations: new Set(),
     spawns: nodes.filter(node => source.ast.is.IsVoidExpression(node))
@@ -327,7 +327,7 @@ for (const category of ["step", "row"]) {
     const limits = { ...defaultSourceDeclarationOwnershipLimits,
       [category === "step" ? "maximumSteps" : "maximumTransportRows"]: 1 };
     const budget = createSourceDeclarationOwnershipBudget(current.file, limits);
-    const context = createSourceDeclarationOwnershipValues({ source: current.source, nodes: current.nodes, budget, limits: {} });
+    const context = createSourceDeclarationOwnershipValues({ source: current.source, sourceNodes: current.nodes, nodes: current.nodes, budget, limits: {} });
     const selected = analyzeSourceDeclarationNativeTaskGraph({ source: current.source, nodes: current.nodes,
       values: context.values, budget, lifecycleOwner: current.file, publishedDeclarations: new Set(),
       spawns: current.nodes.filter(node => current.source.ast.is.IsVoidExpression(node))

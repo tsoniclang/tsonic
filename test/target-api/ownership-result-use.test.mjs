@@ -175,7 +175,7 @@ test("selected completion contracts retain checked dependency identity without e
   assert.equal(source.semantics.includes(providerFile), false, "provider bodies are not added to emitted-source traversal");
   assert.equal(source.sourceFiles.length, 1, "only the original project source is exposed");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
-  const context = createSourceDeclarationOwnershipValues({ source, nodes, budget, limits: {} });
+  const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const completion = { kind: "async", resultPolicy: "observe-rejection",
     contract: { kind: "declaration", declaration, component: { selectedType: selected.sourceResultType } } };
   const decide = contract => decideSourceDeclarationAsyncResultUse({ source, budget, call, completion: contract,

@@ -139,7 +139,7 @@ export function closureFixture(options = {}) {
           ? { ...premise, mode: options.mode ?? "shared" } : premise) };
     },
   };
-  const query = createSourceDeclarationOwnershipQuery({ source, nodes: base.nodes, budget: base.budget,
+  const query = createSourceDeclarationOwnershipQuery({ source, sourceNodes: base.sourceNodes, nodes: base.nodes, budget: base.budget,
     premises: options.premises?.(native) ?? native, flowLimits: options.flowLimits });
   const call = (name, owner = "runClosed") => {
     const selected = base.calls(declaration(owner)).find(value => selectedDeclaration(value) === declaration(name));
