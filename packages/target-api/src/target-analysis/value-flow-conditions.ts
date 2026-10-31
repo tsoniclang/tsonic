@@ -45,7 +45,7 @@ export function selectSourceNativeGuardResult<Member, Predicate>(
       continue;
     }
     const guard = selectGuard(current);
-    if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand)) return undefined;
+    if (guard === undefined) return undefined;
     const members = membersFor(guard.sourceOperand);
     if (members === undefined || members.length === 0) return undefined;
     const selected = selectSourceGuardedValueMembers(context, guard.sourceOperand, members, selectGuard, testMember) ?? members;
