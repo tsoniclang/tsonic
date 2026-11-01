@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDirectCreation, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import type { SourceStorageForwardSelection } from "../model/relations.js";
@@ -106,9 +106,7 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
         if (term.views !== undefined) return term;
-        if (term.subject.kind === "value" && term.subject.projection.length === 0 &&
-          (source.ast.is.IsObjectLiteralExpression(term.subject.node) || source.ast.is.IsArrayLiteralExpression(term.subject.node) ||
-            source.ast.is.IsArrowFunction(term.subject.node) || source.ast.is.IsFunctionExpression(term.subject.node)))
+        if (sourceStorageIsDirectCreation(term.subject, source.ast))
           return Object.freeze({ kind: "leaf", subject: term.subject, scope: witness!.bindings });
         const input = term.subject.kind === "value" ? transport.bindingInputFor(term.subject) : undefined;
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
