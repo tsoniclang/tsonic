@@ -41,7 +41,8 @@ test(`bounded recursive boundary walks never poison exact closed invocation resu
     `);
     const inspect = () => {
       const selected = current.query("external");
-      assert.equal(selected.kind === "open", true, "an unbound recursive input retains its actual frontier");
+      assert.equal(selected.kind === "open", true,
+        `an unbound recursive input retains its actual frontier (${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""})`);
       assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input"), true,
         "the bounded walk publishes external input, not a fabricated recursive producer");
     };
