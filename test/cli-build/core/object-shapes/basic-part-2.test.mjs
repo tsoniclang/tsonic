@@ -82,14 +82,16 @@ test("CLI runs nested object literals through the canonical broad TypeScript-val
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.equal((generatedSource.match(/new Tsonic\.CSharp\.Runtime\.TsObject\(\)/gu) ?? []).length, 2);
-  assert.match(generatedSource, /\.WriteDynamicSlot\("value",/u);
-  assert.match(generatedSource, /\.WriteDynamicSlot\("child",/u);
-  assert.match(generatedSource, /\.WriteDynamicSlot\("label",/u);
-  assert.ok(generatedSource.indexOf('.WriteDynamicSlot("value",') < generatedSource.indexOf('.WriteDynamicSlot("label",') &&
-    generatedSource.indexOf('.WriteDynamicSlot("label",') < generatedSource.indexOf('.WriteDynamicSlot("child",'));
-  assert.doesNotMatch(generatedSource, /\.CreateDynamicObject\(|new object\??\[/u);
-  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/u);
+  assert.equal((generatedSource.match(/new ObjectShape_[a-f0-9]{12}\b/gu) ?? []).length, 2,
+    "each original literal constructs one native class directly");
+  assert.match(generatedSource, /new ObjectShape_[a-f0-9]{12}\s*\{\s*value = 1,/u);
+  assert.match(generatedSource, /new ObjectShape_[a-f0-9]{12}\s*\{\s*value = 1,\s*child = new ObjectShape_[a-f0-9]{12}\b/u);
+  assert.match(generatedSource, /new ObjectShape_[a-f0-9]{12}\s*\{\s*label = "ready",/u);
+  assert.match(generatedSource, /\.ReadDynamicSlot\("value"\)/u);
+  assert.match(generatedSource, /\.ReadDynamicSlot\("child"\)/u);
+  assert.match(generatedSource, /\.ReadDynamicSlot\("label"\)/u);
+  assert.doesNotMatch(generatedSource, /TsObject|\.CreateDynamicObject\(|\.WriteDynamicSlot\(|new object\??\[|\.Clone\(|\.ToArray\(/u);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

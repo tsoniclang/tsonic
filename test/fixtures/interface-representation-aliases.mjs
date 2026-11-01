@@ -1,4 +1,5 @@
-export const interfaceRepresentationAliasSource = `
+export function interfaceRepresentationAliasSourceForEmpty(annotation) {
+  return `
 interface Tokens extends ReadonlyArray<object> {}
 interface MoreTokens extends Tokens {}
 interface Values<T> extends ReadonlyArray<T> {}
@@ -15,7 +16,7 @@ function sum(values: Values<number>): number {
   return result;
 }
 export function run(): boolean {
-  const token = {};
+  const token${annotation} = {};
   const tokens = [token, token];
   const values = [2, 3];
   values[0] = 7;
@@ -26,14 +27,18 @@ export function run(): boolean {
   return same(tokens, token) && sum(alias) === 10 && total === 10;
 }
 `;
+}
 
-export const interfaceRepresentationAliasJsProofSource = `
+export const interfaceRepresentationAliasSource = interfaceRepresentationAliasSourceForEmpty("");
+
+export function interfaceRepresentationAliasJsProofSourceForEmpty(annotation) {
+  return `
 function runJsAliases(): boolean {
   const tokens: MoreTokens = [{}, {}];
   if (tokens.length !== 2) return false;
   const originalTokens = [{}, {}];
   const tokenAlias: MoreTokens = originalTokens;
-  const replacement = {};
+  const replacement${annotation} = {};
   originalTokens[0] = replacement;
   if (tokenAlias[0] !== replacement) return false;
   const frozen = Object.freeze(replacement);
@@ -44,8 +49,12 @@ function runJsAliases(): boolean {
   return sum(alias) === 10;
 }
 `;
+}
 
-export const interfaceRepresentationAliasFiles = {
+export const interfaceRepresentationAliasJsProofSource = interfaceRepresentationAliasJsProofSourceForEmpty("");
+
+export function interfaceRepresentationAliasFilesForEmpty(annotation) {
+  return {
   "facades.ts": `
 export interface Values<T> extends ReadonlyArray<T> {}
 export interface Redirect<Unused> extends ReadonlyArray<object> {}
@@ -57,8 +66,8 @@ export function forward<T>(values: Values<T>): Values<T> { return values; }
 import type { Values, Redirect, Nested } from "./facades.js";
 import { head, forward } from "./facades.js";
 export function run(): boolean {
-  const token = {};
-  const replacement = {};
+  const token${annotation} = {};
+  const replacement${annotation} = {};
   const original: object[] = [token];
   const redirected: Redirect<string> = original;
   const generic: Values<object> = forward(redirected);
@@ -68,6 +77,9 @@ export function run(): boolean {
 }
 `,
 };
+}
+
+export const interfaceRepresentationAliasFiles = interfaceRepresentationAliasFilesForEmpty("");
 
 export const interfaceRepresentationAliasNativeValueFiles = {
   "facades.ts": interfaceRepresentationAliasFiles["facades.ts"],
