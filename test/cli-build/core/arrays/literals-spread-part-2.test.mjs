@@ -36,7 +36,7 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> source/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<int> source/);
   assert.match(generatedSource, /source = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2, 3\]\);/);
   const copies = assertArraySpreadCopies(generatedSource, [
     "global::Smoke.Generated.Index.source",
@@ -44,7 +44,7 @@ test("CLI emits module-scope array spread constants from finalized expected arra
     "global::Smoke.Generated.Index.more",
   ]);
   assert.match(generatedSource, new RegExp(`withSpread = ${copies[0]}\\.AppendElement\\(4\\)\\.AppendElement\\(5\\);`));
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> more/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<int> more/);
   assert.match(generatedSource, /more = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[10, 20\]\);/);
   assert.match(generatedSource, new RegExp(`${copies[2]} = ${copies[1]};`));
   assert.match(generatedSource, new RegExp(`multiSpread = ${copies[2]}\\.AppendElement\\(100\\);`));
@@ -96,7 +96,7 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<destination>_*tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(1\);\s*\(int, int\) (?<pair>_*tsonic_sequence_[0-9]+) = pair;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ 2\)\);\s*\k<destination>\.Add\(\k<pair>\.Item1\);\s*\k<destination>\.Add\(\k<pair>\.Item2\);\s*return \k<destination>\.AppendElement\(4\);/u);
   assert.doesNotMatch(generatedSource, /\.concat\(|new int\[\]/u);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<int> values/);
   assert.match(generatedSource, /values = global::Smoke\.Generated\.Index\.compose\(\(2, 3\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
