@@ -73,7 +73,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   const suppressions = [];
   const stringLiterals = [];
   const throws = [];
-  const moduleAnalysis = analyzeCheckedTypeScriptModules(source, sourceFiles, "/keel/");
+  const moduleAnalysis = analyzeCheckedTypeScriptModules(source, sourceFiles, "/keel/", []);
   const edges = moduleAnalysis.edges;
   const mutations = [];
   const objectFields = [];

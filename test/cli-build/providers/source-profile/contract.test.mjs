@@ -50,7 +50,7 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
   assert.match(generated, /path\.StartsWith\("\/"\)/u);
   assert.match(generated, /parts\.Length/u);
   assert.match(generated, /parts\[1\]/u);
-  assert.match(generated, /public static long wideValue\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
+  assert.match(generated, /internal static long wideValue\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
   assert.match(generated, /wideValue = global::Smoke\.Generated\.App\.wideValues\[1\];/u);
   assert.match(generated, /span\.Slice\(offset, selectedChunkSize\)/u);
 });

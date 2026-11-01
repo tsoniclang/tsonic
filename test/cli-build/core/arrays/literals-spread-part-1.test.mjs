@@ -171,7 +171,7 @@ test("CLI emits readonly source arrays through finalized JSArray carrier facts",
   assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(0\);/u);
   assert.match(generatedSource, new RegExp(`return ${copies[1]}\\.AppendElement\\(9\\);`));
   assert.doesNotMatch(generatedSource, /\.concat\(/u);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> spread/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<int> spread/);
   assert.match(generatedSource, /spread\.length/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.(?:List|IReadOnlyList|IEnumerable)</);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection|dynamic/);

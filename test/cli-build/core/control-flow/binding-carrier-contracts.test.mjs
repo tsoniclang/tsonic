@@ -17,7 +17,7 @@ test("CLI preserves original binding carriers with native identity and allocatio
       targets: [{ id: "csharp", surfaces: ["js"], options: {
         namespace: "Smoke.Generated", assemblyName, outputType: "Exe",
       } }] }),
-    "src/index.ts": sourceText,
+    "src/index.ts": `${sourceText}\nexport { input };\n`,
   });
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);

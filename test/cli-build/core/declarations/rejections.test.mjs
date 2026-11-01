@@ -238,7 +238,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /ScoreCard\.create\("Ada", 8D\)/);
-  assert.match(indexSource, /public static string rank\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
+  assert.match(indexSource, /internal static string rank\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
   assert.match(indexSource, /rank = global::Smoke\.Generated\.Index\.receipt\.rank == Rank\.Gold \? "gold" : "silver";/);
   assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(global::Smoke\.Generated\.Index\.receipt\.label \+ ":" \+ global::Smoke\.Generated\.Index\.receipt\.points \+ ":" \+ global::Smoke\.Generated\.Index\.rank\);/);
 

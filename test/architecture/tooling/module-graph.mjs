@@ -11,10 +11,12 @@ export function buildTypeScriptModuleGraph(sourceFiles) {
 
 export function buildTypeScriptModuleAnalysis(sourceFiles) {
   const source = readArchitectureTypeScript(sourceFiles);
-  return analyzeCheckedTypeScriptModules(source, sourceFiles);
+  return analyzeCheckedTypeScriptModules(source, sourceFiles, "/architecture/", []);
 }
 
-export function analyzeCheckedTypeScriptModules(source, sourceFiles, prefix = "/architecture/") {
+export function analyzeCheckedTypeScriptModules(source, sourceFiles, prefix, resolutionRoots) {
+  if (!Array.isArray(resolutionRoots) || resolutionRoots.some(root => typeof root !== "string" || root.length === 0))
+    throw new Error("Checked module analysis requires its explicit source/output resolution roots.");
   const edges = [];
   const modules = [];
   for (const sourceFile of source.sourceFiles) {
@@ -39,7 +41,7 @@ export function analyzeCheckedTypeScriptModules(source, sourceFiles, prefix = "/
     }));
     for (const { specifier } of references) {
       if (specifier.startsWith(".")) {
-        const resolution = resolveRelativeModule(file, specifier, sourceFiles);
+        const resolution = resolveRelativeModule(file, specifier, sourceFiles, resolutionRoots);
         edges.push(Object.freeze({
           source: file,
           specifier,
@@ -64,21 +66,31 @@ export function analyzeCheckedTypeScriptModules(source, sourceFiles, prefix = "/
   });
 }
 
-export function resolveRelativeModule(sourceFile, specifier, sourceFiles) {
+export function resolveRelativeModule(sourceFile, specifier, sourceFiles, resolutionRoots) {
   const base = posix.normalize(posix.join(dirname(sourceFile), specifier));
+  const roots = resolutionRoots.map(root => posix.normalize(root));
+  const bases = new Set([base]);
+  for (const root of roots) {
+    if (base === root || base.startsWith(`${root}/`)) {
+      const relative = posix.relative(root, base);
+      for (const destination of roots) bases.add(posix.join(destination, relative));
+    }
+  }
   const candidates = [];
-  const extension = extname(base);
-  if (extension === ".js" || extension === ".mjs" || extension === ".cjs") {
-    const stem = base.slice(0, -extension.length);
-    candidates.push(...sourceExtensions.map((candidate) => `${stem}${candidate}`));
-    candidates.push(base);
-  } else if (sourceExtensions.includes(extension)) {
-    candidates.push(base);
-  } else {
-    candidates.push(
-      ...sourceExtensions.map((candidate) => `${base}${candidate}`),
-      ...sourceExtensions.map((candidate) => `${base}/index${candidate}`),
-    );
+  for (const candidateBase of bases) {
+    const extension = extname(candidateBase);
+    if (extension === ".js" || extension === ".mjs" || extension === ".cjs") {
+      const stem = candidateBase.slice(0, -extension.length);
+      candidates.push(...sourceExtensions.map((candidate) => `${stem}${candidate}`));
+      candidates.push(candidateBase);
+    } else if (sourceExtensions.includes(extension)) {
+      candidates.push(candidateBase);
+    } else {
+      candidates.push(
+        ...sourceExtensions.map((candidate) => `${candidateBase}${candidate}`),
+        ...sourceExtensions.map((candidate) => `${candidateBase}/index${candidate}`),
+      );
+    }
   }
   const matches = candidates.filter((candidate) => sourceFiles.has(candidate));
   return Object.freeze({
@@ -114,7 +126,10 @@ function checkedFunctionUses(source, sourceFile, sourceFiles, prefix) {
   }
   const visit = node => {
     if (ast.kindName(node) === "KindIdentifier" || ast.kindName(node) === "KindPropertyAccessExpression") {
-      const target = resolve(checker.getSymbolAtLocation(node));
+      const parent = ast.parent(node);
+      const symbol = ast.kindName(parent) === "KindShorthandPropertyAssignment" && ast.name(parent) === node
+        ? checker.getLexicallyResolvedSymbol(node) : checker.getSymbolAtLocation(node);
+      const target = resolve(symbol);
       if (target !== undefined) {
         let reference = true;
         for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
