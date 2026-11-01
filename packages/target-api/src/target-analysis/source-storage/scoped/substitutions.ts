@@ -177,7 +177,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     try {
     const root = intern(sourceStorageReference(origin, scope));
     if (root === undefined) return undefined;
-    if (stopAt === undefined && results(root) === undefined) return undefined;
+    if (boundary === undefined && results(root) === undefined) return undefined;
     type Visits = Map<SourceStorageRelation, number | Map<string, number>>;
     const directVisits: Visits = new Map();
     const visits = new Map<SourceStorageSubstitutionPath, Visits>();

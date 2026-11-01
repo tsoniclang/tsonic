@@ -241,7 +241,8 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
     const retained: SourceStorageNormalizationWitness[] = [];
     let normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary, true, true, true);
     if (normalized === undefined) { budget.reject(`Source storage ${term.kind} terms require an exact normalized form.`); return undefined; }
-    if (normalized.kind === "leaf" && !sourceStorageHasOriginalCallableValue(normalized.subject, source.ast)) {
+    if ((normalized.kind === "leaf" || normalized.kind === "reference" && normalized.subject.projection.length === 0) &&
+      !sourceStorageHasOriginalCallableValue(normalized.subject, source.ast)) {
       const input = outside(normalized.subject, normalized.scope);
       if (input !== undefined) normalized = Object.freeze({ kind: "input-frontier", input,
         preservesInput: normalized.subject === input.subject,
