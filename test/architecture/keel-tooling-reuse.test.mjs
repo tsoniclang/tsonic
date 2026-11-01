@@ -17,7 +17,7 @@ test("shared graph extraction preserves authored import/export/dynamic-import ed
     rootFiles: [...sourceFiles.keys()],
     compilerOptions: { module: "esnext", moduleResolution: "bundler", target: "esnext", noLib: true, noResolve: true },
   });
-  const extracted = analyzeCheckedTypeScriptModules(session.checkSource(), sourceFiles, "/reuse/");
+  const extracted = analyzeCheckedTypeScriptModules(session.checkSource(), sourceFiles, "/reuse/", []);
   assert.deepEqual(extracted, expected);
   assert.equal(expected.edges.length, 3);
   assert.equal(expected.edges.every(edge => edge.target === "src/target-model/value.ts"), true);
