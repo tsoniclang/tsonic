@@ -43,7 +43,7 @@ export function createSourceStorageInitializerSummaries(source: TargetSourceProg
   return Object.freeze({
     instantiate(value: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined {
       if (budget.failure() !== undefined) return undefined;
-      if (sourceStorageIsDirectCreation(value, source.ast)) return sourceStorageReference(value, scope);
+      if (sourceStorageIsDirectCreation(value, source.ast)) return Object.freeze({ kind: "leaf", subject: value, scope });
       const selected = initializer(value);
       if (budget.failure() !== undefined) return undefined;
       if (selected === undefined || scope.kind !== "frame" || scope.owner !== selected.owner || scope.invocation === undefined)
