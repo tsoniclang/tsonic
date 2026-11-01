@@ -35,7 +35,7 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
   if (ast.is.IsAwaitExpression(node)) {
     const expression = ast.as.AsAwaitExpression(node)?.Expression;
     if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked await operand.", node);
-    const awaitPoint = build.emit(node, { kind: "await", value: expression }, next, context, true, "resume");
+    const awaitPoint = build.emit(node, { kind: "await", awaitKind: "authored", value: expression }, next, context, true, "resume");
     return build.expression(expression, awaitPoint, context);
   }
   if (ast.is.IsYieldExpression(node)) {

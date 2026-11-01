@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use-model.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
@@ -78,15 +78,17 @@ export interface SourceDeclarationOwnershipPremises {
     | { readonly kind: "read-value"; readonly reference: Node; readonly value: SourceDeclarationOwnershipValue }
   )): SourceDeclarationRetentionSelection | undefined;
   suspensionFor(value: SourceDeclarationOwnershipValue,
-    use: "operation" | "value"): SourceDeclarationSuspensionSelection | undefined;
+    use: "operation" | "value" | "resource-cleanup"): SourceDeclarationSuspensionSelection | undefined;
 }
 
-export interface SourceDeclarationPendingOperation {
+export type SourceDeclarationPendingOperation = {
   readonly operation: Node;
-  readonly expression: Node;
   readonly region: SourceDeclarationFlowExecutionRegion;
   readonly contracts: readonly (SourceDeclarationOwnershipEvidence & { readonly value: SourceDeclarationOwnershipValue })[];
-}
+} & (
+  | { readonly kind: "expression"; readonly expression: Node }
+  | { readonly kind: "resource-cleanup"; readonly resource: ResolvedSourceResourceManagementInfo }
+);
 
 export interface SourceDeclarationContinuationDependency {
   readonly candidate: Node;

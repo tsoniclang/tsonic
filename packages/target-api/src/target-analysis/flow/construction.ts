@@ -132,7 +132,7 @@ export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaratio
     const existing = routes.get(destination);
     if (existing !== undefined) return existing;
     const completion = asynchronous
-      ? build.emit(declaration, { kind: "await", value: undefined }, destination, context, true, "resume")
+      ? build.emit(declaration, { kind: "await", awaitKind: "resource-cleanup", resource: checked }, destination, context, true, "resume")
       : destination;
     const disposal = build.emit(declaration, { kind: "dispose", declaration, asynchronous }, completion, context, true);
     const branch = build.point(declaration, { kind: "branch" });

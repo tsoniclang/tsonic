@@ -61,7 +61,7 @@ function sourceFlowLoopBody(build: SourceFlowConstruction, node: Node, next: num
     build.edge(branch, next, "false");
     build.edge(branch, context.throwTo, "exception");
     const step = selected.AwaitModifier === undefined ? branch
-      : build.emit(node, { kind: "await", value: undefined }, branch, context, true, "resume");
+      : build.emit(node, { kind: "await", awaitKind: "authored", value: undefined }, branch, context, true, "resume");
     build.edge(anchor, step);
     return build.expression(selected.Expression, build.emit(node, { kind: "evaluate" }, anchor, context, true), context);
   }

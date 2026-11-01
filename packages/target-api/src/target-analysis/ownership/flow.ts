@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { solveSourceFlow } from "../flow/solver.js";
-import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint,
+import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
 import { createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../flow/graph.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
@@ -166,6 +166,11 @@ export function resolveSourceDeclarationContinuationFlow(input: {
 }): SourceDeclarationContinuationFlowSelection | SourceDeclarationOwnershipUnresolved {
   const { source, graph, budget, suspensions } = input;
   const at = graph.declaration;
+  const suspensionFor = (operation: Extract<SourceFlowOperation, { readonly kind: "await" }>, node: Node) => {
+    if (operation.awaitKind === "authored") return suspensions.forAwait(node);
+    return operation.resource.declaration === node ? suspensions.forResourceCleanup(operation.resource)
+      : sourceDeclarationOwnershipUnresolved(node, "Cleanup suspension requires its original flow declaration identity.");
+  };
   const transfer = createSourceContinuationTransfer<SourceDeclarationPendingOperation>({
     step: () => budget.step(at), createRows: () => budget.createRows(at), failure: () => budget.failure()?.reason,
   });
@@ -176,7 +181,7 @@ export function resolveSourceDeclarationContinuationFlow(input: {
       transfer(point, state) {
         if (!budget.step(point.source ?? at)) { failure = budget.failure(); return undefined; }
         if (point.operation.kind !== "await" || point.source === undefined) return state;
-        const selected = suspensions.forAwait(point.source);
+        const selected = suspensionFor(point.operation, point.source);
         if (selected.kind === "unresolved") { failure = selected; return undefined; }
         return selected.kind === "never" ? state : transfer.suspend(state, selected.pending);
       },
@@ -223,13 +228,15 @@ export function resolveSourceDeclarationContinuationFlow(input: {
           calls.push(Object.freeze({ call: point.source, region, pending: state }));
         }
         if (point.operation.kind === "await") {
-          const selected = suspensions.forAwait(point.source);
+          const selected = suspensionFor(point.operation, point.source);
           if (selected.kind === "unresolved") return selected;
           if (selected.kind === "resolved") {
             maySuspend = true;
             const held = transfer.suspend(transfer.lattice.empty(), selected.pending);
             if (held === undefined) return budget.failure()!;
-            const problem = append(held, selected.pending.expression, region);
+            const reference = selected.pending.kind === "expression" ? selected.pending.expression
+              : selected.pending.resource.declaration;
+            const problem = append(held, reference, region);
             if (problem !== undefined) return problem;
           }
         }

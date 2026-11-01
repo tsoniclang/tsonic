@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 
@@ -14,7 +14,9 @@ export interface SourceFlowEdge {
 export type SourceFlowOperation =
   | { readonly kind: "entry" | "exit" | "exception-exit" | "merge" | "branch" |
       "evaluate" | "iteration" | "catch" | "yield" | "return" | "throw" }
-  | { readonly kind: "await"; readonly value: Node | undefined }
+  | { readonly kind: "await"; readonly awaitKind: "authored"; readonly value: Node | undefined }
+  | { readonly kind: "await"; readonly awaitKind: "resource-cleanup";
+      readonly resource: ResolvedSourceResourceManagementInfo }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
