@@ -12,7 +12,7 @@ import type { createSourceStorageInputExecutions } from "./execution-reachabilit
 import type { createSourceStorageScopedRejections } from "./rejections.js";
 import type { SourceStorageChildContext, SourceStoragePendingReduction } from "./child-reduction.js";
 
-export interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>,
+interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>,
   "dispatchDependencies" | "independentCalleeFor" | "regionsFor" | "classLineages" | "leaf"> {
   readonly source: TargetSourceProgram;
   readonly budget: SourceStorageBudget;

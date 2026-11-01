@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Node } from "@tsonic/tsts";
 import { sourceCallArgumentCorrespondences, sourceExpressionCallArgument } from "./callable-arguments.js";
-import { fixture } from "./callable-arguments-fixtures.js";
+import { fixture } from "../../../../test/target-api/fixtures/source-navigation/callable-arguments-fixtures.mjs";
 
 function selected(body: string) {
   const current = fixture(body, true);

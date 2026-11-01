@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { inspect, check, memberDeclaration } from "./structural-members-fixtures.js";
+import { inspect, check, memberDeclaration } from "../../../../test/target-api/fixtures/source-semantics/structural-members-fixtures.mjs";
 
 test("selected member descriptors retain their exact checked receiver contracts", () => {
   const current = inspect(`

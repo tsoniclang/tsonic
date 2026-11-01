@@ -6,7 +6,7 @@ import { type Node } from "@tsonic/tsts";
 import type { SourceDeclarationFlowExecutionRegion } from "../flow/model.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
-import { fixture } from './recursive-retention-fixtures.js';
+import { fixture } from '../../../../../test/target-api/fixtures/target-analysis/ownership/recursive-retention-fixtures.mjs';
 
 test("a complete structural source method remains a source continuation instead of an opaque native signature", () => {
   const current = fixture(false, "self", `

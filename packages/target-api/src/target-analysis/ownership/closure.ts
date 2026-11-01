@@ -1,5 +1,5 @@
 import type { Node, Signature, Type } from "@tsonic/tsts";
-import { Node_Initializer, sourceSuperConstructor, sourceCallArgumentCorrespondences } from "../../source-navigation/index.js";
+import { Node_Initializer, sourceSuperConstructor } from "../../source-navigation/index.js";
 import { sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
 import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
@@ -13,6 +13,7 @@ import type { createSourceDeclarationRetentionQuery } from "./retention.js";
 import type { SourceDeclarationSuspensionQueries } from "./suspension.js";
 import type { SourceDeclarationContinuationDependencyQueries } from "./dependencies.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { createSourceCallArgumentCorrespondenceQuery } from "./call-arguments.js";
 
 type SourceDeclaredArguments = ReadonlyMap<Node, readonly (Node | undefined)[]>;
 
@@ -189,12 +190,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       const workRows = budget.createRows(call);
       let published = false;
       try {
-        const correspondences = new Map<ResolvedSourceCallInfo, readonly SourceCallArgumentCorrespondence[] | undefined>();
-        const correspondenceFor = (operation: ResolvedSourceCallInfo) => {
-          if (!correspondences.has(operation)) correspondences.set(operation,
-            sourceCallArgumentCorrespondences({ ast: source.ast, semantics: source.semantics.forNode(operation.call) }, operation));
-          return correspondences.get(operation);
-        };
+        const correspondenceFor = createSourceCallArgumentCorrespondenceQuery(source);
         const dependencies: SourceDeclarationContinuationDependency[] = [];
         const queue: SourceContinuationConsumption[] = [];
         const queued = new Set<SourceContinuationConsumption>();

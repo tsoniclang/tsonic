@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { checked } from "./enum-numeric-uses-fixtures.js";
+import { checked } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const [label, body] of [
   ["call result", "function read(value: Value | undefined): Value | undefined { return value; } export function use(value: Value | undefined): boolean { return read(value) !== undefined; }"],

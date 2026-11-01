@@ -6,7 +6,7 @@ import { type Node } from "@tsonic/tsts";
 
 import { Node_Initializer, Node_Type } from "../source-navigation/ast.js";
 
-import { fixture, unannotated, authoredDestinations } from "./contextual-type-selection-fixtures.js";
+import { fixture, unannotated, authoredDestinations } from "../../../../test/target-api/fixtures/source-semantics/contextual-type-selection-fixtures.mjs";
 
 for (const [name, initializer] of [
   ["direct", "const typed: Callback<number> = value => value;"],

@@ -6,7 +6,7 @@ import * as callableArguments from "./callable-arguments.js";
 import { sourceExpressionCallArgument } from "./callable-arguments.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 
-import { fixture } from "./callable-arguments-fixtures.js";
+import { fixture } from "../../../../test/target-api/fixtures/source-navigation/callable-arguments-fixtures.mjs";
 
 test("closed callable arguments preserve exact checked calls through stable aliases and grouping", () => {
   const current = fixture(`const callback = (value: unknown): void => {};

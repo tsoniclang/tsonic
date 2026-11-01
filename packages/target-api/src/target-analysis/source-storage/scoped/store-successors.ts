@@ -5,7 +5,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
 import type { SourceStorageChildContext, SourceStoragePendingReduction } from "./child-reduction.js";
 
-export interface SourceStorageStoreSuccessorContext {
+interface SourceStorageStoreSuccessorContext {
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly absent: Extract<SourceStorageReduction, { readonly kind: "replace" }>;

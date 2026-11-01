@@ -8,7 +8,7 @@ export function sourceGuardPreservesBinding(
   condition: Node,
   reference: Node,
   assumed: boolean,
-  enter: () => boolean,
+  enter: (node: Node) => boolean,
 ): boolean {
   const binding = context.navigation.referenceFor(reference);
   if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
@@ -17,14 +17,16 @@ export function sourceGuardPreservesBinding(
   if (summary.exported || sourceBindingHasMutableExposure(context, summary, enter)) return false;
   const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   const stable = (node: Node): boolean => {
-    if (!enter()) return false;
+    if (!enter(node)) return false;
     const effects = context.navigation.expressionEffects(node);
     return !(capturedWrites && (effects.invokes || effects.suspends)) &&
       (!effects.mutates || context.navigation.bindingWritesWithin(binding.symbol, node).length === 0);
   };
   if (!stable(condition)) return false;
   let current = reference;
-  while (enter()) {
+  const visited = new Set<Node>();
+  while (enter(current) && !visited.has(current)) {
+    visited.add(current);
     const parent = context.ast.parent(current);
     if (parent === undefined || sourceBindingCallableKinds.has(context.ast.kindName(parent))) return false;
     if (context.ast.is.IsWhileStatement(parent) || context.ast.is.IsDoStatement(parent) ||
@@ -51,7 +53,7 @@ export function sourceGuardPreservesBinding(
           if (found) return true;
           break;
         }
-        if (previous === undefined || !enter()) return false;
+        if (previous === undefined || !enter(previous)) return false;
         const statement = context.ast.is.IsIfStatement(previous) ? context.ast.as.AsIfStatement(previous) : undefined;
         if (!found && statement?.Expression === condition) {
           const branch = assumed ? statement.ThenStatement : statement.ElseStatement;

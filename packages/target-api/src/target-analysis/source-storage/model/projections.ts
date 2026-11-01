@@ -210,8 +210,8 @@ export function createSourceStorageProjectionFlow(
     const file = ast.getSourceFile(node);
     if (file === undefined || !semantics.includes(file)) return undefined;
     const syntaxProjection: SourceStorageProjection[] = [];
-    for (let remaining = 2_048; IsTypeSyntaxNode(ast, node); remaining -= 1) {
-      if (remaining === 0 || !step()) return undefined;
+    while (IsTypeSyntaxNode(ast, node)) {
+      if (!step()) return undefined;
       const parent = ast.parent(node);
       if (parent === undefined) break;
       if (ast.is.IsArrayTypeNode(parent)) syntaxProjection.unshift({ kind: "array-element" });

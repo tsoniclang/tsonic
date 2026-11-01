@@ -12,7 +12,6 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/array-density.ts": 3,
   "packages/target-api/src/source-navigation/ast.ts": 81,
   "packages/target-api/src/source-navigation/callable-aliases.ts": 2,
-  "packages/target-api/src/source-navigation/callable-arguments-fixtures.ts": 1,
   "packages/target-api/src/source-navigation/callable-arguments.ts": 3,
   "packages/target-api/src/source-navigation/callable-values.test.ts": 1,
   "packages/target-api/src/source-navigation/callable-values.ts": 3,
@@ -92,7 +91,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/source-storage/queries.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/scoped-keys.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/scoped-member-successors.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/scoped/scoped-scopes.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/scoped/scope-frames.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/scoped/scoped-successors.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/transport/syntax-collection.ts": 2,
 });

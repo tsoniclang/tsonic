@@ -6,7 +6,7 @@ import type { createSourceStorageExecutionReachability, createSourceStorageInput
 import type { createSourceStorageExecutionContext } from "./execution-context.js";
 import type { createSourceStoragePointerValues } from "./pointer-values.js";
 
-export interface SourceStorageRegionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "application" | "leaf"> {
+interface SourceStorageRegionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "application" | "leaf"> {
   readonly source: TargetSourceProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;

@@ -7,7 +7,7 @@ export type SourceErrorStorageDemand =
   | { readonly kind: "writable"; readonly writes: readonly Node[] }
   | { readonly kind: "unresolved"; readonly reason: string };
 
-export interface SourceErrorStorageOrigin {
+interface SourceErrorStorageOrigin {
   readonly node: Node;
   readonly type: Type;
 }

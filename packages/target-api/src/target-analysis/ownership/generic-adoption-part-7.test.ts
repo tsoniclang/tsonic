@@ -4,9 +4,9 @@ import test from "node:test";
 
 import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 
-import { fixture, identity, declarations } from "./generic-adoption-fixtures.js";
+import { fixture, identity, declarations } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 
-import { declaredQuery, checkedOperation } from "./generic-adoption-part-3-fixtures.js";
+import { declaredQuery, checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
 
 for (const [name, declaration, invoked] of declarations){
 test(`declaration-native adoption keeps the original ${name} source and exact generic call correspondence`, () => {

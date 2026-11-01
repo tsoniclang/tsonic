@@ -4,8 +4,8 @@ import test from "node:test";
 
 import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 
-import { fixture, identity, sourcePosition } from "./generic-adoption-fixtures.js";
-import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
+import { fixture, identity, sourcePosition } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
+import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
 
 test("generic adoption provenance has one canonical Unicode/CRLF span and project-relative format", () => {
   const text = 'const marker = "界😀";\r\nasync function identity<Value>(value: Value) {\r\n\treturn value;\r\n}\r\n' +

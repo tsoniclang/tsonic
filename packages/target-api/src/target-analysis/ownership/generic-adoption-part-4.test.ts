@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { assertDeclaredAdoption, fixture } from "./generic-adoption-fixtures.js";
+import { assertDeclaredAdoption, fixture } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 
 for (const form of ["uncalled", "nonresolver", "ignored-source-argument", "unused-native-input"] as const){
 test("opaque native inputs do not taint unrelated resolving paths: " + form, () => {

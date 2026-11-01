@@ -8,7 +8,7 @@ import { analyzeSourcePropertyNames } from "../public/source.js";
 
 import { targetSourceSyntaxProgram } from "../target-analysis/source-syntax.js";
 
-import { checked } from "./property-names-fixtures.js";
+import { checked } from "../../../../test/target-api/fixtures/source-semantics/property-names-fixtures.mjs";
 
 test("already checked literal aliases retain exact keys without an alias-length restriction", () => {
   const aliases = Array.from({ length: 12 }, (_, index) =>

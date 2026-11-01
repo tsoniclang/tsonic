@@ -1,4 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
+import { createSourceSyntaxDomain } from "./node-inventory.js";
 
 export interface SourceSequenceInputChoice {
   readonly expression: Node;
@@ -14,10 +15,12 @@ export function sourceSequenceInputChoice(ast: AstReader, expression: Node): Sou
   const inputs: Node[] = [];
   const controlNodes: Node[] = [];
   const pending = [expression];
-  let remaining = 2048;
+  const contains = createSourceSyntaxDomain(ast, expression);
+  const visited = new Set<Node>();
   while (pending.length !== 0) {
-    if (--remaining < 0) return undefined;
     const node = pending.pop()!;
+    if (!contains(node) || visited.has(node)) return undefined;
+    visited.add(node);
     if (ast.is.IsParenthesizedExpression(node) || ast.is.IsSatisfiesExpression(node)) {
       const operand = ast.is.IsParenthesizedExpression(node)
         ? ast.as.AsParenthesizedExpression(node)?.Expression : ast.as.AsSatisfiesExpression(node)?.Expression;
@@ -38,12 +41,15 @@ export function sourceSequenceInputChoice(ast: AstReader, expression: Node): Sou
 
 export function sourceSequenceConsumptionRoot(ast: AstReader, node: Node): Node | undefined {
   let current = node;
-  for (let remaining = 2048; remaining > 0; remaining--) {
+  const contains = createSourceSyntaxDomain(ast, node);
+  const visited = new Set<Node>();
+  while (contains(current) && !visited.has(current)) {
+    visited.add(current);
     const parent = ast.parent(current);
-    if (parent === undefined) return undefined;
+    if (parent === undefined || !contains(parent)) return undefined;
     if (ast.is.IsSpreadElement(parent)) {
       const array = ast.parent(parent);
-      return array !== undefined && ast.is.IsArrayLiteralExpression(array) ? parent : undefined;
+      return array !== undefined && contains(array) && ast.is.IsArrayLiteralExpression(array) ? parent : undefined;
     }
     if (ast.is.IsParenthesizedExpression(parent) || ast.is.IsSatisfiesExpression(parent) ||
       ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindQuestionQuestionToken") {

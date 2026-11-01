@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Node } from "@tsonic/tsts";
-import { fixture, sourceSpan } from "./generic-adoption-fixtures.js";
+import { fixture, sourceSpan } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 import { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
   sourceDeclarationOwnershipUnresolved } from "./contracts.js";

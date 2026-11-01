@@ -5,12 +5,14 @@ import type { SourceDeclarationUseSummary } from "./types.js";
 export function sourceBindingHasMutableExposure(
   input: { readonly ast: AstReader; readonly sourceFacts?: Pick<ReadonlySourceFactResolver, "getFact"> },
   summary: SourceDeclarationUseSummary,
-  enter: () => boolean,
+  enter: (node: Node) => boolean,
 ): boolean {
   for (const use of summary.uses) {
-    if (!enter()) return true;
+    if (!enter(use.reference)) return true;
+    const visited = new Set<Node>();
     for (let node: Node | undefined = use.reference; node !== undefined; node = input.ast.parent(node)) {
-      if (!enter()) return true;
+      if (!enter(node) || visited.has(node)) return true;
+      visited.add(node);
       const passing = input.sourceFacts?.getFact(node, argumentPassingFactKey);
       if (passing !== undefined && !immutablePassingModes.has(passing.mode)) return true;
       const pointer = input.sourceFacts?.getFact(node, pointerOperationFactKey);

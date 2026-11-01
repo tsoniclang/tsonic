@@ -82,7 +82,7 @@ test("guarded source contributor selection rejects intervening reassignment and 
   }
 });
 
-test("guarded source contributors preserve unknown premises and reject accounting exhaustion", () => {
+test("guarded source contributors preserve unknown premises across finite type graphs and reject cycles", () => {
   const current = fixture("if (isArray(value)) observe(value);");
   const read = current.reads[0]!;
   const semantics = current.source.semantics.forNode(read);
@@ -99,7 +99,9 @@ test("guarded source contributors preserve unknown premises and reject accountin
     const call = semantics.operations.call(expression);
     return call?.sourceArguments[0] === undefined ? undefined : { sourceOperand: call.sourceArguments[0].expression, predicate: true };
   }, () => undefined);
-  assert.equal(selected, undefined);
+  assert.equal(selected?.length, 2_049);
+  assert.ok(Object.isFrozen(selected));
+  assert.ok(selected?.every(type => type === original[0]));
   const contextWithoutLimit = { ...context, semanticsFor: () => semantics };
   const unknown = selectSourceGuardedTypeMembers(contextWithoutLimit, read, checkedType, expression => {
     const call = semantics.operations.call(expression);
@@ -119,7 +121,8 @@ test("guarded source contributors preserve unknown premises and reject accountin
         const call = semantics.operations.call(expression);
         return call?.sourceArguments[0] === undefined ? undefined : { sourceOperand: call.sourceArguments[0].expression, predicate: true };
       }, () => undefined);
-    assert.equal(selected?.length, depth === 32 ? 1 : undefined);
+    assert.equal(selected?.length, 1);
+    assert.ok(Object.isFrozen(selected));
     if (selected !== undefined) assert.equal(selected[0], nested[1]);
   }
   const cyclicTypes = { ...semantics.types,

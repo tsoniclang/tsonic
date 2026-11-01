@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture } from "./absence-use-fixtures.js";
+import { fixture } from "../../../../test/target-api/fixtures/source-navigation/absence-use-fixtures.mjs";
 
 test("absence consumers select only the left coalescing operand through transparent syntax", () => {
   for (const operand of ["value", "(value)", "value satisfies number | undefined",
