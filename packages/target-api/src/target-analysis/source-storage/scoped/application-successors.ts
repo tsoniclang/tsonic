@@ -163,7 +163,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       const result = transport.subject(term.invocation, "value", term.projection);
       if (result === undefined) return undefined;
       return { kind: "replace", terms: [term.mode === "value" ? leaf(result, term.scope)
-        : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope,
+        : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
           reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
     }
     if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined) {
