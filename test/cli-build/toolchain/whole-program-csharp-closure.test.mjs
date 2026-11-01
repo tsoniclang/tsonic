@@ -136,12 +136,11 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   assert.match(indexSource, /internal static User current\s*\{\s*get;\s*private set;\s*\} = default\(User\)!;/u);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
   const shapeName = /public class ([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12})/u.exec(shapeSource)?.[1];
-  const readonlyName = /public interface ([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12})<out Property0>\s*\{\s*Property0 name \{ get; \}\s*\}/u.exec(shapeSource)?.[1];
   assert.ok(shapeName);
-  assert.ok(readonlyName);
-  assert.match(shapeSource, new RegExp(`public class ${shapeName} : ${readonlyName}<string>`));
+  assert.doesNotMatch(shapeSource, /public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<out Property0>/u);
+  assert.match(shapeSource, new RegExp(`public class ${shapeName} : Model\\b`));
   assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name\\s*\\{\\s*get;\\s*set;\\s*\\}`));
-  assert.match(indexSource, new RegExp(`internal static ${readonlyName}<string> named`));
+  assert.match(indexSource, new RegExp(`internal static ${shapeName} named`));
   assert.match(indexSource, new RegExp(`named = new ${shapeName}\\b`));
   assert.match(indexSource, /current = global::Smoke\.Generated\.Users\.makeUser\("Ada"\);/);
   assert.match(indexSource, /greeter = new Greeter\(global::Smoke\.Generated\.Index\.named\.name\);/);
