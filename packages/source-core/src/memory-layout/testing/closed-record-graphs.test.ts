@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { checkedRecords, recordIdentity, recordPrelude } from "./closed-record-fixtures.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
 import { createMemoryDomainRelation } from "../type-contract/relations.js";
-import type { MemoryTypeDomain } from "../type-contract/domains.js";
+import type { MemoryTypeDomain } from "../type-contract/model.js";
 
 for (const signed of [true, false]) {
   test(`recursive record comparison ${signed ? "retains equivalent cycles" : "rejects a conflicting leaf after a cycle"}`, () => {

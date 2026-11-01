@@ -4,7 +4,7 @@ import { ContextFlagsSkipBindingPatterns } from "@tsonic/tsts";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import { isTsonicSourceProfileDeclarationPath } from "../source-profile.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-constants.js";
+import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-model.js";
 
 const equalityOperators = new Set(["KindEqualsEqualsToken", "KindExclamationEqualsToken",
   "KindEqualsEqualsEqualsToken", "KindExclamationEqualsEqualsToken"]);

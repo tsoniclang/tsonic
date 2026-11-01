@@ -62,12 +62,12 @@ export type { SourceContextualValueTypeSelection } from "./contextual-type-selec
 export type { SourceTypeRelationship } from "./type-relationship.js";
 export type { SourceTypeRefinement } from "./type-refinement.js";
 export { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
-export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "../target-analysis/enum-constants.js";
+export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "./enum-constants.js";
 export type {
   SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue,
-} from "../target-analysis/enum-constants.js";
-export { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
-export type { SourcePropertyNameIndex, SourcePropertyNameSelection, SourcePropertyNameConstant } from "../target-analysis/property-names.js";
+} from "./enum-model.js";
+export { analyzeSourcePropertyNames } from "./property-names.js";
+export type { SourcePropertyNameIndex, SourcePropertyNameSelection, SourcePropertyNameConstant } from "./property-names.js";
 export { sourceExpressionSequence } from "./expression-sequence.js";
 export { sourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
 export type { SourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
@@ -87,12 +87,12 @@ export { sourceInterfaceRepresentationBase } from "./interface-representations.j
 export { sourceArrayElementType } from "./array-types.js";
 export { sourceCallableParameterEvidence } from "./callable-parameters.js";
 export { sourcePresentCallableType } from "./present-callables.js";
-export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, selectSourceNativeGuardResult } from "../target-analysis/value-flow-conditions.js";
+export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, selectSourceNativeGuardResult } from "./value-flow-conditions.js";
 export { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 export { selectedSourceIndexedDeclarations } from "./selected-indexed-declarations.js";
 export { sourceObjectLiteralDestinationMember } from "./object-literal-correspondence.js";
 export { sourceTypeIsAuthoredEmptyObject } from "./empty-object-evidence.js";
-export type { SourceNativeGuard, SourceValueFlowQueryContext } from "../target-analysis/value-flow-conditions.js";
+export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
-export { sourceNodeIsNativeUnreachable } from "../target-analysis/native-control-flow.js";
+export { sourceNodeIsNativeUnreachable } from "./native-control-flow.js";
 export type { SourceNativeValueGuard } from "./native-value-guards.js";

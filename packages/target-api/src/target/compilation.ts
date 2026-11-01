@@ -4,14 +4,7 @@ import type { TargetSourceProfileContributions } from "../source-profile.js";
 import type { TargetSourceProgram } from "../source-semantics/index.js";
 import type { TargetSourcePackageGraph } from "../source-packages/model.js";
 import type { SelectedTargetCapabilityContributions, TargetSourceCompilerContributions } from "./composition.js";
-
-export interface TargetCompilationPaths {
-  readonly projectFilePath: string;
-  readonly projectRoot: string;
-  readonly outputRoot: string;
-  readonly targetOutputRoot: string;
-  readonly cacheRoot: string;
-}
+import type { TargetCompilationPaths } from "./paths.js";
 
 export interface TargetCompileInput {
   readonly source: TargetSourceProgram;

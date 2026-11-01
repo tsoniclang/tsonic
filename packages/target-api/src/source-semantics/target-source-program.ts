@@ -10,15 +10,16 @@ import { selectSourceContextualType, selectSourceContextualValueType } from "./c
 import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
 import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
-import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
+import { getSourceTypeArgumentBindings } from "./type-arguments.js";
+import { getEffectiveSourceTypeArguments } from "../source-navigation/type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
-import { resolveSourceFlowConditions } from "../target-analysis/flow-conditions.js";
+import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { normalizeSourcePropertyAccessDeclarations } from "./selected-property-declarations.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQueries } from "./structural-members.js";
-import { analyzeSourcePropertyNames } from "../target-analysis/property-names.js";
-import { analyzeSourceEnumConstants } from "../target-analysis/enum-constants.js";
+import { analyzeSourcePropertyNames } from "./property-names.js";
+import { analyzeSourceEnumConstants } from "./enum-constants.js";
 import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
 

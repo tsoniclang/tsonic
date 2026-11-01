@@ -1,6 +1,7 @@
 import { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
-import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.js";
+import type { MemorySourceAnalysis } from "./analysis-context.js";
+import type { MemorySourceCall } from "./analysis-model.js";
 import { memoryLayoutDimensionsError } from "./dimensions.js";
 import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "./facts.js";
 import type { TsonicArrayMemoryLayoutFact } from "./facts.js";

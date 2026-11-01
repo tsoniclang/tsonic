@@ -2,11 +2,11 @@ import { AsBindingElement } from "../source-navigation/checked-casts.js";
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
-import type { SourceFileSemantics } from "../source-semantics/types.js";
-import type { SourceNumericLiteralToken } from "../source-semantics/literal-values-model.js";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-semantics/literal-token.js";
-import { sourceIntegerConstantValue } from "../source-semantics/integer-constant.js";
-import type { SourceEnumConstantIndex, SourceEnumConstantSelection } from "./enum-constants.js";
+import type { SourceFileSemantics } from "./types.js";
+import type { SourceNumericLiteralToken } from "./literal-values-model.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
+import { sourceIntegerConstantValue } from "./integer-constant.js";
+import type { SourceEnumConstantIndex, SourceEnumConstantSelection } from "./enum-model.js";
 
 export type SourcePropertyNameConstant =
   | { readonly kind: "string"; readonly value: string }
