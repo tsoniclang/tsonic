@@ -1,6 +1,8 @@
 import type { Node, Signature, Type } from "@tsonic/tsts";
 import { Node_Initializer, sourceSuperConstructor, sourceCallArgumentCorrespondences } from "../../source-navigation/index.js";
-import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
+import { sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
+import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
+import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../flow/model.js";
 import type { SourceDeclarationContinuationDependency, SourceDeclarationContinuationSelection,
@@ -58,10 +60,10 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
     };
     return selected === undefined ? "maybe" : visit(selected);
   };
-  const bind = (call: Node, selected: ResolvedSourceCallInfo, arguments_: SourceDeclaredArguments):
+  const bind = (call: Node, selected: ResolvedSourceCallInfo, arguments_: SourceDeclaredArguments,
+    correspondence: readonly SourceCallArgumentCorrespondence[] | undefined):
     SourceDeclaredArguments | SourceDeclarationOwnershipUnresolved => {
     const result = new Map(arguments_);
-    const correspondence = sourceCallArgumentCorrespondences(source.ast, selected);
     if (correspondence === undefined) return sourceDeclarationOwnershipUnresolved(call,
       "A continuation needs the completed native spread-to-formal input relation.");
     for (const parameter of selected.sourceSelectedSignatureParameters) {
@@ -187,6 +189,12 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
       const workRows = budget.createRows(call);
       let published = false;
       try {
+        const correspondences = new Map<ResolvedSourceCallInfo, readonly SourceCallArgumentCorrespondence[] | undefined>();
+        const correspondenceFor = (operation: ResolvedSourceCallInfo) => {
+          if (!correspondences.has(operation)) correspondences.set(operation,
+            sourceCallArgumentCorrespondences({ ast: source.ast, semantics: source.semantics.forNode(operation.call) }, operation));
+          return correspondences.get(operation);
+        };
         const dependencies: SourceDeclarationContinuationDependency[] = [];
         const queue: SourceContinuationConsumption[] = [];
         const queued = new Set<SourceContinuationConsumption>();
@@ -200,6 +208,18 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
               existing.suspension === dependency.suspension && existing.retention === dependency.retention)) continue;
             if (!rows.add(1)) return budget.failure();
             dependencies.push(dependency);
+          }
+          return undefined;
+        };
+        const retainPending = (operation: Node, declaration: Node, witness: SourceDeclarationPendingOperation):
+          SourceDeclarationOwnershipUnresolved | undefined => {
+          const retained = input.retention.forReference(operation);
+          if (retained.kind === "unresolved") return retained;
+          for (const premise of retained.premises) {
+            if (premise.kind === "retained" && premise.reason === "owned-value") continue;
+            const problem = append({ kind: "resolved", dependencies: [Object.freeze({ candidate: declaration,
+              reference: operation, actual: premise.value, suspension: witness, retention: premise })] });
+            if (problem !== undefined) return problem;
           }
           return undefined;
         };
@@ -236,7 +256,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
           if (changed && !queued.has(consumer)) { queue.push(consumer); queued.add(consumer); }
           return true;
         };
-        const rootArguments = bind(call, selected!, new Map());
+        const rootArguments = bind(call, selected!, new Map(), correspondenceFor(selected!));
         if ("kind" in rootArguments) return rootArguments;
         const rootTargets = targetsFor(call, selected!, new Map());
         if (rootTargets.length === 0)
@@ -259,6 +279,10 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
             if (nativeDeclaration !== consumer.declaration || nativeOutput === undefined)
               return sourceDeclarationOwnershipUnresolved(consumer.call,
                 "A callable alternative requires its complete selected native body contracts.");
+            if (native.kind === "resolved") {
+              const problem = retainPending(consumer.call, nativeDeclaration, native.pending);
+              if (problem !== undefined) return problem;
+            }
             continue;
           }
           const summary = forDeclaration(consumer.declaration);
@@ -290,13 +314,11 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
                 const parameterDeclaration = premise.region.parameter;
                 const semantics = source.semantics.forNode(node);
                 const operation = semantics.operations.call(node);
-                const parameter = operation?.sourceSelectedSignatureKind !== "resolved" ||
-                  semantics.declarations.signatureDeclaration(operation.selectedSignature) !== premise.executionOwner
-                  ? undefined : operation.sourceSelectedSignatureParameters.find(parameter =>
-                    parameter.parameterDeclaration === parameterDeclaration);
-                const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, operation!)?.filter(row =>
-                  row.parameter === parameter && row.binding.sourceForm === "value");
-                const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
+                if (operation?.sourceSelectedSignatureKind !== "resolved" ||
+                  semantics.declarations.signatureDeclaration(operation.selectedSignature) !== premise.executionOwner)
+                  return sourceDeclarationOwnershipUnresolved(node,
+                    "A pending native continuation requires its exact selected input-duration correspondence.");
+                const argument = sourceSingleCallValueArgument(correspondenceFor(operation), parameterDeclaration);
                 if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
                   "A pending native continuation requires its exact selected input-duration correspondence.");
                 const actuals = argumentsFor(argument, consumer.arguments);
@@ -322,7 +344,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
             if (invocation?.sourceSelectedSignatureKind !== "resolved")
               return sourceDeclarationOwnershipUnresolved(operation.call, "A continuation call needs its complete selected native contract.");
             const state = new Set([...consumer.pending, ...operation.pending]);
-            const arguments_ = bind(operation.call, invocation, consumer.arguments);
+            const arguments_ = bind(operation.call, invocation, consumer.arguments, correspondenceFor(invocation));
             if ("kind" in arguments_) return arguments_;
             const targets = targetsFor(operation.call, invocation, consumer.arguments);
             if (targets.length === 0)
@@ -334,14 +356,8 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
           }
         }
         if (pending.kind === "resolved") {
-          const retained = input.retention.forReference(call);
-          if (retained.kind === "unresolved") return retained;
-          for (const premise of retained.premises) {
-            if (premise.kind === "retained" && premise.reason === "owned-value") continue;
-            if (!budget.step(call) || !rows.add(1)) return budget.failure()!;
-            dependencies.push(Object.freeze({ candidate: declaration, reference: call, actual: premise.value,
-              suspension: pending.pending, retention: premise }));
-          }
+          const problem = retainPending(call, declaration, pending.pending);
+          if (problem !== undefined) return problem;
         }
         if (!rows.add(1)) return budget.failure()!;
         const result = Object.freeze({ kind: "resolved" as const, dependencies: Object.freeze(dependencies) });

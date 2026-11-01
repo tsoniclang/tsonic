@@ -1,4 +1,5 @@
-import type { MemorySourceAnalysis, MemorySourceCall } from "../analysis-context.js";
+import type { MemorySourceAnalysis } from "../analysis-context.js";
+import type { MemorySourceCall } from "../analysis-model.js";
 import { memoryDiagnostic, publishMemoryFact } from "../analysis-context.js";
 import { tsonicMemoryFieldLayoutFactKey } from "../facts.js";
 import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./facts.js";

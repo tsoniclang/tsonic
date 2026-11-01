@@ -5,7 +5,9 @@ import type { SourceDeclarationAsyncCompletionSelection, SourceDeclarationAsyncO
   SourceDeclarationOwnershipUnresolved, SourceDeclarationRetentionReadSelection,
   SourceDeclarationRetentionPremise } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
-import { sourceCallArgumentCorrespondences } from "../../source-navigation/callable-arguments.js";
+import { sourceCallArgumentCorrespondences, sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
+import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
+import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
 
 export function decideSourceDeclarationAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
@@ -25,6 +27,12 @@ export function decideSourceDeclarationAsyncResultUse(input: {
   const selected = source.semantics.forNode(call).operations.call(call);
   if (selected?.sourceSelectedSignatureKind !== "resolved")
     return sourceDeclarationOwnershipUnresolved(call, "Async result-use requires the exact selected checked signature.");
+  const correspondences = new Map<ResolvedSourceCallInfo, readonly SourceCallArgumentCorrespondence[] | undefined>();
+  const correspondenceFor = (operation: ResolvedSourceCallInfo) => {
+    if (!correspondences.has(operation)) correspondences.set(operation,
+      sourceCallArgumentCorrespondences({ ast: source.ast, semantics: source.semantics.forNode(operation.call) }, operation));
+    return correspondences.get(operation);
+  };
   const declaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
   const problem = sourceDeclarationOwnershipContractProblem(source, call,
     { selectedType: selected.sourceResultType }, completion.contract);
@@ -75,10 +83,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       return nativeRetention(reference);
     const owner = source.ast.parent(formal);
     if (owner === declaration) {
-      const parameter = selected.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === formal);
-      const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, selected)?.filter(row =>
-        row.parameter === parameter && row.binding.sourceForm === "value");
-      const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
+      const argument = sourceSingleCallValueArgument(correspondenceFor(selected), formal);
       return argument === undefined ? sourceDeclarationOwnershipUnresolved(call,
         "A native formal continuation requires its exact selected caller input.") : nativeRetention(argument);
     }
@@ -109,11 +114,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       let reference = node;
       const region = premise.region;
       if (native === premise.executionOwner && region.kind === "input-duration") {
-        const parameter = operation!.sourceSelectedSignatureParameters.find(candidate =>
-          candidate.parameterDeclaration === region.parameter);
-        const bindings = parameter === undefined ? undefined : sourceCallArgumentCorrespondences(source.ast, operation!)?.filter(row =>
-          row.parameter === parameter && row.binding.sourceForm === "value");
-        const argument = bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
+        const argument = sourceSingleCallValueArgument(correspondenceFor(operation!), region.parameter);
         if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
           "A pending native result requires its exact completed input-duration relation.");
         reference = argument;

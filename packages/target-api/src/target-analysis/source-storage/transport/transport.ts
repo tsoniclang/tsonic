@@ -12,7 +12,7 @@ import { createSourceStorageSubjects, type SourceStorageSubject } from "../model
 import { createSourceStorageProjectionFlow } from "../model/projections.js";
 import { createSourceStorageStructuralFlow } from "../model/structural-flow.js";
 import { createSourceStorageEdges } from "../graph/edges.js";
-import type { SourceStorageEdgeTypes } from "../graph/edges.js";
+import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageClassLineages } from "../model/construction.js";

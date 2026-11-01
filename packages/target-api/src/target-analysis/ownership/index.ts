@@ -20,6 +20,8 @@ export { resolveSourceDeclarationAsyncResultDisposition } from "./result-use.js"
 export { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
 export { analyzeSourceDeclarationGenericAdoption } from "./generic-adoption.js";
 export { analyzeSourceDeclarationNativeTaskGraph } from "./native-tasks.js";
+export type { SourceDeclarationNativeTaskScope } from "./native-tasks.js";
+export type { SourceDeclarationContinuationFlowSelection } from "./flow.js";
 export type {
   SourceDeclarationOwnershipCause, SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipEvidence, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,

@@ -6,7 +6,6 @@ export const ModifierFlagsPrivate = 1 << 1;
 export const ModifierFlagsProtected = 1 << 2;
 export const ModifierFlagsReadonly = 1 << 3;
 export const ModifierFlagsOverride = 1 << 4;
-export const ModifierFlagsExport = 1 << 5;
 export const ModifierFlagsAbstract = 1 << 6;
 export const ModifierFlagsAmbient = 1 << 7;
 export const ModifierFlagsStatic = 1 << 8;

@@ -13,7 +13,9 @@
   "types": "./dist/public/index.d.ts",
   "files": [
     "dist",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.test.*",
+    "!dist/**/*fixtures*"
   ],
   "exports": {
     ".": {

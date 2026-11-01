@@ -5,7 +5,8 @@ import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModul
 import { analyzeRawMemoryCall } from "../pointers/raw-memory/analysis.js";
 import { tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 import { memoryDiagnostic } from "./analysis-context.js";
-import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.js";
+import type { MemorySourceAnalysis } from "./analysis-context.js";
+import type { MemorySourceCall } from "./analysis-model.js";
 import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
 import { analyzeMemoryArrayLayout } from "./array-builder.js";
 import { tsonicMemorySignatureIds } from "./declarations.js";

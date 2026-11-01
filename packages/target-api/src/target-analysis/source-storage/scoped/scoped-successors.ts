@@ -1,4 +1,4 @@
-import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -7,7 +7,7 @@ import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageI
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { type createSourceStorageExecutionReachability, createSourceStorageInputExecutions, walkSourceStorageExecution } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageInputFrontier, SourceStorageVariable } from "../graph/scoped-model.js";
+import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageInputFrontier } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
@@ -15,12 +15,15 @@ import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors } from "./scoped-member-successors.js";
 import { createSourceStoragePointerValues } from "./pointer-values.js";
 import { createSourceStorageScopedRejections } from "./rejections.js";
 import { createSourceStorageExecutionContext } from "./execution-context.js";
+import { createSourceStorageRegionSuccessors } from "./region-successors.js";
+import { createSourceStorageStoreSuccessors } from "./store-successors.js";
+import { createSourceStorageTransitionSuccessors } from "./transition-successors.js";
+import { createSourceStorageApplicationSuccessors } from "./application-successors.js";
 import { completeSourceStorageChildReduction, sourceStorageChildDependencies,
   type SourceStorageChildContext, type SourceStoragePendingReduction } from "./child-reduction.js";
 
@@ -97,6 +100,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return budget.failure() !== undefined ? undefined : guards === null ? [empty]
       : guards === value.guards ? [value] : [Object.freeze({ ...value, guards })];
   };
+  const region = createSourceStorageRegionSuccessors({ source, budget, transport, reachability,
+    nativeInputExecutions, pointerValues, application, leaf });
+  const store = createSourceStorageStoreSuccessors({ budget, transport, absent, birth, symbolicInput, replaceChild });
+  const transition = createSourceStorageTransitionSuccessors({ source, scopes, absent, instanceCaptures, replaceChild });
+  const applicationSuccessors = createSourceStorageApplicationSuccessors({ source, budget, transport, scopes, equations,
+    absent, nativeInputExecutions, conditionalExecutions, rejections, replaceChild, dispatchDependencies,
+    independentCalleeFor, regionsFor, classLineages, leaf });
   const reduceStep = (term: SourceStorageTerm, correlated: boolean): SourceStoragePendingReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "input-frontier" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
@@ -118,314 +128,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const terms = programEntries(term);
       return terms === undefined ? undefined : { kind: "replace", terms };
     }
-    if (term.kind === "region") {
-      const terms: SourceStorageTerm[] = [];
-      const demandRegion = transport.regions.enclosing(term.demand);
-      if (demandRegion === term.region && term.demand !== term.region) {
-        const selected = transport.subjectFor(term.demand);
-        if (selected === undefined) {
-          budget.reject("A source execution demand requires its identical checked value subject."); return undefined;
-        }
-        terms.push(leaf(selected, term.scope));
-      }
-      if (term.region === term.demand) for (const store of transport.storesIn(term.region) ?? []) {
-        if (!budget.step()) return undefined;
-        terms.push(Object.freeze({ kind: "effect", store, scope: term.scope }));
-      }
-      for (const invocation of transport.regions.invocationsIn(term.region) ?? []) {
-        if (!budget.step()) return undefined;
-        const reaches = reachability.invocation(invocation, term.demand);
-        if (reaches === undefined) return undefined;
-        if (!reaches) continue;
-        if (transport.pointerInvocations.has(invocation)) {
-          const pointerExecution = pointerValues.execution(invocation, term.scope, term.demand, term.deferred);
-          if (pointerExecution === undefined) return undefined;
-          terms.push(...pointerExecution); continue;
-        }
-        if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
-          const receiver = semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
-          const subject = transport.subjectFor(receiver);
-          if (subject === undefined) return undefined;
-          terms.push(application(invocation, subject, term.scope, [], {
-            mode: "execution", demand: term.demand, deferred: term.deferred,
-          }));
-          continue;
-        }
-        const possible = nativeInputExecutions(invocation, term.scope, term.demand, term.deferred);
-        if (possible === undefined) return undefined;
-        terms.push(...possible);
-        for (const callback of transport.callbackEntriesFor(invocation)) {
-          if (!budget.step()) return undefined;
-          if (callback.timing === "deferred" && !term.deferred) continue;
-          terms.push(Object.freeze({ kind: "application", invocation, callback, activation: Object.freeze({ kind: "invoke" }),
-            callee: sourceStorageReference(callback.argument.actual, term.scope), scope: term.scope,
-            projection: [], mode: "execution", demand: term.demand, deferred: term.deferred }));
-        }
-        const target = transport.invocationTargets.get(invocation);
-        if (target !== undefined) terms.push(application(invocation, target, term.scope, [],
-          { mode: "execution", demand: term.demand, deferred: term.deferred }));
-        else if (transport.accessorTargets.has(invocation)) {
-          for (const target of transport.accessorTargets.get(invocation) ?? []) {
-            if (!budget.step()) return undefined;
-            const receiver = transport.subjectFor(target.receiver);
-            if (receiver === undefined) return undefined;
-            const selection = ast.is.IsSpreadAssignment(invocation) || ast.is.IsBindingElement(invocation)
-              ? Object.freeze({ kind: "projection" as const, subject: receiver, declaration: target.declaration, evaluation: invocation, before: undefined })
-              : Object.freeze({ kind: "access" as const, node: invocation });
-            terms.push(Object.freeze({ kind: "member", selection, receiver: sourceStorageReference(receiver, term.scope),
-              scope: term.scope, projection: [], mode: "execution", demand: term.demand, deferred: term.deferred }));
-          }
-        }
-      }
-      return { kind: "replace", terms };
-    }
-    if (term.kind === "store") {
-      if ((term.destination.kind === "leaf" || term.destination.kind === "input-frontier") &&
-        (term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier")) {
-        const frontier = term.destination.kind === "input-frontier" ? term.destination
-          : term.receiver.kind === "input-frontier" ? Object.freeze({ ...term.receiver, subject: term.destination.subject,
-            scope: term.destination.scope, preservesInput: false }) : undefined;
-        if (frontier !== undefined) {
-          const sameLocation = term.destination.subject === term.receiver.subject && term.destination.scope === term.receiver.scope;
-          const sameInput = term.destination.kind === "input-frontier" && term.receiver.kind === "input-frontier" &&
-            term.destination.input.subject === term.receiver.input.subject && term.destination.input.scope === term.receiver.input.scope;
-          return term.destination.kind === "leaf" && !sameLocation && !sameInput ? absent : { kind: "replace", terms: sameLocation || sameInput ? [frontier, term.value] : [frontier] };
-        }
-      }
-      if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination =>
-        destination === term.destination ? term : Object.freeze({ ...term, destination }), { contributes: false });
-      if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver =>
-        receiver === term.receiver ? term : Object.freeze({ ...term, receiver }));
-      if (term.receiver.subject !== term.destination.subject) return sourceStorageSymbolicMemberAlias(transport, symbolicInput,
-        term.receiver, term.destination) ? { kind: "replace", terms: [term.value] } : absent;
-      const receiver = birth(term.receiver.subject, term.receiver.scope);
-      const destination = birth(term.destination.subject, term.destination.scope);
-      if (receiver === undefined || destination === undefined) return undefined;
-      return budget.withRows((rows): SourceStorageReduction | undefined => {
-        const pending: (readonly [SourceStorageActivation, SourceStorageActivation])[] = [[receiver, destination]];
-        const visited = new Map<SourceStorageActivation, Set<SourceStorageActivation>>();
-        let expansion: SourceStorageVariable | undefined;
-        while (pending.length !== 0) {
-          if (!budget.step()) return undefined;
-          const [receiver, destination] = pending.pop()!;
-          if (receiver.key === destination.key || visited.get(receiver)?.has(destination)) continue;
-          if (!rows.add(2)) return undefined;
-          const targets = visited.get(receiver) ?? new Set<SourceStorageActivation>();
-          targets.add(destination);
-          visited.set(receiver, targets);
-          if (receiver.variable !== undefined || destination.variable !== undefined) {
-            for (const variable of [receiver.variable, destination.variable]) {
-              if (variable !== undefined && (expansion === undefined ||
-                expansion.capture !== undefined && variable.capture === undefined)) expansion = variable;
-            }
-            continue;
-          }
-          if (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
-            receiver.nativeEntry !== destination.nativeEntry) return absent;
-          if (receiver.invocation !== undefined && destination.invocation !== undefined)
-            pending.push([receiver.parent, destination.parent]);
-          if (receiver.creation.length !== destination.creation.length) return absent;
-          for (const [index, creation] of receiver.creation.entries()) {
-            if (!budget.step() || !rows.add(1)) return undefined;
-            pending.push([creation, destination.creation[index]!]);
-          }
-        }
-        return expansion === undefined ? { kind: "replace", terms: [term.value] } : { kind: "expand", variable: expansion };
-      });
-    }
-    if (term.kind === "transition") {
-      if (term.condition.kind === "input-frontier") return { kind: "replace", terms: [term.condition] };
-      if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition =>
-        condition === term.condition ? term : Object.freeze({ ...term, condition }), { contributes: false });
-      const node = term.condition.subject.node;
-      if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-        const owner = ast.is.IsConstructorDeclaration(term.capture.owner) ? ast.parent(term.capture.owner) : term.capture.owner;
-        if (owner === undefined) return undefined;
-        const captures = instanceCaptures(term.capture.owner, term.condition);
-        if (captures === undefined) return undefined;
-        const terms: SourceStorageTerm[] = [];
-        for (const captured of captures) {
-          const value = scopes.applyTerm(term.value, new Map([[term.capture, captured.bindings]]));
-          if (value === undefined) return undefined;
-          terms.push(value);
-        }
-        return { kind: "replace", terms };
-      } else {
-        const selected = navigation.callableImplementation(node);
-        if (selected.kind !== "resolved") return { kind: "replace", terms: [] };
-        if (selected.implementation.declaration !== term.capture.owner) return absent;
-      }
-      const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
-      return value === undefined ? undefined : { kind: "replace", terms: [value] };
-    }
+    if (term.kind === "region") return region(term);
+    if (term.kind === "store") return store(term);
+    if (term.kind === "transition") return transition(term);
     if (term.kind === "pointer") return pointerValues.operation(term);
     if (term.kind === "member") return member(term, correlated);
-    if (term.kind === "application") {
-      const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
-      const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
-      if (term.callee.kind !== "leaf" && term.callee.kind !== "input-frontier") {
-        return replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
-          contributes: false,
-          independentCallee: resumes ? undefined : independentCalleeFor(term.invocation),
-          dependencies,
-        });
-      }
-      const node = term.callee.subject.node;
-      if (term.activation.kind === "provided") {
-        const selected = navigation.callableImplementation(node);
-        if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined)
-          return { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject: term.callee.subject,
-            scope: term.callee.scope, reason: "A native pointer accessor requires its original checked source implementation." })] };
-        return scopes.enterApplication(term, selected.implementation.declaration, term.callee);
-      }
-      if (resumes) {
-        if (term.mode === "value") {
-          const result = transport.subject(term.invocation, "value", term.projection);
-          return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, term.scope)] };
-        }
-        const terms: SourceStorageTerm[] = [];
-        let supplied = false;
-        if (term.callee.subject.kind === "value" && term.callee.subject.projection.length === 0 && ast.is.IsCallExpression(node)) {
-          const implementations = transport.pointerInvocations.has(node) ? transport.pointerAccessors(node) : transport.invocationImplementations(node);
-          if (implementations === undefined) return undefined;
-          for (const candidate of implementations) {
-            if (!budget.step()) return undefined;
-            if (semantics.forNode(candidate).operations.generator(candidate) === undefined) continue;
-            const activation = scopes.boundActivation(term.callee.scope, candidate);
-            const body = ast.body(candidate);
-            if (activation?.invocation !== node || body === undefined) continue;
-            supplied = true;
-            if (term.mode === "throw") {
-              const thrown = rejections.callableThrows(term.callee.subject, candidate, node, activation.scope, undefined, "active");
-              if (thrown === undefined) return undefined;
-              terms.push(...thrown);
-            } else terms.push(Object.freeze({ kind: "region", region: body, scope: activation.scope,
-              demand: term.demand, deferred: term.deferred }));
-          }
-        }
-        if (!supplied) terms.push(Object.freeze({ kind: "unresolved", subject: term.callee.subject,
-          scope: term.callee.scope, exposure: term.invocation,
-          reason: "A generator may-resume requires its original checked creation call and activation." }));
-        return { kind: "replace", terms };
-      }
-      if (term.callback !== undefined) {
-        const type = sourceStorageSubjectType(source, term.callee.subject);
-        if (type !== undefined && semantics.forNode(term.invocation).types.isNullish(type)) return absent;
-        const selected = navigation.callableImplementation(node);
-        const demand = term.mode === "execution" ? transport.subjectFor(term.demand) : undefined;
-        if (term.mode !== "execution" || demand === undefined) return undefined;
-        if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined) {
-          const possible = nativeInputExecutions(term.invocation, term.scope, term.demand, term.deferred,
-            { entry: term.callback, subject: term.callee.subject, bindings: term.callee.scope });
-          if (possible === undefined) return undefined;
-          return { kind: "replace", terms: possible, dependencies };
-        }
-        const candidate = selected.implementation.declaration;
-        const scope = equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
-        if (scope === undefined) return undefined;
-        const regions = regionsFor(candidate, term.invocation, scope, term.demand, undefined, term.deferred);
-        if (regions === undefined) return undefined;
-        const reason = "The relevant native callback has no completed checked execution contract.";
-        const terms = term.callback.timing === "unknown" ? conditionalExecutions(regions, term.demand, term.invocation,
-          { value: { reason, executionOnly: true }, effect: undefined }, true) : regions;
-        if (terms === undefined) return undefined;
-        return { kind: "replace", terms, dependencies };
-      }
-      const construction = ast.is.IsNewExpression(term.invocation) || ast.kindName(Node_Expression(ast, term.invocation)) === "KindSuperKeyword";
-      if (construction && (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) {
-        const lineages = classLineages(term.callee);
-        if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
-        const terms: SourceStorageTerm[] = [];
-        for (const lineage of lineages) {
-          const captured = lineage.classes[lineage.classes.length - 1];
-          if (captured === undefined) return undefined;
-          const owner = captured.subject.node;
-          const candidate = lineage.implementation ?? owner;
-          const scope = equations.scopeFor(candidate, term.invocation, term.scope, captured.bindings,
-            Object.freeze({ ...term, callee: leaf(captured.subject, captured.bindings) }));
-          if (scope === undefined) return undefined;
-          if (term.mode === "execution") {
-            const regions = regionsFor(candidate, term.invocation, scope, term.demand, { caller: term.scope, classes: lineage.classes }, term.deferred);
-            if (regions === undefined) return undefined;
-            terms.push(...regions);
-          } else if (term.mode === "throw") {
-            const thrown = rejections.callableThrows(captured.subject, candidate, term.invocation, scope);
-            if (thrown === undefined) return undefined;
-            terms.push(...thrown);
-          } else {
-            const result = transport.subject(candidate, "return", term.projection);
-            if (result !== undefined && transport.incomingFor(result).size !== 0) terms.push(sourceStorageReference(result, scope));
-          }
-        }
-        return { kind: "replace", terms, dependencies };
-      }
-      const selected = navigation.callableImplementation(node);
-      const missingBody = selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined;
-      const symbolic = missingBody && scopes.isSymbolic(term.callee);
-      if (symbolic) {
-        const owner = sourceStorageFormalOwner(term.callee.subject, source);
-        const native = owner === undefined ? undefined : scopes.boundActivation(term.callee.scope, owner)?.nativeEntry;
-        if (term.mode === "execution" && native !== undefined) {
-          const possible = nativeInputExecutions(term.invocation, term.scope, term.demand, term.deferred);
-          return possible === undefined ? undefined : { kind: "replace", terms: possible, dependencies };
-        }
-      }
-      const contract = transport.invocationDeclarations.get(term.invocation);
-      const nativeAllocation = transport.invocationEffects.get(term.invocation)?.resultAllocation === term.invocation;
-      if (missingBody && transport.isOpaque(term.invocation) && contract === undefined) {
-        const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: [Object.freeze({
-          kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
-          reason: "An invocation has no exact checked selected signature transport.",
-        })], dependencies };
-      }
-      if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
-        (contract !== undefined && ast.body(contract) === undefined || transport.declarationIsAmbient(node) === true &&
-          semantics.forNode(node).declarations.declarationSignature(node) !== undefined)) {
-        const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
-          ? [leaf(result, term.scope)] : term.mode === "execution" ? []
-            : [Object.freeze({ kind: "unresolved", subject: result, scope: term.scope, exposure: term.invocation,
-              reason: "An opaque invocation has no completed original thrown-value transport." })], dependencies };
-      }
-      if (symbolic) {
-        const result = transport.subject(term.invocation, "value", term.projection);
-        if (result === undefined) return undefined;
-        return { kind: "replace", terms: [term.mode === "value" ? leaf(result, term.scope)
-          : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope,
-            reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
-      }
-      if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined) {
-        budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
-      }
-      const candidate = selected.implementation.declaration;
-      const generator = semantics.forNode(candidate).operations.generator(candidate);
-      const asynchronous = ast.hasModifierKind(candidate, "async");
-      const scope = asynchronous && term.activation.kind !== "entered" &&
-        (term.mode === "throw" || term.mode === "value" && generator === undefined)
-        ? term.scope : equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
-      if (scope === undefined) return undefined;
-      if (term.mode === "throw") {
-        const terms = rejections.callableThrows(term.callee.subject, candidate, term.invocation, scope,
-          term.activation.kind === "entered" ? term.activation.actualTypes : undefined);
-        return terms === undefined ? undefined : { kind: "replace", terms };
-      }
-      if (term.mode === "execution") {
-        const regions = regionsFor(candidate, term.invocation, scope, term.demand, undefined, term.deferred,
-          term.activation.kind === "entered" ? term.activation.actualTypes : undefined);
-        return regions === undefined ? undefined : { kind: "replace", terms: regions };
-      }
-      if (generator !== undefined) {
-        const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
-      }
-      if (asynchronous) {
-        const result = transport.subject(term.invocation, "value", term.projection);
-        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
-      }
-      const result = transport.subject(candidate, "return", term.projection);
-      return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
-    }
+    if (term.kind === "application") return applicationSuccessors(term);
     const initializer = term.subject.kind === "input" ? Node_Initializer(ast, term.subject.node) : undefined;
     if (term.views !== undefined && scopes.isSymbolic(Object.freeze({ ...term, kind: "leaf" })))
       return symbolicProjection(term.subject, term.scope, undefined, term.views);

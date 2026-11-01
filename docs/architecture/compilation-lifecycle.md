@@ -57,7 +57,7 @@ entry exporting `main` but never calling that checked declaration rejects with
 `TSONIC_UNCALLED_BINARY_ENTRY_MAIN`. Library exports and non-entry modules do
 not acquire that binary-entry requirement.
 
-Shared `source-navigation/entry-validation.ts` is the validator owner.
+Shared `target-analysis/entry-validation.ts` is the validator owner.
 It uses checked declaration/call correspondence, including aliases, rather
 than matching the text `main`. Each target consumes the same validation and
 its own module-initialization analysis orders imports and top-level work.
@@ -231,3 +231,28 @@ Record tests establish the decisions, native compile/run tests establish the
 translated behavior, and architecture checks establish phase/import boundaries.
 None substitutes for the others. The skeleton documents and mechanical moves
 do not certify acceptance, cost, determinism or resource-scaling gates.
+
+### Workspace proof tooling
+
+The Host owns shared architecture and test tooling under
+`test/architecture/tooling/` and `test/scripts/`. Target test adapters import
+those owners from their sibling Host checkout in the coherent workspace.
+These are intentional test-only dependencies, not product layering edges;
+they do not require a separate tooling package or registry.
+
+`test/scripts/proof-paths.mjs` transports exact current proof paths through the
+signed move relation. Its checked-source reader uses the `/architecture/`
+virtual prefix supplied by `typescript-source.mjs`. Exact test lookup covers
+top-level `test("literal title", ...)` calls only: it does not evaluate template
+titles, callbacks, loops or test bodies. Missing files fail closed, and a test
+name must match exactly once. Path transport does not establish execution.
+
+The Host build entry composes the existing workspace package build owners.
+Targets retain their own compilation and native prerequisite owners. Keep
+that responsibility boundary; file size alone does not justify another build
+orchestration layer.
+
+Source-local package tests and fixtures still compile for the workspace test
+bank. The `target-api` and `source-core` npm file boundaries exclude their
+compiled tests and fixture helpers while retaining current public entrypoints
+and their production dependencies.

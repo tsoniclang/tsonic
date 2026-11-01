@@ -63,7 +63,7 @@ export * from "./flow/index.js";
 export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createTargetGraphComponentQuery } from "./graph-component-query.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
-export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
+export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/model.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
 export { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
 export type { SourceGlobalCallStorageEffect } from "./source-storage/model/global-call-effects.js";

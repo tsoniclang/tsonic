@@ -1,4 +1,5 @@
-import type { MemorySourceAnalysis, MemorySourceCall } from "../../memory-layout/analysis-context.js";
+import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
+import type { MemorySourceCall } from "../../memory-layout/analysis-model.js";
 import { memoryDiagnostic, publishMemoryFact } from "../../memory-layout/analysis-context.js";
 import { selectedDataLayout } from "../../memory-layout/source-values.js";
 import { selectedAddressIntegerDomain } from "./address-integers.js";

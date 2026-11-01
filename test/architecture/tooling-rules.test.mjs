@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   evaluateArchitecture,
   evaluateBarrelModules,
+  evaluateModuleLiveness,
+  evaluateSelfBarrelImports,
 } from "./tooling/architecture-rules.mjs";
 import { classifyFiles } from "./tooling/layer-classification.mjs";
 import {
@@ -273,4 +275,46 @@ test("classification, test ownership, and public API mutations are discriminatin
     }).map((finding) => finding.ruleId),
     ["ARCH-API-001", "ARCH-API-001"],
   );
+});
+
+test("module liveness retains reachable recursive and type-only owners from explicit entries", () => {
+  const modules = ["public.ts", "a.ts", "b.ts", "types.ts", "dead-a.ts", "dead-b.ts"]
+    .map(file => ({ file }));
+  const edges = [["public.ts", "a.ts"], ["a.ts", "b.ts"], ["b.ts", "a.ts"],
+    ["public.ts", "types.ts"], ["dead-a.ts", "dead-b.ts"], ["dead-b.ts", "dead-a.ts"]]
+    .map(([source, target]) => ({ source, target, kind: "relative" }));
+  const input = { modules, edges, entrypoints: ["public.ts"] };
+  assert.deepEqual(evaluateModuleLiveness(input).map(finding => finding.source), ["dead-a.ts", "dead-b.ts"]);
+  assert.deepEqual(evaluateModuleLiveness({ ...input, entrypoints: ["public.ts", "dead-a.ts"] }), []);
+  assert.equal(evaluateModuleLiveness({ ...input, entrypoints: ["missing.ts"] })
+    .some(finding => finding.ruleId === "ARCH-MODULE-ENTRY-001"), true);
+});
+
+test("self-barrel checks use actual runtime cycles and preserve type-only and native recursion", () => {
+  const modules = [
+    { file: "owner/index.ts", runtimeSpecifiers: ["./leaf.js"] },
+    { file: "owner/leaf.ts", runtimeSpecifiers: ["./index.js"] },
+    { file: "owner/types.ts", runtimeSpecifiers: [] },
+    { file: "outside/consumer.ts", runtimeSpecifiers: ["../owner/index.js"] },
+  ];
+  const edges = [
+    { source: "owner/index.ts", specifier: "./leaf.js", target: "owner/leaf.ts", kind: "relative" },
+    { source: "owner/leaf.ts", specifier: "./index.js", target: "owner/index.ts", kind: "relative" },
+    { source: "owner/types.ts", specifier: "./index.js", target: "owner/index.ts", kind: "relative" },
+    { source: "outside/consumer.ts", specifier: "../owner/index.js", target: "owner/index.ts", kind: "relative" },
+  ];
+  assert.deepEqual(evaluateSelfBarrelImports({ modules, edges }).map(finding => finding.source), ["owner/leaf.ts"]);
+  const typeOnly = modules.map(module => module.file === "owner/leaf.ts" ? { ...module, runtimeSpecifiers: [] } : module);
+  assert.deepEqual(evaluateSelfBarrelImports({ modules: typeOnly, edges }), []);
+  const recursive = [
+    { file: "owner/left.ts", runtimeSpecifiers: ["./right.js"] },
+    { file: "owner/right.ts", runtimeSpecifiers: ["./left.js"] },
+  ];
+  const recursion = [
+    { source: "owner/left.ts", specifier: "./right.js", target: "owner/right.ts", kind: "relative" },
+    { source: "owner/right.ts", specifier: "./left.js", target: "owner/left.ts", kind: "relative" },
+  ];
+  assert.deepEqual(evaluateSelfBarrelImports({ modules: recursive, edges: recursion }), []);
+  assert.throws(() => evaluateSelfBarrelImports({ modules: [{ file: "missing.ts" }], edges: [] }),
+    /requires its checked runtime-specifier inventory/u);
 });
