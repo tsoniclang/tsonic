@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
+import type { SourceStorageForwardSelection, SourceStorageFixedPointQuery } from "../model/relations.js";
 
 interface GraphInput {
   readonly node: Node;
@@ -29,16 +30,7 @@ interface Reaction {
   entry: QueryEntry | undefined;
 }
 
-export type SourceStorageForwardSelection<Key, Value> =
-  | { readonly kind: "value"; readonly value: Value }
-  | { readonly kind: "relation"; readonly key: Key };
-
 type ValueProjection<Key, Value> = ((value: Value) => readonly SourceStorageForwardSelection<Key, Value>[] | undefined) | undefined;
-
-export interface SourceStorageFixedPointQuery<Key, Value> {
-  (key: Key): ReadonlySet<Value> | undefined;
-  release(): void;
-}
 
 interface FixedPointTransfer<Key, Value> {
   readonly projections: Set<ValueProjection<Key, Value>>;
