@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
-import { fixture } from './recursive-retention-fixtures.js';
+import { fixture } from '../../../../../test/target-api/fixtures/target-analysis/ownership/recursive-retention-fixtures.mjs';
 
 for (const recursiveClass of ["MBase", "MDerived", "MLeaf", "MExplicit"]) for (const producersFirst of [false, true]) {
   test(`a recursive construction's field keeps its real write relation before D12 admission: ${recursiveClass}, producersFirst=${producersFirst}`, () => {

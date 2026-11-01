@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import { assertDeclaredAdoption, nativeEntryFixture, fixture } from './generic-adoption-fixtures.js';
+import { assertDeclaredAdoption, nativeEntryFixture, fixture } from '../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs';
 
 for (const timing of ["synchronous", "deferred", undefined] as const) {
   for (const ordinary of [false, true]) {

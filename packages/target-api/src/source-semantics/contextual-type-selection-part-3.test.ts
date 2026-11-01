@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture, propagatedPatterns } from "./contextual-type-selection-fixtures.js";
+import { fixture, propagatedPatterns } from "../../../../test/target-api/fixtures/source-semantics/contextual-type-selection-fixtures.mjs";
 
 test("one non-nullish candidate retains its exact checked type identity", () => {
   const { source, queries, literal } = fixture(`

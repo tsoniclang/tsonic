@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { checked } from "./enum-numeric-uses-fixtures.js";
+import { checked } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const absence of ["null", "undefined"] as const){
 for (const operator of ["===", "!==", "==", "!="] as const){

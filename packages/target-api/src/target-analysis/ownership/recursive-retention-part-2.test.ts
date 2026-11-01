@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture } from "./recursive-retention-fixtures.js";
+import { fixture } from "../../../../../test/target-api/fixtures/target-analysis/ownership/recursive-retention-fixtures.mjs";
 
 for (const reverse of [false, true]){
 for (const [kind, owner, callee] of [

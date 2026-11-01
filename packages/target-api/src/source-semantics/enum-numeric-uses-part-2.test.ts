@@ -6,7 +6,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 
 import { createTargetSourceProgram } from "../public/source.js";
 
-import { checked, compositionPreservations, extraNumericRefusals, extraPreservations } from "./enum-numeric-uses-fixtures.js";
+import { checked, compositionPreservations, extraNumericRefusals, extraPreservations } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const [label, body] of compositionPreservations){
 test(`enum composition preserves ${label} without manufacturing a numeric use`, () => {

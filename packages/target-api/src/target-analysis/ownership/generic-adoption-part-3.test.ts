@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture, declarations } from "./generic-adoption-fixtures.js";
-import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
+import { fixture, declarations } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
+import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
 
 for (const [name, declaration, invoked] of declarations){
 test(`generic adoption closes ${name} without refusing its ordinary actual`, () => {

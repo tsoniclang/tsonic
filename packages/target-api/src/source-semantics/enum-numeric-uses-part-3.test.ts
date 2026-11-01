@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { checked, closedUseTwins } from "./enum-numeric-uses-fixtures.js";
+import { checked, closedUseTwins } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 test("checked enum aliases do not require value replay at any binding length", () => {
   const aliases = Array.from({ length: 24 }, (_, index) =>

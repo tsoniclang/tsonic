@@ -5,9 +5,8 @@ import type { SourceDeclarationAsyncCompletionSelection, SourceDeclarationAsyncO
   SourceDeclarationOwnershipUnresolved, SourceDeclarationRetentionReadSelection,
   SourceDeclarationRetentionPremise } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
-import { sourceCallArgumentCorrespondences, sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
-import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
-import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
+import { sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
+import { createSourceCallArgumentCorrespondenceQuery } from "./call-arguments.js";
 
 export function decideSourceDeclarationAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
@@ -27,12 +26,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
   const selected = source.semantics.forNode(call).operations.call(call);
   if (selected?.sourceSelectedSignatureKind !== "resolved")
     return sourceDeclarationOwnershipUnresolved(call, "Async result-use requires the exact selected checked signature.");
-  const correspondences = new Map<ResolvedSourceCallInfo, readonly SourceCallArgumentCorrespondence[] | undefined>();
-  const correspondenceFor = (operation: ResolvedSourceCallInfo) => {
-    if (!correspondences.has(operation)) correspondences.set(operation,
-      sourceCallArgumentCorrespondences({ ast: source.ast, semantics: source.semantics.forNode(operation.call) }, operation));
-    return correspondences.get(operation);
-  };
+  const correspondenceFor = createSourceCallArgumentCorrespondenceQuery(source);
   const declaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
   const problem = sourceDeclarationOwnershipContractProblem(source, call,
     { selectedType: selected.sourceResultType }, completion.contract);

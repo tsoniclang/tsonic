@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { assertDeclaredAdoption, nativePayloadContinuationCases, fixture } from "./generic-adoption-fixtures.js";
+import { assertDeclaredAdoption, nativePayloadContinuationCases, fixture } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 
 for (const form of nativePayloadContinuationCases){
 for (const adopting of [false, true]){

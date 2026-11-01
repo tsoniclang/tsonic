@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { targetSourceSyntaxProgram } from "../target-analysis/source-syntax.js";
 
-import { checked } from "./property-names-fixtures.js";
+import { checked } from "../../../../test/target-api/fixtures/source-semantics/property-names-fixtures.mjs";
 
 test("const destructured singleton bindings preserve their exact checked origin", () => {
   const source = checked(`

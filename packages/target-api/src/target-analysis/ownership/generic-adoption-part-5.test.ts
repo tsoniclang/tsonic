@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture, identity } from "./generic-adoption-fixtures.js";
-import { checkedOperation } from "./generic-adoption-part-3-fixtures.js";
+import { fixture, identity } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
+import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
 
 test("an ordinary helper does not become a resolver merely because its callback has the same signature", () => {
   const current = fixture(`function use<T>(value: T): Promise<number> { return new Promise<number>(resolve => {

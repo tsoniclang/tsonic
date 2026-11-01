@@ -1,14 +1,13 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo } from "./call-info.js";
+import type { SourceNavigationOperationQueries } from "./query-context.js";
 
 interface SourceCallArgumentSemantics {
   readonly sourceFile: SourceFile;
-  readonly operations: {
-    call(node: Node): ResolvedSourceCallInfo | undefined;
-  };
+  readonly operations: Pick<SourceNavigationOperationQueries, "call">;
 }
 
-export interface SourceCallArgumentContext {
+interface SourceCallArgumentContext {
   readonly ast: AstReader;
   readonly semantics: SourceCallArgumentSemantics;
 }

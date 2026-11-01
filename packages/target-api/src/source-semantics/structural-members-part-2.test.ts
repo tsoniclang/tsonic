@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { createSourceStructuralMemberQueries } from "./structural-members.js";
 
-import { inspect, memberDeclaration } from "./structural-members-fixtures.js";
+import { inspect, memberDeclaration } from "../../../../test/target-api/fixtures/source-semantics/structural-members-fixtures.mjs";
 
 test("native absence is disjoint only from a proven present record, not an unresolved or nullable shape", () => {
   for (const absent of ["null", "undefined"]) {

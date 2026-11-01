@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { fixture } from "./absence-use-fixtures.js";
+import { fixture } from "../../../../test/target-api/fixtures/source-navigation/absence-use-fixtures.mjs";
 
 test("absence comparisons use checked nullish and void types on both sides of every equality operator", () => {
   for (const operator of ["==", "!=", "===", "!=="]) {

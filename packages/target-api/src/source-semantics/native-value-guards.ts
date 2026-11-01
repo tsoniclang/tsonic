@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-navigation/ast.js";
+import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
 
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
@@ -12,8 +13,12 @@ export function selectSourceNativeValueGuard(
   { ast, navigation, semanticsFor }: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "semanticsFor">,
   expression: Node,
 ): SourceNativeValueGuard | undefined {
+  const contains = createSourceSyntaxDomain(ast, expression);
   const transparent = (node: Node | undefined): Node | undefined => {
-    for (let remaining = 2_048; node !== undefined && remaining > 0; remaining -= 1) {
+    const visited = new Set<Node>();
+    while (node !== undefined) {
+      if (!contains(node) || visited.has(node)) return undefined;
+      visited.add(node);
       if (!ast.is.IsParenthesizedExpression(node) && !ast.is.IsSatisfiesExpression(node) && !ast.is.IsNonNullExpression(node)) return node;
       node = Node_Expression(ast, node);
     }

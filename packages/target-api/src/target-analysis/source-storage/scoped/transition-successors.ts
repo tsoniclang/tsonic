@@ -4,7 +4,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { createSourceStorageExecutionContext } from "./execution-context.js";
 import type { SourceStorageChildContext, SourceStoragePendingReduction } from "./child-reduction.js";
 
-export interface SourceStorageTransitionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "instanceCaptures"> {
+interface SourceStorageTransitionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "instanceCaptures"> {
   readonly source: TargetSourceProgram;
   readonly scopes: SourceStorageScopes;
   readonly absent: Extract<SourceStorageReduction, { readonly kind: "replace" }>;

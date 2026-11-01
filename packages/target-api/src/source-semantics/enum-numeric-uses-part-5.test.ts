@@ -6,7 +6,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 
 import { createTargetSourceProgram } from "../public/source.js";
 
-import { checked, stringRefusals, closedUseRefusals } from "./enum-numeric-uses-fixtures.js";
+import { checked, stringRefusals, closedUseRefusals } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const [label, body] of stringRefusals){
 test(`enum string boundary refuses ${label} with string-specific wording`, () => {

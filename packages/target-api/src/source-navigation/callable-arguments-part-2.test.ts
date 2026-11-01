@@ -7,7 +7,7 @@ import type { Node } from "@tsonic/tsts";
 import { sourceExpressionCallArgument } from "./callable-arguments.js";
 import * as callableArguments from "./callable-arguments.js";
 
-import { fixture } from "./callable-arguments-fixtures.js";
+import { fixture } from "../../../../test/target-api/fixtures/source-navigation/callable-arguments-fixtures.mjs";
 
 test("checked call arguments are selected independently of closed callable ABI eligibility", () => {
   for (const body of [

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { checked, compositionRefusals } from "./enum-numeric-uses-fixtures.js";
+import { checked, compositionRefusals } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 test("a wide enum and neighboring checker-equal literal are refused before native operation selection", () => {
   const source = checked(`export enum High { Value = 9007199254740993 }

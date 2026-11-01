@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { checked, numericUses } from "./enum-numeric-uses-fixtures.js";
+import { checked, numericUses } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const [label, body] of numericUses){
 test(`enum numeric admission refuses ${label} once before target analysis`, () => {

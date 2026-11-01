@@ -10,7 +10,7 @@ import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnersh
 
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
 
-import { fixture } from "./recursive-retention-fixtures.js";
+import { fixture } from "../../../../../test/target-api/fixtures/target-analysis/ownership/recursive-retention-fixtures.mjs";
 
 for (const reverse of [false, true]){
 test(`a formal Promise adopter remains independent of unrelated caller factories, reverse=${reverse}`, () => {
