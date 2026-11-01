@@ -218,6 +218,69 @@ export function evaluateBarrelModules(
   return Object.freeze(sortFindings(findings));
 }
 
+export function evaluateModuleLiveness({ modules, edges, entrypoints }) {
+  const known = new Set(modules.map(module => module.file));
+  const dependencies = new Map([...known].map(file => [file, []]));
+  for (const edge of edges) {
+    if (known.has(edge.source) && known.has(edge.target)) dependencies.get(edge.source).push(edge.target);
+  }
+  const findings = entrypoints.filter(file => !known.has(file)).map(file => finding(
+    "ARCH-MODULE-ENTRY-001", file, undefined, "Declared product entrypoint is missing from the checked source domain."));
+  const reachable = new Set();
+  const pending = entrypoints.filter(file => known.has(file));
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (reachable.has(file)) continue;
+    reachable.add(file);
+    pending.push(...dependencies.get(file));
+  }
+  for (const file of known) {
+    if (!reachable.has(file)) findings.push(finding(
+      "ARCH-MODULE-LIVENESS-001", file, undefined, "Product module has no path from a declared public entrypoint."));
+  }
+  return Object.freeze(sortFindings(findings));
+}
+
+export function evaluateFunctionLiveness({ modules, entrypoints }) {
+  const byFile = new Map(modules.map(module => {
+    if (!Array.isArray(module.functionExports) || !Array.isArray(module.functionReads))
+      throw new Error(`Module requires its checked function-use inventory: ${module.file}`);
+    return [module.file, module];
+  }));
+  const publicFunctions = new Set(entrypoints.flatMap(file => {
+    const module = byFile.get(file);
+    if (module === undefined) throw new Error(`Missing function-liveness entrypoint: ${file}`);
+    return module.functionExports;
+  }));
+  const reads = new Set(modules.flatMap(module => module.functionReads));
+  return Object.freeze([...new Set(modules.flatMap(module => module.functionExports))]
+    .filter(identity => !publicFunctions.has(identity) && !reads.has(identity)).sort()
+    .map(identity => finding("ARCH-FUNCTION-LIVENESS-001", identity.slice(0, identity.lastIndexOf("#")), identity,
+      "Exported function has no checked product/test reader or transitive public export; registry strings are not execution consumers.")));
+}
+
+export function evaluateSelfBarrelImports({ modules, edges }) {
+  const runtime = new Map(modules.map(module => {
+    if (!Array.isArray(module.runtimeSpecifiers)) throw new Error(`Module requires its checked runtime-specifier inventory: ${module.file}`);
+    return [module.file, new Set(module.runtimeSpecifiers)];
+  }));
+  const runtimeEdges = edges.filter(edge => {
+    const specifiers = runtime.get(edge.source);
+    if (specifiers === undefined) throw new Error(`Foreign runtime module edge: ${edge.source}`);
+    return edge.kind === "relative" && runtime.has(edge.target) && specifiers.has(edge.specifier);
+  });
+  const components = stronglyConnectedComponents(runtime.keys(), runtimeEdges);
+  const componentFor = new Map(components.flatMap((component, index) => component.map(file => [file, index])));
+  const findings = [];
+  for (const edge of runtimeEdges) {
+    if ((edge.target !== "index.ts" && !edge.target.endsWith("/index.ts")) ||
+      edge.source.slice(0, edge.source.lastIndexOf("/")) !== edge.target.slice(0, edge.target.lastIndexOf("/"))) continue;
+    if (componentFor.get(edge.source) === componentFor.get(edge.target)) findings.push(finding("ARCH-SELF-BARREL-001", edge.source, edge.target,
+      "Runtime import enters the module's own re-exporting barrel; import the actual owning leaf instead."));
+  }
+  return Object.freeze(sortFindings(findings));
+}
+
 function validLineLimitException(exception, lines) {
   return exception !== undefined &&
     Number.isSafeInteger(exception.maximumLines) &&
