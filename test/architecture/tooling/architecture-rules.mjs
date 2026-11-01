@@ -241,18 +241,19 @@ export function evaluateModuleLiveness({ modules, edges, entrypoints }) {
   return Object.freeze(sortFindings(findings));
 }
 
-export function evaluateFunctionLiveness({ modules, entrypoints }) {
-  const byFile = new Map(modules.map(module => {
+export function evaluateFunctionLiveness({ modules, readers, entrypoints }) {
+  if (!Array.isArray(readers)) throw new Error("Function liveness requires its checked reader-module inventory.");
+  for (const module of [...modules, ...readers]) {
     if (!Array.isArray(module.functionExports) || !Array.isArray(module.functionReads))
       throw new Error(`Module requires its checked function-use inventory: ${module.file}`);
-    return [module.file, module];
-  }));
+  }
+  const byFile = new Map(modules.map(module => [module.file, module]));
   const publicFunctions = new Set(entrypoints.flatMap(file => {
     const module = byFile.get(file);
     if (module === undefined) throw new Error(`Missing function-liveness entrypoint: ${file}`);
     return module.functionExports;
   }));
-  const reads = new Set(modules.flatMap(module => module.functionReads));
+  const reads = new Set([...modules, ...readers].flatMap(module => module.functionReads));
   return Object.freeze([...new Set(modules.flatMap(module => module.functionExports))]
     .filter(identity => !publicFunctions.has(identity) && !reads.has(identity)).sort()
     .map(identity => finding("ARCH-FUNCTION-LIVENESS-001", identity.slice(0, identity.lastIndexOf("#")), identity,
