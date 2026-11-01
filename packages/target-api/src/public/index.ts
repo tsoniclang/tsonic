@@ -13,9 +13,9 @@ export {
 export type {
   TargetCompilationSession,
   TargetCompilationSessionContext,
-  TargetCompilationPaths,
   TargetCompileInput,
 } from "../target/compilation.js";
+export type { TargetCompilationPaths } from "../target/paths.js";
 export type {
   TargetPack,
   TsonicPlugin,

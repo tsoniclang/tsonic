@@ -90,3 +90,30 @@ test("foreign checked calls, copied bindings and exhausted closure budgets fail 
     assert.equal(budget.failure() !== undefined, true);
   }
 });
+
+test("declaration continuation observations retain one checked native-premise inventory", () => {
+  const owner = fixture.declaration("nativeOnly");
+  const selected = fixture.query.continuationForDeclaration(owner);
+  assert.equal(selected.kind === "resolved", true,
+    selected.kind === "unresolved" ? selected.reason : "checked declaration continuation");
+  assert.equal(selected.declaration === owner, true, "the original source declaration owns the observation");
+  assert.equal(fixture.query.continuationForDeclaration(owner) === selected, true,
+    "the public getter reads the existing declaration cache");
+  assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.dependencies) &&
+    Object.isFrozen(selected.reads) && Object.isFrozen(selected.calls), true, "frozen original inventory");
+  assert.equal(selected.dependencies.some(dependency =>
+    fixture.selectedDeclaration(dependency.actual.node) === fixture.declaration("nativeFuture")), true,
+    "the native pending result retains its own checked value identity");
+  assert.equal(selected.dependencies.every(dependency => dependency.actual === dependency.retention.value &&
+    dependency.retention.contract.component === dependency.actual.component), true,
+    "every dependency reads its identical canonical value and completed native premise");
+  const foreign = closureFixture();
+  assert.equal(fixture.query.continuationForDeclaration(foreign.declaration("nativeOnly")).kind, "unresolved",
+    "foreign declarations do not produce an empty successful observation");
+  const budget = createSourceDeclarationOwnershipBudget(owner,
+    { ...defaultSourceDeclarationOwnershipLimits, maximumSteps: 1 });
+  const bounded = createSourceDeclarationOwnershipQuery({ ...fixture, budget, premises: fixture.native })
+    .continuationForDeclaration(owner);
+  assert.equal(bounded.kind === "unresolved" && bounded.cause.kind === "resource-limit", true,
+    "the same declaration observation retains its finite native-contract work budget");
+});

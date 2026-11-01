@@ -1,17 +1,17 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 import { Node_Expression, Node_Initializer } from "./ast.js";
 import { AsExpressionWithTypeArguments } from "./checked-casts.js";
 import { sourceClassFieldIsTypeOnly } from "./class-members.js";
 
-export function sourceConstructionExpression(invocation: Node, source: TargetSourceProgram,
+export function sourceConstructionExpression(invocation: Node, source: Pick<SourceNavigationQueryContext, "ast" | "navigation">,
   step: () => boolean): Node | undefined {
   if (source.ast.is.IsNewExpression(invocation)) return source.navigation.isProjectDeclaration(invocation)
     ? Node_Expression(source.ast, invocation) : undefined;
   return sourceSuperConstructor(invocation, source, step)?.callee;
 }
 
-export function sourceSuperConstructor(invocation: Node, source: TargetSourceProgram,
+export function sourceSuperConstructor(invocation: Node, source: Pick<SourceNavigationQueryContext, "ast" | "navigation">,
   step: () => boolean): { readonly owner: Node; readonly callee: Node } | undefined {
   const { ast, navigation } = source;
   if (!ast.is.IsCallExpression(invocation) || ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword" ||
@@ -29,7 +29,7 @@ export function sourceSuperConstructor(invocation: Node, source: TargetSourcePro
   return undefined;
 }
 
-export function sourceInstanceInitializers(declaration: Node, source: TargetSourceProgram,
+export function sourceInstanceInitializers(declaration: Node, source: Pick<SourceNavigationQueryContext, "ast" | "navigation">,
   step: () => boolean): readonly Node[] | undefined {
   const { ast, navigation } = source;
   if (!navigation.isProjectDeclaration(declaration) ||

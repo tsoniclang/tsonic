@@ -12,6 +12,11 @@ export interface SourceNativeTaskSpawn {
   readonly owner: Node;
 }
 
+export interface SourceDeclarationNativeTaskScope {
+  readonly kind: "parameter" | "capture" | "none";
+  readonly contract: SourceDeclarationOwnershipContract;
+}
+
 export function analyzeSourceDeclarationNativeTaskGraph(input: {
   readonly source: TargetSourceProgram;
   readonly values: SourceDeclarationOwnershipValues;
@@ -19,10 +24,7 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
   readonly spawns: readonly { readonly node: Node; readonly operand: Node }[];
   readonly lifecycleOwner: SourceFile | undefined;
   readonly publishedDeclarations: ReadonlySet<Node>;
-  readonly scopeFor: (declaration: Node) => SourceDeclarationOwnershipUnresolved | {
-    readonly kind: "parameter" | "capture" | "none";
-    readonly contract: SourceDeclarationOwnershipContract;
-  };
+  readonly scopeFor: (declaration: Node) => SourceDeclarationOwnershipUnresolved | SourceDeclarationNativeTaskScope;
   readonly budget: SourceDeclarationOwnershipBudget;
 }): { readonly kind: "resolved"; readonly graph: SourceNativeTaskGraph }
   | { readonly kind: "unresolved"; readonly issues: readonly SourceNativeTaskIssue[] }

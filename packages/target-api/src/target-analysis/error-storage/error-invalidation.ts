@@ -4,7 +4,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
 import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
-import type { SourceErrorStorageDemandQueries } from "./error-storage-demands.js";
+import type { SourceErrorStorageDemandQueries } from "./model.js";
 
 export function createSourceErrorInvalidationQuery(
   source: TargetSourceProgram,

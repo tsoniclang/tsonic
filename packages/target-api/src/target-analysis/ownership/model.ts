@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use.js";
+import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use-model.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
 import type { SourceTypeComponentEvidence } from "../../source-semantics/types.js";

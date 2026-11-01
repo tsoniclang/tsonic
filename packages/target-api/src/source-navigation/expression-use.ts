@@ -2,6 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
 import type { SourceProgramNavigation } from "./types.js";
+import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations } from "./ast.js";
 import { sourceEnclosingCallable } from "./callable-invocations.js";
 
@@ -71,14 +72,6 @@ export function sourceExpressionSelectsOperandValue(ast: AstReader, expression: 
     operator === "KindBarBarToken") &&
     (sourceNodesEqual(ast, binary?.Left, operand) || sourceNodesEqual(ast, binary?.Right, operand));
 }
-
-export type SourceExpressionResultDisposition =
-  | { readonly kind: "discarded"; readonly use: Node }
-  | { readonly kind: "stored"; readonly use: Node }
-  | { readonly kind: "returned"; readonly use: Node }
-  | { readonly kind: "consumed"; readonly use: Node }
-  | { readonly kind: "awaited-in-scope"; readonly use: Node; readonly completionReturned: boolean }
-  | { readonly kind: "passed"; readonly use: Node; readonly invocation: Node; readonly argument: Node };
 
 export function sourceExpressionResultDisposition(
   ast: AstReader,

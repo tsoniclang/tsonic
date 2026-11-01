@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
 import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
-import type { SourceValueFlowQueryContext } from "./value-flow-conditions.js";
+import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
 
 export function sourceGuardPreservesBinding(
   context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts">,
