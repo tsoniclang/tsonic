@@ -3,7 +3,8 @@ import type { Node, ResolvedSourceCallInfo, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
-import type { MemoryTypeDomain, MemoryTypeDomains } from "./domains.js";
+import type { MemoryTypeDomains } from "./domains.js";
+import type { MemoryTypeDomain } from "./model.js";
 import { tsonicPointerViewFactKey } from "../../pointers/views/facts.js";
 
 interface ValueFrame {

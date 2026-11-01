@@ -1,21 +1,8 @@
-import type { AstReader, Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import type { Node, Type } from "@tsonic/tsts";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
-import type { SourceFileSemantics } from "../source-semantics/types.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
-
-export interface SourceValueFlowQueryContext {
-  readonly ast: AstReader;
-  readonly navigation: SourceProgramNavigation;
-  readonly sourceFacts?: ReadonlySourceFactResolver;
-  semanticsFor(node: Node): SourceFileSemantics;
-}
-
-export interface SourceNativeGuard<Predicate> {
-  readonly sourceOperand: Node;
-  readonly predicate: Predicate;
-}
+import type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";
 
 export function selectSourceNativeGuardResult<Member, Predicate>(
   context: SourceValueFlowQueryContext,

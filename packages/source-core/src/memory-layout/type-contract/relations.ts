@@ -1,17 +1,6 @@
-import type { Node, Symbol, Type, TypePropertyInfo } from "@tsonic/tsts";
+import type { Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import type { MemoryTypeDomain } from "./domains.js";
-
-export interface MemoryRecordMember {
-  readonly property: TypePropertyInfo;
-  readonly declarations: readonly Node[];
-  readonly domain: MemoryTypeDomain;
-}
-
-export interface MemoryRecordShape {
-  readonly type: Type;
-  readonly members: ReadonlyMap<Symbol, MemoryRecordMember>;
-}
+import type { MemoryRecordMember, MemoryRecordShape, MemoryTypeDomain } from "./model.js";
 
 function correspondingMemoryMember(
   context: Pick<TsonicSourceFileAnalysisContext, "checker">,

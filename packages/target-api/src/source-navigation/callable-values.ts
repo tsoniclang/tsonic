@@ -1,5 +1,5 @@
 import type { AstReader, Node, ResolvedSourcePropertyAccessInfo, ResolvedSourceElementAccessInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { Node_Expression } from "./ast.js";
 
@@ -32,7 +32,7 @@ export function sourceCallableValueExpression(
   return undefined;
 }
 
-export function createSourceCallableValueQuery(source: TargetSourceProgram, options: SourceCallableValueOptions = {}):
+export function createSourceCallableValueQuery(source: SourceNavigationQueryContext, options: SourceCallableValueOptions = {}):
   (expression: Node) => SourceCallableValue | undefined {
   const { ast, navigation } = source;
   const expressionOptions = Object.freeze({ typeAssertions: options.typeAssertions });

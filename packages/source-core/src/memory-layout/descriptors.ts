@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
 import { memoryDiagnostic } from "./analysis-context.js";
-import type { MemorySourceCall } from "./analysis-context.js";
+import type { MemorySourceCall } from "./analysis-model.js";
 
 export function readMemoryDescriptor<Key extends string>(
   call: MemorySourceCall,

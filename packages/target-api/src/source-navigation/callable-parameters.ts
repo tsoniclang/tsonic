@@ -1,8 +1,8 @@
 import type { AstReader, Node, Signature } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "../source-semantics/types.js";
+import type { SourceNavigationFileQueries } from "./query-context.js";
 
 export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
-  semantics: SourceFileSemantics,
+  semantics: Pick<SourceNavigationFileQueries, "types" | "declarations">,
   context?: { readonly kind: "declaration" } |
     { readonly kind: "selected-invocation"; readonly signature: Signature }): readonly Node[] | undefined {
   const signature = context?.kind === "selected-invocation" ? context.signature
@@ -22,7 +22,7 @@ export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
 }
 
 function sourceCallableDeclarationSignature(ast: AstReader, declaration: Node,
-  semantics: SourceFileSemantics): Signature | undefined {
+  semantics: Pick<SourceNavigationFileQueries, "types" | "declarations">): Signature | undefined {
   const authored = semantics.declarations.declarationSignature(declaration);
   if (authored !== undefined) return authored;
   const construction = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);

@@ -1,12 +1,12 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "./ast.js";
-import type { SourceFileSemantics } from "../source-semantics/types.js";
+import type { SourceNavigationTypeQueries } from "./query-context.js";
 
 export type SourceAbsenceUse = "coalesce" | "comparison" | undefined;
 
 export function sourceAbsenceUse(expression: Node, context: {
   readonly ast: AstReader;
-  semanticsFor(node: Node): SourceFileSemantics;
+  semanticsFor(node: Node): { readonly types: Pick<SourceNavigationTypeQueries, "expressionType" | "isNullish" | "isVoidLike"> };
 }): SourceAbsenceUse {
   let receiver = expression;
   const seen = new Set<Node>();

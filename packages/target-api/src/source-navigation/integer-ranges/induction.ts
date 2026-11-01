@@ -1,10 +1,10 @@
 import { argumentPassingFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, type AstReader, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceCountedLoop, SourceProgramNavigation } from "../types.js";
-import type { SourceFileSemantics } from "../../source-semantics/types.js";
+import type { SourceNavigationFileQueries } from "../query-context.js";
 
 interface IntegerUseEvidence {
   readonly sourceFacts: ReadonlySourceFactResolver | undefined;
-  semanticsFor(node: Node): SourceFileSemantics;
+  semanticsFor(node: Node): Pick<SourceNavigationFileQueries, "operations" | "declarations">;
 }
 
 export function sourceIntegerInduction(

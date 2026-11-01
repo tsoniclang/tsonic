@@ -6,14 +6,7 @@ import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules
 import { memoryProviderFieldType } from "./provider-fields.js";
 import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
 import { createMemoryDomainRelation } from "./relations.js";
-import type { MemoryRecordMember, MemoryRecordShape } from "./relations.js";
-
-export interface MemoryTypeDomain {
-  readonly key: number;
-  readonly kind: "source" | "nullish" | "primitive" | "pointer" | "raw-pointer" | "union" | "intersection" | "reference" | "fixed-array" | "extent";
-  readonly children: readonly MemoryTypeDomain[];
-  readonly head: DomainPart | undefined;
-}
+import type { DomainPart, MemoryRecordMember, MemoryRecordShape, MemoryTypeDomain } from "./model.js";
 
 export interface MemoryTypeDomains {
   authored(node: Node): MemoryTypeDomain | undefined;
@@ -32,7 +25,6 @@ export interface MemoryTypeDomains {
   referenceType(domain: MemoryTypeDomain): Type | undefined;
 }
 
-type DomainPart = object | string | number | bigint | boolean;
 interface DomainTrie {
   readonly children: Map<DomainPart, DomainTrie>;
   domain?: MemoryTypeDomain;

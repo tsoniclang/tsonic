@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "./ast.js";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 
 export interface SourceArrayDensityQueries {
   array(expression: Node): boolean;
@@ -20,7 +20,7 @@ export interface SourceArrayDensityOptions {
 }
 
 export function createSourceArrayDensityQuery(
-  source: TargetSourceProgram,
+  source: SourceNavigationQueryContext,
   options: SourceArrayDensityOptions,
 ): SourceArrayDensityQueries {
   const { ast, navigation } = source;
