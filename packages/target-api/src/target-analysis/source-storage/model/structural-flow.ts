@@ -3,14 +3,14 @@ import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-s
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageMemberSubject } from "./subjects.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageOriginalComponents } from "./components.js";
-import type { SourceStorageEdgeTypes } from "../graph/edges.js";
+import type { SourceStorageEdgeTypes } from "./relations.js";
 
 export function createSourceStorageStructuralFlow(
   source: TargetSourceProgram,
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
   connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,
-    types?: { readonly from: Type; readonly to: Type }) => void,
+    types?: SourceStorageEdgeTypes) => void,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ): (origin: SourceStorageSubject, destination: SourceStorageSubject, types?: SourceStorageEdgeTypes) => void {

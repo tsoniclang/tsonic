@@ -12,7 +12,7 @@ import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
   sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
-import type { createSourceStorageGraphQueries } from "./graph-queries.js";
+import type { SourceStorageFixedPointQueries } from "../model/relations.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
   SourceStorageWriteOccurrence, SourceStorageWrittenValue } from "../model/types.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
@@ -32,7 +32,7 @@ export interface SourceStorageWrite {
 export function createSourceStorageFormalMemberWrites(
   source: TargetSourceProgram,
   sourceBudget: SourceStorageBudget,
-  createEquations: (budget: SourceStorageBudget) => ReturnType<typeof createSourceStorageGraphQueries>,
+  createEquations: (budget: SourceStorageBudget) => SourceStorageFixedPointQueries,
   queries: {
     readonly declarations: readonly Node[];
     readonly invocations: Iterable<Node>;

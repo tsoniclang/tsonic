@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
+import { sourceStorageIsDirectCreation } from "../model/subjects.js";
 import { sourceStorageReference, type SourceStorageFrame, type SourceStorageScope,
   type SourceStorageTerm } from "../graph/scoped-model.js";
 import type { SourceStorageCreationContext } from "./activation-keys.js";
@@ -41,6 +42,8 @@ export function createSourceStorageInitializerSummaries(source: TargetSourceProg
   };
   return Object.freeze({
     instantiate(value: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined {
+      if (budget.failure() !== undefined) return undefined;
+      if (sourceStorageIsDirectCreation(value, source.ast)) return sourceStorageReference(value, scope);
       const selected = initializer(value);
       if (budget.failure() !== undefined) return undefined;
       if (selected === undefined || scope.kind !== "frame" || scope.owner !== selected.owner || scope.invocation === undefined)

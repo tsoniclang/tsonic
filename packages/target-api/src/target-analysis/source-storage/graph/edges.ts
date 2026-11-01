@@ -1,17 +1,13 @@
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
+import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageIsMemberProjection } from "../model/subjects.js";
 
 export type SourceStorageIncomingQuery = (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>;
-
-export interface SourceStorageEdgeTypes {
-  readonly from: Type;
-  readonly to: Type;
-}
 
 interface SourceStorageDestinationEdges {
   readonly components: Map<SourceStorageSubject, Map<SourceStorageSubject, ReadonlySet<SourceStorageEdgeTypes | undefined>>>;
