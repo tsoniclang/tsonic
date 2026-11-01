@@ -502,10 +502,13 @@ export function createSourceStorageDomains(
       if (!publicationRows.add(1)) return undefined;
       query = domainInputs.query((subject: SourceStorageSubject) => {
         const hasInputs = domainInputs.readPresence(subject);
-        const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : current => {
-          if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
-          domainInputs.read(current.subject);
-          return current.original && domainInputs.has(current.subject);
+        const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : {
+          kind: "input",
+          admits: current => {
+            if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
+            domainInputs.read(current.subject);
+            return current.original && domainInputs.has(current.subject);
+          },
         });
         if (budget.failure() !== undefined) return undefined;
         const origins = new Set<SourceStorageScopedSubject>();
