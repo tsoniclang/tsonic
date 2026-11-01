@@ -11,7 +11,7 @@ import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
 import { createSourceStorageExecutionReachability, walkSourceStorageExecution } from "./execution-reachability.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageProjectionReceiver, SourceStorageRelationWitness,
-  SourceStorageInputFrontier, SourceStorageProjectionView } from "../graph/scoped-model.js";
+  SourceStorageInputFrontier, SourceStorageProjectionView, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
@@ -34,6 +34,11 @@ function sourceStorageIsProjectedInput(frontier: SourceStorageInputFrontier): bo
 
 type SourceStorageWalkBoundary = SourceStorageInputWalkBoundary |
   ((subject: SourceStorageScopedSubject & { readonly original: boolean }) => boolean);
+
+type SourceStorageWalkDemand =
+  | { readonly kind: "values" }
+  | { readonly kind: "witnesses"; readonly boundary: SourceStorageWalkBoundary | undefined;
+      readonly preserveValuePath: boolean };
 
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport,
@@ -60,38 +65,33 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const evaluation = createSourceStorageRelationEvaluation(source, budget, transport, scopes, equations, reachability, keys, graphQueries, creation);
   const { intern, results, witnessScope } = evaluation;
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
-  const termValues = (term: SourceStorageTerm): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
-    const root = intern(term);
-    const selected = root === undefined ? undefined : results(root);
-    if (selected === undefined) return undefined;
+  const values = (term: SourceStorageTerm): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
+    const selected = walk(term, { kind: "values" });
+    if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
+      selected.effectFrontiers.length !== 0) {
+      if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
+      return undefined;
+    }
     const values = new Set<SourceStorageScopedSubject>();
-    for (const value of selected) {
+    for (const value of selected.subjects) {
       if (!budget.step()) return undefined;
-      if (value.kind === "unresolved" && value.executionOnly !== true) {
-        if (value.exposure === undefined) budget.reject(value.reason); return undefined;
-      }
-      if (value.kind === "input-frontier") {
-        if (value.preservesInput) values.add(Object.freeze({ subject: value.input.subject, bindings: value.input.scope }));
-        else if (sourceStorageIsProjectedInput(value)) values.add(Object.freeze({ subject: value.subject, bindings: value.scope, views: value.views }));
-        else return undefined;
-      }
-      if (value.kind === "leaf") values.add(Object.freeze({ subject: value.subject, bindings: value.scope, views: value.views }));
+      if (value.original && selected.origins.has(value.subject))
+        values.add(Object.freeze({ subject: value.subject, bindings: value.bindings, views: value.views }));
     }
     return values;
   });
-  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined =>
-    termValues(sourceStorageReference(origin, scope));
-  const projectedValues = (receiver: SourceStorageProjectionReceiver): ReadonlySet<SourceStorageScopedSubject> | undefined => {
-    if (sourceStorageIsMemberProjection(receiver.component)) return termValues(Object.freeze({ kind: "member",
+  const projection = (receiver: SourceStorageProjectionReceiver): SourceStorageReference |
+    Extract<SourceStorageTerm, { readonly kind: "member" }> | undefined => {
+    if (sourceStorageIsMemberProjection(receiver.component)) return Object.freeze({ kind: "member",
       selection: Object.freeze({ kind: "physical", subject: receiver.view,
         declaration: receiver.component.declaration, receiverType: receiver.type }),
       receiver: Object.freeze({ kind: "leaf", subject: receiver.subject, scope: receiver.bindings, views: receiver.views }),
-      scope: receiver.bindings, projection: Object.freeze([]), mode: "value" }));
+      scope: receiver.bindings, projection: Object.freeze([]), mode: "value" });
     const projected = transport.subject(receiver.subject.node, receiver.subject.kind,
       [...receiver.subject.projection, receiver.component]);
     if (projected === undefined) return undefined;
     const views = sourceStorageWithProjectionView(receiver.views, receiver.subject, receiver.view, receiver.type);
-    return termValues(sourceStorageReference(projected, receiver.bindings, views));
+    return sourceStorageReference(projected, receiver.bindings, views);
   };
   const provenance = (origin: SourceStorageSubject, scope: SourceStorageScope) => withQuery(() => {
     const root = selectRoot(origin, scope);
@@ -165,8 +165,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return present;
   };
-  const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    boundary?: SourceStorageWalkBoundary, preserveValuePath = false) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
+  const walk = (term: SourceStorageTerm, demand: SourceStorageWalkDemand) => withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
+    const boundary = demand.kind === "witnesses" ? demand.boundary : undefined;
+    const preserveValuePath = demand.kind === "witnesses" && demand.preserveValuePath;
     const inputBoundary = typeof boundary === "function" ? undefined : boundary;
     const isolatedQueries = inputBoundary === undefined ? undefined : createSourceStorageGraphQueries(budget);
     isolatedQueries?.seal();
@@ -175,9 +176,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const { intern, derive, results, witnessScope } = isolated ?? evaluation;
     const stopAt = typeof boundary === "function" ? boundary : undefined;
     try {
-    const root = intern(sourceStorageReference(origin, scope));
+    const root = intern(term);
     if (root === undefined) return undefined;
-    if (boundary === undefined && results(root) === undefined) return undefined;
+    const completed = boundary === undefined ? results(root) : undefined;
+    if (boundary === undefined && completed === undefined) return undefined;
     type Visits = Map<SourceStorageRelation, number | Map<string, number>>;
     const directVisits: Visits = new Map();
     const visits = new Map<SourceStorageSubstitutionPath, Visits>();
@@ -185,7 +187,15 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       Map<SourceStorageSubstitutionPath | undefined, SourceStorageSubstitutionPath>>();
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly observesValue: boolean;
       readonly guards?: SourceStorageValueGuards; readonly path?: SourceStorageSubstitutionPath }[] =
-      [{ relation: root, collect: true, observesValue: true }];
+      [];
+    if (demand.kind === "values" && completed!.size !== 0) {
+      for (const value of completed!) {
+        if (!budget.step() || !temporary.add(1)) return undefined;
+        const relation = intern(value);
+        if (relation === undefined) return undefined;
+        pending.push({ relation, collect: true, observesValue: true });
+      }
+    } else pending.push({ relation: root, collect: true, observesValue: true });
     type WitnessState = { mode: number; readonly views: Set<readonly SourceStorageProjectionView[]> };
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, WitnessState>>();
     const origins = new Set<SourceStorageSubject>();
@@ -259,10 +269,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (!retain(term.input.scope, term.input.subject, 2 | 16)) return undefined;
         if (sourceStorageIsProjectedInput(term) && !retain(term.scope, term.subject, 2 | 16, term.views)) return undefined;
       }
-      for (const [scope, inputs] of current[sourceStorageRelationData].witnesses ?? []) for (const [input, mode] of inputs) {
-        const selected = mappedScope(scope, path);
-        if (selected === undefined || !retain(selected, input, mode)) return undefined;
-      }
+      if (demand.kind === "witnesses")
+        for (const [scope, inputs] of current[sourceStorageRelationData].witnesses ?? []) for (const [input, mode] of inputs) {
+          const selected = mappedScope(scope, path);
+          if (selected === undefined || !retain(selected, input, mode)) return undefined;
+        }
       return stopped;
     };
     while (pending.length !== 0) {
@@ -395,7 +406,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     } finally { isolated?.release(); }
   })));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined => {
-    const selected = walk(origin, scope);
+    const selected = walk(sourceStorageReference(origin, scope), {
+      kind: "witnesses", boundary: undefined, preserveValuePath: false });
     return selected?.reason === undefined && selected?.fatalReason === undefined && selected?.emptyDemands.length === 0 &&
       selected.effectFrontiers.length === 0
       ? selected.subjects : undefined;
@@ -404,7 +416,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     boundaries: ReadonlySet<SourceStorageSubject>, position: "value" | "input") => withQuery(() => budget.withRows(temporary => {
     const rootScope = witnessScope(origin, scope);
     const stopped = new Map<SourceStorageScope, Set<SourceStorageSubject>>();
-    const selected = walk(origin, scope, current => {
+    const selected = walk(sourceStorageReference(origin, scope), { kind: "witnesses", boundary: current => {
       if (!boundaries.has(current.subject) || position === "input" &&
         current.subject === origin && current.bindings === rootScope) return false;
       const previous = stopped.get(current.bindings);
@@ -413,7 +425,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       subjects.add(current.subject);
       stopped.set(current.bindings, subjects);
       return true;
-    }, true);
+    }, preserveValuePath: true });
     if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0 ||
       selected.effectFrontiers.length !== 0)
       return selected === undefined ? undefined
@@ -433,7 +445,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const selected = scopes.lookup(origin, scope);
     if (selected === undefined) return undefined;
     if (selected.kind === "expand") {
-      const inputs = values(origin, scope);
+      const inputs = values(sourceStorageReference(origin, scope));
       return inputs === undefined ? undefined : Object.freeze([...inputs]);
     }
     const inputs: SourceStorageScopedSubject[] = [];
@@ -478,7 +490,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return parent;
   });
-  return Object.freeze({ empty: scopes.empty, withQuery, values, projectedValues, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
+  return Object.freeze({ empty: scopes.empty, withQuery, intern, values, projection, origins, provenance, trace, walk, frontier, selection, contributingExecutions, forLexicalOwner,
     formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {

@@ -9,6 +9,7 @@ import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
+import { sourceStorageReference } from "./graph/scoped-model.js";
 import { createSourceStorageDomainSelection, type SourceStorageOriginViews } from "./domain-selection.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
@@ -130,7 +131,8 @@ export function createSourceStorageQuery(
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     for (const state of states) {
-      const selected = transport.substitutions.walk(subject, state);
+      const selected = transport.substitutions.walk(sourceStorageReference(subject, state), {
+        kind: "witnesses", boundary: undefined, preserveValuePath: false });
       if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0)
         return unresolved(budget.failure() ?? selected?.fatalReason ?? selected?.reason ??
           (selected !== undefined && selected.emptyDemands.length !== 0 ? sourceStorageMissingProducerReason
@@ -153,7 +155,8 @@ export function createSourceStorageQuery(
     const ancestors = createSourceStorageAncestorQuery(budget, origin => {
       if (origin.kind !== "input" || Node_Initializer(source.ast, origin.node) === undefined)
         return transport.incomingFor(origin);
-      const selected = transport.substitutions.walk(origin, transport.substitutions.empty);
+      const selected = transport.substitutions.walk(sourceStorageReference(origin, transport.substitutions.empty), {
+        kind: "witnesses", boundary: undefined, preserveValuePath: false });
       if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0) {
         failure ??= selected?.fatalReason ?? selected?.reason ?? budget.failure() ??
           (selected !== undefined && selected.emptyDemands.length !== 0 ? sourceStorageMissingProducerReason

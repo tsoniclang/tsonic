@@ -7,7 +7,9 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
-import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness } from "../graph/scoped-model.js";
+import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness, SourceStorageTerm } from "../graph/scoped-model.js";
+import { sourceStorageReference } from "../graph/scoped-model.js";
+import type { SourceStorageRelation } from "../scoped/relation-evaluation.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
@@ -29,7 +31,7 @@ export function createSourceStorageDomains(
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, transport.substitutions.empty);
   const publicationDemands = createSourceStoragePublicationDemands(source, transport, budget,
-    (subject, bindings) => publicationOriginsIn(subject, bindings));
+    (subject, bindings) => publicationOriginsIn(subject, sourceStorageReference(subject, bindings)));
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
   let initialized = false;
   const add = domainInputs.add;
@@ -169,8 +171,17 @@ export function createSourceStorageDomains(
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
-      const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
-        : transport.substitutions.projectedValues(publication.receiver) ?? [];
+      const root = publication.receiver === undefined ? sourceStorageReference(publication.subject, publication.bindings)
+        : transport.substitutions.projection(publication.receiver);
+      if (root === undefined) {
+        budget.reject("Source storage publication requires its exact checked projection.");
+        return;
+      }
+      const origins = publicationOriginsIn(publication.subject, root);
+      if (origins === undefined) {
+        budget.reject("Source storage publication requires one completed scoped origin relation.");
+        return;
+      }
       for (const selectedOwner of origins) {
         if (!budget.step()) return;
         const owner = selectedOwner.subject;
@@ -355,7 +366,8 @@ export function createSourceStorageDomains(
         transport.storedValuesFor(authored) === undefined && transport.unresolvedStoredInputsFor(authored) === undefined &&
         boundariesFor(authored, bindings).length === 0) return true;
       const target = transport.invocationTargets.get(invocation);
-      const selected = target === undefined ? undefined : transport.substitutions.walk(target, bindings);
+      const selected = target === undefined ? undefined : transport.substitutions.walk(sourceStorageReference(target, bindings), {
+        kind: "witnesses", boundary: undefined, preserveValuePath: false });
       if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
         selected.emptyDemands.length !== 0 || selected.effectFrontiers.length !== 0 || selected.origins.size === 0) return false;
       for (const origin of selected.origins) {
@@ -388,9 +400,9 @@ export function createSourceStorageDomains(
     if (sourceConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
     if (target === undefined) return false;
-    const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, bindings), {
+    const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(sourceStorageReference(target, bindings)), {
       subjectFor: transport.subjectFor,
-      valuesFor: transport.substitutions.values,
+      valuesFor: (subject, bindings) => transport.substitutions.values(sourceStorageReference(subject, bindings)),
       nativeConstructorsFor: transport.nativeConstructorsFor,
     });
     return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete &&
@@ -494,34 +506,43 @@ export function createSourceStorageDomains(
       (boundary.owner === undefined || stores === undefined) &&
       !closedSourceInvocation(boundary.exposure, current.bindings));
   };
-  const publicationQueries = new Map<SourceStorageScope, (subject: SourceStorageSubject) => ReadonlySet<SourceStorageScopedSubject> | undefined>();
+  type PublicationQuery = (root: SourceStorageRelation) => ReadonlySet<SourceStorageScopedSubject> | undefined;
+  const publicationQueries = new Map<SourceStorageScope, Map<SourceStorageSubject, PublicationQuery>>();
   const publicationRows = budget.createRows();
-  const publicationOriginsIn = (subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined => {
-    let query = publicationQueries.get(bindings);
+  const publicationOriginsIn = (subject: SourceStorageSubject,
+    term: SourceStorageTerm & { readonly scope: SourceStorageScope }): ReadonlySet<SourceStorageScopedSubject> | undefined => transport.substitutions.withQuery(() => {
+    const bindings = term.scope;
+    const root = transport.substitutions.intern(term);
+    if (root === undefined) return undefined;
+    const subjects = publicationQueries.get(bindings);
+    let query = subjects?.get(subject);
     if (query === undefined) {
-      if (!publicationRows.add(1)) return undefined;
-      query = domainInputs.query((subject: SourceStorageSubject) => {
+      if (!publicationRows.add(subjects === undefined ? 2 : 1)) return undefined;
+      query = domainInputs.query((root: SourceStorageRelation) => {
         const hasInputs = domainInputs.readPresence(subject);
-        const selected = transport.substitutions.walk(subject, bindings, !hasInputs ? undefined : current => {
-          if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
-          domainInputs.read(current.subject);
-          return current.original && domainInputs.has(current.subject);
-        });
-        if (budget.failure() !== undefined) return undefined;
+        const selected = transport.substitutions.walk(root, !hasInputs ? { kind: "values" } : {
+          kind: "witnesses", preserveValuePath: false, boundary: current => {
+            if (transport.substitutions.isBound(current.subject, current.bindings)) return false;
+            domainInputs.read(current.subject);
+            return current.original && domainInputs.has(current.subject);
+          } });
+        if (selected === undefined || budget.failure() !== undefined) return undefined;
         const origins = new Set<SourceStorageScopedSubject>();
-        for (const current of selected?.subjects ?? []) {
+        for (const current of selected.subjects) {
           if (!budget.step()) return undefined;
-          if (current.contributes && selected?.origins.has(current.subject))
+          if (current.contributes && selected.origins.has(current.subject))
             origins.add(Object.freeze({ subject: current.subject, bindings: current.bindings, views: current.views }));
         }
-        if (selected !== undefined && (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0))
+        if (selected.reason !== undefined || selected.fatalReason !== undefined || selected.emptyDemands.length !== 0)
           origins.add(Object.freeze({ subject, bindings }));
         return origins;
       });
-      publicationQueries.set(bindings, query);
+      const retained = subjects ?? new Map<SourceStorageSubject, PublicationQuery>();
+      retained.set(subject, query);
+      publicationQueries.set(bindings, retained);
     }
-    return query(subject);
-  };
+    return query(root);
+  });
   // The root scope and a top-level declaration activation are where an outside caller's values enter.
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
     bindings.kind === "frame" && bindings.boundary === "declaration" && bindings.parents.length === 1 &&
@@ -529,8 +550,9 @@ export function createSourceStorageDomains(
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const selected = transport.substitutions.walk(subject, bindings,
-      domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined, false);
+    const selected = transport.substitutions.walk(sourceStorageReference(subject, bindings), {
+      kind: "witnesses", boundary: domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined,
+      preserveValuePath: false });
     if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageScope>[]),
@@ -561,7 +583,8 @@ export function createSourceStorageDomains(
         if (!budget.step()) break;
         if (entry.store.reason !== undefined) { reason = sourceStorageMissingProducerReason; break; }
         if (entry.value === undefined) continue;
-        const frontier = transport.substitutions.walk(entry.value, demand.scope, { kind: "input", admits: isExternalInput });
+        const frontier = transport.substitutions.walk(sourceStorageReference(entry.value, demand.scope), {
+          kind: "witnesses", boundary: { kind: "input", admits: isExternalInput }, preserveValuePath: false });
         if (frontier?.fatalReason !== undefined) budget.reject(frontier.fatalReason);
         if (frontier === undefined || frontier.reason !== undefined || frontier.fatalReason !== undefined || frontier.emptyDemands.length !== 0) {
           reason = budget.failure() ?? frontier?.reason ?? sourceStorageMissingProducerReason;

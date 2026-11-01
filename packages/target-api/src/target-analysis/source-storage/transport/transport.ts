@@ -19,6 +19,7 @@ import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
+import { sourceStorageReference } from "../graph/scoped-model.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageInvocationInputSelection, sourceStorageSelectedInputSlots, sourceStorageNativeCallablePayloads, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
@@ -794,7 +795,7 @@ export function createSourceStorageTransport(
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
     subject, subjectFor, nativeConstructorsFor,
     targetFor: invocation => invocationTargets.get(invocation),
-    valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
+    valuesFor: (origin, bindings) => substitutions.values(sourceStorageReference(origin, bindings)),
     bindingsFor: (candidate, invocation, bindings, captured, callee) => substitutions.forInvocation(candidate, invocation, bindings, captured, callee),
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
@@ -809,7 +810,8 @@ export function createSourceStorageTransport(
   }, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
     selected => {
-      const result = substitutions.walk(selected, substitutions.empty);
+      const result = substitutions.walk(sourceStorageReference(selected, substitutions.empty), {
+        kind: "witnesses", boundary: undefined, preserveValuePath: false });
       return result === undefined ? undefined : { subjects: result.subjects,
         reason: result.fatalReason ?? result.reason ?? (result.emptyDemands.length === 0 ? undefined : sourceStorageMissingProducerReason) };
     }, unresolvedSubjects);
