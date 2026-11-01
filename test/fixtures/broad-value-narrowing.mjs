@@ -1,4 +1,5 @@
-export const broadValueNarrowingSource = `
+export function broadValueNarrowingSourceForEmpty(annotation) {
+  return `
 class Item {
   count: number;
   constructor(count: number) { this.count = count; }
@@ -14,10 +15,13 @@ function different(value: unknown, expected: unknown): boolean {
 export function run(): boolean {
   const item = new Item(7);
   const other = new Item(7);
-  const empty = {};
+  const empty${annotation} = {};
   return same(item, item) && different(item, other) &&
     same(empty, empty) && different(empty, {}) &&
     same(17, 17) && different(17, 19) && same("kept", "kept") &&
     !same(null, null) && !same(undefined, undefined);
 }
 `;
+}
+
+export const broadValueNarrowingSource = broadValueNarrowingSourceForEmpty("");

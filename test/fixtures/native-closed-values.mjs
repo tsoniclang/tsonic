@@ -1,4 +1,5 @@
-export const nativeClosedValuesSource = `
+export function nativeClosedValuesSourceForEmpty(annotation) {
+  return `
 import type { int32, uint64 } from "@tsonic/core/types.js";
 class Box {
   value: int32;
@@ -50,7 +51,7 @@ export function run(): boolean {
   const object = retain(boxed);
   const inherited = retain(base);
   const wide = 9007199254740993n as uint64;
-  const empty = {};
+  const empty${annotation} = {};
   return retained !== "different" && retained === text && typeof retained === "string" &&
     numericDefault() === 0 && numericDefault(7) === 7 && stringDefault() === "native" &&
     boolDefault() === false && retain(false) !== 0 && retain(wide) === wide &&
@@ -66,3 +67,6 @@ export function run(): boolean {
     retain(empty) === retain(empty) && retain(empty) !== retain({}) && locations();
 }
 `;
+}
+
+export const nativeClosedValuesSource = nativeClosedValuesSourceForEmpty("");

@@ -1,4 +1,5 @@
-export const nativePropertyProjectionSource = `
+export function nativePropertyProjectionSourceForEmptyReturn(annotation) {
+  return `
   import type { int32, int64 } from "@tsonic/core/types.js";
   let selectedReads: int32 = 0;
   let unrelatedReads: int32 = 0;
@@ -13,7 +14,7 @@ export const nativePropertyProjectionSource = `
     constructor() { super(false); }
   }
   function supply(): NativeOptions { suppliers += 1; return new NativeOptions(); }
-  function supplyEmpty() { suppliers += 1; return {}; }
+  function supplyEmpty()${annotation} { suppliers += 1; return {}; }
   function format(value: int64, options: Options | undefined): string {
     return value.toLocaleString("en", options);
   }
@@ -49,6 +50,9 @@ export const nativePropertyProjectionSource = `
     return selectedReads === 3 && unrelatedReads === 0 && suppliers === 3;
   }
 `;
+}
+
+export const nativePropertyProjectionSource = nativePropertyProjectionSourceForEmptyReturn("");
 
 export const nativePropertyProjectionCostSource = `
   import type { int64 } from "@tsonic/core/types.js";
