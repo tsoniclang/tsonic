@@ -207,7 +207,7 @@ test("CLI hard-rejects explicit any object spread without closed object-shape fa
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   const output = build.stdout + build.stderr;
   assert.notEqual(build.status, 0);
-  assert.match(output, /Object literal spread requires finalized provider object-shape facts/u);
+  assert.match(output, /ERROR tsonic-csharp:CSHARP_NATIVE_CONSTRUCTION_NOT_PROVEN index\.ts:4:10: Native construction has no exact source-member correspondence for its declared storage\./u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
