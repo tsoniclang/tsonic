@@ -125,7 +125,7 @@ test("CLI runs object rest defaults with nested object spread from finalized fac
   for (const [type, name] of [["double", "count"], ["double", "extra"], ["string", "label"], ["string", "note"]]) {
     assert.match(outputDeclaration.groups.body, new RegExp(`public required ${type} ${name}\\s*\\{\\s*get;\\s*set;\\s*\\}`, "u"));
   }
-  const sourceStorage = /public static (?<implementation>ObjectShape_[a-f0-9]{12}) first/u.exec(generatedSource);
+  const sourceStorage = /internal static (?<implementation>ObjectShape_[a-f0-9]{12}) first/u.exec(generatedSource);
   assert.equal(sourceStorage !== null, true, "original source storage has an exact native implementation");
   const sourceDeclaration = new RegExp(`public class ${sourceStorage.groups.implementation} : (?<contract>ObjectShape_[a-f0-9]{12}<${updatedChild.groups.contract}, double, double, string\\?, string>)\\s*\\{(?<body>[\\s\\S]*?)\\n    \\}`, "u").exec(generatedShapes);
   assert.equal(sourceDeclaration !== null, true, "source storage retains the exact child and optional-label contract");

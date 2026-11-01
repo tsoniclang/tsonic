@@ -46,8 +46,8 @@ test("CLI runs inferred source-owned array returns through finalized carrier fac
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> make\(int value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[value, value \+ 1\]\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nested\(int value\)/);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nestedValues/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<int> values/);
+  assert.match(generatedSource, /internal static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nestedValues/);
   assert.match(generatedSource, /values\.length/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
