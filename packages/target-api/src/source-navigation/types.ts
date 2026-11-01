@@ -1,5 +1,5 @@
 import type { Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
-import type { SourceExpressionResultDisposition } from "./expression-use.js";
+import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 
 export interface SourceProjectReference {
   readonly symbol: Symbol;

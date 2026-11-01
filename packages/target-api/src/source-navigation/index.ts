@@ -53,7 +53,8 @@ export { sourceReceiverBoundary, sourceReceiverOwner } from "./receiver-owner.js
 export type { SourceReceiverBoundary } from "./receiver-owner.js";
 export { sourceCallableDefinitionIsDiscarded, sourceConstructValueInputs,
   sourceExpressionValueInputs, sourceImmediatelyAwaitedLocal } from "./expression-use.js";
-export type { SourceExpressionResultDisposition, SourceValueInput, SourceValueInputSlot } from "./expression-use.js";
+export type { SourceExpressionResultDisposition } from "./expression-use-model.js";
+export type { SourceValueInput, SourceValueInputSlot } from "./expression-use.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";

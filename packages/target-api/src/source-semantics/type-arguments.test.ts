@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { getEffectiveSourceTypeArguments } from "./type-arguments.js";
+import { getEffectiveSourceTypeArguments } from "../source-navigation/type-arguments.js";
 
 test("effective arguments never replace missing class bindings with authored arity", () => {
   const checked = createCompilerSessionFromFiles({

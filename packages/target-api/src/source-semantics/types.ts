@@ -1,12 +1,14 @@
 import type {
   AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, ResolvedSourceCallableCompletionInfo,
-  ResolvedSourceElementAccessInfo, ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo,
-  ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourcePropertyAccessInfo,
+  ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo,
+  ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo,
   ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol,
   TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
 } from "@tsonic/tsts";
-import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/index.js";
+import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/types.js";
+import type { SourceNavigationDeclarationQueries, SourceNavigationOperationQueries,
+  SourceNavigationTypeQueries } from "../source-navigation/query-context.js";
 import type { SourceAuthoredTypeSelection } from "./authored-type-selection.js";
 import type { SourceContextualValueTypeSelection } from "./contextual-type-selection.js";
 import type { SourceTypeRelationship } from "./type-relationship.js";
@@ -14,12 +16,9 @@ import type { SourceTypeRefinement } from "./type-refinement.js";
 import type { ResolvedSourceCallInfo, SourceCallResultSelection } from "./call-result-selection.js";
 import type { SourceCallParameterSlot } from "./call-parameter-slots.js";
 
-export interface SourceOperationEvidenceQueries {
-  call(node: Node): ResolvedSourceCallInfo | undefined;
+export interface SourceOperationEvidenceQueries extends SourceNavigationOperationQueries {
   propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
-  propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
   flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
-  elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;
   iteration(node: Node): ResolvedSourceIterationInfo | undefined;
   objectLiteralElement(node: Node): ResolvedSourceObjectLiteralElementInfo | undefined;
   storage(node: Node): ResolvedSourceStorageInfo | undefined;
@@ -32,8 +31,7 @@ export interface SourceOperationEvidenceQueries {
   callParameterSlots(source: ResolvedSourceCallInfo): readonly SourceCallParameterSlot[] | undefined;
 }
 
-export interface SourceFinalTypeQueries {
-  expressionType(node: Node): Type | undefined;
+export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
   awaitedType(type: Type): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): SourceTypeComponentEvidence | undefined;
@@ -55,8 +53,6 @@ export interface SourceFinalTypeQueries {
   indexInfos(type: Type): readonly import("@tsonic/tsts").TypeIndexInfo[];
   indexedAccessComponents(type: Type): import("@tsonic/tsts").TypeIndexedAccessComponents | undefined;
   selectIndexedAccess(objectType: Type, indexType: Type): import("@tsonic/tsts").TypeIndexedAccessSelection | undefined;
-  callSignatures(type: Type): readonly Signature[];
-  constructSignatures(type: Type): readonly Signature[];
   signatureInfos(type: Type, kind: "call" | "construct"): readonly import("@tsonic/tsts").TypeSignatureInfo[];
   declarationSignatureInfo(declaration: Node): import("@tsonic/tsts").TypeSignatureInfo | undefined;
   returnType(signature: Signature): Type | undefined;
@@ -70,20 +66,12 @@ export interface SourceFinalTypeQueries {
   withoutMissingOrUndefined(type: Type): Type | undefined;
   nonNullableType(type: Type): Type | undefined;
   constantValue(node: Node): unknown;
-  numericLiteralValue(type: Type): number | bigint | undefined;
   stringLiteralValue(type: Type): string | undefined;
   booleanLiteralValue(type: Type): boolean | undefined;
   isAny(type: Type): boolean;
   isUnknown(type: Type): boolean;
   isNever(type: Type): boolean;
   isNonPrimitive(type: Type): boolean;
-  isVoidLike(type: Type): boolean;
-  isNullish(type: Type): boolean;
-  isStringLike(type: Type): boolean;
-  isNumberLike(type: Type): boolean;
-  isBooleanLike(type: Type): boolean;
-  isBigIntLike(type: Type): boolean;
-  isSymbolLike(type: Type): boolean;
   isUnion(type: Type): boolean;
   isIntersection(type: Type): boolean;
   isTypeReference(type: Type): boolean;
@@ -113,19 +101,12 @@ export interface SourceFinalTypeQueries {
   callable(type: Type): SourceCallableTypeEvidence | undefined;
 }
 
-export interface SourceSelectedDeclarationQueries {
+export interface SourceSelectedDeclarationQueries extends SourceNavigationDeclarationQueries {
   isDefaultLibraryDeclaration(node: Node): boolean;
-  declaredValueType(declaration: Node): Type | undefined;
   declaredType(declaration: Node): Type | undefined;
   typeSymbol(type: Type): Symbol | undefined;
   typeAliasSymbol(type: Type): Symbol | undefined;
   symbolName(symbol: Symbol): string;
-  symbolDeclarations(symbol: Symbol): readonly Node[];
-  primarySymbolDeclaration(symbol: Symbol): Node | undefined;
-  rootSymbols(symbol: Symbol): readonly Symbol[];
-  declarationSignature(declaration: Node): Signature | undefined;
-  signatureDeclaration(signature: Signature): Node | undefined;
-  signatureParameters(signature: Signature): readonly Symbol[];
 }
 
 export interface SourceFactSubjectQueries {
@@ -140,7 +121,7 @@ export interface SourceFactSubjectQueries {
 
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
-  readonly propertyNames: import("../target-analysis/property-names.js").SourcePropertyNameIndex;
+  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
   readonly operations: SourceOperationEvidenceQueries;
   readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
@@ -208,7 +189,7 @@ export type SourceValueTypeRefinementSelection =
     };
 
 export interface SourceProgramSemantics {
-  readonly enumConstants: import("../target-analysis/enum-constants.js").SourceEnumConstantIndex;
+  readonly enumConstants: import("./enum-model.js").SourceEnumConstantIndex;
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;

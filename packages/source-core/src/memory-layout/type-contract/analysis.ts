@@ -2,12 +2,12 @@ import { fieldFactKey } from "@tsonic/tsts";
 import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
-import type { MemorySourceCall } from "../analysis-context.js";
+import type { MemorySourceCall, MemoryTypeContracts } from "../analysis-model.js";
 import { publishMemoryFact } from "../analysis-context.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { isMemoryFieldDeclaration } from "../selectors.js";
 import { createMemoryTypeDomains } from "./domains.js";
-import type { MemoryTypeDomain } from "./domains.js";
+import type { MemoryTypeDomain } from "./model.js";
 import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypeMember, createMemoryTypeIdentity,
   memoryTypeMember, tsonicMemoryTypeFactKey } from "./facts.js";
 import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "./facts.js";
@@ -21,19 +21,6 @@ interface MemoryTypeSelection {
   readonly type: Type;
   readonly domain: MemoryTypeDomain;
   readonly identity: TsonicMemoryTypeIdentity;
-}
-
-export interface MemoryTypeContracts {
-  layout(call: MemorySourceCall): boolean;
-  array(call: MemorySourceCall, element: TsonicMemoryLayoutFact,
-    count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined;
-  field(call: MemorySourceCall, declaration: Node, selector: Node, layout: TsonicMemoryLayoutFact): boolean;
-  queryField(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
-  aggregate(call: MemorySourceCall, fields: readonly Node[]): boolean;
-  raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact): boolean;
-  binding(call: MemorySourceCall, field: TsonicMemoryFieldLayoutFact): boolean;
-  record(call: MemorySourceCall, layout: TsonicValueMemoryLayoutFact): boolean;
-  publish(call: MemorySourceCall): void;
 }
 
 export function createMemoryTypeContracts(

@@ -1,6 +1,17 @@
-import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
-import type { ResolvedSourceCallInfo } from "../source-semantics/call-result-selection.js";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { ResolvedSourceCallInfo } from "./call-info.js";
+
+interface SourceCallArgumentSemantics {
+  readonly sourceFile: SourceFile;
+  readonly operations: {
+    call(node: Node): ResolvedSourceCallInfo | undefined;
+  };
+}
+
+export interface SourceCallArgumentContext {
+  readonly ast: AstReader;
+  readonly semantics: SourceCallArgumentSemantics;
+}
 
 export interface SourceCallArgumentCorrespondence {
   readonly bindingIndex: number;
@@ -10,30 +21,45 @@ export interface SourceCallArgumentCorrespondence {
 }
 
 export function sourceCallArgumentCorrespondences(
-  ast: TargetSourceProgram["ast"],
+  context: SourceCallArgumentContext,
   selected: ResolvedSourceCallInfo,
 ): readonly SourceCallArgumentCorrespondence[] | undefined {
   if (selected.sourceSelectedSignatureKind !== "resolved") return undefined;
+  const { ast, semantics } = context;
+  if (ast.getSourceFile(selected.call) !== semantics.sourceFile ||
+    semantics.operations.call(selected.call) !== selected) return undefined;
   const arguments_ = ast.arguments(selected.call);
   if (arguments_.length !== selected.sourceArguments.length ||
-    selected.sourceArguments.some((argument, index) => argument.expression !== arguments_[index])) return undefined;
+    selected.sourceArguments.some((argument, index) => argument.expression !== arguments_[index]))
+    throw new Error("A checked call argument vector must preserve its original source expressions.");
   const effectiveIndexes = new Set<number>();
   const result: SourceCallArgumentCorrespondence[] = [];
   for (const [bindingIndex, binding] of selected.sourceArgumentBindings.entries()) {
     if (!Number.isSafeInteger(binding.sourceArgumentIndex) || binding.sourceArgumentIndex < 0 ||
       !Number.isSafeInteger(binding.effectiveArgumentIndex) || binding.effectiveArgumentIndex < 0 ||
       !Number.isSafeInteger(binding.sourceParameterIndex) || binding.sourceParameterIndex < 0 ||
-      effectiveIndexes.has(binding.effectiveArgumentIndex)) return undefined;
+      effectiveIndexes.has(binding.effectiveArgumentIndex))
+      throw new Error("A checked call binding must have valid, distinct effective argument indexes and selected formal indexes.");
     const argument = selected.sourceArguments[binding.sourceArgumentIndex];
     const parameter = selected.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
     if (argument === undefined || parameter?.parameterIndex !== binding.sourceParameterIndex ||
       (binding.sourceForm === "spread-element"
         ? !Number.isSafeInteger(binding.spreadElementIndex) || binding.spreadElementIndex! < 0
-        : binding.spreadElementIndex !== undefined)) return undefined;
+        : binding.spreadElementIndex !== undefined))
+      throw new Error("A checked call binding must preserve its exact argument, formal and spread-element correspondence.");
     effectiveIndexes.add(binding.effectiveArgumentIndex);
     result.push(Object.freeze({ bindingIndex, binding, argument, parameter }));
   }
   return Object.freeze(result);
+}
+
+export function sourceSingleCallValueArgument(
+  correspondence: readonly SourceCallArgumentCorrespondence[] | undefined,
+  declaration: Node,
+): Node | undefined {
+  const bindings = correspondence?.filter(row => row.parameter.parameterDeclaration === declaration &&
+    row.binding.sourceForm === "value");
+  return bindings?.length === 1 ? bindings[0]!.argument.expression : undefined;
 }
 
 export interface SourceClosedCallableArgument {
@@ -45,8 +71,10 @@ export interface SourceClosedCallableArgument {
 export function sourceExpressionCallArgument(
   reference: Node,
   source: {
-    readonly ast: TargetSourceProgram["ast"];
-    readonly semantics: Pick<TargetSourceProgram["semantics"], "forNode">;
+    readonly ast: AstReader;
+    readonly semantics: {
+      forNode(node: Node): Pick<SourceCallArgumentSemantics, "operations">;
+    };
   },
 ): SourceClosedCallableArgument | undefined {
   const { ast } = source;

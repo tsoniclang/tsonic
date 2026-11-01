@@ -36,6 +36,7 @@ export function createSourceDeclarationOwnershipQuery(input: {
   const decisions = new Map<Node, SourceDeclarationAsyncOwnershipSelection>();
   const continuationFor = (call: Node): SourceDeclarationContinuationSelection => closure.forCall(call);
   return Object.freeze({
+    continuationForDeclaration: closure.forDeclaration,
     continuationFor,
     forReference: retention.forReference,
     forCall(call: Node): SourceDeclarationAsyncOwnershipSelection {

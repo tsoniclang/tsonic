@@ -1,5 +1,5 @@
 import type { Node, ResolvedSourcePropertyAccessInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 
@@ -12,7 +12,7 @@ export interface SourceCallOnlyAlias {
   readonly calls: readonly Node[];
 }
 
-export function createSourceCallOnlyAliasQuery(source: TargetSourceProgram):
+export function createSourceCallOnlyAliasQuery(source: SourceNavigationQueryContext):
   (declaration: Node) => SourceCallOnlyAlias | undefined {
   const { ast, navigation } = source;
   const cache = new WeakMap<Node, SourceCallOnlyAlias | null>();
