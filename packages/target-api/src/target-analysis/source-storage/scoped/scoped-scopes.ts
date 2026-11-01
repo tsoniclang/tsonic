@@ -678,7 +678,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         original.subject === root && original.scope === value.scope;
     },
     owningScope, boundActivation, project, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
-    withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
+    withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => withTraversal(() => collect())),
     withTraversal: <Value>(collect: () => Value): Value => withTraversal(() => collect()) });
 }
 

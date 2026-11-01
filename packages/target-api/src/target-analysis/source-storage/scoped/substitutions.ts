@@ -64,21 +64,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
   const evaluation = createSourceStorageRelationEvaluation(source, budget, transport, scopes, equations, reachability, keys, graphQueries, creation);
   const { intern, results, witnessScope } = evaluation;
-  const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageRelation | undefined => intern(sourceStorageReference(origin, scope));
   const values = (term: SourceStorageTerm): ReadonlySet<SourceStorageScopedSubject> | undefined => withQuery(() => {
-    const selected = walk(term, { kind: "values" });
-    if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined ||
-      selected.effectFrontiers.length !== 0) {
+    const selected = provenance(term);
+    if (selected === undefined || selected.reason !== undefined || selected.fatalReason !== undefined) {
       if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
       return undefined;
     }
-    const values = new Set<SourceStorageScopedSubject>();
-    for (const value of selected.subjects) {
-      if (!budget.step()) return undefined;
-      if (value.original && selected.origins.has(value.subject))
-        values.add(Object.freeze({ subject: value.subject, bindings: value.bindings, views: value.views }));
-    }
-    return values;
+    return selected.subjects;
   });
   const projection = (receiver: SourceStorageProjectionReceiver): SourceStorageReference |
     Extract<SourceStorageTerm, { readonly kind: "member" }> | undefined => {
@@ -93,13 +85,24 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const views = sourceStorageWithProjectionView(receiver.views, receiver.subject, receiver.view, receiver.type);
     return sourceStorageReference(projected, receiver.bindings, views);
   };
-  const provenance = (origin: SourceStorageSubject, scope: SourceStorageScope) => withQuery(() => {
-    const root = selectRoot(origin, scope);
-    const selected = root === undefined ? undefined : results(root);
+  const requiresValue = (term: SourceStorageTerm): boolean => {
+    const subject = term.kind === "reference" || term.kind === "leaf" || term.kind === "unresolved" ? term.subject
+      : term.kind === "application" || term.kind === "pointer" ? transport.subject(term.invocation, "value", term.projection)
+      : term.kind === "member" ? term.selection.kind !== "access" ? term.selection.subject
+        : transport.subject(term.selection.node) : undefined;
+    const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
+    return type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type);
+  };
+  const provenance = (term: SourceStorageTerm) => withQuery(() => {
+    const root = intern(term);
+    if (root === undefined) return undefined;
+    const selected = results(root);
     if (selected === undefined) return undefined;
-    const subjects = new Set<SourceStorageSubject>();
+    const origins = new Set<SourceStorageSubject>();
+    const subjects = new Set<SourceStorageScopedSubject>();
     let reason: string | undefined;
     let fatalReason: string | undefined;
+    let absence = false;
     for (const value of selected) {
       if (!budget.step()) return undefined;
       if (value.kind === "unresolved" && value.executionOnly !== true) {
@@ -107,16 +110,26 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (value.exposure === undefined) fatalReason ??= value.reason;
       }
       if (value.kind === "input-frontier") {
-        if (value.preservesInput) subjects.add(value.input.subject);
-        else if (sourceStorageIsProjectedInput(value)) subjects.add(value.subject);
+        if (value.preservesInput) {
+          origins.add(value.input.subject);
+          subjects.add(Object.freeze({ subject: value.input.subject, bindings: value.input.scope }));
+        } else if (sourceStorageIsProjectedInput(value)) {
+          origins.add(value.subject);
+          subjects.add(Object.freeze({ subject: value.subject, bindings: value.scope, views: value.views }));
+        }
         else reason ??= sourceStorageMissingProducerReason;
       }
-      if (value.kind === "leaf") subjects.add(value.subject);
+      if (value.kind === "leaf") {
+        origins.add(value.subject);
+        subjects.add(Object.freeze({ subject: value.subject, bindings: value.scope, views: value.views }));
+      }
+      if (value.kind === "empty" && value.absence !== undefined) absence = true;
     }
-    return Object.freeze({ origins: subjects, reason, fatalReason });
+    const emptyDemands = selected.size === 0 && requiresValue(root) ? [root] : [];
+    return Object.freeze({ origins, subjects, reason, fatalReason, absence, emptyDemands: Object.freeze(emptyDemands) });
   });
   const origins = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
-    const selected = provenance(origin, scope);
+    const selected = provenance(sourceStorageReference(origin, scope));
     if (selected?.reason !== undefined) {
       if (selected.fatalReason !== undefined) budget.reject(selected.fatalReason);
       return undefined;
@@ -178,6 +191,19 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     try {
     const root = intern(term);
     if (root === undefined) return undefined;
+    if (demand.kind === "values") {
+      const selected = provenance(root);
+      if (selected === undefined) return undefined;
+      const subjects: (SourceStorageRelationWitness & { readonly original: boolean })[] = [];
+      for (const value of selected.subjects) {
+        if (!budget.step() || !temporary.add(2)) return undefined;
+        subjects.push(Object.freeze({ ...value, contributes: true, observesValue: true, original: true }));
+      }
+      return Object.freeze({ origins: selected.origins, reason: selected.reason,
+        fatalReason: selected.fatalReason, absence: selected.absence, subjects: Object.freeze(subjects),
+        effectFrontiers: Object.freeze([] as Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[]),
+        emptyDemands: selected.emptyDemands });
+    }
     const completed = boundary === undefined ? results(root) : undefined;
     if (boundary === undefined && completed === undefined) return undefined;
     type Visits = Map<SourceStorageRelation, number | Map<string, number>>;
@@ -188,14 +214,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const pending: { readonly relation: SourceStorageRelation; readonly collect: boolean; readonly observesValue: boolean;
       readonly guards?: SourceStorageValueGuards; readonly path?: SourceStorageSubstitutionPath }[] =
       [];
-    if (demand.kind === "values" && completed!.size !== 0) {
-      for (const value of completed!) {
-        if (!budget.step() || !temporary.add(1)) return undefined;
-        const relation = intern(value);
-        if (relation === undefined) return undefined;
-        pending.push({ relation, collect: true, observesValue: true });
-      }
-    } else pending.push({ relation: root, collect: true, observesValue: true });
+    pending.push({ relation: root, collect: true, observesValue: true });
     type WitnessState = { mode: number; readonly views: Set<readonly SourceStorageProjectionView[]> };
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, WitnessState>>();
     const origins = new Set<SourceStorageSubject>();
@@ -331,12 +350,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           const completed = results(relation);
           if (completed === undefined) return undefined;
           if (completed.size === 0) {
-            const subject = current.kind === "reference" || current.kind === "leaf" || current.kind === "unresolved" ? current.subject
-              : current.kind === "application" || current.kind === "pointer" ? transport.subject(current.invocation, "value", current.projection)
-              : current.kind === "member" ? current.selection.kind !== "access" ? current.selection.subject
-                : transport.subject(current.selection.node) : undefined;
-            const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
-            if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
+            if (requiresValue(current)) {
               if (!temporary.add(1)) return undefined;
               emptyDemands.push(current);
             }

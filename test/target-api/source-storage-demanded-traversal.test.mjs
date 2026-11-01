@@ -4,6 +4,7 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
 
 const chain = `
 class Chain {
@@ -47,10 +48,11 @@ function fixture(limits = {}) {
 test("an exact recursive constructor-input frontier stops before unrelated transitive value closure", () => {
   const current = fixture({ maximumSteps: 1024 });
   let calls = 0;
-  const selected = current.transport.substitutions.walk(current.parent, current.transport.substitutions.empty, input => {
-    calls += 1;
-    return input.subject === current.parent;
-  });
+  const selected = current.transport.substitutions.walk(sourceStorageReference(current.parent, current.transport.substitutions.empty),
+    { kind: "witnesses", boundary: input => {
+      calls += 1;
+      return input.subject === current.parent;
+    }, preserveValuePath: false });
   assert.equal(selected !== undefined && selected.origins.size === 1 && selected.origins.has(current.parent), true,
     "the exact external input is retained, not invented empty evidence or an arbitrary ancestor");
   assert.equal(selected.subjects.some(input => input.subject === current.parent && input.contributes), true,
@@ -61,14 +63,15 @@ test("an exact recursive constructor-input frontier stops before unrelated trans
 
 test("a stopped publication trace does not replace complete values or import another recursive caller", () => {
   const current = fixture();
-  const selected = current.transport.substitutions.walk(current.parent, current.transport.substitutions.empty,
-    input => input.subject === current.parent);
+  const selected = current.transport.substitutions.walk(sourceStorageReference(current.parent, current.transport.substitutions.empty),
+    { kind: "witnesses", boundary: input => input.subject === current.parent, preserveValuePath: false });
   assert.equal(selected?.origins.has(current.parent), true);
   for (const [name, own, foreign] of [["leftRead", "leftValue", "rightValue"], ["rightRead", "rightValue", "leftValue"]]) {
     const origins = current.transport.substitutions.origins(current.subject(name), current.transport.substitutions.empty);
     assert.equal(origins !== undefined && origins.has(current.subject(own)) && !origins.has(current.subject(foreign)), true,
       `${name}: a bounded trace never publishes an unfinished or mixed complete value family`);
-    const traced = current.transport.substitutions.walk(current.subject(name), current.transport.substitutions.empty);
+    const traced = current.transport.substitutions.walk(sourceStorageReference(current.subject(name), current.transport.substitutions.empty),
+      { kind: "witnesses", boundary: undefined, preserveValuePath: false });
     assert.equal(traced !== undefined && traced.origins.size === origins.size && [...traced.origins].every(origin => origins.has(origin)), true,
       `${name}: an unstopped relation walk preserves every exact complete origin`);
   }
@@ -78,13 +81,14 @@ test("a stopped publication trace does not replace complete values or import ano
 test("a throwing frontier unwinds query ownership and a failed work owner cannot fabricate a stopped result", () => {
   const current = fixture({ maximumSteps: 4096 });
   const failure = new Error("exact frontier failure");
-  assert.throws(() => current.transport.substitutions.walk(current.parent, current.transport.substitutions.empty,
-    () => { throw failure; }), error => error === failure);
-  const selected = current.transport.substitutions.walk(current.parent, current.transport.substitutions.empty,
-    input => input.subject === current.parent);
+  assert.throws(() => current.transport.substitutions.walk(sourceStorageReference(current.parent, current.transport.substitutions.empty),
+    { kind: "witnesses", boundary: () => { throw failure; }, preserveValuePath: false }), error => error === failure);
+  const selected = current.transport.substitutions.walk(sourceStorageReference(current.parent, current.transport.substitutions.empty),
+    { kind: "witnesses", boundary: input => input.subject === current.parent, preserveValuePath: false });
   assert.equal(selected?.origins.has(current.parent), true, "unwind releases traversal state without losing canonical identities");
   while (current.budget.step()) {}
-  assert.equal(current.transport.substitutions.walk(current.parent, current.transport.substitutions.empty, () => true) === undefined, true,
+  assert.equal(current.transport.substitutions.walk(sourceStorageReference(current.parent, current.transport.substitutions.empty),
+    { kind: "witnesses", boundary: () => true, preserveValuePath: false }) === undefined, true,
     "a known failed owner still rejects before publishing any stopped evidence");
   assert.match(current.budget.failure(), /analysis-work/u);
 });

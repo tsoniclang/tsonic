@@ -4,6 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts"
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(limits = {}) {
@@ -21,7 +22,8 @@ function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const transport = createSourceStorageTransport(source, [file], budget);
   const subject = name => transport.subjectFor(Node_Initializer(source.ast, namedVariable(source.ast, file, name)));
-  const walk = (name, stopAt) => transport.substitutions.walk(subject(name), transport.substitutions.empty, stopAt);
+  const walk = (name, stopAt) => transport.substitutions.walk(sourceStorageReference(subject(name), transport.substitutions.empty),
+    { kind: "witnesses", boundary: stopAt, preserveValuePath: false });
   const expect = (name, original, stopAt) => {
     const result = walk(name, stopAt);
     assert.equal(result !== undefined && result.origins.size === 1 && result.origins.has(subject(original)), true,
