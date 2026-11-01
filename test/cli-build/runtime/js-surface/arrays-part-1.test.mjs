@@ -190,7 +190,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int shiftOr\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.shiftValue\(values\) \?\? -1;/);
   assert.match(generatedSource, /public static int firstPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assertArrayPredicate(generatedSource, "findValue", /value > 0 && index > 0/u, "__tsonic_param\\d+", true, " ?? -1");
+  assertArrayPredicate(generatedSource, "findValue", /value > 0 && index > 0/u, "unused", true, " ?? -1");
   assert.match(generatedSource, /public static int lastPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assertArrayPredicate(generatedSource, "findLastValue", /source\.length > index && value > 0/u, "source", true, " ?? -1");
   assert.match(generatedSource, /public static bool hasFrom\(Tsonic\.CSharp\.Js\.JSArray<int> values, int value, int start\)/);
@@ -207,11 +207,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /values\.forEach\(\(int value, int index, Tsonic\.CSharp\.Js\.JSArray<int> source\) =>\s*\{\s*total \+= value \+ index \+ source\.length;\s*\}\);/u);
   assert.match(generatedSource, /total \+= value \+ index \+ source\.length;/);
   assert.match(generatedSource, /public static bool hasPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assertArrayPredicate(generatedSource, "some", /value > 0 && index > 0/u, "__tsonic_param\\d+");
+  assertArrayPredicate(generatedSource, "some", /value > 0 && index > 0/u, "unused");
   assert.match(generatedSource, /public static bool allPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assertArrayPredicate(generatedSource, "every", /source\.length > index && value > 0/u, "source");
   assert.match(generatedSource, /public static int firstPositiveIndex\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assertArrayPredicate(generatedSource, "findIndex", /value > 0 && index > 0/u, "__tsonic_param\\d+");
+  assertArrayPredicate(generatedSource, "findIndex", /value > 0 && index > 0/u, "unused");
   assert.match(generatedSource, /public static int lastPositiveIndex\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assertArrayPredicate(generatedSource, "findLastIndex", /source\.length > index && value > 0/u, "source");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> sliceAll\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);

@@ -38,7 +38,7 @@ test("CLI emits array callbacks with JS callback arities from provider facts", a
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static bool hasIndexedPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assertArrayPredicate(generatedSource, "some", /value > 0 && index > 0/u, "__tsonic_param\\d+");
+  assertArrayPredicate(generatedSource, "some", /value > 0 && index > 0/u, "unused");
   assert.match(generatedSource, /public static bool allFromSource\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assertArrayPredicate(generatedSource, "every", /source\[index\] == value/u, "source");
 
