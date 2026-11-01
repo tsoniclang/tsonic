@@ -241,14 +241,6 @@ export function createSourceStorageRelationEvaluation(source: TargetSourceProgra
     const retained: SourceStorageNormalizationWitness[] = [];
     let normalized = term.kind === "leaf" ? term : normalize(term, retained, temporary, true, true, true);
     if (normalized === undefined) { budget.reject(`Source storage ${term.kind} terms require an exact normalized form.`); return undefined; }
-    if (normalized.kind === "leaf" && normalized.scope.kind === "frame" &&
-      normalized.scope.boundary === "declaration" && scopes.isSymbolic(normalized)) {
-      const subject = transport.subject(normalized.subject.node, normalized.subject.kind);
-      if (subject === undefined) return undefined;
-      normalized = Object.freeze({ kind: "input-frontier", input: sourceStorageReference(subject, normalized.scope),
-        preservesInput: normalized.subject === subject, subject: normalized.subject, scope: normalized.scope,
-        guards: normalized.guards, views: normalized.views });
-    }
     if ((normalized.kind === "leaf" || normalized.kind === "reference" && normalized.subject.projection.length === 0 &&
       sourceStorageFormalOwner(normalized.subject, source) === undefined) &&
       !sourceStorageHasOriginalCallableValue(normalized.subject, source.ast)) {
