@@ -132,9 +132,9 @@ test("native flow selection rejects mutable passing and address exposure through
   assert.deepEqual(current.select(undefined, sourceFacts), [undefined]);
 });
 
-test("native flow selection rejects exhausted accounting without changing checked provenance", () => {
+test("deep finite guarded flow keeps its narrowing and checked provenance", () => {
   const current = fixture(`if (isArray(value)) { ${"consume(value);".repeat(1_000)} observe(value); }`);
-  assert.deepEqual(current.select(), [undefined]);
+  assert.deepEqual(current.select(), [["array"]]);
   const flow = current.source.semantics.forNode(current.reads[0]!).operations.flowConditions(current.reads[0]!);
   assert.ok(flow?.conditions.length === 1 && Object.isFrozen(flow));
 });
