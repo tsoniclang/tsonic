@@ -5,7 +5,7 @@ import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceN
 import { isSourceCallableBodyBoundary } from "../../../source-navigation/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import type { SourceStorageEdgeTypes } from "../graph/edges.js";
+import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";

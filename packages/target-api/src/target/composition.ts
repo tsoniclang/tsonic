@@ -3,7 +3,7 @@ import type { TsonicDataLayoutRegistration } from "./data-layout.js";
 import type { TargetRuntimeContributions } from "../artifacts.js";
 import type { TargetSelection, TargetSurfaceId, TsonicProjectConfig } from "../config.js";
 import type { TargetSourceProfileContributions } from "../source-profile.js";
-import type { TargetCompilationPaths } from "./compilation.js";
+import type { TargetCompilationPaths } from "./paths.js";
 
 export interface TargetCompositionContext {
   readonly project: TsonicProjectConfig;

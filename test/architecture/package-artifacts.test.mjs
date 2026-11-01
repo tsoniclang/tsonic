@@ -115,6 +115,19 @@ test("published packages exclude incremental compiler state", async () => {
   }
 });
 
+test("published source-fact packages exclude compiled tests and fixture helpers", () => {
+  for (const directory of ["source-core", "target-api"]) {
+    const packageRoot = resolve(repoRoot, "packages", directory);
+    const packed = JSON.parse(run("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], packageRoot));
+    assert.equal(packed.length, 1, `${directory}: one package boundary`);
+    const files = packed[0].files.map(file => file.path);
+    assert.equal(files.includes("dist/public/index.js") && files.includes("dist/public/index.d.ts"), true,
+      `${directory}: current runtime and declaration entrypoints remain published`);
+    assert.equal(files.some(file => /(?:\.test\.|fixtures)/u.test(file)), false,
+      `${directory}: compiled test and fixture implementation stays workspace-local`);
+  }
+});
+
 test("packed TSTS declarations and runtime expose exact literal and bounded encoder contracts", async () => {
   const scratch = resolve(repoRoot, ".temp/packed-tsts-contract");
   await mkdir(scratch, { recursive: true });

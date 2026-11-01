@@ -1,6 +1,6 @@
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 import type { SourceClassConstructorParameter, SourceClassConstructorResult, SourceClassConstructorSignature } from "./types.js";
-import type { ResolvedSourceCallInfo } from "../source-semantics/call-result-selection.js";
+import type { ResolvedSourceCallInfo } from "./call-info.js";
 
 export function sourceConstructorParametersMatch(
   declared: readonly Pick<SourceClassConstructorParameter, "parameterDeclaration" | "acceptsOmission" | "rest">[],

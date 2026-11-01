@@ -24,12 +24,6 @@ export function AsAwaitExpression(ast: AstReader, node: Node | undefined): Retur
     : undefined;
 }
 
-export function AsBigIntLiteral(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsBigIntLiteral> | undefined {
-  return node !== undefined && (ast.is.IsBigIntLiteral(node))
-    ? ast.as.AsBigIntLiteral(node)
-    : undefined;
-}
-
 export function AsBinaryExpression(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsBinaryExpression> | undefined {
   return node !== undefined && (ast.is.IsBinaryExpression(node))
     ? ast.as.AsBinaryExpression(node)
@@ -192,18 +186,6 @@ export function AsGetAccessorDeclaration(ast: AstReader, node: Node | undefined)
     : undefined;
 }
 
-export function AsHeritageClause(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsHeritageClause> | undefined {
-  return node !== undefined && (ast.is.IsHeritageClause(node))
-    ? ast.as.AsHeritageClause(node)
-    : undefined;
-}
-
-export function AsIdentifier(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsIdentifier> | undefined {
-  return node !== undefined && (ast.is.IsIdentifier(node))
-    ? ast.as.AsIdentifier(node)
-    : undefined;
-}
-
 export function AsIfStatement(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsIfStatement> | undefined {
   return node !== undefined && (ast.is.IsIfStatement(node))
     ? ast.as.AsIfStatement(node)
@@ -258,12 +240,6 @@ export function AsNonNullExpression(ast: AstReader, node: Node | undefined): Ret
     : undefined;
 }
 
-export function AsNumericLiteral(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsNumericLiteral> | undefined {
-  return node !== undefined && (ast.is.IsNumericLiteral(node))
-    ? ast.as.AsNumericLiteral(node)
-    : undefined;
-}
-
 export function AsObjectLiteralExpression(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsObjectLiteralExpression> | undefined {
   return node !== undefined && (ast.is.IsObjectLiteralExpression(node))
     ? ast.as.AsObjectLiteralExpression(node)
@@ -294,12 +270,6 @@ export function AsPrefixUnaryExpression(ast: AstReader, node: Node | undefined):
     : undefined;
 }
 
-export function AsPrivateIdentifier(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsPrivateIdentifier> | undefined {
-  return node !== undefined && (ast.is.IsPrivateIdentifier(node))
-    ? ast.as.AsPrivateIdentifier(node)
-    : undefined;
-}
-
 export function AsPropertyAccessExpression(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsPropertyAccessExpression> | undefined {
   return node !== undefined && (ast.is.IsPropertyAccessExpression(node))
     ? ast.as.AsPropertyAccessExpression(node)
@@ -321,12 +291,6 @@ export function AsPropertyDeclaration(ast: AstReader, node: Node | undefined): R
 export function AsPropertySignatureDeclaration(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsPropertySignatureDeclaration> | undefined {
   return node !== undefined && (ast.is.IsPropertySignatureDeclaration(node))
     ? ast.as.AsPropertySignatureDeclaration(node)
-    : undefined;
-}
-
-export function AsRegularExpressionLiteral(ast: AstReader, node: Node | undefined): ReturnType<typeof ast.as.AsRegularExpressionLiteral> | undefined {
-  return node !== undefined && (ast.is.IsRegularExpressionLiteral(node))
-    ? ast.as.AsRegularExpressionLiteral(node)
     : undefined;
 }
 

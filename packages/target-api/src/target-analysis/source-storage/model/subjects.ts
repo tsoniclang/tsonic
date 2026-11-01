@@ -71,6 +71,12 @@ export function sourceStorageHasOriginalCallableValue(subject: SourceStorageSubj
       ast.is.IsFunctionDeclaration(subject.node) || ast.is.IsMethodDeclaration(subject.node));
 }
 
+export function sourceStorageIsDirectCreation(subject: SourceStorageSubject, ast: AstReader): boolean {
+  return subject.kind === "value" && subject.projection.length === 0 &&
+    (ast.is.IsObjectLiteralExpression(subject.node) || ast.is.IsArrayLiteralExpression(subject.node) ||
+      ast.is.IsArrowFunction(subject.node) || ast.is.IsFunctionExpression(subject.node));
+}
+
 export function sourceStorageHasOriginalValue(subject: SourceStorageSubject, ast: AstReader, hasIncoming: boolean): boolean {
   return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming &&
     (!ast.is.IsArrayLiteralExpression(subject.node) && !ast.is.IsObjectLiteralExpression(subject.node) || subject.projection.length === 0);

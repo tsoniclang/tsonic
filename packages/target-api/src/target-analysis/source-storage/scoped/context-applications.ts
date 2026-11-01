@@ -4,7 +4,8 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
-import type { createSourceStorageGraphQueries, SourceStorageForwardSelection } from "../graph/graph-queries.js";
+import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
+import type { SourceStorageForwardSelection } from "../model/relations.js";
 import type { SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import type { SourceStorageContextLocation } from "../graph/context-locations.js";
 
