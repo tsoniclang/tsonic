@@ -1,6 +1,7 @@
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
+import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
@@ -49,18 +50,21 @@ export function analyzeSourcePropertyNames(
   const declarations = new WeakMap<Node, KeyFact>();
   const drafts: KeyFact[] = [];
   const inventory: Node[] = [];
-  const completed: Node[] = [];
-  const pending = [{ node: sourceFile, finish: false }];
+  const scopes = new Map<Node, Node[]>([[sourceFile, []]]);
+  const pending = [{ node: sourceFile as Node, finish: false, scope: sourceFile as Node }];
   while (pending.length > 0) {
     const current = pending.pop()!;
-    if (current.finish) { completed.push(current.node); continue; }
+    if (current.finish) { scopes.get(current.scope)!.push(current.node); continue; }
+    const scope = isSourceCallableBodyBoundary(ast, current.node) || ast.is.IsClassDeclaration(current.node) ||
+      ast.is.IsClassExpression(current.node) ? current.node : current.scope;
+    if (!scopes.has(scope)) scopes.set(scope, []);
     inventory.push(current.node);
-    pending.push({ node: current.node, finish: true });
+    pending.push({ node: current.node, finish: true, scope });
     const children: Node[] = [];
     ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index]!, finish: false });
+    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index]!, finish: false, scope });
   }
-  for (const node of completed) completeFact(node);
+  for (const nodes of scopes.values()) for (const node of nodes) completeFact(node);
   const validating = new Set<KeyFact>();
   const validated = new Set<KeyFact>();
   for (const fact of drafts) validateFact(fact);
