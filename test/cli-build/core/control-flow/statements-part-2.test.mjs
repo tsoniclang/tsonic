@@ -194,7 +194,7 @@ test("CLI emits source-owned parameter and for-initializer object destructuring"
   assert.match(generatedSource, /double x = __tsonic_param0\.x;/);
   assert.match(generatedSource, /Point __tsonic_destructure0 = point;/);
   assert.match(generatedSource, /double x = __tsonic_destructure0\.x;/);
-  assert.match(generatedSource, /for \(; x < 2; \)/);
+  assert.match(generatedSource, /for \(; x < 2L; \)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedParameterForOfDestructuring.csproj"), "--nologo", "--v:minimal"]);

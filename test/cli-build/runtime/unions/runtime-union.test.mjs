@@ -54,7 +54,7 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("ready"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1D\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("ready"\);/);
   assert.match(generatedSource, /if \(\(value\) switch \{ var (?<first>__tsonic_value\d+) when \k<first>\.Is1\(\) => false, var (?<second>__tsonic_value\d+) when \k<second>\.Is2\(\) => true, _ => throw new System\.InvalidOperationException\("Invalid native union variant"\) \}\)/);
   assert.match(generatedSource, /return value\.As2\(\);/);
   assert.doesNotMatch(generatedSource, /value is string|return value;\s*}\s*return "fallback"/);
@@ -104,7 +104,7 @@ test("CLI emits native nullable runtime unions from finalized facts", async () =
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string>\?/);
-  assert.match(generatedSource, /flag == 0 \? default\(Tsonic\.CSharp\.Runtime\.Union<double, string>\?\)/);
+  assert.match(generatedSource, /flag == 0L \? default\(Tsonic\.CSharp\.Runtime\.Union<double, string>\?\)/);
   assert.doesNotMatch(generatedSource, /Runtime\.(?:Null|Undefined)|Union<double, string,/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 

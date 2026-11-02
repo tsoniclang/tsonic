@@ -83,7 +83,7 @@ test("CLI emits default export expression snapshots through TSTS module-export s
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const otherSource = await readFile(resolve(projectDirectory, "out/csharp/src/Other.cs"), "utf8");
-  assert.match(otherSource, /public static double @default\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
+  assert.match(otherSource, /public static long @default\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/);
   assert.match(otherSource, /value = 1L;\s*@default = global::Smoke\.Generated\.Other\.value;\s*global::Smoke\.Generated\.Other\.value = 2L;/);
   assert.doesNotMatch(otherSource, /__unsupported/);
 
@@ -137,7 +137,7 @@ test("CLI emits default function imports and default re-exports from TSTS module
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return global::Smoke\.Generated\.Service\.compute\(1\) \+ global::Smoke\.Generated\.Service\.compute\(2\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Service\.compute\(1D\) \+ global::Smoke\.Generated\.Service\.compute\(2D\);/);
   assert.doesNotMatch(generatedSource, /(?:Service|Barrel)\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(generatedSource, /directCompute|Barrel\.compute|__unsupported/);
 

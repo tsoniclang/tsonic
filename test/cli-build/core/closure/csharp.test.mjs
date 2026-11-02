@@ -189,7 +189,7 @@ test("Slice 4 preserves inferred callables and checked visibility while rejectin
         "}",
         "",
       ].join("\n"),
-      expectedEmission: /public class Box[\s\S]*public double value = 1;/u,
+      expectedEmission: /public class Box[\s\S]*public double value = 1D;/u,
       runner: "Console.WriteLine(new Tsonic.Generated.Box().value);",
       stdout: "1\ncompleted\n",
     },

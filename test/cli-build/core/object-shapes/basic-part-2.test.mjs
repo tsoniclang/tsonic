@@ -132,7 +132,7 @@ test("CLI emits calls through parameter destructured object-shape callable facts
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Func<double, double> run = __tsonic_param\d+\.run;/);
-  assert.match(generatedSource, /return run\(3\);/);
+  assert.match(generatedSource, /return run\(3D\);/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);

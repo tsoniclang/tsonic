@@ -119,15 +119,15 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.match(generatedSource, /value\.WriteDynamicSlot\("name", "Ada"\);/);
   assert.match(generatedSource, /return value\.ReadDynamicElement\(key\);/);
   assert.match(generatedSource, /value\.WriteDynamicElement\(key, "Grace"\);/);
-  assert.match(generatedSource, /return value\.InvokeDynamic\("Ada", 1\);/);
+  assert.match(generatedSource, /return value\.InvokeDynamic\("Ada", 1L\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue (?<receiver>__tsonic_value_\d+) = value;\s*return \k<receiver>\.ReadDynamicSlot\("create"\)\.InvokeDynamicWithThis\(\k<receiver>, "Ada"\);/);
   assert.doesNotMatch(generatedSource, /InvokeDynamicSlot|new object\?\[\]/);
   assert.match(generatedSource, /return value\.ConstructDynamic\("Ada"\);/);
   // Typed dynamic operators replaced the string-dispatched ApplyDynamicBinary* entries (csharp-runtime 76f4c95,
   // tsonic-csharp 7ffb1ceb "Seal typed JS operator calls before native planning"); the C# unit oracle
   // direct-translation-core expects TsValue.Add / LogicalNot and direct-translation-json-deserialization TsValue.StrictEqual.
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.Add\(value, 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.StrictEqual\(value, 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.Add\(value, 2L\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.StrictEqual\(value, 2L\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.LogicalNot\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicTypeof\(value\);/);
@@ -353,7 +353,7 @@ test("CLI emits and executes explicit any comma sequences through native stateme
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static double sequence\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*global::Smoke\.Generated\.Index\.consume\(value\);\s*return \(1\);\s*\}/u);
+  assert.match(generatedSource, /public static double sequence\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*global::Smoke\.Generated\.Index\.consume\(value\);\s*return \(1D\);\s*\}/u);
   assert.doesNotMatch(generatedSource, /System\.Func|\(\(\) =>|System\.Reflection|\bdynamic\b|__unsupported/u);
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
     "using System;",
