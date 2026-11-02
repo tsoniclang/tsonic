@@ -2,7 +2,7 @@ import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-n
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageInputFrontier, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
@@ -318,7 +318,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       }
       if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
-      const opaqueResult = term.receiver.subject.kind === "value" &&
+      const opaqueResult = sourceStorageIsDataMember(original, ast) && term.receiver.subject.kind === "value" &&
         ast.is.IsCallExpression(term.receiver.subject.node) && transport.isOpaque(term.receiver.subject.node) &&
         transport.invocationEffects.get(term.receiver.subject.node)?.resultAlias === undefined;
       if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver) || opaqueResult) {
