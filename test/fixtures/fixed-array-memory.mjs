@@ -21,7 +21,8 @@ export const header = memorylayout<Header>({
     memoryfield({ select: (value: Header) => value.values, byteoffset: 4, bytealignment: 4, fieldlayout: matrix }),
   ],
 });
-export const empty = memoryarraylayout<uint32, 0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: word, length: 0 });
+const emptyword = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+export const empty = memoryarraylayout<uint32, 0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: emptyword, length: 0 });
 `,
   "index.ts": `
 import { allocateptr, equalptr, loadptr, offsetrawptr, reinterpretrawptr,
