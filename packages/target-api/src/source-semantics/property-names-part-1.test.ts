@@ -309,7 +309,8 @@ test("property-key publication inventories each syntax occurrence and completes 
   const file = source.navigation.sourceFiles[0]!;
   const visits = new Set<Node>();
   const declarations = new Set<Node>();
-  const ast = { ...source.ast, forEachChild(node: Node, visit: (child: Node | undefined) => void) {
+  const ast = { ...source.ast, forEachChild(node: Node | undefined, visit: (child: Node | undefined) => void) {
+    if (node === undefined) return source.ast.forEachChild(node, visit);
     assert.equal(visits.has(node), false, "the current syntax is inventoried once, never rescanned from a key");
     visits.add(node);
     return source.ast.forEachChild(node, visit);
