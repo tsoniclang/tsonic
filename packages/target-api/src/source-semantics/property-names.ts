@@ -231,6 +231,7 @@ export function analyzeSourcePropertyNames(
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
     const member = checkedEnumMember(node);
     if (member !== undefined) return selectedEnum(member);
+    if (facts.get(node)?.constant?.kind === "numeric") return selectedNumeric(node);
     const type = checkedType(node);
     if (type === undefined) return rejected("The computed key has no completed checked literal type.");
     const text = semantics.types.stringLiteralValue(type);
