@@ -91,6 +91,7 @@ export interface TargetCompilationStages<Program, Plan> {
   readonly analyze: () => TargetStageResult<Program>;
   readonly plan: (program: Program) => TargetStageResult<Plan>;
   readonly materialize: (plan: Plan) => TargetCompileOutput;
+  readonly compilerResourceFailure?: (failure: unknown) => TargetCompilerResourceLimitFailure | undefined;
 }
 
 export interface TargetCompilationObserver<Program, Plan> {
@@ -162,6 +163,13 @@ export function rejectedTargetStage<T>(
   });
 }
 
+function compilerResourceFailure<Program, Plan>(
+  stages: TargetCompilationStages<Program, Plan>,
+  failure: unknown,
+): TargetCompilerResourceLimitFailure | undefined {
+  return failure instanceof TargetCompilerResourceLimitFailure ? failure : stages.compilerResourceFailure?.(failure);
+}
+
 export function runTargetCompilationStages<Program, Plan>(
   stages: TargetCompilationStages<Program, Plan>,
   observer?: TargetCompilationObserver<Program, Plan>,
@@ -170,7 +178,8 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     analysis = stages.analyze();
   } catch (failure) {
-    if (failure instanceof TargetCompilerResourceLimitFailure) return rejectedTargetStage([failure.diagnostic]);
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure !== undefined) return rejectedTargetStage([resourceFailure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "analysis") {
       throw failure;
     }
@@ -184,7 +193,8 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     planning = stages.plan(analysis.value);
   } catch (failure) {
-    if (failure instanceof TargetCompilerResourceLimitFailure) return rejectedTargetStage([...analysis.diagnostics, failure.diagnostic]);
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure !== undefined) return rejectedTargetStage([...analysis.diagnostics, resourceFailure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "planning") {
       throw failure;
     }
@@ -201,8 +211,9 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
   } catch (failure) {
-    if (!(failure instanceof TargetCompilerResourceLimitFailure)) throw failure;
-    return rejectedTargetStage([...diagnostics, failure.diagnostic]);
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure === undefined) throw failure;
+    return rejectedTargetStage([...diagnostics, resourceFailure.diagnostic]);
   }
 }
 

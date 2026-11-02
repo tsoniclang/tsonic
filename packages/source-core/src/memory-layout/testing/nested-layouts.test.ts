@@ -3,7 +3,7 @@ import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import { maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
+import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
@@ -334,4 +334,19 @@ test("source layout depth failures are diagnosed before a fact transaction is po
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts,
     memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth + 1)), undefined);
   assert.ok(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth)));
+});
+
+test("resource failures do not inspect unvalidated layout source subjects", () => {
+  let reads = 0;
+  const leaf = Object.defineProperty({ ...scalar(), byteSize: 0n, stride: 0n }, "call", {
+    get() { reads += 1; throw new Error("An exhausted resource diagnostic must not execute a source accessor."); },
+  });
+  let nested: TsonicMemoryLayoutFact = leaf;
+  for (let depth = 0; depth < maximumMemoryLayoutDepth; depth += 1)
+    nested = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(nested)] };
+  assert.throws(() => snapshotMemoryLayout(nested), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+    failure.diagnostic.evidence?.[0] === "depth=128");
+  assert.throws(() => memoryLayoutCaptureLimitsError([leaf], 131_071), (failure: unknown) =>
+    failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.evidence?.[0] === "values=131072");
+  assert.equal(reads, 0, "resource context never reads unvalidated metadata");
 });

@@ -99,12 +99,12 @@ const capturedLayoutDepths = new WeakMap<TsonicMemoryLayoutFact, number>();
 
 export function memoryLayoutCaptureLimitsError(children: readonly TsonicMemoryLayoutFact[], fieldCount = 0): string | undefined {
   if (children.length + fieldCount >= maximumMemoryLayoutValues) {
-    failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "values", maximumMemoryLayoutValues, children[0]?.call);
+    failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "values", maximumMemoryLayoutValues);
   }
   for (const child of children) {
     const depth = capturedLayoutDepths.get(child);
     if (depth === undefined) return "Memory child layout is not an immutable source-owned snapshot.";
-    if (depth >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "depth", maximumMemoryLayoutDepth, child.call);
+    if (depth >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "depth", maximumMemoryLayoutDepth);
   }
   return undefined;
 }
@@ -135,19 +135,19 @@ function memoryLayoutSnapshot() {
     const capturedDepth = capturedLayoutDepths.get(value);
     if (capturedDepth !== undefined) {
       if (active.size + capturedDepth > maximumMemoryLayoutDepth) {
-        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
+        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
       }
       return value;
     }
     const cached = layouts.get(value);
     if (cached !== undefined) {
       if (active.size + capturedLayoutDepths.get(cached)! > maximumMemoryLayoutDepth) {
-        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
+        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
       }
       return cached;
     }
     if (active.has(value)) throw new Error("Memory layout contains a recursive physical value.");
-    if (active.size >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
+    if (active.size >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
     const discriminator = value !== null && typeof value === "object"
       ? Object.getOwnPropertyDescriptor(value, "kind") : undefined;
     if (discriminator === undefined || !("value" in discriminator) ||
