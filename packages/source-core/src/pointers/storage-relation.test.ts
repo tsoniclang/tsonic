@@ -8,7 +8,7 @@ import { createTsonicPointerStorageRelation } from "./storage-relation.js";
 
 function fixture(text: string) {
   const checked = cleanMemorySession(`
-    import { allocateptr, addressof, projectptr } from "@tsonic/core/lang.js";
+    import { allocateptr, addressof, bindptr, projectptr } from "@tsonic/core/lang.js";
     ${text}
   `);
   const source = createTargetSourceProgram(checked);
@@ -95,7 +95,39 @@ test("pointer storage never admits a logical projection as physical backing", ()
     const pointer = allocateptr<uint32>(1);
     torawptr(projectptr<uint32, uint32>(pointer, value => value, value => value), uint32Layout);
   `);
-  assert.equal(current.selections[0]!.kind, "unresolved");
+  const selected = current.selections[0]!;
+  assert.equal(selected.kind, "complete");
+  if (selected.kind !== "complete") return;
+  assert.equal(selected.includesAbsence, false);
+  assert.equal(selected.producers.length, 1);
+  assert.equal(selected.producers[0]!.operation.operation, "project-pointer",
+    "A logical terminal preserves its native location domain without becoming a physical backing operation.");
+});
+
+test("pointer storage retains one checked logical binding through value and return queries", () => {
+  const current = fixture(`
+    function make(): Pointer<uint32> {
+      const identity = {};
+      let value: uint32 = 1;
+      return bindptr<uint32>(identity, () => value, next => { value = next; });
+    }
+    torawptr(make(), uint32Layout);
+  `);
+  const declaration = current.storage.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "make");
+  assert.equal(declaration !== undefined, true);
+  if (declaration === undefined) return;
+  for (const selected of [current.selections[0]!, current.relation.returned(declaration)]) {
+    assert.equal(selected.kind, "complete");
+    if (selected.kind !== "complete") return;
+    assert.equal(selected.includesAbsence, false);
+    assert.equal(selected.producers.length, 1);
+    const producer = selected.producers[0]!;
+    assert.equal(producer.operation.operation, "bind-pointer");
+    assert.equal(producer.storage.subject.node === producer.operation.call, true);
+    assert.equal(current.storage.typeFor(producer.storage.subject, producer.storage.bindings).kind, "resolved",
+      "The original checked component and scoped activation remain available to native pointee completion.");
+  }
 });
 
 test("pointer storage rejects foreign scoped bindings without an unbound retry", () => {
