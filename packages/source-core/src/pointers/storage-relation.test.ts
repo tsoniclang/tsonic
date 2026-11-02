@@ -125,8 +125,10 @@ test("pointer storage retains one checked logical binding through value and retu
     const producer = selected.producers[0]!;
     assert.equal(producer.operation.operation, "bind-pointer");
     assert.equal(producer.storage.subject.node === producer.operation.call, true);
-    assert.equal(current.storage.typeFor(producer.storage.subject, producer.storage.bindings).kind, "resolved",
-      "The original checked component and scoped activation remain available to native pointee completion.");
+    assert.equal(current.storage.typeFor(producer.storage.subject).kind, "resolved",
+      "The original checked component remains available to native pointee completion.");
+    assert.equal(current.storage.boundActivationsFor(declaration, producer.storage.bindings).kind, "resolved",
+      "The retained producer bindings belong to the exact original declaration activation.");
   }
 });
 
