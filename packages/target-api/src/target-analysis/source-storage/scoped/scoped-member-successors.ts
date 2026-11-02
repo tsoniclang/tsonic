@@ -121,7 +121,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
           const receiverFile = receiver === undefined ? undefined : transport.sourceFileFor(receiver);
-          const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views);
+          const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views, receiverFile);
           if (receiver === undefined || receiverType === undefined || receiverFile === undefined) return undefined;
           const receiverSemantics = semantics.forFile(receiverFile);
           if (sourceStorageIsMemberProjection(component)) {
@@ -193,7 +193,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const receiverViews: readonly SourceStorageProjectionView[] | undefined = term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier"
       ? term.receiver.views : undefined;
     let receiverType = term.selection.kind === "physical" ? term.selection.receiverType : term.selection.kind === "projection"
-      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews) : selected?.receiver.type;
+      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
     let receiverView = term.selection.kind !== "access"
       ? sourceStorageProjectionSubject(term.selection.subject, receiverViews, transport.subject)
       : transport.subjectFor(selected?.receiver.expression);

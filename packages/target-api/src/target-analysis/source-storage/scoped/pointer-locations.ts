@@ -48,7 +48,7 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
         continue;
       }
       if (original.kind !== "leaf" && original.kind !== "input-frontier") return undefined;
-      const type = sourceStorageProjectionType(source, original.subject, original.views);
+      const type = sourceStorageProjectionType(source, original.subject, original.views, transport.sourceFileFor(original.subject));
       if (type === undefined) return undefined;
       sourceStorageProjectComponents(original.subject.projection, type, selected.receiver.type,
         component === undefined ? [{ kind: "member", declaration: declaration! }] : [component], context, ast, budget, projection => {

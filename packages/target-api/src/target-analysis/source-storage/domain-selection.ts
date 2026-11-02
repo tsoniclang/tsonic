@@ -26,7 +26,7 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       const types = new Set<Type>();
       for (const view of views === undefined ? [undefined] : views) {
         if (!budget.step()) return unresolved(budget.failure()!);
-        const type = sourceStorageProjectionType(source, origin, view);
+        const type = sourceStorageProjectionType(source, origin, view, sourceFile);
         if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
         if (!types.has(type)) {
           origins.push(Object.freeze({ subject: origin, type, sourceFile }));
