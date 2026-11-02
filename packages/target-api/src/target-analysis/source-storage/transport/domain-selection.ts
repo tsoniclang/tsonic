@@ -1,13 +1,13 @@
 import type { Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceStorageBudget } from "./model/resource-budget.js";
-import type { SourceStorageSubject } from "./model/subjects.js";
-import type { SourceStorageScope, SourceStorageProjectionView } from "./graph/scoped-model.js";
+import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageBudget } from "../model/resource-budget.js";
+import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageScope, SourceStorageProjectionView } from "../graph/scoped-model.js";
 import type { SourceStorageBindings, SourceStorageOriginsSelection, SourceStorageTypedSubject,
-  SourceStorageUnresolved, SourceStorageDomainBoundary } from "./model/types.js";
-import type { createSourceStorageTransport } from "./transport/transport.js";
-import type { createSourceStorageDomains } from "./transport/domains.js";
-import { sourceStorageProjectionType } from "./scoped/projection-views.js";
+  SourceStorageUnresolved, SourceStorageDomainBoundary } from "../model/types.js";
+import type { createSourceStorageTransport } from "./transport.js";
+import type { createSourceStorageDomains } from "./domains.js";
+import { sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export type SourceStorageOriginViews = ReadonlyMap<SourceStorageSubject, ReadonlySet<readonly SourceStorageProjectionView[]>>;
 

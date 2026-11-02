@@ -413,7 +413,7 @@ interface SourceStorageMemberImplementationInputs {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
   originsFor(subject: SourceStorageSubject): Iterable<SourceStorageSubject> | undefined;
-  storesFor(subject: SourceStorageSubject): Iterable<import("./stored-values.js").SourceStorageStore> | undefined;
+  storesFor(subject: SourceStorageSubject): Iterable<import("../model/stores.js").SourceStorageStore> | undefined;
   readonly declarationsFor: ReturnType<typeof createSourceStorageMemberFlow>["declarationsFor"];
   readonly excludes: ReturnType<typeof createSourceStorageMemberFlow>["excludes"];
   readonly membersInLineage: ReturnType<typeof createSourceStorageMemberFlow>["membersInLineage"];

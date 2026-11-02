@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
 import { sourceStorageIsDataMember } from "../model/subjects.js";
-import type { SourceStorageStore } from "../graph/stored-values.js";
+import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageInputFrontier,
   SourceStorageOperation, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
