@@ -257,6 +257,8 @@ export function analyzeSourcePropertyNames(
 
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
     const semantics = semanticsFor(node);
+    const constant = facts.get(node)?.constant;
+    if (constant?.kind === "enum-member") return selectedEnum(constant.entry.declaration);
     const member = checkedEnumMember(node);
     if (member !== undefined) return selectedEnum(member);
     if (facts.get(node)?.constant?.kind === "numeric") return selectedNumeric(node);
@@ -360,6 +362,16 @@ export function analyzeSourcePropertyNames(
     return numeric === undefined ? undefined : createFact({ constant: Object.freeze({ kind: "numeric", token: numeric }) });
   }
 
+  function enumFact(member: Node): KeyFact | undefined {
+    const existing = declarations.get(member);
+    if (existing !== undefined) return existing;
+    const entry = enumConstants.get(member);
+    if (entry?.kind !== "resolved") return undefined;
+    const fact = createFact({ constant: Object.freeze({ kind: "enum-member", entry }) });
+    declarations.set(member, fact);
+    return fact;
+  }
+
   function declaredFact(node: Node | undefined, active = new Set<Node>()): KeyFact | undefined {
     if (node === undefined || active.has(node)) return undefined;
     active.add(node);
@@ -375,11 +387,12 @@ export function analyzeSourcePropertyNames(
       if (ast.is.IsTypeQueryNode(node)) {
         const name = ast.as.AsTypeQueryNode(node)?.ExprName;
         const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-        return declaration === undefined ? undefined : declarations.get(declaration);
+        return declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration) : declarations.get(declaration);
       }
       if (ast.is.IsTypeReferenceNode(node)) {
         const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
         const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
+        if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return enumFact(declaration);
         return declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)
           ? declaredFact(ast.typeNode(declaration), active) : undefined;
       }
@@ -482,6 +495,11 @@ export function analyzeSourcePropertyNames(
   function completeFact(node: Node): void {
     const literal = literalFact(node);
     if (literal !== undefined) { facts.set(node, literal); return; }
+    if (ast.is.IsEnumMember(node)) {
+      const fact = enumFact(node);
+      if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
     if (ast.is.IsVariableDeclaration(node)) {
       const name = ast.name(node);
       const initializer = ast.as.AsVariableDeclaration(node)?.Initializer;
@@ -495,7 +513,14 @@ export function analyzeSourcePropertyNames(
     }
     if (ast.is.IsIdentifier(node)) {
       const declaration = navigation.sourceReferenceFor(node)?.declaration;
-      const fact = declaration === undefined ? undefined : declarations.get(declaration) ?? declaredFact(ast.typeNode(declaration));
+      const fact = declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration)
+        : declarations.get(declaration) ?? declaredFact(ast.typeNode(declaration));
+      if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
+    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+      const member = checkedEnumMember(node);
+      const fact = member === undefined ? undefined : enumFact(member);
       if (fact !== undefined) facts.set(node, fact);
       return;
     }
