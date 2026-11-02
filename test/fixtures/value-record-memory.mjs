@@ -22,8 +22,8 @@ export const header = memorylayout<Header>({
   bytealignment: 4,
   stride: 8,
   fields: [
-    memoryfield({ select: (value: Header) => value.tag, byteoffset: 0, bytealignment: 1, fieldlayout: byte }),
-    memoryfield({ select: (value: Header) => value.word, byteoffset: 4, bytealignment: 4, fieldlayout: nested }),
+    memoryfield({ select: (value: Header) => value.tag, byteoffset: 4, bytealignment: 1, fieldlayout: byte }),
+    memoryfield({ select: (value: Header) => value.word, byteoffset: 0, bytealignment: 4, fieldlayout: nested }),
   ],
 });
 `,
@@ -43,7 +43,7 @@ export function run(): boolean {
   const restored = reinterpretrawptr(raw, header);
   if (restored === undefined || !equalptr(pointer, restored)) return false;
   const snapshot = loadptr(restored);
-  const field = reinterpretrawptr<uint32>(offsetrawptr(raw, 4, abi), word);
+  const field = reinterpretrawptr<uint32>(offsetrawptr(raw, 0, abi), word);
   if (field === undefined) return false;
   storeptr(field, 33);
   if (loadptr(pointer).word.count !== 33 || snapshot.word.count !== 9 || source.word.count !== 9) return false;
