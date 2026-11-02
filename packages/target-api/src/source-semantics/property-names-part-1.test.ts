@@ -301,3 +301,49 @@ export const getter = { [holder.name]() { return [1][Symbol.iterator](); } };
   assert.deepEqual(computed.map(entry => entry.selection.kind),
     ["well-known-symbol", "well-known-symbol", "rejected", "rejected"]);
 });
+
+test("property-key publication inventories each syntax occurrence and completes each declaration only once", () => {
+  const aliases = Array.from({ length: 24 }, (_, index) =>
+    `const alias${index} = ${index === 0 ? "9007199254740993" : `alias${index - 1}`};`).join("\n");
+  const source = checked(`${aliases}\nexport const result: Record<number, string> = { [alias23]: "exact" };`);
+  const file = source.navigation.sourceFiles[0]!;
+  const visits = new Set<Node>();
+  const declarations = new Set<Node>();
+  const ast = { ...source.ast, forEachChild(node: Node, visit: (child: Node | undefined) => void) {
+    assert.equal(visits.has(node), false, "the current syntax is inventoried once, never rescanned from a key");
+    visits.add(node);
+    return source.ast.forEachChild(node, visit);
+  }, as: { ...source.ast.as, AsVariableDeclaration(node: Node | undefined) {
+    if (node !== undefined) {
+      assert.equal(declarations.has(node), false, "a typed alias consumes completed facts, not its initializer again");
+      declarations.add(node);
+    }
+    return source.ast.as.AsVariableDeclaration(node);
+  } } };
+  const index = analyzeSourcePropertyNames(ast, file, source.semantics.forFile(file), source.navigation, source.semantics.enumConstants);
+  assert.equal(index.issues.length, 0, "the exact native key survives all ordinary typed aliases");
+  const selected = index.entries.find(entry => source.ast.is.IsComputedPropertyName(entry.node))!.selection;
+  assert.equal(selected.kind === "resolved" && selected.constant.kind === "numeric" &&
+    selected.constant.token.coefficient === 9007199254740993n, true, "native precision is not replaced by checker rounding");
+  assert.equal(Object.isFrozen(index), true, "only immutable completed key evidence is published");
+});
+
+test("forward type-query contracts retain exact native keys and reject forged selected declaration evidence", () => {
+  const aliases = Array.from({ length: 12 }, (_, index) =>
+    `const alias${index} = ${index === 0 ? "9007199254740993" : `alias${index - 1}`};`).join("\n");
+  const source = checked(`
+const kept = 5 as unknown as typeof later;
+const bad = 7 as unknown as typeof later;
+const wide = 9007199254740993 as unknown as typeof alias11;
+const wrongWide = 9007199254740992 as unknown as typeof alias11;
+const poisoned = 5 as unknown as 7;
+const laundered = 5 as unknown as typeof poisoned;
+export const result: Record<number, string>[] = [{ [kept]: "kept" }, { [bad]: "bad" },
+  { [wide]: "wide" }, { [wrongWide]: "wrong" }, { [laundered]: "laundered" }];
+const later = 5;
+${aliases}
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 3, "each actual forgery remains rejected even for numeric dictionary keys");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind), ["resolved", "rejected", "resolved", "rejected", "rejected"]);
+});
