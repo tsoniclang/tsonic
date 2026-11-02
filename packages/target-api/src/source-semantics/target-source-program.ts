@@ -47,14 +47,7 @@ export function createTargetSourceProgram(
     return selected;
   };
 
-  const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
-    if (!source.containsSourceFile(sourceFile)) {
-      throw new Error("Source semantics require an exact source file from the checked program.");
-    }
-    const existing = cache.get(sourceFile);
-    if (existing !== undefined) {
-      return existing;
-    }
+  function createFileView(sourceFile: SourceFile) {
     const queries = source.getSourceFileQueries(sourceFile);
     const flowConditions = new WeakMap<Node, import("@tsonic/tsts").ResolvedSourceFlowConditionInfo | null>();
     const operations = Object.freeze({
@@ -63,7 +56,7 @@ export function createTargetSourceProgram(
       propertyAccess(node: Node) {
         const checked = queries.checker.getResolvedPropertyAccessInfo(node);
         const selected = checked === undefined ? undefined :
-          normalizeSourcePropertyAccessDeclarations(source.ast, semantics, checked);
+          normalizeSourcePropertyAccessDeclarations(source.ast, forFile(sourceFile), checked);
         return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
           ? selected
           : selectRefinedSourcePropertyAccess(selected,
@@ -151,7 +144,7 @@ export function createTargetSourceProgram(
       awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType(node: Node) {
-        return selectSourceContextualType(source.ast, queries.checker, semantics, node);
+        return selectSourceContextualType(source.ast, queries.checker, forFile(sourceFile), node);
       },
       typeOfSymbol: queries.checker.getTypeOfSymbol,
       declaredSymbolType: queries.checker.getDeclaredTypeOfSymbol,
@@ -228,7 +221,7 @@ export function createTargetSourceProgram(
           source.sourceFacts,
           authoredTypeNode,
           selectedType,
-          semantics,
+          forFile(sourceFile),
         );
       },
       contextualValueSelection(node: Node) {
@@ -236,7 +229,7 @@ export function createTargetSourceProgram(
           source.ast,
           queries.typeShape,
           queries.checker,
-          semantics,
+          forFile(sourceFile),
           node,
         );
       },
@@ -263,7 +256,7 @@ export function createTargetSourceProgram(
       },
       standardTransformation(authoredTypeNode: Node | undefined, selectedType: Type) {
         return selectStandardSourceTypeTransformation(
-          { ast: source.ast, navigation, semantics, semanticsFor: forNode },
+          { ast: source.ast, navigation, semantics: forFile(sourceFile), semanticsFor: forNode },
           authoredTypeNode,
           selectedType,
         );
@@ -279,29 +272,46 @@ export function createTargetSourceProgram(
         );
       },
     });
-    const semantics: SourceFileSemantics = Object.freeze({
+    return Object.freeze({
       sourceFile,
-      propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, {
-        operations: {
-          propertyName: queries.checker.getEffectivePropertyName,
-          objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
-          propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
-          elementAccess: queries.checker.getResolvedElementAccessInfo,
-          wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
-          call: queries.checker.getResolvedCallInfo,
-          callResult: operations.callResult,
-        },
-        types,
-        declarations,
-      }, navigation, enumConstants),
+      propertyNameOperations: Object.freeze({
+        propertyName: queries.checker.getEffectivePropertyName,
+        objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
+        propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
+        elementAccess: queries.checker.getResolvedElementAccessInfo,
+        wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
+        call: queries.checker.getResolvedCallInfo,
+        callResult: operations.callResult,
+      }),
       operations,
       types,
       declarations,
       facts,
     });
-    cache.set(sourceFile, semantics);
-    return semantics;
-  };
+  }
+
+  function publishFileViews(fileViews: readonly ReturnType<typeof createFileView>[]): void {
+    const propertyNames = analyzeSourcePropertyNames(source.ast, fileViews.map(view => ({
+      sourceFile: view.sourceFile,
+      semantics: { operations: view.propertyNameOperations, types: view.types, declarations: view.declarations },
+    })), navigation, enumConstants);
+    for (const [index, view] of fileViews.entries()) {
+      cache.set(view.sourceFile, Object.freeze({ sourceFile: view.sourceFile,
+        propertyNames: propertyNames[index]!.propertyNames, operations: view.operations,
+        types: view.types, declarations: view.declarations, facts: view.facts }));
+    }
+  }
+
+  const checkedFiles = new Set([...source.getSourceFiles(), ...sourceFiles].filter(
+    (file): file is SourceFile => file !== undefined));
+  publishFileViews([...checkedFiles].map(createFileView));
+
+  function forFile(sourceFile: SourceFile): SourceFileSemantics {
+    if (!source.containsSourceFile(sourceFile)) throw new Error("Source semantics require an exact source file from the checked program.");
+    if (!cache.has(sourceFile)) publishFileViews([createFileView(sourceFile)]);
+    const selected = cache.get(sourceFile);
+    return selected!;
+  }
 
   const forNode = (node: Node): SourceFileSemantics => {
     const sourceFile = source.ast.getSourceFile(node);

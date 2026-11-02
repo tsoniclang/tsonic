@@ -33,16 +33,14 @@ const unavailable: SourcePropertyNameSelection = Object.freeze({
 
 export function analyzeSourcePropertyNames(
   ast: AstReader,
-  sourceFile: SourceFile,
-  semantics: {
+  files: readonly { readonly sourceFile: SourceFile; readonly semantics: {
     readonly operations: Pick<SourceFileSemantics["operations"], "propertyName" | "objectLiteralElement" | "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
     readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue" | "isTuple" | "tupleElementInfos" | "selectIndexedAccess" | "isNumberLike" | "isIntersection" | "unionOrIntersectionTypes">;
     readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
-  },
+  } }[],
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
   enumConstants: SourceEnumConstantIndex,
-): SourcePropertyNameIndex {
-  const values = new WeakMap<Node, SourcePropertyNameSelection>();
+): readonly { readonly sourceFile: SourceFile; readonly propertyNames: SourcePropertyNameIndex }[] {
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
   const issues: { readonly node: Node; readonly reason: string; readonly failure: "source" | "resource" }[] = [];
   const checkedTypes = new WeakMap<Node, Type | null>();
@@ -50,8 +48,9 @@ export function analyzeSourcePropertyNames(
   const declarations = new WeakMap<Node, KeyFact>();
   const drafts: KeyFact[] = [];
   const inventory: Node[] = [];
-  const scopes = new Map<Node, Node[]>([[sourceFile, []]]);
-  const pending = [{ node: sourceFile as Node, finish: false, scope: sourceFile as Node }];
+  const inputs = new Map(files.map(file => [file.sourceFile, file.semantics]));
+  const scopes = new Map<Node, Node[]>(files.map(file => [file.sourceFile, []]));
+  const pending = files.map(file => ({ node: file.sourceFile as Node, finish: false, scope: file.sourceFile as Node })).reverse();
   while (pending.length > 0) {
     const current = pending.pop()!;
     if (current.finish) { scopes.get(current.scope)!.push(current.node); continue; }
@@ -64,7 +63,11 @@ export function analyzeSourcePropertyNames(
     ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
     for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index]!, finish: false, scope });
   }
-  for (const nodes of scopes.values()) for (const node of nodes) completeFact(node);
+  for (const file of files) for (const node of scopes.get(file.sourceFile)!) completeFact(node);
+  for (const [scope, nodes] of scopes) {
+    if (ast.is.IsSourceFile(scope)) continue;
+    for (const node of nodes) completeFact(node);
+  }
   const validating = new Set<KeyFact>();
   const validated = new Set<KeyFact>();
   for (const fact of drafts) validateFact(fact);
@@ -75,10 +78,11 @@ export function analyzeSourcePropertyNames(
       record(node, admitName(node, ast.is.IsComputedPropertyName(node) ? select(node)
         : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node))));
     } else if (ast.is.IsElementAccessExpression(node)) {
+      const semantics = semanticsFor(node);
       const access = semantics.operations.elementAccess(node);
       if (access !== undefined && access.selectedElementIndex === undefined &&
         (access.selectedSymbol !== undefined || access.selectedDeclaration !== undefined) &&
-        !onlyNumericIndexes(access.receiver.type, access.argument.type)) {
+        !onlyNumericIndexes(node, access.receiver.type, access.argument.type)) {
         const argument = access.argument.expression;
         const type = checkedType(argument);
         if (type !== undefined && typeof semantics.types.numericLiteralValue(type) === "number") {
@@ -95,27 +99,42 @@ export function analyzeSourcePropertyNames(
       }
     }
   }
-  return Object.freeze({
-    entries: Object.freeze(entries),
-    issues: Object.freeze(issues),
-    get: (name: Node) => values.get(name),
-  });
+  const entriesByFile = new Map(files.map(file => [file.sourceFile, [] as typeof entries]));
+  const issuesByFile = new Map(files.map(file => [file.sourceFile, [] as typeof issues]));
+  for (const entry of entries) entriesByFile.get(ast.getSourceFile(entry.node)!)!.push(entry);
+  for (const issue of issues) issuesByFile.get(ast.getSourceFile(issue.node)!)!.push(issue);
+  return Object.freeze(files.map(({ sourceFile }) => {
+    const selectedEntries = Object.freeze(entriesByFile.get(sourceFile)!);
+    const values = new WeakMap(selectedEntries.map(entry => [entry.node, entry.selection]));
+    return Object.freeze({ sourceFile, propertyNames: Object.freeze({
+      entries: selectedEntries,
+      issues: Object.freeze(issuesByFile.get(sourceFile)!),
+      get: (name: Node) => values.get(name),
+    }) });
+  }));
+
+  function semanticsFor(node: Node): (typeof files)[number]["semantics"] {
+    const file = ast.getSourceFile(node);
+    const semantics = file === undefined ? undefined : inputs.get(file);
+    if (semantics === undefined) throw new Error("Property-name facts require the original checked source-file owner.");
+    return semantics;
+  }
 
   function record(node: Node, selection: SourcePropertyNameSelection): void {
-    values.set(node, selection);
     entries.push(Object.freeze({ node, selection }));
     if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason, failure: selection.failure }));
   }
 
   function admitName(node: Node, selection: SourcePropertyNameSelection): SourcePropertyNameSelection {
     if (selection.kind !== "resolved") return selection;
+    const semantics = semanticsFor(node);
     const checked = semantics.operations.propertyName(node);
     if (checked === undefined || checked.kind === "unique-symbol") return rejected(
       "The property key has no completed checked string or numeric member identity.");
     const parent = ast.parent(node);
     const element = parent === undefined ? undefined : semantics.operations.objectLiteralElement(parent);
     if (element?.contextualType !== undefined && element.sourceSelectedSymbol === undefined &&
-      element.sourceSelectedDeclarations.length === 0 && onlyNumericIndexes(element.contextualType, checked.type)) {
+      element.sourceSelectedDeclarations.length === 0 && onlyNumericIndexes(node, element.contextualType, checked.type)) {
       return Object.freeze({ ...selection, name: checked.name });
     }
     const admitted = admitNumericName(selection, checked.name);
@@ -129,13 +148,15 @@ export function analyzeSourcePropertyNames(
       `Numeric property key ${selection.name} has checker key ${checked}; use the exact string key ${JSON.stringify(selection.name)} instead of a conflicting numeric named member.`) : selection;
   }
 
-  function onlyNumericIndexes(owner: Type, key: Type): boolean {
+  function onlyNumericIndexes(node: Node, owner: Type, key: Type): boolean {
+    const semantics = semanticsFor(node);
     const selection = semantics.types.selectIndexedAccess(owner, key);
     return selection?.kind === "resolved" && selection.members.length > 0 && selection.members.every(member =>
-      member.kind === "index" && member.index.keyType !== undefined && numberBacked(member.index.keyType));
+      member.kind === "index" && member.index.keyType !== undefined && numberBacked(node, member.index.keyType));
   }
 
-  function numberBacked(type: Type): boolean {
+  function numberBacked(node: Node, type: Type): boolean {
+    const semantics = semanticsFor(node);
     return semantics.types.isNumberLike(type) || semantics.types.isIntersection(type) &&
       semantics.types.unionOrIntersectionTypes(type).some(part => semantics.types.isNumberLike(part));
   }
@@ -154,6 +175,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function select(name: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(name);
     const selection = classify(name);
     if (selection.kind !== "resolved") return selection;
     const expression = (ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression;
@@ -168,6 +190,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function classify(name: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(name);
     const expression = unwrap((ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression);
     if (expression === undefined) return unavailable;
     const parent = ast.parent(name);
@@ -233,6 +256,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(node);
     const member = checkedEnumMember(node);
     if (member !== undefined) return selectedEnum(member);
     if (facts.get(node)?.constant?.kind === "numeric") return selectedNumeric(node);
@@ -253,6 +277,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedNumeric(node: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(node);
     const type = checkedType(node);
     const checked = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
     if (typeof checked === "number" && !Number.isFinite(checked)) return rejected("The numeric property key exceeds finite native literal bounds.");
@@ -275,6 +300,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function checkedEnumMember(node: Node): Node | undefined {
+    const semantics = semanticsFor(node);
     const current = unwrap(node);
     if (current === undefined) return undefined;
     const declaration = ast.is.IsIdentifier(current) ? navigation.sourceReferenceFor(current)?.declaration
@@ -358,6 +384,7 @@ export function analyzeSourcePropertyNames(
           ? declaredFact(ast.typeNode(declaration), active) : undefined;
       }
       if (ast.is.IsTupleTypeNode(node)) {
+        const semantics = semanticsFor(node);
         const type = checkedType(node);
         if (type === undefined || !semantics.types.isTuple(type) ||
           semantics.types.tupleElementInfos(type).some(element => element.elementKind !== "required")) return undefined;
@@ -425,6 +452,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function callFact(node: Node): KeyFact | undefined {
+    const semantics = semanticsFor(node);
     const call = semantics.operations.call(node);
     const result = call === undefined ? undefined : semantics.operations.callResult(call);
     const declared = declaredFact(result?.authoredTypeNode);
@@ -508,6 +536,7 @@ export function analyzeSourcePropertyNames(
       return;
     }
     if (ast.is.IsArrayLiteralExpression(node)) {
+      const semantics = semanticsFor(node);
       const elements: (KeyFact | undefined)[] = [];
       for (const element of ast.elements(node)) {
         if (element !== undefined && ast.is.IsSpreadElement(element)) {
@@ -545,7 +574,7 @@ export function analyzeSourcePropertyNames(
   function checkedType(node: Node): Type | undefined {
     const cached = checkedTypes.get(node);
     if (cached !== undefined) return cached ?? undefined;
-    const type = semantics.types.expressionType(node);
+    const type = semanticsFor(node).types.expressionType(node);
     checkedTypes.set(node, type ?? null);
     return type;
   }
@@ -560,6 +589,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function pureReference(node: Node): boolean {
+    const semantics = semanticsFor(node);
     const current = unwrap(node);
     if (current === undefined) return false;
     if (ast.is.IsIdentifier(current)) return true;

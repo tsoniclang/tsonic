@@ -246,7 +246,7 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
   const semantics = source.semantics.forFile(file);
   let sealed = false;
   let reads = 0;
-  const index = analyzeSourcePropertyNames(source.ast, file, {
+  const index = analyzeSourcePropertyNames(source.ast, [{ sourceFile: file, semantics: {
     operations: semantics.operations,
     declarations: semantics.declarations,
     types: { ...semantics.types, expressionType(node: Node) {
@@ -254,7 +254,7 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
       reads += 1;
       return semantics.types.expressionType(node);
     } },
-  }, source.navigation, source.semantics.enumConstants);
+  } }], source.navigation, source.semantics.enumConstants)[0]!.propertyNames;
   sealed = true;
   const entry = index.entries[0]!;
   assert.equal(reads, 1, "one source literal type selection");
@@ -321,7 +321,7 @@ test("property-key publication inventories each syntax occurrence and completes 
     }
     return source.ast.as.AsVariableDeclaration(node);
   } } };
-  const index = analyzeSourcePropertyNames(ast, file, source.semantics.forFile(file), source.navigation, source.semantics.enumConstants);
+  const index = analyzeSourcePropertyNames(ast, [{ sourceFile: file, semantics: source.semantics.forFile(file) }], source.navigation, source.semantics.enumConstants)[0]!.propertyNames;
   assert.equal(index.issues.length, 0, "the exact native key survives all ordinary typed aliases");
   const selected = index.entries.find(entry => source.ast.is.IsComputedPropertyName(entry.node))!.selection;
   assert.equal(selected.kind === "resolved" && selected.constant.kind === "numeric" &&
