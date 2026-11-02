@@ -392,7 +392,9 @@ export function analyzeSourcePropertyNames(
       if (ast.is.IsTypeReferenceNode(node)) {
         const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
         const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-        if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return enumFact(declaration);
+        const member = declaration !== undefined && ast.is.IsEnumMember(declaration) ? declaration
+          : name !== undefined && ast.is.IsQualifiedName(name) ? checkedEnumMember(node) : undefined;
+        if (member !== undefined) return enumFact(member);
         return declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)
           ? declaredFact(ast.typeNode(declaration), active) : undefined;
       }

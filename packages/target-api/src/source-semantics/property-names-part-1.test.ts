@@ -348,3 +348,55 @@ ${aliases}
   assert.equal(index.issues.length, 3, "each actual forgery remains rejected even for numeric dictionary keys");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind), ["resolved", "rejected", "resolved", "rejected", "rejected"]);
 });
+
+test("foreign const declarations retain their completed native key facts without replay", () => {
+  const source = checked(`
+import { wide, kept, bad, text } from "./keys.js";
+export function make() {
+  const alias = wide;
+  const exact: Record<number, string> = { [alias]: "wide" };
+  return [exact, { [kept]: "kept" }, { [bad]: "bad" }, { [text]: "text" }];
+}
+`, { "/src/keys.ts": `
+export const wide = 9007199254740993;
+export const kept = 5 as unknown as 5;
+export const bad = 5 as unknown as 7;
+export const text = "actual" as unknown as "asserted";
+` });
+  const file = source.sourceFiles.find(candidate => source.ast.getFileName(candidate) === "/src/index.ts")!;
+  const index = source.semantics.forFile(file).propertyNames;
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.deepEqual(computed.map(entry => entry.selection.kind), ["resolved", "resolved", "rejected", "rejected"]);
+  assert.equal(index.issues.length, 2, "both actual foreign assertion operands remain authoritative");
+  const wide = computed[0]!.selection;
+  assert.equal(wide.kind === "resolved" && wide.constant.kind === "numeric" &&
+    wide.constant.token.coefficient === 9007199254740993n, true, "the foreign native scalar does not round through checked Number");
+  assert.equal(computed[1]!.selection.kind === "resolved" && computed[1]!.selection.name === "5", true,
+    "a genuine foreign literal assertion retains its exact checked declaration identity");
+  const syntax = targetSourceSyntaxProgram(source);
+  for (const entry of computed) {
+    assert.equal(index.get(entry.node) === entry.selection, true, "the per-file index is one immutable occurrence lookup");
+    assert.equal(syntax.propertyNames.get(entry.node) === entry.selection, true, "publication forwards the identical completed selection");
+  }
+  assert.equal(Object.isFrozen(index), true, "foreign facts are validated before per-file publication");
+});
+
+test("completed enum-member keys retain genuine assertions and reject changed native constants", () => {
+  const source = checked(`
+enum Key { Kept = 5, Other = 7 }
+const kept = Key.Kept as Key.Kept;
+const bad = Key.Kept as unknown as Key.Other;
+const alias = kept;
+export const result = [{ [kept]: 1 }, { [alias]: 2 }, { [bad]: 3 }];
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind), ["resolved", "resolved", "rejected"]);
+  assert.equal(index.issues.length, 1, "only the actual forged enum value is refused");
+  const member = source.semantics.enumConstants.entries.find(entry => entry.kind === "resolved" && entry.value === 5n)!;
+  for (const entry of index.entries.slice(0, 2)) {
+    assert.equal(entry.selection.kind === "resolved" && entry.selection.constant.kind === "enum-member" &&
+      entry.selection.constant.entry === member, true, "each assertion/alias keeps the identical canonical enum entry");
+    assert.equal(index.get(entry.node) === entry.selection, true, "enum reads use the completed immutable lookup");
+  }
+  assert.equal(Object.isFrozen(index), true, "enum assertion validation is finished before publication");
+});
