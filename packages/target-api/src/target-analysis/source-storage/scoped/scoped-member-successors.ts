@@ -318,7 +318,10 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       }
       if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
-      if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver)) {
+      const opaqueResult = term.receiver.subject.kind === "value" &&
+        ast.is.IsCallExpression(term.receiver.subject.node) && transport.isOpaque(term.receiver.subject.node) &&
+        transport.invocationEffects.get(term.receiver.subject.node)?.resultAlias === undefined;
+      if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver) || opaqueResult) {
         if (prototype) continue;
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
           [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",

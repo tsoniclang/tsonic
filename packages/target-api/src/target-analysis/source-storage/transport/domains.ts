@@ -101,7 +101,8 @@ export function createSourceStorageDomains(
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
       for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner, kind)) {
         if (!budget.step()) break;
-        if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
+        if (boundary.kind === "opaque-result") selected.push(Object.freeze({ ...boundary, subject }));
+        else if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
           boundary.kind === "unclassified-exposure") selected.push(boundary);
       }
     }
