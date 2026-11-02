@@ -384,7 +384,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (initial !== undefined) return { kind: "replace", terms: [initial] };
     let selectedBody: boolean | undefined;
-    const terms = [...parents].filter(parent => {
+    const terms: SourceStorageTerm[] = [...parents].filter(parent => {
       if (parent.kind !== "return") return true;
       if (selectedBody === undefined) {
         const receiver = term.subject.kind === "return" && ast.body(node) !== undefined
@@ -393,6 +393,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       return !selectedBody;
     }).map(parent => sourceStorageReference(parent, term.scope));
+    if (term.subject.kind === "return" && ast.body(node) !== undefined && !ast.is.IsConstructorDeclaration(node)) {
+      const completion = semantics.forNode(node).operations.callableCompletion(node);
+      if (completion === undefined || completion.declaration !== node) return undefined;
+      if (completion.canFallThrough) terms.push(Object.freeze({ kind: "empty",
+        absence: sourceStorageReference(term.subject, term.scope) }));
+    }
     if (ambient || sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
       terms.unshift(leaf(term.subject, creatorScope(node, term.scope)));
     const qualified = term.subject.kind === "value" && ast.is.IsIdentifier(node) && parents.size !== 0 &&
