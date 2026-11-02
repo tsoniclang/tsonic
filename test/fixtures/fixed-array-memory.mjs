@@ -7,15 +7,15 @@ export type Row = FixedArray<uint32, 2>;
 export type Matrix = FixedArray<Row, 2>;
 export const Header = struct({ tag: field<uint8>(), values: field<Matrix>() });
 export type Header = typeof Header;
-export const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 8, fields: [] });
+export const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 const byte = memorylayout<uint8>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1, fields: [] });
-export const row = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 16, bytealignment: 4, stride: 16, elementlayout: word, length: 2 });
-const matrix = memoryarraylayout<Row, 2>({ datalayout: abi, bytesize: 32, bytealignment: 4, stride: 32, elementlayout: row, length: 2 });
+export const row = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 2 });
+const matrix = memoryarraylayout<Row, 2>({ datalayout: abi, bytesize: 16, bytealignment: 4, stride: 16, elementlayout: row, length: 2 });
 export const header = memorylayout<Header>({
   datalayout: abi,
-  bytesize: 36,
+  bytesize: 20,
   bytealignment: 4,
-  stride: 36,
+  stride: 20,
   fields: [
     memoryfield({ select: (value: Header) => value.tag, byteoffset: 0, bytealignment: 1, fieldlayout: byte }),
     memoryfield({ select: (value: Header) => value.values, byteoffset: 4, bytealignment: 4, fieldlayout: matrix }),
@@ -40,7 +40,7 @@ export function run(): boolean {
   const restored = reinterpretrawptr(raw, header);
   if (restored === undefined || !equalptr(pointer, restored)) return false;
   const snapshot = loadptr(restored);
-  const last = reinterpretrawptr<uint32>(offsetrawptr(raw, 28, abi), word);
+  const last = reinterpretrawptr<uint32>(offsetrawptr(raw, 16, abi), word);
   if (last === undefined) return false;
   storeptr(last, 55);
   if (loadptr(pointer).values[1][1] !== 55 || snapshot.values[1][1] !== 4 || source.values[1][1] !== 4) return false;
