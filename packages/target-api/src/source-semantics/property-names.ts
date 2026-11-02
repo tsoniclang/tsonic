@@ -482,7 +482,7 @@ export function analyzeSourcePropertyNames(
         : ast.is.IsTypeAssertion(node) ? ast.as.AsTypeAssertion(node)?.Type : undefined;
       facts.set(node, annotation === undefined && input !== undefined ? input : createFact({
         ...(input === undefined ? {} : { ...input, input }), contracts: annotation === undefined ? [] : [annotation],
-        valid: input !== undefined }));
+        declarationOnly: false, valid: input !== undefined }));
       return;
     }
     if (ast.is.IsPrefixUnaryExpression(node)) {
