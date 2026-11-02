@@ -72,14 +72,14 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Box box = new Box\s*\{\s*value = 1,\s*label = "one",\s*\};/);
+  assert.match(generatedSource, /Box box = new Box\s*\{\s*value = 1D,\s*label = "one",\s*\};/);
   assert.match(generatedSource, /Box box = new Box\s*\{\s*value = value,\s*label = "two",\s*\};/);
   assert.match(generatedSource, /return new Box\s*\{\s*value = value,\s*label = "three",\s*\};/);
-  assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0,\s*label = "no",\s*\};/);
+  assert.match(generatedSource, /return flag \? new Box\s*\{\s*value = value,\s*label = "yes",\s*\} : new Box\s*\{\s*value = 0D,\s*label = "no",\s*\};/);
   assert.match(generatedSource, /return new WithCtor\s*\{\s*value = value,\s*\};/);
   assert.match(generatedSource, /public Func<double, double> run = \(double value\) => value;/u);
   assert.doesNotMatch(generatedSource, /public HandlerBox\(\)|__tsonic_callable_\d+|new Func<double, double>/u);
-  assert.match(generatedSource, /return new HandlerBox\s*\{\s*run = \(double value\) =>\s*\{\s*return value \+ 1;\s*\},\s*\};/);
+  assert.match(generatedSource, /return new HandlerBox\s*\{\s*run = \(double value\) =>\s*\{\s*return value \+ 1L;\s*\},\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
@@ -168,11 +168,11 @@ test("CLI emits interface object literals through provider object-shape adapters
   assert.ok(shapeName);
   assert.match(generated, /public interface Named[\s\S]*string name \{ get; set; \}[\s\S]*double run\(double value\);/);
   assert.match(generatedShapes, /public class NamedShape_[a-f0-9]{12} : Named/u);
-  assert.match(generatedShapes, /public double run\(double value\)[\s\S]*return value \+ 1;/u);
+  assert.match(generatedShapes, /public double run\(double value\)[\s\S]*return value \+ 1L;/u);
   assert.match(generatedShapes, /public required string name\s*\{\s*get;\s*set;\s*\}/u);
   assert.doesNotMatch(generatedShapes, /Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}\\s*\\{\\s*name = "one",\\s*\\};`));
-  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
+  assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2D\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -210,7 +210,7 @@ test("CLI emits generic interface object literals through specialized provider a
   assert.match(generatedShapes, /public class (BoxShape_[a-f0-9]{12}) : Box<double>[\s\S]*public required string label[\s\S]*get;[\s\S]*set;[\s\S]*public required double value[\s\S]*get;[\s\S]*set;/);
   const shapeName = /public class (BoxShape_[a-f0-9]{12}) : Box<double>/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);
-  assert.match(generated, new RegExp(`public static Box<double> create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*value = 1,[\\s\\S]*label = "one",`));
+  assert.match(generated, new RegExp(`public static Box<double> create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*value = 1D,[\\s\\S]*label = "one",`));
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -239,7 +239,7 @@ test("CLI emits source-owned object initializers with identifier-valid string pr
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generated, /public static Box create\(\)[\s\S]*return new Box[\s\S]*value = 42,/);
+  assert.match(generated, /public static Box create\(\)[\s\S]*return new Box[\s\S]*value = 42D,/);
   assert.doesNotMatch(generated, /unsupported|invalid/i);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

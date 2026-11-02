@@ -40,9 +40,9 @@ test("CLI emits standard JavaScript static class members", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double count = 1;/);
+  assert.match(generatedSource, /public static double count = 1D;/);
   assert.match(generatedSource, /public static double add\(double left, double right\)/);
-  assert.match(generatedSource, /return MathBox\.add\(MathBox\.count, 2\);/);
+  assert.match(generatedSource, /return MathBox\.add\(MathBox\.count, 2D\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticMembers.csproj"), "--nologo", "--v:minimal"]);
@@ -94,9 +94,9 @@ test("CLI emits standard JavaScript class accessors as C# properties", async () 
   assert.match(generatedSource, /public double doubled/);
   assert.match(generatedSource, /get/);
   assert.match(generatedSource, /set/);
-  assert.match(generatedSource, /return this\.backing \* 2;/);
+  assert.match(generatedSource, /return this\.backing \* 2L;/);
   assert.match(generatedSource, /double next = value;/);
-  assert.match(generatedSource, /this\.backing = next \/ 2;/);
+  assert.match(generatedSource, /this\.backing = next \/ 2L;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedAccessors.csproj"), "--nologo", "--v:minimal"]);

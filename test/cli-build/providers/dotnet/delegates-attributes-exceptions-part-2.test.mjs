@@ -104,7 +104,7 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public class Annotated/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+public Annotated\(\[System\.CLSCompliantAttribute\(false\)\] double seed\)/);
-  assert.match(generatedSource, /\[field: System\.CLSCompliantAttribute\(false\)\]\s+public double value = 1;/);
+  assert.match(generatedSource, /\[field: System\.CLSCompliantAttribute\(false\)\]\s+public double value = 1D;/);
   assert.match(generatedSource, /\[property: System\.CLSCompliantAttribute\(true\)\]\s+public double computed/);
   assert.match(generatedSource, /\[System\.CLSCompliantAttribute\(true\)\]\s+\[return: System\.CLSCompliantAttribute\(false\)\]\s+public double run\(\[param: System\.CLSCompliantAttribute\(false\)\] double input\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

@@ -49,9 +49,9 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
   assert.match(generated, /path\.Split\("\/"\)/u);
   assert.match(generated, /path\.StartsWith\("\/"\)/u);
   assert.match(generated, /parts\.Length/u);
-  assert.match(generated, /parts\[1\]/u);
+  assert.match(generated, /parts\[1L\]/u);
   assert.match(generated, /internal static long wideValue\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
-  assert.match(generated, /wideValue = global::Smoke\.Generated\.App\.wideValues\[1\];/u);
+  assert.match(generated, /wideValue = global::Smoke\.Generated\.App\.wideValues\[1L\];/u);
   assert.match(generated, /span\.Slice\(offset, selectedChunkSize\)/u);
 });
 
@@ -91,7 +91,7 @@ test("CLI pure C# profile infers integral literal local storage for CLR array in
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/App.cs"), "utf8");
-  assert.match(generated, /\{\s*int index = 0;\s*for \(; index < values\.Length; index\+\+\)/u);
+  assert.match(generated, /\{\s*long index = 0L;\s*for \(; index < values\.Length; index\+\+\)/u);
   assert.match(generated, /result \+= values\[index\]/u);
   assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedInferredArrayIndex").trim(), "6");
 });

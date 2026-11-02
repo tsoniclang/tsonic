@@ -42,7 +42,7 @@ import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRo
 
 test("CLI emits C# source project from TSTS semantics and compiles with dotnet", async () => {
   const projectDirectory = resolve(tempRoot, "wide-csharp");
-  await writeProject(projectDirectory, {
+  const originalFiles = {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -119,8 +119,15 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
       "}",
       "",
     ].join("\n"),
-  });
+  };
 
+  await writeProject(projectDirectory, originalFiles);
+  const refusedBuild = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(refusedBuild.status, 1, refusedBuild.stdout + refusedBuild.stderr);
+  const refusedLine = originalFiles["src/index.ts"].split("\n").findIndex(line => line.includes("total = total + value")) + 1;
+  assert.equal(refusedLine > 0 && refusedBuild.stderr.includes(`ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:${refusedLine}:13: No exact C# implicit conversion relates 'source:float64' to 'source:int64'.`), true,
+    "the unchanged original refuses at its exact later assignment without retyping the int64 accumulator");
+  await writeProject(projectDirectory, { "src/index.ts": originalFiles["src/index.ts"].replace("let total = 0", "let total: number = 0") });
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
@@ -280,9 +287,9 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /internal static double @event\s*\{\s*get;\s*set;\s*\} = default\(double\)!;/u);
+  assert.match(generatedSource, /internal static long @event\s*\{\s*get;\s*set;\s*\} = default\(long\)!;/u);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/u);
-  assert.match(generatedSource, /@event = 1;/);
+  assert.match(generatedSource, /@event = 1L;/);
   assert.match(generatedSource, /public static double read\(double @operator\)/);
   assert.match(generatedSource, /double @params = @operator \+ global::Smoke\.Generated\.Index\.@event;/);
   assert.match(generatedSource, /return @params;/);

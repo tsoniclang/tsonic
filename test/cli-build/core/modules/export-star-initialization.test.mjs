@@ -92,7 +92,7 @@ test("CLI preserves export-star module initialization before re-exported values 
   assert.doesNotMatch(barrelSource, /__unsupported/);
 
   const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
-  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.State\.append\("side;"\);[\s\S]*sideValue = 1;/);
+  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.State\.append\("side;"\);[\s\S]*sideValue = 1L;/);
   assert.doesNotMatch(sideSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExportStarModuleInitOrder.csproj"), "--nologo", "--v:minimal"]);
@@ -257,8 +257,8 @@ test("CLI emits closed module-scope arrow functions as direct C# methods", async
   assert.match(generatedSource, /public static double triple\(double value\)/);
   assert.match(generatedSource, /public static double add\(double left, double right\)\s*\{\s*return left \+ right;\s*\}/);
   assert.match(generatedSource, /public static string greet\(string name\)\s*\{\s*return \$"Hello \{name\}";\s*\}/);
-  assert.match(generatedSource, /public static double @double\(double value\)\s*\{\s*return value \* 2;\s*\}/);
-  assert.match(generatedSource, /public static double triple\(double value\)\s*\{\s*return value \* 3;\s*\}/);
+  assert.match(generatedSource, /public static double @double\(double value\)\s*\{\s*return value \* 2L;\s*\}/);
+  assert.match(generatedSource, /public static double triple\(double value\)\s*\{\s*return value \* 3L;\s*\}/);
   assert.doesNotMatch(generatedSource, /Func</);
   assert.doesNotMatch(generatedSource, /^\s*(?:add|greet|@double|triple) = /gmu);
   assert.doesNotMatch(generatedSource, /__tsonic_module_init|__unsupported/);

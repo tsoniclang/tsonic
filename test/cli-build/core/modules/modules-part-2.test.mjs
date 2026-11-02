@@ -84,7 +84,7 @@ test("CLI emits default export expression snapshots through TSTS module-export s
 
   const otherSource = await readFile(resolve(projectDirectory, "out/csharp/src/Other.cs"), "utf8");
   assert.match(otherSource, /public static double @default\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
-  assert.match(otherSource, /value = 1;\s*@default = global::Smoke\.Generated\.Other\.value;\s*global::Smoke\.Generated\.Other\.value = 2;/);
+  assert.match(otherSource, /value = 1L;\s*@default = global::Smoke\.Generated\.Other\.value;\s*global::Smoke\.Generated\.Other\.value = 2L;/);
   assert.doesNotMatch(otherSource, /__unsupported/);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");

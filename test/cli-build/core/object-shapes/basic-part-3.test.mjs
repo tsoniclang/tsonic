@@ -59,9 +59,9 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
   assert.match(generatedSource, /public static double score\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> result\)/);
   assert.match(generatedSource, /if \(result\.kind == "found"\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> found = result;/);
-  assert.match(generatedSource, /return found\.value \+ 1;/);
+  assert.match(generatedSource, /return found\.value \+ 1L;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> missing = result;/);
-  assert.match(generatedSource, /return missing\.value - 1;/);
+  assert.match(generatedSource, /return missing\.value - 1L;/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
@@ -243,7 +243,7 @@ test("CLI emits nested structural object-shape literals through finalized nested
   assert.match(generatedShapes, /public required double count\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
-  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2,\s*\};/);
+  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2D,\s*\};/);
   assert.match(generatedSource, /global::Smoke\.Generated\.Index\.parent\.child\.label/);
   assert.match(generatedSource, /global::Smoke\.Generated\.Index\.parent\.child\.value \+ global::Smoke\.Generated\.Index\.parent\.count/);
   assert.doesNotMatch(generatedSource, /Dictionary<|\bdynamic\b|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load|__unsupported|invalid/i);

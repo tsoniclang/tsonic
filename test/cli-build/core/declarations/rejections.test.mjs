@@ -30,9 +30,9 @@ test("CLI executes checked visibility and readonly annotations through native cl
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public double visible = 1;/u);
-  assert.match(generatedSource, /private double hidden = 2;/u);
-  assert.match(generatedSource, /public readonly double id = 3;/u);
+  assert.match(generatedSource, /public double visible = 1D;/u);
+  assert.match(generatedSource, /private double hidden = 2D;/u);
+  assert.match(generatedSource, /public readonly double id = 3D;/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
   assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedTypeScriptOnlyModifiers", [
     "using System;",
@@ -117,7 +117,7 @@ test("CLI emits sanitized C# names through source-owned provider facts", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public double @default = 1;/);
+  assert.match(generatedSource, /public double @default = 1D;/);
   assert.match(generatedSource, /return box\.@default;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

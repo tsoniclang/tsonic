@@ -34,10 +34,10 @@ test("CLI emits module-scope variables as lazily initialized C# static propertie
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /internal static double total\s*\{\s*get;\s*set;\s*\} = default\(double\)!;/);
+  assert.match(generatedSource, /internal static long total\s*\{\s*get;\s*set;\s*\} = default\(long\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(generatedSource, /total = 1;/);
-  assert.match(generatedSource, /total = global::Smoke\.Generated\.Index\.total \+ 1;/);
+  assert.match(generatedSource, /total = 1L;/);
+  assert.match(generatedSource, /total = global::Smoke\.Generated\.Index\.total \+ 1L;/);
   assert.doesNotMatch(generatedSource, /public static void Main\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -76,9 +76,9 @@ test("CLI emits module-scope const bindings as lazily initialized C# static prop
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /internal static int total\s*\{\s*get;\s*private set;\s*\} = default\(int\)!;/);
+  assert.match(generatedSource, /internal static long total\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(generatedSource, /total = 1;/);
+  assert.match(generatedSource, /total = 1L;/);
   assert.doesNotMatch(generatedSource, /public static double total = 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -106,9 +106,9 @@ test("CLI erases source-local standalone export declarations", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static int value\s*\{\s*get;\s*private set;\s*\} = default\(int\)!;/);
+  assert.match(generatedSource, /public static long value\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(generatedSource, /value = 1;/);
+  assert.match(generatedSource, /value = 1L;/);
   assert.doesNotMatch(generatedSource, /export|__unsupported/);
 });
 

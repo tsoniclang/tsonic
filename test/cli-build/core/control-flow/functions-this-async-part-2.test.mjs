@@ -39,7 +39,7 @@ test("CLI emits instance and lexical this only from finalized receiver facts", a
   assert.equal(build.status, 0, build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public class Counter/);
-  assert.match(generatedSource, /public double value = 7;/);
+  assert.match(generatedSource, /public double value = 7D;/);
   assert.match(generatedSource, /Func<double> read = \(\) => this\.value;/);
   assert.match(generatedSource, /return read\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -116,7 +116,7 @@ test("CLI emits object-literal lexical this through a receiver-bound generated s
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const source = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  assert.match(shapes, /public double read\(\)\s*\{\s*return 3;\s*\}/u);
+  assert.match(shapes, /public double read\(\)\s*\{\s*return 3D;\s*\}/u);
   assert.match(shapes, /public double read\(\)\s*\{\s*return this\.value;\s*\}/u);
   assert.equal((shapes.match(/public double read\(\)/gu) ?? []).length, 2, "both authored methods retain native bodies");
   assert.doesNotMatch(source + shapes, /__tsonic_shape_method_/u);
@@ -161,7 +161,7 @@ test("CLI executes class-field this through the exact constructor receiver and f
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public Counter\(\)\s*\{\s*this\.value = 7;\s*this\.doubled = this\.value \* 2;\s*\}/u);
+  assert.match(generatedSource, /public Counter\(\)\s*\{\s*this\.value = 7D;\s*this\.doubled = this\.value \* 2L;\s*\}/u);
   assert.match(generatedSource, /public double value;\s*public double doubled;/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection/u);
   assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedClassFieldThisRejected", [

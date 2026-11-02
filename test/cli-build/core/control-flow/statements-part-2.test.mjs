@@ -36,7 +36,7 @@ test("CLI rewrites mixed-type for initializers into C# prelude locals", async ()
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /double index = 0;/);
+  assert.match(generatedSource, /long index = 0L;/);
   assert.match(generatedSource, /bool active = true;/);
   assert.match(generatedSource, /for \(; index < limit; index\+\+\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -135,12 +135,12 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedEntrypoint = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
-  assert.match(generatedSource, /internal static double total\s*\{\s*get;\s*set;\s*\} = default\(double\)!;/);
+  assert.match(generatedSource, /internal static long total\s*\{\s*get;\s*set;\s*\} = default\(long\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(generatedSource, /total = 0;/);
+  assert.match(generatedSource, /total = 0L;/);
   assert.match(generatedEntrypoint, /public static void Main\(\)/);
   assert.match(generatedEntrypoint, /Index\.__tsonic_module_init\(\);/);
-  assert.match(generatedSource, /foreach \(int value in new int\[\] \{ 1, 2, 3 \}\)/);
+  assert.match(generatedSource, /foreach \(long value in new long\[\] \{ 1L, 2L, 3L \}\)/);
   assert.match(generatedSource, /total = global::Smoke\.Generated\.Index\.total \+ value;/);
   assert.doesNotMatch(generatedSource, /Top-level statement is outside/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

@@ -235,9 +235,9 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
-  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.apply\(3, \(double input\) => input \+ 4\);/);
-  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2;/);
-  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.apply\(3D, \(double input\) => input \+ 4L\);/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2L;/);
+  assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3L;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -284,7 +284,7 @@ test("CLI emits closure-capturing returned lambdas from TSTS callable facts", as
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Func<double> makeCounter\(\)/);
-  assert.match(generatedSource, /double count = 0;/);
+  assert.match(generatedSource, /long count = 0L;/);
   assert.match(generatedSource, /return \(\) =>\s*\{\s*count\+\+;\s*return count;\s*\};/);
   assert.match(generatedSource, /count\+\+;/);
   assert.match(generatedSource, /return count;/);

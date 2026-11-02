@@ -39,7 +39,7 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   assert.match(generatedSource, /public static int mutate\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /values\.deleteAt\(index\);/);
   assert.match(generatedSource, /values\.setLength\(4D\);/);
-  assert.match(generatedSource, /values\[3D\] = 7;/);
+  assert.match(generatedSource, /values\[3L\] = 7;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.doesNotMatch(generatedSource, /values\.Count =/);
   assert.doesNotMatch(generatedSource, /values\.Length =/);
@@ -82,9 +82,9 @@ test("CLI runs explicit optional elements through dense JSArray carrier facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.of\(\[default\(double\?\), 5D, 6D\]\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<long\?>\.of\(\[default\(long\?\), 5L, 6L\]\)/);
   assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
-  assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
+  assert.doesNotMatch(generatedSource, /new long\?\[\] \{ 5L, 6L \}/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "10:5:6:1:-1\n");
 });

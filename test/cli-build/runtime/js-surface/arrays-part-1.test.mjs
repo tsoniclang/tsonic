@@ -171,7 +171,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int first\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\[0D\];/);
+  assert.match(generatedSource, /return values\[0L\];/);
   assert.match(generatedSource, /public static int pick\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /return values\[index\];/);
   assert.match(generatedSource, /public static int assign\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index, int value\)/);
@@ -291,11 +291,11 @@ test("CLI emits Array construction only from selected JS surface carrier facts",
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int make\(int size\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(size\);/);
-  assert.match(generatedSource, /values\[0D\] = 7;/);
+  assert.match(generatedSource, /values\[0L\] = 7;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.match(generatedSource, /public static int call\(int size\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = Tsonic\.CSharp\.Js\.JSArrayStatics\.withLength<int>\(size\);/);
-  assert.match(generatedSource, /values\[0D\] = 9;/);
+  assert.match(generatedSource, /values\[0L\] = 9;/);
   assert.doesNotMatch(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double>/);
   assert.doesNotMatch(generatedSource, /new int\[/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.List<int>/);
@@ -397,7 +397,7 @@ test("CLI selects ordinary TypeScript array public ABI lanes from finalized JS s
   assert.match(generatedSource, /public static int sequence\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.match(generatedSource, /public static int indexed\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\[0D\] \+ values\.length;/);
+  assert.match(generatedSource, /return values\[0L\] \+ values\.length;/);
   assert.match(generatedSource, /public static int dense\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index, int value\)/);
   assert.match(generatedSource, /values\[index\] = value;/);
   assert.match(generatedSource, /return values\.length;/);

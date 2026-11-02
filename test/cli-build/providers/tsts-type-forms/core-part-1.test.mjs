@@ -43,7 +43,7 @@ test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic
   assert.match(generatedSource, /public static T id<T>\(T value\)/);
   assert.match(generatedSource, /public static string choose\(string value\)/);
   assert.match(generatedSource, /public static string describe\(string kind\)/);
-  assert.match(generatedSource, /double rounded = 2;/);
+  assert.match(generatedSource, /double rounded = 2D;/);
   assert.match(generatedSource, /if \(kind == "left"\)/);
   assert.match(generatedSource, /Func<string, string> transform = \(string input\) => \$"L:\{input\}:\{rounded\}";/);
   assert.match(generatedSource, /string selected = transform\(kind\);/);
@@ -153,7 +153,7 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
   assert.match(generatedSource, /return \$"\{\(\(DerivedValue\)value!\)\.name\}:\{\(\(DerivedValue\)value!\)\.score\}";/);
   assert.match(generatedSource, /public static U apply<T, U>\(T value, Func<T, U> callback\)/);
   assert.match(generatedSource, /Func<double, string> render = \(double input\) => \$"\{input\}";/);
-  assert.match(generatedSource, /string direct = global::Smoke\.Generated\.Index\.apply<double, string>\(value, \(double input\) => \$"\{input \+ 1\}"\);/);
+  assert.match(generatedSource, /string direct = global::Smoke\.Generated\.Index\.apply<double, string>\(value, \(double input\) => \$"\{input \+ 1L\}"\);/);
   assert.match(generatedSource, /return \$"\{render\(value\)\}:\{direct\}";/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

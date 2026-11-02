@@ -4,7 +4,7 @@ import { assertArraySpreadCopies } from "./literals-spread-fixtures.mjs";
 
 test("CLI emits typed, empty, nested, and spread array literals from finalized array facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-typed-literals");
-  await writeProject(projectDirectory, {
+  const originalFiles = {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -75,8 +75,15 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
       "}",
       "",
     ].join("\n"),
-  });
+  };
 
+  await writeProject(projectDirectory, originalFiles);
+  const refusedBuild = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(refusedBuild.status, 1, refusedBuild.stdout + refusedBuild.stderr);
+  const refusedLine = originalFiles["src/index.ts"].split("\n").findIndex(line => line.includes("total += value")) + 1;
+  assert.equal(refusedLine > 0 && refusedBuild.stderr.includes(`ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:${refusedLine}:5: C# compound assignment '+=' requires an implicit result-to-storage conversion or an exact predefined narrowing with an implicit right-to-storage conversion.`), true,
+    "the unchanged original refuses at its exact later assignment without retyping the int64 accumulator");
+  await writeProject(projectDirectory, { "src/index.ts": originalFiles["src/index.ts"].replace("let total = 0", "let total: number = 0") });
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
 

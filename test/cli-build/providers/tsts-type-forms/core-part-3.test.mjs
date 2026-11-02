@@ -115,7 +115,7 @@ test("CLI consumes TSTS as-const literal readonly results and rejects readonly w
   ]);
 
   assert.match(generatedSource, /public static string status\(\)/);
-  assert.match(generatedSource, /\(string, int\) row = \("ready", 7\);/);
+  assert.match(generatedSource, /\(string, long\) row = \("ready", 7L\);/);
   assert.match(generatedSource, /return \$"\{row\.Item1\}:\{row\.Item2\}";/);
   assert.doesNotMatch(generatedSource, /as const/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

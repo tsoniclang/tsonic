@@ -76,7 +76,7 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.match(generatedSource, /string name \{ get; set; \}/);
   assert.match(generatedSource, /public class Derived : Base/);
   assert.match(generatedSource, /public Derived\(double start\) : base\(start\)/);
-  assert.match(generatedSource, /return base\.value\(\) \+ 1;/);
+  assert.match(generatedSource, /return base\.value\(\) \+ 1L;/);
   assert.match(generatedSource, /public class Box<T> : Getter<T>/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -170,7 +170,7 @@ test("CLI emits standard JavaScript class static blocks as C# static constructor
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double value;/);
-  assert.match(generatedSource, /static Counter\(\)\s*\{\s*Counter\.value = 0;\s*Counter\.value = 3;/);
+  assert.match(generatedSource, /static Counter\(\)\s*\{\s*Counter\.value = 0D;\s*Counter\.value = 3D;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticBlocks.csproj"), "--nologo", "--v:minimal"]);

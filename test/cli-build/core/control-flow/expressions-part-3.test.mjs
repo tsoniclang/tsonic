@@ -3,7 +3,7 @@ import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGener
 
 test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   const projectDirectory = resolve(tempRoot, "rest-parameters");
-  await writeProject(projectDirectory, {
+  const originalFiles = {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -32,15 +32,21 @@ test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
       "}",
       "",
     ].join("\n"),
-  });
+  };
 
+  await writeProject(projectDirectory, originalFiles);
+  const refusedBuild = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(refusedBuild.status, 1, refusedBuild.stdout + refusedBuild.stderr);
+  assert.equal(refusedBuild.stderr.includes("ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:4:13: No exact C# implicit conversion relates 'source:float64' to 'source:int64'."), true,
+    "the original later assignment is refused at its actual right-hand expression, without widening the earlier total");
+  await writeProject(projectDirectory, { "src/index.ts": originalFiles["src/index.ts"].replace("let total = 0", "let total: number = 0") });
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double sum\(params double\[\] values\)/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
-  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.sum\(1, 2, 3\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.sum\(1D, 2D, 3D\);/);
   assert.doesNotMatch(generatedSource, /object values/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -85,7 +91,7 @@ test("CLI emits literal default parameters as C# optional parameters", async () 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double add\(double\? __tsonic_param0 = null, bool\? __tsonic_param1 = null, string\? __tsonic_param2 = null\)/);
-  assert.match(generatedSource, /double value = __tsonic_param0 \?\? 3;/);
+  assert.match(generatedSource, /double value = __tsonic_param0 \?\? 3D;/);
   assert.match(generatedSource, /bool enabled = __tsonic_param1 \?\? true;/);
   assert.match(generatedSource, /string label = __tsonic_param2 \?\? "x";/);
   assert.doesNotMatch(generatedSource, /\bis (?:double|bool|string) __tsonic_value\d+/);
