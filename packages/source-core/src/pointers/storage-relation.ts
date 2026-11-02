@@ -96,11 +96,17 @@ export function createTsonicPointerStorageRelation(
       : Object.freeze({ kind: "open", ...completed, boundaries: Object.freeze(boundaries) });
   };
   return Object.freeze({
-    value(expression: Node, bindings = storage.emptyBindings) {
-      return select(expression, storage.subjectFor(expression), bindings);
+    value(expression: Node, bindings?: SourceStorageBindings) {
+      const selected = bindings === undefined ? storage.bindingsForLexicalOwner(expression)
+        : { kind: "resolved" as const, bindings };
+      return selected.kind === "unresolved" ? unresolved(expression, selected.reason)
+        : select(expression, storage.subjectFor(expression), selected.bindings);
     },
-    returned(declaration: Node, bindings = storage.emptyBindings) {
-      return select(declaration, storage.subject(declaration, "return"), bindings);
+    returned(declaration: Node, bindings?: SourceStorageBindings) {
+      const selected = bindings === undefined ? storage.bindingsForDeclaration(declaration)
+        : { kind: "resolved" as const, bindings };
+      return selected.kind === "unresolved" ? unresolved(declaration, selected.reason)
+        : select(declaration, storage.subject(declaration, "return"), selected.bindings);
     },
   });
 }
