@@ -94,10 +94,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
           continue;
         }
         const identities = locations.identities(entry.pointer);
-        if (identities === undefined) {
-          result.push(unresolved(entry.pointer, "A native pointer write requires its exact scoped backing location.", operation.call));
-          continue;
-        }
+        if (identities === undefined) return undefined;
         const values = queries.read(entry.value);
         if (values === undefined) return undefined;
         for (const receiver of identities) {

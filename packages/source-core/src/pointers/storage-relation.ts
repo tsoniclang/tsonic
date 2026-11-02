@@ -61,6 +61,8 @@ export function createTsonicPointerStorageRelation(
     if (subject.kind === "unresolved") return unresolved(node, subject.reason);
     const selected = storage.storageProducersFor(subject.subject, bindings);
     if (selected.kind === "unresolved") return unresolved(node, selected.reason);
+    if (selected.includesAbsence === undefined)
+      return unresolved(node, "Pointer storage requires completed absence evidence from its canonical storage relation.");
     const producers: TsonicPointerStorageProducer[] = [];
     const issues: TsonicPointerStorageIssue[] = [];
     let includesAbsence = selected.includesAbsence;

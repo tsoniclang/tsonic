@@ -111,9 +111,9 @@ export type SourceStorageClosedOriginsSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageProducersSelection =
-  | { readonly kind: "complete"; readonly producers: readonly SourceStorageProducer[]; readonly includesAbsence: boolean }
+  | { readonly kind: "complete"; readonly producers: readonly SourceStorageProducer[]; readonly includesAbsence?: boolean }
   | { readonly kind: "open"; readonly producers: readonly SourceStorageProducer[];
-      readonly boundaries: readonly SourceStorageDomainBoundary[]; readonly includesAbsence: boolean }
+      readonly boundaries: readonly SourceStorageDomainBoundary[]; readonly includesAbsence?: boolean }
   | SourceStorageUnresolved;
 
 export type SourceStorageNodesSelection =
