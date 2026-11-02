@@ -78,7 +78,7 @@ export function sourceStorageIsDirectCreation(subject: SourceStorageSubject, ast
 }
 
 export function sourceStorageHasOriginalValue(subject: SourceStorageSubject, ast: AstReader, hasIncoming: boolean): boolean {
-  return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming &&
+  return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming && !ast.is.IsReturnStatement(subject.node) &&
     (!ast.is.IsArrayLiteralExpression(subject.node) && !ast.is.IsObjectLiteralExpression(subject.node) || subject.projection.length === 0);
 }
 

@@ -1,4 +1,4 @@
-import { Node_Initializer } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -163,6 +163,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope, undefined, term.views);
     const node = term.subject.node;
+    if (term.subject.kind === "value" && ast.is.IsReturnStatement(node) && Node_Expression(ast, node) === undefined)
+      return { kind: "replace", terms: [Object.freeze({ kind: "empty",
+        absence: sourceStorageReference(term.subject, term.scope) })] };
     if (term.subject.kind === "value" && ast.is.IsElementAccessExpression(node) &&
       ast.as.AsElementAccessExpression(node)?.QuestionDotToken !== undefined) {
       const context = semantics.forNode(node);

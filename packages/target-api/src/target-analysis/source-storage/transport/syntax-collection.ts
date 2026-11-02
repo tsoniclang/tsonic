@@ -174,7 +174,10 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
         if (owner !== undefined) mutationOwners.set(node, owner);
       }
     }
-    if (ast.is.IsReturnStatement(node)) connect(subjectFor(Node_Expression(ast, node)), subject(enclosingCallable(node), "return"));
+    if (ast.is.IsReturnStatement(node)) {
+      const expression = Node_Expression(ast, node);
+      connect(expression === undefined ? subject(node) : subjectFor(expression), subject(enclosingCallable(node), "return"));
+    }
     if (ast.is.IsThrowStatement(node)) {
       const origin = subjectFor(Node_Expression(ast, node));
       const caught = regions.catchDestination(node);
