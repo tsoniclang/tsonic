@@ -92,8 +92,6 @@ export { selectTsonicProviderPointerResult } from "../pointers/provider-return-e
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
-export { createTsonicDeclaredPointerBackingDemands } from "../pointers/backing/declared-demands.js";
-export type { TsonicDeclaredPointerBackingUse, TsonicDeclaredPointerBackingDemands } from "../pointers/backing/declared-demands.js";
 export { sameBackingLayout } from "../pointers/backing/layout-equality.js";
 export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
 export { createTsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
