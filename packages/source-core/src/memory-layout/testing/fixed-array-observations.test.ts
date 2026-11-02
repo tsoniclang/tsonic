@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
 import { memoryCall, memoryCalls, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, arraySession, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
@@ -254,9 +254,11 @@ test("raw array conversion rejects a different primitive pointee despite identic
     sizeof(array);
   `);
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
-  assert.equal(checked.extensionDiagnostics.filter(entry => entry.extensionCode === "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN").length, 2);
+  assert.equal(checked.extensionDiagnostics.length, 0);
   for (const name of ["torawptr", "reinterpretrawptr"]) {
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name)), undefined);
+    const call = memoryCall(checked, name);
+    assert.equal(selectTsonicRawLocationFacts(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
+    assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call)?.kind, "rejected");
   }
   assertArrayObservation(checked, "sizeof", 8);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationOperation } from "../../public/facts.js";
+import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
 import { checkedRecords, recordIdentity, recordLayouts, recordPrelude } from "./closed-record-fixtures.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
 
@@ -154,7 +154,7 @@ for (const [name, first, second] of [
 
 for (const [signed, unsigned, size] of [["int32", "uint32", 4], ["int64", "uint64", 8]] as const) {
   test(`checker-equal ${signed}/${unsigned} records cannot share raw storage`, () => {
-    checkedRecords(`
+    const checked = checkedRecords(`
       interface Signed { count: ${signed} }
       interface Unsigned { count: ${unsigned} }
       const word = memorylayout<${signed}>({ datalayout: abi, bytesize: ${size}, bytealignment: ${size}, stride: ${size}, fields: [] });
@@ -167,7 +167,10 @@ for (const [signed, unsigned, size] of [["int32", "uint32", 4], ["int64", "uint6
       });
       declare const pointer: Pointer<Unsigned>;
       torawptr(pointer, layout);
-    `, {}, ["SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN"]);
+    `);
+    const call = memoryCall(checked, "torawptr");
+    assert.equal(selectTsonicRawLocationFacts(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
+    assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call)?.kind, "rejected");
   });
 }
 
