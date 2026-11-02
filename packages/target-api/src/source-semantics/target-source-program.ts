@@ -302,9 +302,7 @@ export function createTargetSourceProgram(
     }
   }
 
-  const checkedFiles = new Set([...source.getSourceFiles(), ...sourceFiles].filter(
-    (file): file is SourceFile => file !== undefined));
-  publishFileViews([...checkedFiles].map(createFileView));
+  publishFileViews(sourceFiles.map(createFileView));
 
   function forFile(sourceFile: SourceFile): SourceFileSemantics {
     if (!source.containsSourceFile(sourceFile)) throw new Error("Source semantics require an exact source file from the checked program.");
