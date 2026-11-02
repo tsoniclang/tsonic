@@ -1,5 +1,5 @@
 import { pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type {
   SourceStorageBindings,
   SourceStorageDomainBoundary,
@@ -11,9 +11,12 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TsonicPointerBackingOrigin } from "./backing/requirements.js";
 import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
 
+export type TsonicPointerStorageOperation = TsonicPointerBackingOrigin |
+  Extract<PointerOperationFact, { readonly operation: "bind-pointer" | "project-pointer" }>;
+
 export interface TsonicPointerStorageProducer {
   readonly storage: SourceStorageProducer;
-  readonly operation: TsonicPointerBackingOrigin;
+  readonly operation: TsonicPointerStorageOperation;
 }
 
 export interface TsonicPointerStorageIssue {
@@ -77,13 +80,14 @@ export function createTsonicPointerStorageRelation(
         ? source.sourceFacts.getFact(original.node, pointerOperationFactKey) : undefined;
       const raw = original.kind === "value" && original.projection.length === 0
         ? source.sourceFacts.getFact(original.node, tsonicRawMemoryOperationFactKey) : undefined;
-      const operation = pointer?.operation === "allocate" || pointer?.operation === "address-of" ? pointer
+      const operation = pointer?.operation === "allocate" || pointer?.operation === "address-of" ||
+        pointer?.operation === "bind-pointer" || pointer?.operation === "project-pointer" ? pointer
         : raw?.operation === "reinterpret" ? raw : undefined;
       if (operation === undefined || operation.call !== original.node) {
         if (selected.kind === "open" && selected.boundaries.some(boundary =>
           boundary.subject === original && boundary.bindings === producer.bindings)) continue;
         issues.push(Object.freeze({ node: original.node,
-          reason: "A pointer storage producer requires its exact checked allocation, address or reinterpretation." }));
+          reason: "A pointer storage producer requires its exact checked allocation, address, binding, projection or reinterpretation." }));
       } else producers.push(Object.freeze({ storage: producer, operation }));
     }
     if (issues.length !== 0) return Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });

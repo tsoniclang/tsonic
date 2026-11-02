@@ -69,7 +69,7 @@ export {
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
 export { createTsonicPointerStorageRelation } from "../pointers/storage-relation.js";
 export type {
-  TsonicPointerStorageProducer, TsonicPointerStorageIssue,
+  TsonicPointerStorageOperation, TsonicPointerStorageProducer, TsonicPointerStorageIssue,
   TsonicPointerStorageSelection, TsonicPointerStorageRelation,
 } from "../pointers/storage-relation.js";
 export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
