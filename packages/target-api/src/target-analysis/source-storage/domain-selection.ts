@@ -79,8 +79,8 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects], qualified);
     if (origins.kind === "unresolved") return origins;
-    return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
-      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
+    return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates, includesAbsence: absence })
+      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries), includesAbsence: absence });
   });
   return { typedOrigins, selectDomain };
 }

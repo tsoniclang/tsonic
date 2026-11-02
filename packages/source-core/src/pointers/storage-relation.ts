@@ -1,0 +1,92 @@
+import { pointerOperationFactKey } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type {
+  SourceStorageBindings,
+  SourceStorageDomainBoundary,
+  SourceStorageProducer,
+  SourceStorageQueries,
+  SourceStorageSubjectSelection,
+} from "@tsonic/target-api/analysis";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { TsonicPointerBackingOrigin } from "./backing/requirements.js";
+import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
+
+export interface TsonicPointerStorageProducer {
+  readonly storage: SourceStorageProducer;
+  readonly operation: TsonicPointerBackingOrigin;
+}
+
+export interface TsonicPointerStorageIssue {
+  readonly node: Node;
+  readonly reason: string;
+}
+
+export type TsonicPointerStorageSelection =
+  | {
+      readonly kind: "complete";
+      readonly producers: readonly TsonicPointerStorageProducer[];
+      readonly includesAbsence: boolean;
+    }
+  | {
+      readonly kind: "open";
+      readonly producers: readonly TsonicPointerStorageProducer[];
+      readonly includesAbsence: boolean;
+      readonly boundaries: readonly SourceStorageDomainBoundary[];
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly issues: readonly TsonicPointerStorageIssue[];
+    };
+
+export interface TsonicPointerStorageRelation {
+  value(expression: Node, bindings?: SourceStorageBindings): TsonicPointerStorageSelection;
+  returned(declaration: Node, bindings?: SourceStorageBindings): TsonicPointerStorageSelection;
+}
+
+export function createTsonicPointerStorageRelation(
+  source: TargetSourceProgram,
+  storage: SourceStorageQueries,
+): TsonicPointerStorageRelation {
+  const unresolved = (node: Node, reason: string): TsonicPointerStorageSelection => Object.freeze({
+    kind: "unresolved",
+    issues: Object.freeze([Object.freeze({ node, reason })]),
+  });
+  const select = (
+    node: Node,
+    subject: SourceStorageSubjectSelection,
+    bindings: SourceStorageBindings,
+  ): TsonicPointerStorageSelection => {
+    if (storage.source !== source)
+      return unresolved(node, "Pointer storage requires the same checked source program as its storage relation.");
+    if (subject.kind === "unresolved") return unresolved(node, subject.reason);
+    const selected = storage.storageProducersFor(subject.subject, bindings);
+    if (selected.kind === "unresolved") return unresolved(node, selected.reason);
+    const producers: TsonicPointerStorageProducer[] = [];
+    const issues: TsonicPointerStorageIssue[] = [];
+    for (const producer of selected.producers) {
+      const original = producer.subject;
+      const pointer = original.kind === "value" && original.projection.length === 0
+        ? source.sourceFacts.getFact(original.node, pointerOperationFactKey) : undefined;
+      const raw = original.kind === "value" && original.projection.length === 0
+        ? source.sourceFacts.getFact(original.node, tsonicRawMemoryOperationFactKey) : undefined;
+      const operation = pointer?.operation === "allocate" || pointer?.operation === "address-of" ? pointer
+        : raw?.operation === "reinterpret" ? raw : undefined;
+      if (operation === undefined || operation.call !== original.node) {
+        issues.push(Object.freeze({ node: original.node,
+          reason: "A pointer storage producer requires its exact checked allocation, address or reinterpretation." }));
+      } else producers.push(Object.freeze({ storage: producer, operation }));
+    }
+    if (issues.length !== 0) return Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });
+    const completed = { producers: Object.freeze(producers), includesAbsence: selected.includesAbsence };
+    return selected.kind === "complete" ? Object.freeze({ kind: "complete", ...completed })
+      : Object.freeze({ kind: "open", ...completed, boundaries: selected.boundaries });
+  };
+  return Object.freeze({
+    value(expression: Node, bindings = storage.emptyBindings) {
+      return select(expression, storage.subjectFor(expression), bindings);
+    },
+    returned(declaration: Node, bindings = storage.emptyBindings) {
+      return select(declaration, storage.subject(declaration, "return"), bindings);
+    },
+  });
+}

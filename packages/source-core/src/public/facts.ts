@@ -67,6 +67,11 @@ export {
   countTsonicMemoryLayoutValues,
 } from "../memory-layout/readers.js";
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicPointerStorageRelation } from "../pointers/storage-relation.js";
+export type {
+  TsonicPointerStorageProducer, TsonicPointerStorageIssue,
+  TsonicPointerStorageSelection, TsonicPointerStorageRelation,
+} from "../pointers/storage-relation.js";
 export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
 export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
 export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
