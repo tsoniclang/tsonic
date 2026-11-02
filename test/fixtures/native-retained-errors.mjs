@@ -52,6 +52,53 @@ export function run(): void {
 
 export const nativeRetainedErrorSource = nativeRetainedErrorSourceFor();
 
+export function nativeReadonlyRetainedErrorSourceFor(parameter = "inferred", storage = "binding", ordering = "direct") {
+  if (!["inferred", "annotated", "aliased"].includes(parameter) || !["binding", "record"].includes(storage) ||
+    !["direct", "captured"].includes(ordering)) {
+    throw new Error("Invalid native retained Error fixture selection");
+  }
+  const input = parameter === "inferred" ? "error" : parameter === "annotated" ? "(error: Error)" : "(error: TransportError)";
+  const declaration = storage === "binding" ? "let received: Error | undefined;" : "const receiver: { error?: Error } = {};";
+  const received = storage === "binding" ? "received" : "receiver.error";
+  const callback = `${input} => { ${received} = error; }`;
+  const subscription = ordering === "direct" ? `stream.on("error", ${callback});` : `
+  const detach = (): void => { stream.off("error", listener); };
+  const listener = ${callback};
+  stream.on("error", listener);`;
+  return `
+import { Readable } from "node:stream";
+import type { uint64 } from "@tsonic/core/types.js";
+${parameter === "aliased" ? "type TransportError = Error;" : ""}
+class DetailedError extends Error {
+  readonly code: uint64 = 9007199254740993n;
+  detail: string = "original detail";
+  constructor() { super("original"); }
+}
+export function run(): void {
+  const stream = Readable.from([]);
+  const original = new DetailedError();
+  const originalStack = original.stack;
+  ${declaration}
+  ${subscription}
+  stream.destroy(original);
+  ${ordering === "captured" ? "detach();" : ""}
+  if (${received}?.name !== original.name || ${received}?.message !== original.message || ${received}?.stack !== originalStack) {
+    throw new Error("Error observations lost");
+  }
+  if (${received} === undefined) throw new Error("Error not delivered");
+  if (${received} !== original) throw new Error("Error identity lost");
+  const alias: Error = ${received};
+  if (alias.name !== "DetailedError" || alias.message !== "original" || alias.stack !== originalStack) {
+    throw new Error("Native Error observation changed");
+  }
+  if (!(${received} instanceof DetailedError)) throw new Error("Error origin lost");
+  if (${received}.code !== 9007199254740993n) throw new Error("Error payload lost");
+  original.detail = "changed detail";
+  if (${received}.detail !== "changed detail") throw new Error("Error own field snapshotted");
+}
+`;
+}
+
 export const nativeRetainedTerminalErrorSource = `
 import { Readable } from "node:stream";
 
