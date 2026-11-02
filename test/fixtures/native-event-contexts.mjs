@@ -19,7 +19,7 @@ export function main(): void {
   catch (failure) {
     if (failure instanceof DetailedError) {
       retained = failure === original && failure.code === 9007199254740993n
-        && failure.message === "original listener failure" && failure.stack === undefined;
+        && failure.message === "original listener failure" && failure.stack !== undefined;
     }
   }
   if (!retained || count() !== 0 || emitter.listenerCount("data") !== 1)

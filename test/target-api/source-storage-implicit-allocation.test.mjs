@@ -139,8 +139,8 @@ test("implicit constructor classification requires exact selected parameter decl
     const invocation = source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, "created")).Initializer;
     const parameter = source.ast.parameters(namedDeclaration(source.ast, file, "unrelated"))[0];
     const selected = source.semantics.forNode(invocation).operations.call(invocation);
-    assert.equal(selected.sourceSelectedSignatureParameters.length === 1 &&
-      selected.sourceSelectedSignatureParameters[0].parameterDeclaration !== parameter, true,
+    assert.equal(selected.sourceSelectedSignatureParameters.length === 2 &&
+      selected.sourceSelectedSignatureParameters.every(value => value.parameterDeclaration !== parameter), true,
       "same spelling and type do not establish parameter declaration identity");
     const changed = { ...selected, sourceSelectedSignatureParameters: selected.sourceSelectedSignatureParameters.map(value =>
       ({ ...value, parameterDeclaration: parameter })) };
