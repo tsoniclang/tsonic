@@ -28,6 +28,23 @@ export interface TargetDiagnostic {
   readonly evidence?: readonly string[];
 }
 
+export class TargetCompilerResourceLimitFailure extends Error {
+  readonly diagnostic: TargetDiagnostic;
+
+  constructor(source: string, subject: string, dimension: string, limit: number, sourceNode?: Node) {
+    super(`${subject} exceeded the compiler resource limit ${dimension}=${limit}.`);
+    this.name = "TargetCompilerResourceLimitFailure";
+    this.diagnostic = Object.freeze({ code: "TSONIC_COMPILER_RESOURCE_LIMIT", category: "error",
+      source, sourceNode, message: this.message, evidence: Object.freeze([`${dimension}=${limit}`]) });
+  }
+}
+
+export function failTargetCompilerResourceLimit(
+  source: string, subject: string, dimension: string, limit: number, sourceNode?: Node,
+): never {
+  throw new TargetCompilerResourceLimitFailure(source, subject, dimension, limit, sourceNode);
+}
+
 export function targetDiagnosticFromExtension(
   node: Node | undefined,
   diagnostic: ExtensionDiagnostic,
@@ -153,6 +170,7 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     analysis = stages.analyze();
   } catch (failure) {
+    if (failure instanceof TargetCompilerResourceLimitFailure) return rejectedTargetStage([failure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "analysis") {
       throw failure;
     }
@@ -166,6 +184,7 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     planning = stages.plan(analysis.value);
   } catch (failure) {
+    if (failure instanceof TargetCompilerResourceLimitFailure) return rejectedTargetStage([...analysis.diagnostics, failure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "planning") {
       throw failure;
     }
@@ -179,7 +198,12 @@ export function runTargetCompilationStages<Program, Plan>(
     return rejectedTargetStage(diagnostics);
   }
   observer?.planned?.(planning.value);
-  return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
+  try {
+    return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
+  } catch (failure) {
+    if (!(failure instanceof TargetCompilerResourceLimitFailure)) throw failure;
+    return rejectedTargetStage([...diagnostics, failure.diagnostic]);
+  }
 }
 
 export interface TargetRuntimeContributions {

@@ -1,6 +1,7 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "@tsonic/target-api/provider";
+import { failTargetCompilerResourceLimit } from "@tsonic/target-api/artifacts";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
@@ -98,12 +99,12 @@ const capturedLayoutDepths = new WeakMap<TsonicMemoryLayoutFact, number>();
 
 export function memoryLayoutCaptureLimitsError(children: readonly TsonicMemoryLayoutFact[], fieldCount = 0): string | undefined {
   if (children.length + fieldCount >= maximumMemoryLayoutValues) {
-    return "Memory layout exceeds its metadata value budget.";
+    failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "values", maximumMemoryLayoutValues, children[0]?.call);
   }
   for (const child of children) {
     const depth = capturedLayoutDepths.get(child);
     if (depth === undefined) return "Memory child layout is not an immutable source-owned snapshot.";
-    if (depth >= maximumMemoryLayoutDepth) return "Memory layout exceeds its supported nesting depth.";
+    if (depth >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "depth", maximumMemoryLayoutDepth, child.call);
   }
   return undefined;
 }
@@ -114,7 +115,7 @@ function memoryLayoutSnapshot() {
   let values = 0;
   function visit(): void {
     values += 1;
-    if (values > maximumMemoryLayoutValues) throw new Error("Memory layout exceeds its metadata value budget.");
+    if (values > maximumMemoryLayoutValues) failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "values", maximumMemoryLayoutValues);
   }
   function field(value: TsonicMemoryFieldLayoutFact): TsonicMemoryFieldLayoutFact {
     visit();
@@ -134,19 +135,19 @@ function memoryLayoutSnapshot() {
     const capturedDepth = capturedLayoutDepths.get(value);
     if (capturedDepth !== undefined) {
       if (active.size + capturedDepth > maximumMemoryLayoutDepth) {
-        throw new Error("Memory layout exceeds its supported nesting depth.");
+        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
       }
       return value;
     }
     const cached = layouts.get(value);
     if (cached !== undefined) {
       if (active.size + capturedLayoutDepths.get(cached)! > maximumMemoryLayoutDepth) {
-        throw new Error("Memory layout exceeds its supported nesting depth.");
+        failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
       }
       return cached;
     }
     if (active.has(value)) throw new Error("Memory layout contains a recursive physical value.");
-    if (active.size >= maximumMemoryLayoutDepth) throw new Error("Memory layout exceeds its supported nesting depth.");
+    if (active.size >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth, value.call);
     const discriminator = value !== null && typeof value === "object"
       ? Object.getOwnPropertyDescriptor(value, "kind") : undefined;
     if (discriminator === undefined || !("value" in discriminator) ||

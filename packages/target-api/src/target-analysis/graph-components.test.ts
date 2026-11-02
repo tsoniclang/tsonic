@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 import test from "node:test";
 import { targetStronglyConnectedComponents } from "./graph-components.js";
 
@@ -40,12 +41,16 @@ test("component identity follows source object identity rather than equal labels
 
 test("malformed and inadequate budgets reject without returning partial components", () => {
   const vertices = new Set([1, 2]);
-  for (const limit of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, 1, 2]) {
+  for (const limit of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     const selection = targetStronglyConnectedComponents(vertices, vertex => vertex === 1 ? [2] : [1], limit);
     assert.equal(selection.kind, "unresolved", String(limit));
     assert.equal("components" in selection, false, String(limit));
     assert.equal(Object.isFrozen(selection), true, String(limit));
   }
+  for (const limit of [1, 2]) assert.throws(() => targetStronglyConnectedComponents(vertices,
+    vertex => vertex === 1 ? [2] : [1], limit), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+      failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === `steps=${limit}`,
+  "valid finite source exhaustion never publishes partial components or becomes invalid graph evidence");
   assert.equal(targetStronglyConnectedComponents(vertices, vertex => vertex === 1 ? [2] : [1], 16).kind, "resolved");
 });
 

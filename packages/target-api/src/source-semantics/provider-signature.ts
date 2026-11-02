@@ -1,4 +1,5 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { failTargetCompilerResourceLimit } from "../artifacts.js";
 import type { Node, ProviderSignatureDeclaration, ProviderTypeParameterDeclaration, ProviderTypeExpression, ReadonlySourceFactResolver } from "@tsonic/tsts";
 
 export type SourceProviderSignatureSelection =
@@ -44,7 +45,6 @@ export function selectSourceProviderSignature(
   const signatures: Extract<SourceProviderSignatureSelection, { kind: "available" }>[] = [];
   const seen = new Set<ProviderTypeExpression>();
   let visits = 0;
-  let exceeded = false;
   type ParameterScope = ReadonlyMap<string, SourceProviderTypeParameterSelection>;
   const extendScope = (parent: ParameterScope, scope: SourceProviderTypeParameterSelection["scope"],
     ownerId: string, parameters: readonly ProviderTypeParameterDeclaration[] = []): ParameterScope => {
@@ -55,8 +55,9 @@ export function selectSourceProviderSignature(
     return result;
   };
   const visitType = (type: ProviderTypeExpression | undefined, depth: number, scope: ParameterScope): void => {
-    if (type === undefined || seen.has(type) || exceeded) return;
-    if (depth > 128 || ++visits > 131_072) { exceeded = true; return; }
+    if (type === undefined || seen.has(type)) return;
+    if (depth > 128) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "depth", 128, declaration);
+    if (++visits > 131_072) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "types", 131_072, declaration);
     seen.add(type);
     switch (type.kind) {
       case "function":
@@ -89,7 +90,6 @@ export function selectSourceProviderSignature(
     ? new Map() : scope;
   selected.signatures?.forEach(signature => visitSignature(signature, 0, memberScope));
   visitType(selected.type, 0, identity.memberId === undefined ? scope : memberScope);
-  if (exceeded) return invalid("The selected provider callable exceeds the retained type traversal budget.");
   return signatures.length === 1
     ? signatures[0]!
     : invalid("The selected provider signature identity is missing or ambiguous.");

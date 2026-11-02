@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import { test } from "node:test";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryLayout, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
 import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
@@ -148,14 +149,14 @@ test("array depth bounds include captured children and shared children reached b
     child = tsonicMemoryLayoutFactKey.snapshot({ ...small, elementLayout: child });
   }
   assert.equal(countTsonicMemoryLayoutValues(child, maximumMemoryLayoutDepth), maximumMemoryLayoutDepth);
-  assert.throws(() => tsonicMemoryLayoutFactKey.snapshot({ ...small, elementLayout: child }), /supported nesting depth/u);
+  assert.throws(() => tsonicMemoryLayoutFactKey.snapshot({ ...small, elementLayout: child }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
   const record = valueMemoryLayout(root.elementLayout);
   assert.throws(() => tsonicMemoryLayoutFactKey.snapshot({ ...record, fields: [
     record.fields[0]!, { ...record.fields[1]!, fieldLayout: child },
-  ] }), /supported nesting depth/u);
+  ] }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
   let uncaptured: TsonicMemoryLayoutFact = { ...small.elementLayout };
   for (let depth = 0; depth < maximumMemoryLayoutDepth; depth += 1) uncaptured = { ...small, elementLayout: uncaptured };
-  assert.throws(() => tsonicMemoryLayoutFactKey.snapshot(uncaptured), /supported nesting depth/u);
+  assert.throws(() => tsonicMemoryLayoutFactKey.snapshot(uncaptured), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
 });
 
 test("array edges cannot conceal an oversized uncaptured child snapshot", () => {
@@ -163,7 +164,7 @@ test("array edges cannot conceal an oversized uncaptured child snapshot", () => 
   const record = valueMemoryLayout(root.elementLayout);
   const fields = Array.from({ length: 65536 }, () => ({ ...record.fields[0]! }));
   assert.throws(() => tsonicMemoryLayoutFactKey.snapshot({ ...root,
-    elementLayout: { ...record, fields } }), /metadata value budget/u);
+    elementLayout: { ...record, fields } }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "values=131072");
 });
 
 test("public source-produced array-record DAGs share children without multiplying metadata by count", () => {

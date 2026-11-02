@@ -2,6 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
 import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection, type SourceNodeDomain } from "./lexical-captures.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
+import { failTargetCompilerResourceLimit } from "../artifacts.js";
 
 export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection {
   readonly kind: "resolved";
@@ -58,14 +59,14 @@ export function sourceLexicalEnvironment(
       const node = evaluationPending.pop()!;
       if (!includes(node)) continue;
       visit?.(node);
-      if (++evaluationSteps > 4_194_304) return exhausted();
+      if (++evaluationSteps > 4_194_304) failTargetCompilerResourceLimit("tsonic", "Lexical callable evaluation", "steps", 4_194_304, scope);
       if (evaluated.has(node)) continue;
       evaluated.add(node);
       const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
       if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration) &&
         !sourceDeclarationIsModuleScoped(declaration, ast)) {
         const kinds = usesFor(declaration);
-        if (kinds === undefined) return exhausted();
+        if (kinds === undefined) return { kind: "unresolved", reason: "Lexical callable uses contain a duplicate checked reference." };
         const use = kinds.get(node);
         if (use?.kind === "direct-call" && isRuntimeUse(use, declaration)) pending.push({ owner: declaration, roots: [declaration] });
       }
@@ -86,7 +87,7 @@ export function sourceLexicalEnvironment(
       let references = capture.references;
       if (ast.is.IsFunctionDeclaration(capture.declaration)) {
         const kinds = usesFor(capture.declaration);
-        if (kinds === undefined) return exhausted();
+        if (kinds === undefined) return { kind: "unresolved", reason: "Lexical callable uses contain a duplicate checked reference." };
         for (const reference of references) {
           visit?.(reference);
           if (++steps > 262_144) return exhausted();
@@ -122,7 +123,7 @@ export function sourceLexicalEnvironment(
   function within(node: Node): boolean {
     for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) {
       visit?.(current);
-      if (++steps > 262_144) return false;
+      if (++steps > 262_144) return exhausted();
       if (current === scope) return true;
     }
     return false;
@@ -135,14 +136,15 @@ export function sourceLexicalEnvironment(
     for (const use of navigation.declarationUseSummary(declaration).uses) {
       if (!includes(use.reference)) continue;
       visit?.(use.reference);
-      if (++steps > 262_144 || indexed.has(use.reference)) return undefined;
+      if (++steps > 262_144) return exhausted();
+      if (indexed.has(use.reference)) return undefined;
       indexed.set(use.reference, use);
     }
     useKinds.set(declaration, indexed);
     return indexed;
   }
 
-  function exhausted(): { readonly kind: "unresolved"; readonly reason: string } {
-    return { kind: "unresolved", reason: "Lexical environment analysis exceeded its finite source accounting budget." };
+  function exhausted(): never {
+    return failTargetCompilerResourceLimit("tsonic", "Lexical callable environment", "steps", 262_144, scope);
   }
 }

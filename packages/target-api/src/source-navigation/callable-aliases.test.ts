@@ -4,6 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts"
 import type { Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
+import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -81,7 +82,9 @@ test("early deferred invocation and excessive alias closures fail closed", () =>
   assert.equal(fixture("invoke(); const alias = operation; function invoke(): number { return alias(2); }").select(), undefined);
   const declarations = ["const alias = operation;"];
   for (let index = 0; index < 1_025; index += 1) declarations.push(`const alias${index} = ${index === 0 ? "alias" : `alias${index - 1}`};`);
-  assert.equal(fixture(declarations.join("\n") + "\nalias1024(2);").select(), undefined);
+  assert.throws(() => fixture(declarations.join("\n") + "\nalias1024(2);").select(),
+    (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+      failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "declarations=1024");
 });
 
 test("object-member alias initialization follows the factory activation, not an unrelated class contract", () => {

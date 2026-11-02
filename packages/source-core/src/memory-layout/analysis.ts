@@ -5,6 +5,7 @@ import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModul
 import { analyzeRawMemoryCall } from "../pointers/raw-memory/analysis.js";
 import { tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 import { memoryDiagnostic } from "./analysis-context.js";
+import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 import type { MemorySourceCall } from "./analysis-model.js";
 import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
@@ -77,21 +78,27 @@ export function analyzeTsonicMemoryOperations(
       return;
     }
     if (pending.size >= maximumMemoryLayoutDepth * 2) {
-      memoryDiagnostic(call, "LAYOUT_DEPTH_EXCEEDED", "Memory layout dependencies exceed the supported nesting depth.");
+      memoryDiagnostic(call, "COMPILER_RESOURCE_LIMIT", `Memory layout dependencies exceeded the compiler resource limit depth=${maximumMemoryLayoutDepth * 2}.`);
       return;
     }
     pending.add(node);
-    switch (call.name) {
-      case "memoryfield": analyzeMemoryField(call, analysis); break;
-      case "memorylayout": analyzeMemoryLayout(call, analysis); break;
-      case "memoryarraylayout": analyzeMemoryArrayLayout(call, analysis); break;
-      case "bindmemoryfield": analyzeMemoryFieldBinding(call, analysis); break;
-      case "bindmemoryrecord": analyzeMemoryRecordBinding(call, analysis); break;
-      case "sizeof": case "alignof": case "strideof": case "fieldoffsetof":
-        analyzeMemoryLayoutQuery(call, analysis); break;
-      default: analyzeRawMemoryCall(call, analysis); break;
+    try {
+      switch (call.name) {
+        case "memoryfield": analyzeMemoryField(call, analysis); break;
+        case "memorylayout": analyzeMemoryLayout(call, analysis); break;
+        case "memoryarraylayout": analyzeMemoryArrayLayout(call, analysis); break;
+        case "bindmemoryfield": analyzeMemoryFieldBinding(call, analysis); break;
+        case "bindmemoryrecord": analyzeMemoryRecordBinding(call, analysis); break;
+        case "sizeof": case "alignof": case "strideof": case "fieldoffsetof":
+          analyzeMemoryLayoutQuery(call, analysis); break;
+        default: analyzeRawMemoryCall(call, analysis); break;
+      }
+    } catch (failure) {
+      if (!(failure instanceof TargetCompilerResourceLimitFailure)) throw failure;
+      memoryDiagnostic(call, "COMPILER_RESOURCE_LIMIT", failure.diagnostic.message);
+    } finally {
+      pending.delete(node);
     }
-    pending.delete(node);
     completed.add(node);
   }
   for (const call of calls.values()) analyze(call);
