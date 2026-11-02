@@ -32,7 +32,8 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
   const layout = operand === undefined ? undefined : analysis.layout(operand.expression, context);
   if (operand === undefined || sourceType === undefined || layout?.kind !== "value" ||
       arguments_.length !== layout.fields.length ||
-      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value")) {
+      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value") ||
+      !analysis.types.record(call, layout)) {
     memoryDiagnostic(call, "RECORD_BINDING_NOT_PROVEN", "bindmemoryrecord requires a closed data record layout and one explicit binding for every field.");
     return;
   }
@@ -50,5 +51,5 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
     call: selected.call, resultType: selected.selection.sourceResultType, sourceType, layoutExpression: operand.expression, layout,
     fields: fields.map(field => ({ expression: field.expression, binding: field.binding! })),
   });
-  if (analysis.types.record(call, layout)) analysis.types.publish(call);
+  analysis.types.publish(call);
 }
