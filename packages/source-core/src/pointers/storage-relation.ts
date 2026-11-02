@@ -63,8 +63,14 @@ export function createTsonicPointerStorageRelation(
     if (selected.kind === "unresolved") return unresolved(node, selected.reason);
     const producers: TsonicPointerStorageProducer[] = [];
     const issues: TsonicPointerStorageIssue[] = [];
+    let includesAbsence = selected.includesAbsence;
     for (const producer of selected.producers) {
       const original = producer.subject;
+      const types = source.semantics.forFile(producer.sourceFile).types;
+      if (types.isNullish(producer.type) || types.isVoidLike(producer.type)) {
+        includesAbsence = true;
+        continue;
+      }
       const pointer = original.kind === "value" && original.projection.length === 0
         ? source.sourceFacts.getFact(original.node, pointerOperationFactKey) : undefined;
       const raw = original.kind === "value" && original.projection.length === 0
@@ -72,14 +78,20 @@ export function createTsonicPointerStorageRelation(
       const operation = pointer?.operation === "allocate" || pointer?.operation === "address-of" ? pointer
         : raw?.operation === "reinterpret" ? raw : undefined;
       if (operation === undefined || operation.call !== original.node) {
+        if (selected.kind === "open" && selected.boundaries.some(boundary =>
+          boundary.subject === original && boundary.bindings === producer.bindings)) continue;
         issues.push(Object.freeze({ node: original.node,
           reason: "A pointer storage producer requires its exact checked allocation, address or reinterpretation." }));
       } else producers.push(Object.freeze({ storage: producer, operation }));
     }
     if (issues.length !== 0) return Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });
-    const completed = { producers: Object.freeze(producers), includesAbsence: selected.includesAbsence };
-    return selected.kind === "complete" ? Object.freeze({ kind: "complete", ...completed })
-      : Object.freeze({ kind: "open", ...completed, boundaries: selected.boundaries });
+    const boundaries = selected.kind === "complete" ? [] : selected.boundaries.filter(boundary =>
+      boundary.kind !== "opaque-result" || !producers.some(producer =>
+        producer.storage.subject === boundary.subject && producer.storage.bindings === boundary.bindings &&
+        producer.operation.call === boundary.exposure));
+    const completed = { producers: Object.freeze(producers), includesAbsence };
+    return boundaries.length === 0 ? Object.freeze({ kind: "complete", ...completed })
+      : Object.freeze({ kind: "open", ...completed, boundaries: Object.freeze(boundaries) });
   };
   return Object.freeze({
     value(expression: Node, bindings = storage.emptyBindings) {
