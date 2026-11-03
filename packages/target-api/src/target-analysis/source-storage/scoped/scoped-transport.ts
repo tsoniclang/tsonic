@@ -16,7 +16,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageAccessorInvocation, SourceStorageReduction, SourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import { sourceStorageProjectionType } from "./projection-views.js";
+import { sourceStorageProjectionType, sourceStorageWithProjectionView } from "./projection-views.js";
 
 export interface SourceStorageScopedTransport {
   declarationIsAmbient(declaration: Node): boolean | undefined;
@@ -192,8 +192,12 @@ export function sourceStorageInitializedValue(source: TargetSourceProgram, budge
   const types = source.semantics.forFile(file).types;
   if (types.isNullish(type) || types.isVoidLike(type)) return [fallback];
   const present = types.nonNullableType(type);
-  return !types.isAny(type) && !types.isUnknown(type) && present !== undefined && types.isIdentical(type, present)
-    ? [value] : unresolved("An initialized input has unresolved actual absence correspondence.");
+  if (present === undefined) return unresolved("An initialized input has unresolved actual absence correspondence.");
+  if (!types.isAny(type) && !types.isUnknown(type) && types.isIdentical(type, present)) return [value];
+  const retained = types.isUnion(type) && !types.isNever(present)
+    ? Object.freeze({ ...value, views: sourceStorageWithProjectionView(value.views, value.subject, value.subject, present) })
+    : value;
+  return [retained, fallback];
 }
 
 export function sourceStorageStoredValue(ast: AstReader, store: SourceStorageStore,
