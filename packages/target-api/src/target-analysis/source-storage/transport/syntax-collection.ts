@@ -72,7 +72,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
     }
     if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsBindingElement(node) ||
       ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) ||
-      ast.is.IsElementAccessExpression(node) || valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);
+      ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node) ||
+      valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);
     if ((ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
       ast.is.IsSetAccessorDeclaration(node)) && ast.body(node) !== undefined) {
       const contracts = navigation.memberContracts(node);
@@ -175,7 +176,10 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
         if (owner !== undefined) mutationOwners.set(node, owner);
       }
     }
-    if (ast.is.IsReturnStatement(node)) connect(subjectFor(Node_Expression(ast, node)), subject(enclosingCallable(node), "return"));
+    if (ast.is.IsReturnStatement(node)) {
+      const expression = Node_Expression(ast, node);
+      connect(expression === undefined ? subject(node) : subjectFor(expression), subject(enclosingCallable(node), "return"));
+    }
     if (ast.is.IsThrowStatement(node)) {
       const origin = subjectFor(Node_Expression(ast, node));
       const caught = regions.catchDestination(node);
