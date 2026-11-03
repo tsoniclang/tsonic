@@ -165,7 +165,8 @@ export function createSourceStorageTransport(
         ? semantics.forNode(node).operations.propertyAccess(node)?.selectedReadDeclaration
           ?? semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration ?? reference
       : reference;
-    const qualified = (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) && selected === reference) &&
+    const qualified = (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) && selected === reference &&
+      navigation.isProjectDeclaration(selected)) &&
       selected !== undefined && node !== selected && ast.name(selected) !== node &&
       (ast.is.IsVariableDeclaration(selected) || ast.is.IsParameterDeclaration(selected) || ast.is.IsBindingElement(selected) ||
         ast.is.IsFunctionDeclaration(selected) || ast.is.IsFunctionExpression(selected)) &&

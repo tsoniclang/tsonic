@@ -273,10 +273,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind !== "access" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
         if (subject === undefined) return undefined;
-        const external = transport.isOpaque(term.receiver.subject.node) ||
-          sourceStorageIsMethodMember(target, ast) && transport.declarationIsAmbient(target) === true;
         terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason,
-          ...(external ? { exposure: access ?? term.receiver.subject.node } : {}) }));
+          exposure: access ?? term.receiver.subject.node }));
       }
       if (members.absent) terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));

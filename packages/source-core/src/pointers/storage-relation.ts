@@ -107,7 +107,7 @@ export function createTsonicPointerStorageRelation(
         : select(expression, storage.subjectFor(expression), selected.bindings);
     },
     returned(declaration: Node, bindings?: SourceStorageBindings) {
-      const selected = bindings === undefined ? storage.bindingsForDeclaration(declaration)
+      const selected = bindings === undefined ? storage.bindingsForLexicalOwner(declaration)
         : { kind: "resolved" as const, bindings };
       return selected.kind === "unresolved" ? unresolved(declaration, selected.reason)
         : select(declaration, storage.subject(declaration, "return"), selected.bindings);
