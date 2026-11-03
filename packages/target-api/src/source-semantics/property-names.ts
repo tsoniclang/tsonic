@@ -1,7 +1,7 @@
-import { AsBindingElement } from "../source-navigation/checked-casts.js";
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
+import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
@@ -33,32 +33,56 @@ const unavailable: SourcePropertyNameSelection = Object.freeze({
 
 export function analyzeSourcePropertyNames(
   ast: AstReader,
-  sourceFile: SourceFile,
-  semantics: {
+  files: readonly { readonly sourceFile: SourceFile; readonly semantics: {
     readonly operations: Pick<SourceFileSemantics["operations"], "propertyName" | "objectLiteralElement" | "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
     readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue" | "isTuple" | "tupleElementInfos" | "selectIndexedAccess" | "isNumberLike" | "isIntersection" | "unionOrIntersectionTypes">;
     readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
-  },
+  } }[],
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
   enumConstants: SourceEnumConstantIndex,
-): SourcePropertyNameIndex {
-  const values = new WeakMap<Node, SourcePropertyNameSelection>();
+): readonly { readonly sourceFile: SourceFile; readonly propertyNames: SourcePropertyNameIndex }[] {
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
   const issues: { readonly node: Node; readonly reason: string; readonly failure: "source" | "resource" }[] = [];
-  const numericValues = new WeakMap<Node, SourceNumericLiteralToken | null>();
   const checkedTypes = new WeakMap<Node, Type | null>();
-  const pending: Node[] = [sourceFile];
+  const facts = new WeakMap<Node, KeyFact>();
+  const declarations = new WeakMap<Node, KeyFact>();
+  const drafts: KeyFact[] = [];
+  const inventory: Node[] = [];
+  const inputs = new Map(files.map(file => [file.sourceFile, file.semantics]));
+  const scopes = new Map<Node, Node[]>(files.map(file => [file.sourceFile, []]));
+  const pending = files.map(file => ({ node: file.sourceFile as Node, finish: false, scope: file.sourceFile as Node })).reverse();
   while (pending.length > 0) {
-    const node = pending.pop()!;
+    const current = pending.pop()!;
+    if (current.finish) { scopes.get(current.scope)!.push(current.node); continue; }
+    const scope = isSourceCallableBodyBoundary(ast, current.node) || ast.is.IsClassDeclaration(current.node) ||
+      ast.is.IsClassExpression(current.node) ? current.node : current.scope;
+    if (!scopes.has(scope)) scopes.set(scope, []);
+    inventory.push(current.node);
+    pending.push({ node: current.node, finish: true, scope });
+    const children: Node[] = [];
+    ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
+    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index]!, finish: false, scope });
+  }
+  for (const file of files) for (const node of scopes.get(file.sourceFile)!) completeFact(node);
+  for (const [scope, nodes] of scopes) {
+    if (ast.is.IsSourceFile(scope)) continue;
+    for (const node of nodes) completeFact(node);
+  }
+  const validating = new Set<KeyFact>();
+  const validated = new Set<KeyFact>();
+  for (const fact of drafts) validateFact(fact);
+  for (const fact of drafts) Object.freeze(fact);
+  for (const node of inventory) {
     const parent = ast.parent(node);
     if (ast.is.IsComputedPropertyName(node) || isOrdinaryPropertyName(node, parent)) {
       record(node, admitName(node, ast.is.IsComputedPropertyName(node) ? select(node)
         : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node))));
     } else if (ast.is.IsElementAccessExpression(node)) {
+      const semantics = semanticsFor(node);
       const access = semantics.operations.elementAccess(node);
       if (access !== undefined && access.selectedElementIndex === undefined &&
         (access.selectedSymbol !== undefined || access.selectedDeclaration !== undefined) &&
-        !onlyNumericIndexes(access.receiver.type, access.argument.type)) {
+        !onlyNumericIndexes(node, access.receiver.type, access.argument.type)) {
         const argument = access.argument.expression;
         const type = checkedType(argument);
         if (type !== undefined && typeof semantics.types.numericLiteralValue(type) === "number") {
@@ -67,38 +91,50 @@ export function analyzeSourcePropertyNames(
             const admitted = admitNumericName(selected, String(semantics.types.numericLiteralValue(type)));
             if (admitted.kind === "rejected") record(argument, admitted);
           } else {
-            const member = enumOrigin(argument, new Set());
+            const member = checkedEnumMember(argument);
             const entry = member === undefined ? undefined : enumConstants.get(member);
             if (entry?.kind === "rejected") record(argument, rejected(entry.reason, entry.failure));
           }
         }
       }
     }
-    const children: Node[] = [];
-    ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pending.push(children[index]!);
   }
-  return Object.freeze({
-    entries: Object.freeze(entries),
-    issues: Object.freeze(issues),
-    get: (name: Node) => values.get(name),
-  });
+  const entriesByFile = new Map(files.map(file => [file.sourceFile, [] as typeof entries]));
+  const issuesByFile = new Map(files.map(file => [file.sourceFile, [] as typeof issues]));
+  for (const entry of entries) entriesByFile.get(ast.getSourceFile(entry.node)!)!.push(entry);
+  for (const issue of issues) issuesByFile.get(ast.getSourceFile(issue.node)!)!.push(issue);
+  return Object.freeze(files.map(({ sourceFile }) => {
+    const selectedEntries = Object.freeze(entriesByFile.get(sourceFile)!);
+    const values = new WeakMap(selectedEntries.map(entry => [entry.node, entry.selection]));
+    return Object.freeze({ sourceFile, propertyNames: Object.freeze({
+      entries: selectedEntries,
+      issues: Object.freeze(issuesByFile.get(sourceFile)!),
+      get: (name: Node) => values.get(name),
+    }) });
+  }));
+
+  function semanticsFor(node: Node): (typeof files)[number]["semantics"] {
+    const file = ast.getSourceFile(node);
+    const semantics = file === undefined ? undefined : inputs.get(file);
+    if (semantics === undefined) throw new Error("Property-name facts require the original checked source-file owner.");
+    return semantics;
+  }
 
   function record(node: Node, selection: SourcePropertyNameSelection): void {
-    values.set(node, selection);
     entries.push(Object.freeze({ node, selection }));
     if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason, failure: selection.failure }));
   }
 
   function admitName(node: Node, selection: SourcePropertyNameSelection): SourcePropertyNameSelection {
     if (selection.kind !== "resolved") return selection;
+    const semantics = semanticsFor(node);
     const checked = semantics.operations.propertyName(node);
     if (checked === undefined || checked.kind === "unique-symbol") return rejected(
       "The property key has no completed checked string or numeric member identity.");
     const parent = ast.parent(node);
     const element = parent === undefined ? undefined : semantics.operations.objectLiteralElement(parent);
     if (element?.contextualType !== undefined && element.sourceSelectedSymbol === undefined &&
-      element.sourceSelectedDeclarations.length === 0 && onlyNumericIndexes(element.contextualType, checked.type)) {
+      element.sourceSelectedDeclarations.length === 0 && onlyNumericIndexes(node, element.contextualType, checked.type)) {
       return Object.freeze({ ...selection, name: checked.name });
     }
     const admitted = admitNumericName(selection, checked.name);
@@ -112,13 +148,15 @@ export function analyzeSourcePropertyNames(
       `Numeric property key ${selection.name} has checker key ${checked}; use the exact string key ${JSON.stringify(selection.name)} instead of a conflicting numeric named member.`) : selection;
   }
 
-  function onlyNumericIndexes(owner: Type, key: Type): boolean {
+  function onlyNumericIndexes(node: Node, owner: Type, key: Type): boolean {
+    const semantics = semanticsFor(node);
     const selection = semantics.types.selectIndexedAccess(owner, key);
     return selection?.kind === "resolved" && selection.members.length > 0 && selection.members.every(member =>
-      member.kind === "index" && member.index.keyType !== undefined && numberBacked(member.index.keyType));
+      member.kind === "index" && member.index.keyType !== undefined && numberBacked(node, member.index.keyType));
   }
 
-  function numberBacked(type: Type): boolean {
+  function numberBacked(node: Node, type: Type): boolean {
+    const semantics = semanticsFor(node);
     return semantics.types.isNumberLike(type) || semantics.types.isIntersection(type) &&
       semantics.types.unionOrIntersectionTypes(type).some(part => semantics.types.isNumberLike(part));
   }
@@ -137,31 +175,22 @@ export function analyzeSourcePropertyNames(
   }
 
   function select(name: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(name);
     const selection = classify(name);
     if (selection.kind !== "resolved") return selection;
     const expression = (ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression;
-    if (expression !== undefined && unprovenAssertion(expression, new Set())) return rejected(
+    const evidence = expression === undefined ? undefined : facts.get(expression);
+    if (evidence?.valid === false) return rejected(
       "A literal type assertion cannot turn an unproven runtime value into an exact static property key.");
     const type = expression === undefined ? undefined : checkedType(expression);
     const numeric = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
     if (typeof numeric === "number" && !Number.isFinite(numeric)) return rejected(
       "The numeric property key exceeds finite native literal bounds.");
-    if (expression !== undefined && hasAssertion(expression)) {
-      const text = type === undefined ? undefined : semantics.types.stringLiteralValue(type);
-      if (text !== undefined && text !== selection.name) return rejected(
-        "The computed key's authored value disagrees with its asserted literal type.");
-    }
-    const contract = expression === undefined ? undefined : literalContract(expression, new Set());
-    if (contract !== undefined) {
-      const actual = ast.is.IsStringLiteral(contract) || ast.is.IsNoSubstitutionTemplateLiteral(contract) ? ast.text(contract)
-        : exactNumeric(contract, new Set());
-      if (actual !== undefined && (typeof actual === "string" ? actual : numericName(actual)) !== selection.name) return rejected(
-        "The computed key's exact source value disagrees with its authored literal contract.");
-    }
     return selection;
   }
 
   function classify(name: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(name);
     const expression = unwrap((ast.is.IsComputedPropertyName(name) ? ast.as.AsComputedPropertyName(name) : undefined)?.Expression);
     if (expression === undefined) return unavailable;
     const parent = ast.parent(name);
@@ -227,14 +256,18 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
-    const member = enumOrigin(node, new Set());
+    const semantics = semanticsFor(node);
+    const constant = facts.get(node)?.constant;
+    if (constant?.kind === "enum-member") return selectedEnum(constant.entry.declaration);
+    const member = checkedEnumMember(node);
     if (member !== undefined) return selectedEnum(member);
+    if (facts.get(node)?.constant?.kind === "numeric") return selectedNumeric(node);
     const type = checkedType(node);
     if (type === undefined) return rejected("The computed key has no completed checked literal type.");
     const text = semantics.types.stringLiteralValue(type);
     if (text !== undefined) {
-      const origin = literalOrigin(node, new Set());
-      if (origin !== undefined && (!ast.is.IsStringLiteral(origin) && !ast.is.IsNoSubstitutionTemplateLiteral(origin) || ast.text(origin) !== text)) {
+      const fact = facts.get(node);
+      if (fact?.constant !== undefined && constantName(fact.constant) !== text) {
         return rejected("The const key's exact source value disagrees with its checked literal type.");
       }
       return selectedString(text);
@@ -246,10 +279,11 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedNumeric(node: Node): SourcePropertyNameSelection {
+    const semantics = semanticsFor(node);
     const type = checkedType(node);
     const checked = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
     if (typeof checked === "number" && !Number.isFinite(checked)) return rejected("The numeric property key exceeds finite native literal bounds.");
-    const numeric = exactNumeric(node, new Set());
+    const numeric = exactNumeric(node);
     return numeric === undefined ? rejected("The numeric key has no exact authored literal origin corresponding to its checked constant value.")
       : Object.freeze({ kind: "resolved", name: numericName(numeric), constant: Object.freeze({ kind: "numeric", token: numeric }) });
   }
@@ -267,176 +301,297 @@ export function analyzeSourcePropertyNames(
       constant: Object.freeze({ kind: "enum-member", entry: constant }) });
   }
 
-  function enumOrigin(node: Node, active: Set<Node>): Node | undefined {
+  function checkedEnumMember(node: Node): Node | undefined {
+    const semantics = semanticsFor(node);
     const current = unwrap(node);
-    if (current === undefined || active.has(current)) return undefined;
-    active.add(current);
+    if (current === undefined) return undefined;
     const declaration = ast.is.IsIdentifier(current) ? navigation.sourceReferenceFor(current)?.declaration
       : ast.is.IsPropertyAccessExpression(current) ? semantics.operations.propertyAccess(current)?.selectedDeclaration
         : ast.is.IsElementAccessExpression(current) ? semantics.operations.elementAccess(current)?.selectedDeclaration : undefined;
-    if (declaration === undefined) return undefined;
-    if (ast.is.IsEnumMember(declaration)) return declaration;
-    if (!constBinding(declaration)) return undefined;
-    const value = bindingValue(declaration, new Set());
-    return value === undefined ? undefined : enumOrigin(value, active);
+    if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return declaration;
+    const type = checkedType(current);
+    const symbol = type === undefined ? undefined : semantics.declarations.typeSymbol(type);
+    const members = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol).filter(
+      (candidate): candidate is Node => candidate !== undefined && ast.is.IsEnumMember(candidate));
+    return members.length === 1 ? members[0] : undefined;
   }
 
-  function exactNumeric(node: Node, active: Set<Node>): SourceNumericLiteralToken | undefined {
-    const current = unwrap(node);
-    if (current === undefined || active.has(current)) return undefined;
-    const cached = numericValues.get(current);
-    if (cached !== undefined) return cached ?? undefined;
-    active.add(current);
-    let selected: SourceNumericLiteralToken | undefined;
+  function exactNumeric(node: Node): SourceNumericLiteralToken | undefined {
+    const fact = facts.get(node);
+    const constant = fact?.constant;
+    if (constant?.kind === "numeric") return constant.token;
+    if (constant?.kind === "enum-member" && typeof constant.entry.value === "bigint") {
+      return numericTokenFromText(constant.entry.value.toString());
+    }
+    return undefined;
+  }
+
+  interface KeyFact {
+    constant?: SourcePropertyNameConstant;
+    elements?: readonly (KeyFact | undefined)[];
+    members?: ReadonlyMap<string, KeyFact>;
+    readonly contracts: readonly Node[];
+    readonly input?: KeyFact;
+    readonly owner?: KeyFact;
+    readonly declarationOnly: boolean;
+    valid: boolean;
+  }
+
+  function createFact(input: Omit<KeyFact, "contracts" | "declarationOnly" | "valid"> & {
+    readonly contracts?: readonly Node[]; readonly declarationOnly?: boolean; readonly valid?: boolean;
+  }): KeyFact {
+    const fact: KeyFact = { ...input, contracts: input.contracts ?? [], declarationOnly: input.declarationOnly ?? false,
+      valid: input.valid ?? true };
+    drafts.push(fact);
+    return fact;
+  }
+
+  function constantName(constant: SourcePropertyNameConstant): string {
+    return constant.kind === "string" ? constant.value : constant.kind === "numeric" ? numericName(constant.token)
+      : typeof constant.entry.value === "string" ? constant.entry.value : constant.entry.value.toString();
+  }
+
+  function literalFact(node: Node): KeyFact | undefined {
+    if (ast.is.IsStringLiteral(node) || ast.is.IsNoSubstitutionTemplateLiteral(node)) {
+      return createFact({ constant: Object.freeze({ kind: "string", value: ast.text(node) }) });
+    }
+    if (!ast.is.IsNumericLiteral(node)) return undefined;
+    const token = sourceLiteralToken(ast, node);
+    const numeric = token.kind === "authored" ? parseSourceNumericLiteral(token.text)?.token
+      : numericTokenFromText(ast.text(node));
+    return numeric === undefined ? undefined : createFact({ constant: Object.freeze({ kind: "numeric", token: numeric }) });
+  }
+
+  function enumFact(member: Node): KeyFact | undefined {
+    const existing = declarations.get(member);
+    if (existing !== undefined) return existing;
+    const entry = enumConstants.get(member);
+    if (entry?.kind !== "resolved") return undefined;
+    const fact = createFact({ constant: Object.freeze({ kind: "enum-member", entry }) });
+    declarations.set(member, fact);
+    return fact;
+  }
+
+  function declaredFact(node: Node | undefined, active = new Set<Node>()): KeyFact | undefined {
+    if (node === undefined || active.has(node)) return undefined;
+    active.add(node);
     try {
-      selected = selectExactNumeric(current, active);
-    } finally {
-      active.delete(current);
-    }
-    numericValues.set(current, selected ?? null);
-    return selected;
+      if (ast.is.IsLiteralTypeNode(node)) {
+        const literal = ast.as.AsLiteralTypeNode(node)?.Literal;
+        return literal === undefined ? undefined : facts.get(literal) ?? literalFact(literal);
+      }
+      if (ast.is.IsParenthesizedTypeNode(node)) return declaredFact(ast.as.AsParenthesizedTypeNode(node)?.Type, active);
+      if (ast.is.IsTypeOperatorNode(node) && ast.operatorKindName(node) === "KindReadonlyKeyword") {
+        return declaredFact(ast.as.AsTypeOperatorNode(node)?.Type, active);
+      }
+      if (ast.is.IsTypeQueryNode(node)) {
+        const name = ast.as.AsTypeQueryNode(node)?.ExprName;
+        const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
+        return declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration) : declarations.get(declaration);
+      }
+      if (ast.is.IsTypeReferenceNode(node)) {
+        const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
+        const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
+        const member = declaration !== undefined && ast.is.IsEnumMember(declaration) ? declaration
+          : name !== undefined && ast.is.IsQualifiedName(name) ? checkedEnumMember(node) : undefined;
+        if (member !== undefined) return enumFact(member);
+        return declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)
+          ? declaredFact(ast.typeNode(declaration), active) : undefined;
+      }
+      if (ast.is.IsTupleTypeNode(node)) {
+        const semantics = semanticsFor(node);
+        const type = checkedType(node);
+        if (type === undefined || !semantics.types.isTuple(type) ||
+          semantics.types.tupleElementInfos(type).some(element => element.elementKind !== "required")) return undefined;
+        return createFact({ elements: Object.freeze(ast.elements(node).map(element =>
+          element === undefined ? undefined : declaredFact(ast.typeNode(element) ?? element, active))), declarationOnly: true });
+      }
+      return undefined;
+    } finally { active.delete(node); }
   }
 
-  function selectExactNumeric(current: Node, active: Set<Node>): SourceNumericLiteralToken | undefined {
-      if (ast.is.IsNumericLiteral(current)) {
-        const source = sourceLiteralToken(ast, current);
-        if (source.kind === "authored") return parseSourceNumericLiteral(source.text)?.token;
-        const type = checkedType(current);
-        const value = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
-        return typeof value === "number" && Number.isFinite(value)
-          ? numericTokenFromText(String(value)) : undefined;
-      }
-      if (ast.is.IsPrefixUnaryExpression(current)) {
-        const operator = ast.operatorKindName(current);
-        const operand = ast.as.AsPrefixUnaryExpression(current)?.Operand;
-        if (operand === undefined || operator !== "KindPlusToken" && operator !== "KindMinusToken") return undefined;
-        const selected = exactNumeric(operand, active);
-        return selected === undefined || operator === "KindPlusToken" ? selected
-          : Object.freeze({ ...selected, negative: !selected.negative });
-      }
-      if (ast.is.IsAsExpression(current) || ast.is.IsSatisfiesExpression(current)) {
-        const expression = ast.is.IsAsExpression(current)
-          ? ast.as.AsAsExpression(current)?.Expression : ast.as.AsSatisfiesExpression(current)?.Expression;
-        return expression === undefined ? undefined : exactNumeric(expression, active);
-      }
-      if (ast.is.IsBinaryExpression(current)) {
-        const integer = sourceIntegerConstantValue(ast, current);
-        return integer === undefined ? undefined : numericTokenFromText(integer.toString());
-      }
-      if (ast.is.IsCallExpression(current)) {
-        const call = semantics.operations.call(current);
-        return call === undefined ? undefined : numericType(semantics.operations.callResult(call)?.authoredTypeNode, active);
-      }
-      const declaration = ast.is.IsIdentifier(current)
-        ? navigation.sourceReferenceFor(current)?.declaration
-        : ast.is.IsPropertyAccessExpression(current) ? semantics.operations.propertyAccess(current)?.selectedDeclaration
-          : ast.is.IsElementAccessExpression(current) ? semantics.operations.elementAccess(current)?.selectedDeclaration
-            : ast.is.IsEnumMember(current) ? current : undefined;
-      if (declaration === undefined) return undefined;
-      if (ast.is.IsParameterDeclaration(declaration)) return numericType(ast.typeNode(declaration), active);
-      if (constBinding(declaration)) {
-        const initializer = bindingValue(declaration, new Set());
-        const authored = initializer === undefined ? undefined : exactNumeric(initializer, active);
-        if (authored !== undefined) return authored;
-        const annotation = numericType(ast.typeNode(declaration), active);
-        if (annotation !== undefined) return annotation;
-        const value = initializer === undefined ? undefined : unwrap(initializer);
-        const call = value === undefined || !ast.is.IsCallExpression(value) ? undefined : semantics.operations.call(value);
-        const result = call === undefined ? undefined : semantics.operations.callResult(call);
-        const returned = numericType(result?.authoredTypeNode, active);
-        if (returned !== undefined) return returned;
-        if (call === undefined || result?.authoredTypeNode === undefined) return undefined;
-        const typeNode = result.authoredTypeNode;
-        const typeName = ast.is.IsTypeReferenceNode(typeNode) ? ast.as.AsTypeReferenceNode(typeNode)?.TypeName : undefined;
-        const parameter = typeName === undefined ? undefined : navigation.sourceReferenceFor(typeName)?.declaration;
-        if (parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter)) return undefined;
-        const binding = call.sourceSelectedMethodTypeArguments?.find(candidate => {
-          const symbol = semantics.declarations.typeSymbol(candidate.typeParameter);
-          return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(parameter);
-        });
-        const explicit = numericType(binding?.explicitTypeNode, active);
-        if (explicit !== undefined) return explicit;
-        const candidates = call.sourceSelectedSignatureParameters.filter(candidate => {
-          const name = candidate.authoredTypeNode === undefined || !ast.is.IsTypeReferenceNode(candidate.authoredTypeNode)
-            ? undefined : ast.as.AsTypeReferenceNode(candidate.authoredTypeNode)?.TypeName;
-          return name !== undefined && navigation.sourceReferenceFor(name)?.declaration === parameter;
-        });
-        const inputs = candidates.flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
-          argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
-          call.sourceArguments[argument.sourceArgumentIndex]?.expression));
-        const values = inputs.map(input => input === undefined ? undefined : exactNumeric(input, active));
-        const first = values[0];
-        return first !== undefined && values.every(value => value !== undefined && numericName(value) === numericName(first))
-          ? first : undefined;
-      }
-      if (!ast.is.IsEnumMember(declaration)) return undefined;
-      const constant = enumConstants.get(declaration);
-      return constant?.kind === "resolved" && typeof constant.value === "bigint" ? numericTokenFromText(constant.value.toString()) : undefined;
+  function validateFact(fact: KeyFact): boolean {
+    if (validated.has(fact)) return fact.valid;
+    if (validating.has(fact)) return false;
+    validating.add(fact);
+    fact.valid = fact.valid && (fact.input === undefined || validateFact(fact.input)) &&
+      (fact.owner === undefined || validateFact(fact.owner));
+    for (const node of fact.contracts) {
+      const contract = declaredFact(node);
+      if (contract === undefined) continue;
+      fact.valid = fact.valid && validateFact(contract);
+      if (fact.declarationOnly && fact.constant === undefined && fact.elements === undefined && fact.members === undefined) {
+        if (contract.constant !== undefined) fact.constant = contract.constant;
+        if (contract.elements !== undefined) fact.elements = contract.elements;
+        if (contract.members !== undefined) fact.members = contract.members;
+      } else fact.valid = fact.valid && contractAgrees(contract, fact);
+    }
+    validating.delete(fact);
+    validated.add(fact);
+    return fact.valid;
   }
 
-  function numericType(node: Node | undefined, active: Set<Node>): SourceNumericLiteralToken | undefined {
-    if (node === undefined || active.has(node)) return undefined;
-    if (ast.is.IsParenthesizedTypeNode(node)) return numericType(ast.as.AsParenthesizedTypeNode(node)?.Type, active);
-    if (ast.is.IsLiteralTypeNode(node)) {
-      const literal = ast.as.AsLiteralTypeNode(node)?.Literal;
-      return literal === undefined ? undefined : exactNumeric(literal, active);
-    }
-    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
-    const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-    if (declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration)) return undefined;
-    active.add(node);
-    try { return numericType(ast.typeNode(declaration), active); } finally { active.delete(node); }
+  function contractAgrees(contract: KeyFact, actual: KeyFact): boolean {
+    if (contract.constant !== undefined) return actual.constant !== undefined &&
+      constantName(contract.constant) === constantName(actual.constant);
+    if (contract.elements !== undefined) return actual.elements !== undefined &&
+      contract.elements.length === actual.elements.length && contract.elements.every((element, position) =>
+        element === undefined || actual.elements?.[position] !== undefined &&
+        validateFact(element) && contractAgrees(element, actual.elements[position]!));
+    return true;
   }
 
-  function literalTypeOrigin(node: Node | undefined, active: Set<Node>): Node | undefined {
-    if (node === undefined || active.has(node)) return undefined;
-    if (ast.is.IsLiteralTypeNode(node)) return ast.as.AsLiteralTypeNode(node)?.Literal;
-    if (ast.is.IsParenthesizedTypeNode(node)) return literalTypeOrigin(ast.as.AsParenthesizedTypeNode(node)?.Type, active);
-    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
-    const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-    if (declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration)) return undefined;
-    active.add(node);
-    return literalTypeOrigin(ast.typeNode(declaration), active);
+  function bindFact(name: Node, declaration: Node, input: KeyFact | undefined): void {
+    if (ast.is.IsIdentifier(name)) {
+      const annotation = ast.typeNode(declaration);
+      const fact = annotation === undefined && input !== undefined ? input : createFact({
+        ...(input === undefined ? {} : { ...input, input }),
+        contracts: annotation === undefined ? [] : [annotation], declarationOnly: input === undefined });
+      facts.set(name, fact);
+      declarations.set(declaration, fact);
+      return;
+    }
+    if (!ast.is.IsArrayBindingPattern(name) && !ast.is.IsObjectBindingPattern(name)) return;
+    for (const [position, element] of ast.elements(name).entries()) {
+      if (element === undefined || !ast.is.IsBindingElement(element)) continue;
+      const binding = ast.as.AsBindingElement(element)!;
+      const target = ast.name(element);
+      if (target === undefined || binding.DotDotDotToken !== undefined) continue;
+      const property = binding.PropertyName ?? target;
+      const selected = ast.is.IsArrayBindingPattern(name) ? input?.elements?.[position]
+        : ast.is.IsIdentifier(property) || ast.is.IsStringLiteral(property) ? input?.members?.get(ast.text(property)) : undefined;
+      const value = selected ?? (binding.Initializer === undefined ? undefined : facts.get(binding.Initializer));
+      bindFact(target, element, value === undefined ? undefined : createFact({ ...value, input: value,
+        ...(input === undefined ? {} : { owner: input }) }));
+    }
   }
 
-  function literalOrigin(node: Node, active: Set<Node>): Node | undefined {
-    const current = unwrap(node);
-    if (current === undefined || active.has(current)) return undefined;
-    active.add(current);
-    if (ast.is.IsStringLiteral(current) || ast.is.IsNoSubstitutionTemplateLiteral(current) ||
-      ast.is.IsNumericLiteral(current) || signedNumericLiteral(current)) return current;
-    if (ast.is.IsCallExpression(current)) {
-      const call = semantics.operations.call(current);
-      return literalTypeOrigin(call === undefined ? undefined : semantics.operations.callResult(call)?.authoredTypeNode, active);
-    }
-    const declaration = ast.is.IsIdentifier(current) ? navigation.sourceReferenceFor(current)?.declaration : undefined;
-    if (declaration === undefined) return undefined;
-    if (constBinding(declaration)) {
-      const value = bindingValue(declaration, new Set());
-      if (value !== undefined) return literalOrigin(value, active);
-    }
-    return literalTypeOrigin(ast.typeNode(declaration), active);
+  function callFact(node: Node): KeyFact | undefined {
+    const semantics = semanticsFor(node);
+    const call = semantics.operations.call(node);
+    const result = call === undefined ? undefined : semantics.operations.callResult(call);
+    const declared = declaredFact(result?.authoredTypeNode);
+    if (declared !== undefined || call === undefined || result?.authoredTypeNode === undefined) return declared;
+    const typeName = ast.is.IsTypeReferenceNode(result.authoredTypeNode) ? ast.as.AsTypeReferenceNode(result.authoredTypeNode)?.TypeName : undefined;
+    const parameter = typeName === undefined ? undefined : navigation.sourceReferenceFor(typeName)?.declaration;
+    if (parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter)) return undefined;
+    const selected = call.sourceSelectedMethodTypeArguments?.find(candidate => {
+      const symbol = semantics.declarations.typeSymbol(candidate.typeParameter);
+      return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(parameter);
+    });
+    const explicit = declaredFact(selected?.explicitTypeNode);
+    if (explicit !== undefined) return explicit;
+    const inputs = call.sourceSelectedSignatureParameters.filter(candidate => {
+      const name = candidate.authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(candidate.authoredTypeNode)
+        ? ast.as.AsTypeReferenceNode(candidate.authoredTypeNode)?.TypeName : undefined;
+      return name !== undefined && navigation.sourceReferenceFor(name)?.declaration === parameter;
+    }).flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
+      argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
+      call.sourceArguments[argument.sourceArgumentIndex]?.expression));
+    const arguments_ = inputs.map(input => input === undefined ? undefined : facts.get(input));
+    const first = arguments_[0];
+    return first?.constant !== undefined && arguments_.every(argument => argument?.constant !== undefined &&
+      constantName(argument.constant) === constantName(first.constant!)) ? first : undefined;
   }
 
-  function literalContract(node: Node, active: Set<Node>): Node | undefined {
-    if (active.has(node)) return undefined;
-    active.add(node);
-    if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
-      const expression = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node) : ast.as.AsTypeAssertion(node);
-      return literalTypeOrigin(expression?.Type, active) ??
-        (expression?.Expression === undefined ? undefined : literalContract(expression.Expression, active));
+  function completeFact(node: Node): void {
+    const literal = literalFact(node);
+    if (literal !== undefined) { facts.set(node, literal); return; }
+    if (ast.is.IsEnumMember(node)) {
+      const fact = enumFact(node);
+      if (fact !== undefined) facts.set(node, fact);
+      return;
     }
-    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsSatisfiesExpression(node)) {
-      const expression = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)?.Expression
-        : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node)?.Expression : ast.as.AsSatisfiesExpression(node)?.Expression;
-      return expression === undefined || expression === node ? undefined : literalContract(expression, active);
+    if (ast.is.IsVariableDeclaration(node)) {
+      const name = ast.name(node);
+      const initializer = ast.as.AsVariableDeclaration(node)?.Initializer;
+      if (name !== undefined) bindFact(name, node, initializer === undefined ? declaredFact(ast.typeNode(node)) : facts.get(initializer));
+      return;
     }
-    const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
-    if (declaration === undefined || !constBinding(declaration)) return undefined;
-    const annotation = literalTypeOrigin(ast.typeNode(declaration), active);
-    if (annotation !== undefined) return annotation;
-    const value = bindingValue(declaration, new Set());
-    return value === undefined ? undefined : literalContract(value, active);
+    if (ast.is.IsParameterDeclaration(node)) {
+      const name = ast.name(node);
+      if (name !== undefined) bindFact(name, node, declaredFact(ast.typeNode(node)));
+      return;
+    }
+    if (ast.is.IsIdentifier(node)) {
+      const declaration = navigation.sourceReferenceFor(node)?.declaration;
+      const fact = declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration)
+        : declarations.get(declaration) ?? declaredFact(ast.typeNode(declaration));
+      if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
+    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+      const member = checkedEnumMember(node);
+      const fact = member === undefined ? undefined : enumFact(member);
+      if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
+    const wrapper = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)
+      : ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)
+      : ast.is.IsTypeAssertion(node) ? ast.as.AsTypeAssertion(node)
+      : ast.is.IsSatisfiesExpression(node) ? ast.as.AsSatisfiesExpression(node)
+      : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node) : undefined;
+    if (wrapper !== undefined) {
+      const input = wrapper.Expression === undefined ? undefined : facts.get(wrapper.Expression);
+      const annotation = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)?.Type
+        : ast.is.IsTypeAssertion(node) ? ast.as.AsTypeAssertion(node)?.Type : undefined;
+      facts.set(node, annotation === undefined && input !== undefined ? input : createFact({
+        ...(input === undefined ? {} : { ...input, input }), contracts: annotation === undefined ? [] : [annotation],
+        declarationOnly: false, valid: input !== undefined }));
+      return;
+    }
+    if (ast.is.IsPrefixUnaryExpression(node)) {
+      const expression = ast.as.AsPrefixUnaryExpression(node);
+      const input = expression?.Operand === undefined ? undefined : facts.get(expression.Operand);
+      const constant = input?.constant;
+      const operator = ast.operatorKindName(node);
+      if (constant?.kind === "numeric" && (operator === "KindPlusToken" || operator === "KindMinusToken")) {
+        facts.set(node, createFact({ constant: Object.freeze({ kind: "numeric", token: operator === "KindPlusToken" ? constant.token
+          : Object.freeze({ ...constant.token, negative: !constant.token.negative }) }), input }));
+      }
+      return;
+    }
+    if (ast.is.IsBinaryExpression(node)) {
+      const value = sourceIntegerConstantValue(ast, node);
+      const token = value === undefined ? undefined : numericTokenFromText(value.toString());
+      if (token !== undefined) facts.set(node, createFact({ constant: Object.freeze({ kind: "numeric", token }) }));
+      return;
+    }
+    if (ast.is.IsCallExpression(node)) {
+      const fact = callFact(node);
+      if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
+    if (ast.is.IsArrayLiteralExpression(node)) {
+      const semantics = semanticsFor(node);
+      const elements: (KeyFact | undefined)[] = [];
+      for (const element of ast.elements(node)) {
+        if (element !== undefined && ast.is.IsSpreadElement(element)) {
+          const expression = ast.as.AsSpreadElement(element)?.Expression;
+          const type = expression === undefined ? undefined : checkedType(expression);
+          if (type === undefined || !semantics.types.isTuple(type) ||
+            semantics.types.tupleElementInfos(type).some(element => element.elementKind !== "required")) return;
+          const selected = expression === undefined ? undefined : facts.get(expression)?.elements;
+          if (selected === undefined) return;
+          elements.push(...selected);
+        } else elements.push(element === undefined ? undefined : facts.get(element));
+      }
+      facts.set(node, createFact({ elements: Object.freeze(elements) }));
+      return;
+    }
+    if (ast.is.IsObjectLiteralExpression(node)) {
+      const members = new Map<string, KeyFact>();
+      for (const property of ast.properties(node)) {
+        if (property === undefined) continue;
+        const name = ast.name(property);
+        if (name === undefined || !ast.is.IsIdentifier(name) && !ast.is.IsStringLiteral(name)) continue;
+        const value = ast.is.IsPropertyAssignment(property) ? ast.as.AsPropertyAssignment(property)?.Initializer
+          : ast.is.IsShorthandPropertyAssignment(property) ? name : undefined;
+        const fact = value === undefined ? undefined : facts.get(value);
+        if (fact !== undefined) members.set(ast.text(name), fact);
+      }
+      facts.set(node, createFact({ members }));
+    }
   }
 
   function rejected(reason: string, failure: "source" | "resource" = "source"): SourcePropertyNameSelection {
@@ -446,45 +601,9 @@ export function analyzeSourcePropertyNames(
   function checkedType(node: Node): Type | undefined {
     const cached = checkedTypes.get(node);
     if (cached !== undefined) return cached ?? undefined;
-    const type = semantics.types.expressionType(node);
+    const type = semanticsFor(node).types.expressionType(node);
     checkedTypes.set(node, type ?? null);
     return type;
-  }
-
-  function hasAssertion(node: Node): boolean {
-    let current: Node | undefined = node;
-    while (current !== undefined) {
-      if (ast.is.IsAsExpression(current) || ast.is.IsTypeAssertion(current)) return true;
-      if (ast.is.IsParenthesizedExpression(current)) current = ast.as.AsParenthesizedExpression(current)?.Expression;
-      else if (ast.is.IsNonNullExpression(current)) current = ast.as.AsNonNullExpression(current)?.Expression;
-      else if (ast.is.IsSatisfiesExpression(current)) current = ast.as.AsSatisfiesExpression(current)?.Expression;
-      else break;
-    }
-    return false;
-  }
-
-  function unprovenAssertion(node: Node, active: Set<Node>): boolean {
-    if (active.has(node)) return true;
-    active.add(node);
-    if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
-      const operand = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)?.Expression
-        : ast.as.AsTypeAssertion(node)?.Expression;
-      if (operand === undefined) return true;
-      const actual = checkedType(operand);
-      const literal = actual === undefined ? undefined : semantics.types.stringLiteralValue(actual);
-      if (literal === undefined && literalOrigin(operand, new Set()) === undefined && exactNumeric(operand, new Set()) === undefined &&
-        enumOrigin(operand, new Set()) === undefined) return true;
-      return unprovenAssertion(operand, active);
-    }
-    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsSatisfiesExpression(node)) {
-      const operand = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)?.Expression
-        : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node)?.Expression : ast.as.AsSatisfiesExpression(node)?.Expression;
-      return operand !== undefined && unprovenAssertion(operand, active);
-    }
-    const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
-    if (declaration === undefined || !constBinding(declaration)) return false;
-    const value = bindingValue(declaration, new Set());
-    return value !== undefined && unprovenAssertion(value, active);
   }
 
   function constBinding(declaration: Node): boolean {
@@ -496,86 +615,8 @@ export function analyzeSourcePropertyNames(
     return current !== undefined && ast.is.IsVariableDeclaration(current) && ast.variableDeclarationKind(current) === "const";
   }
 
-  function bindingValue(declaration: Node, active: Set<Node>): Node | undefined {
-    if (active.has(declaration)) return undefined;
-    active.add(declaration);
-    if (ast.is.IsVariableDeclaration(declaration)) return ast.as.AsVariableDeclaration(declaration)?.Initializer;
-    const binding = AsBindingElement(ast, declaration);
-    const pattern = ast.parent(declaration);
-    const owner = pattern === undefined ? undefined : ast.parent(pattern);
-    if (binding === undefined || binding.DotDotDotToken !== undefined || pattern === undefined || owner === undefined) return undefined;
-    const input = bindingValue(owner, active);
-    let value = unwrap(input);
-    while (value !== undefined) {
-      if (ast.is.IsAsExpression(value) || ast.is.IsSatisfiesExpression(value)) {
-        value = unwrap(ast.is.IsAsExpression(value) ? ast.as.AsAsExpression(value)?.Expression
-          : ast.as.AsSatisfiesExpression(value)?.Expression);
-      } else if (ast.is.IsIdentifier(value)) {
-        const reference = navigation.sourceReferenceFor(value)?.declaration;
-        if (reference === undefined || !constBinding(reference)) return undefined;
-        const selected = bindingValue(reference, active);
-        if (selected === undefined) break;
-        value = unwrap(selected);
-      } else break;
-    }
-    if (value === undefined) return undefined;
-    if (ast.is.IsArrayBindingPattern(pattern)) {
-      const position = ast.elements(pattern).indexOf(declaration);
-      return arrayElementOrigin(value, position, active);
-    }
-    if (!ast.is.IsObjectBindingPattern(pattern) || !ast.is.IsObjectLiteralExpression(value)) return undefined;
-    const key = binding.PropertyName ?? ast.name(declaration);
-    if (key === undefined || !ast.is.IsIdentifier(key) && !ast.is.IsStringLiteral(key)) return undefined;
-    const name = ast.text(key);
-    for (const property of [...ast.properties(value)].reverse()) {
-      if (property === undefined) continue;
-      const propertyName = ast.name(property);
-      if (propertyName === undefined || !ast.is.IsIdentifier(propertyName) && !ast.is.IsStringLiteral(propertyName)) return undefined;
-      if (ast.text(propertyName) !== name) continue;
-      if (ast.is.IsPropertyAssignment(property)) return ast.as.AsPropertyAssignment(property)?.Initializer;
-      if (ast.is.IsShorthandPropertyAssignment(property)) return ast.name(property);
-      return undefined;
-    }
-    return binding.Initializer;
-  }
-
-  function arrayElementOrigin(expression: Node, position: number, active: Set<Node>): Node | undefined {
-    const current = unwrap(expression);
-    if (current === undefined || active.has(current)) return undefined;
-    active.add(current);
-    if (ast.is.IsIdentifier(current)) {
-      const declaration = navigation.sourceReferenceFor(current)?.declaration;
-      if (declaration === undefined || !constBinding(declaration)) return undefined;
-      const value = bindingValue(declaration, active);
-      if (value !== undefined) return arrayElementOrigin(value, position, active);
-    }
-    if (!ast.is.IsArrayLiteralExpression(current)) {
-      const type = checkedType(current);
-      if (type === undefined || !semantics.types.isTuple(type)) return undefined;
-      const elements = semantics.types.tupleElementInfos(type);
-      if (elements.some(item => item.elementKind !== "required")) return undefined;
-      const declaration = elements[position]?.declaration;
-      return literalTypeOrigin(declaration === undefined ? undefined : ast.typeNode(declaration) ?? declaration, active);
-    }
-    let cursor = 0;
-    for (const element of ast.elements(current)) {
-      if (element !== undefined && ast.is.IsSpreadElement(element)) {
-        const spread = ast.as.AsSpreadElement(element)?.Expression;
-        const type = spread === undefined ? undefined : checkedType(spread);
-        if (spread === undefined || type === undefined || !semantics.types.isTuple(type)) return undefined;
-        const elements = semantics.types.tupleElementInfos(type);
-        if (elements.some(item => item.elementKind !== "required")) return undefined;
-        if (position < cursor + elements.length) return arrayElementOrigin(spread, position - cursor, active);
-        cursor += elements.length;
-      } else {
-        if (position === cursor) return element;
-        cursor += 1;
-      }
-    }
-    return undefined;
-  }
-
   function pureReference(node: Node): boolean {
+    const semantics = semanticsFor(node);
     const current = unwrap(node);
     if (current === undefined) return false;
     if (ast.is.IsIdentifier(current)) return true;
