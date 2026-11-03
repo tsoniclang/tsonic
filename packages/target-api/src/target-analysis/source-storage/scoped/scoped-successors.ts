@@ -103,7 +103,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const region = createSourceStorageRegionSuccessors({ source, budget, transport, reachability,
     nativeInputExecutions, pointerValues, application, leaf });
   const store = createSourceStorageStoreSuccessors({ budget, transport, absent, birth, symbolicInput, replaceChild });
-  const transition = createSourceStorageTransitionSuccessors({ source, scopes, absent, instanceCaptures, replaceChild });
+  const transition = createSourceStorageTransitionSuccessors({ source, scopes, absent, instanceCaptures });
   const applicationSuccessors = createSourceStorageApplicationSuccessors({ source, budget, transport, scopes, equations,
     absent, nativeInputExecutions, conditionalExecutions, rejections, replaceChild, dispatchDependencies,
     independentCalleeFor, regionsFor, classLineages, leaf });
