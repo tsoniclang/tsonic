@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationOperation } from "../../public/facts.js";
+import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
 
 import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
 
@@ -124,7 +124,10 @@ test(`${name} preserves the pointee domain${signed ? " and rejects signed layout
       `);
       assert.equal(checked.diagnostics.filter(Boolean).length, 0);
       if (signed) {
-        assert.ok(checked.extensionDiagnostics.some(value => value.extensionCode === "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN"));
+        assertMemoryDiagnostics(checked);
+        const call = memoryCall(checked, "torawptr");
+        assert.equal(selectTsonicRawLocationFacts(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
+        assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call)?.kind, "rejected");
       } else {
         assertMemoryDiagnostics(checked);
         const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "torawptr"));

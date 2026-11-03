@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { selectTsonicMemoryFieldBinding, selectTsonicMemoryFieldBindingFacts, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
 import { memoryCall, memorySession } from "../../testing/fixtures.js";
 import { bindingPrelude } from "./fixtures.js";
 
@@ -60,6 +60,13 @@ for (const [name, body, code, marker] of [
   test(`memory bindings reject ${name}`, () => {
     const checked = memorySession(bindingPrelude + body);
     assert.equal(checked.diagnostics.filter(Boolean).length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
+    if (name === "signed instead of unsigned field") {
+      const call = memoryCall(checked, marker);
+      assert.equal(checked.extensionDiagnostics.length, 0);
+      assert.equal(selectTsonicMemoryFieldBindingFacts(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
+      assert.equal(selectTsonicMemoryFieldBinding(checked.ast, checked.sourceFacts, call)?.kind, "rejected");
+      return;
+    }
     assert.ok(checked.extensionDiagnostics.some(diagnostic => diagnostic.extensionCode === `SOURCE_CORE_MEMORY_${code}`),
       checked.extensionDiagnostics.map(diagnostic => `${diagnostic.extensionCode}: ${diagnostic.message}`).join("\n"));
     const call = memoryCall(checked, marker);

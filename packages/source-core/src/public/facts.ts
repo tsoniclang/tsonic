@@ -64,14 +64,20 @@ export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOp
 export {
   readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
-  countTsonicMemoryLayoutValues,
+  countTsonicMemoryLayoutValues, isFinalizedMemoryLayoutFacts,
 } from "../memory-layout/readers.js";
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicPointerStorageRelation } from "../pointers/storage-relation.js";
+export type {
+  TsonicPointerStorageOperation, TsonicPointerStorageProducer, TsonicPointerStorageIssue,
+  TsonicPointerStorageSelection, TsonicPointerStorageRelation,
+} from "../pointers/storage-relation.js";
 export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
 export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
 export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
-export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
+export { selectTsonicRawLocationOperation, selectTsonicRawLocationFacts } from "../pointers/raw-memory/selection.js";
+export type { TsonicRawLocationFactsSelection } from "../pointers/raw-memory/selection.js";
 export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
 export { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../memory-layout/type-contract/facts.js";
 export type { TsonicMemoryTypeFact, TsonicMemoryTypeIdentity } from "../memory-layout/type-contract/facts.js";
@@ -81,17 +87,16 @@ export { selectTsonicPointerView } from "../pointers/views/selection.js";
 export type { TsonicPointerViewSelection } from "../pointers/views/selection.js";
 export { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../memory-layout/bindings/facts.js";
 export type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "../memory-layout/bindings/facts.js";
-export { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../memory-layout/bindings/selection.js";
+export { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding,
+  selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../memory-layout/bindings/selection.js";
 export type { TsonicMemoryBindingSelection } from "../memory-layout/bindings/selection.js";
 export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
-export { createTsonicDeclaredPointerBackingDemands } from "../pointers/backing/declared-demands.js";
-export type { TsonicDeclaredPointerBackingUse, TsonicDeclaredPointerBackingDemands } from "../pointers/backing/declared-demands.js";
 export { sameBackingLayout } from "../pointers/backing/layout-equality.js";
 export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
-export { createTsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
+export { createTsonicMemoryBindingIndex, createTsonicMemoryBindingFactsIndex } from "../memory-layout/bindings/usage.js";
 export type { TsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
 export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
 export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
