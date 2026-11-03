@@ -315,11 +315,12 @@ test("property-key publication inventories each syntax occurrence and completes 
     visits.add(node);
     return source.ast.forEachChild(node, visit);
   }, as: { ...source.ast.as, AsVariableDeclaration(node: Node | undefined) {
-    if (node !== undefined) {
+    if (node !== undefined && source.ast.is.IsVariableDeclaration(node)) {
       assert.equal(declarations.has(node), false, "a typed alias consumes completed facts, not its initializer again");
       declarations.add(node);
+      return source.ast.as.AsVariableDeclaration(node);
     }
-    return source.ast.as.AsVariableDeclaration(node);
+    return undefined;
   } } };
   const index = analyzeSourcePropertyNames(ast, [{ sourceFile: file, semantics: source.semantics.forFile(file) }], source.navigation, source.semantics.enumConstants)[0]!.propertyNames;
   assert.equal(index.issues.length, 0, "the exact native key survives all ordinary typed aliases");
