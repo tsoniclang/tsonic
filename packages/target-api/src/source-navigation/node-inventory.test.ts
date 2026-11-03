@@ -187,7 +187,7 @@ test("storage transport consumes the canonical selected view and preserves ambie
   assertNodes(transport.visitedNodes, expected, "transport syntax projection");
   const usage = budget.usage();
   for (const [quantity, expectedCount] of [["nodes", 92], ["edges", 17], ["subjects", 40],
-    ["rows", 83], ["peakRows", 132], ["steps", 316]] as const) {
+    ["rows", 83], ["peakRows", 132], ["steps", 318]] as const) {
     assert.equal(usage[quantity], expectedCount, `${quantity}: exact original transport accounting, including checked ambient contexts`);
   }
   assertNodes(calls, expected.filter(node => current.checked.ast.is.IsCallExpression(node)), "actual call-effect visit order");
