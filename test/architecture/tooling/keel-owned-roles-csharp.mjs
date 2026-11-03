@@ -22,7 +22,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
       evidence: [{ kind: "parameter", name: "output" }],
       reason: "Select an installed native .NET runtime directory from dotnet --list-runtimes and the explicitly selected target framework; no checked source node or native program-form selection." },
     { file: "src/analysis/conversions/property-projections.ts", symbol: "selectCsharpPropertyProjections",
-      bodySha256: "ac20d020feaf9ef79ac7806cab78b29a40cc329a617b33c1fb389d24afa3499a", role: "analysis",
+      bodySha256: "c38984f9e7c9fc1f311e36eac619e80c8ec6bf486bbfe68494991ea0f32e121d", role: "analysis",
       evidence: [{ kind: "parameter", name: "expression" }],
       reason: "Collect exact checked source-member correspondences against already-selected native carriers before sealing; choose no native conversion form." },
     {"file":"src/policy/conversions/carriers.ts","symbol":"selectCsharpRuntimeUnionProjection","bodySha256":"a6e627912ada244b1a51f1df568046314bee47f0deb718f210df8514e68bb8b8","role":"selection","evidence":[{"kind":"parameter","name":"source"}],"reason":"Selects one exact union payload/refinement path and native absence preservation; ambiguity is refused as data."},
