@@ -374,6 +374,8 @@ export function analyzeSourcePropertyNames(
 
   function declaredFact(node: Node | undefined, active = new Set<Node>()): KeyFact | undefined {
     if (node === undefined || active.has(node)) return undefined;
+    const file = ast.getSourceFile(node);
+    if (file === undefined || !inputs.has(file)) return undefined;
     active.add(node);
     try {
       if (ast.is.IsLiteralTypeNode(node)) {
@@ -470,9 +472,12 @@ export function analyzeSourcePropertyNames(
     const semantics = semanticsFor(node);
     const call = semantics.operations.call(node);
     const result = call === undefined ? undefined : semantics.operations.callResult(call);
-    const declared = declaredFact(result?.authoredTypeNode);
-    if (declared !== undefined || call === undefined || result?.authoredTypeNode === undefined) return declared;
-    const typeName = ast.is.IsTypeReferenceNode(result.authoredTypeNode) ? ast.as.AsTypeReferenceNode(result.authoredTypeNode)?.TypeName : undefined;
+    const authoredType = result?.authoredTypeNode;
+    const file = authoredType === undefined ? undefined : ast.getSourceFile(authoredType);
+    if (authoredType === undefined || file === undefined || !inputs.has(file)) return undefined;
+    const declared = declaredFact(authoredType);
+    if (declared !== undefined || call === undefined) return declared;
+    const typeName = ast.is.IsTypeReferenceNode(authoredType) ? ast.as.AsTypeReferenceNode(authoredType)?.TypeName : undefined;
     const parameter = typeName === undefined ? undefined : navigation.sourceReferenceFor(typeName)?.declaration;
     if (parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter)) return undefined;
     const selected = call.sourceSelectedMethodTypeArguments?.find(candidate => {
@@ -481,14 +486,14 @@ export function analyzeSourcePropertyNames(
     });
     const explicit = declaredFact(selected?.explicitTypeNode);
     if (explicit !== undefined) return explicit;
-    const inputs = call.sourceSelectedSignatureParameters.filter(candidate => {
+    const argumentExpressions = call.sourceSelectedSignatureParameters.filter(candidate => {
       const name = candidate.authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(candidate.authoredTypeNode)
         ? ast.as.AsTypeReferenceNode(candidate.authoredTypeNode)?.TypeName : undefined;
       return name !== undefined && navigation.sourceReferenceFor(name)?.declaration === parameter;
     }).flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
       argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
       call.sourceArguments[argument.sourceArgumentIndex]?.expression));
-    const arguments_ = inputs.map(input => input === undefined ? undefined : facts.get(input));
+    const arguments_ = argumentExpressions.map(input => input === undefined ? undefined : facts.get(input));
     const first = arguments_[0];
     return first?.constant !== undefined && arguments_.every(argument => argument?.constant !== undefined &&
       constantName(argument.constant) === constantName(first.constant!)) ? first : undefined;
