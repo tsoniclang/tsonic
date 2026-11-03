@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
@@ -133,7 +134,9 @@ test("early alias reads and excessive chains fail closed without an unbounded tr
   for (let index = 0; index < 1_025; index += 1)
     declarations.push(`const alias${index} = ${index === 0 ? "alias" : `alias${index - 1}`};`);
   const large = fixture(declarations.join("\n") + "\nconst selected = alias1024;");
-  assert.equal(large.select() === undefined, true, "one finite alias-chain bound");
+  assert.throws(() => large.select(), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+    failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "declarations=1024",
+  "the unchanged finite alias-chain guard is a resource error, never a different call form");
 });
 
 test("checked indexed callable access shares the exact native member and receiver proof", () => {

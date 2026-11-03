@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import { maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
+import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
@@ -231,7 +232,7 @@ test("cyclic and over-depth physical descriptors reject without stack overflow",
   for (let depth = 0; depth < maximumMemoryLayoutDepth; depth += 1) {
     nested = { ...scalar(), fields: [field(nested)] };
   }
-  assert.throws(() => snapshotMemoryLayout(nested), /supported nesting depth/u);
+  assert.throws(() => snapshotMemoryLayout(nested), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
 });
 
 test("shared empty-child graphs do not expand exponentially", () => {
@@ -286,7 +287,7 @@ test("already captured children cannot bypass the nesting budget", () => {
   for (let depth = 1; depth < maximumMemoryLayoutDepth; depth += 1) {
     child = snapshotMemoryLayout({ ...scalar(), fields: [field(child)] });
   }
-  assert.throws(() => snapshotMemoryLayout({ ...scalar(), fields: [field(child)] }), /supported nesting depth/u);
+  assert.throws(() => snapshotMemoryLayout({ ...scalar(), fields: [field(child)] }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
 });
 
 test("a child reused along a deeper route cannot bypass the snapshot depth budget", () => {
@@ -296,7 +297,7 @@ test("a child reused along a deeper route cannot bypass the snapshot depth budge
     deeper = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(deeper)] };
   }
   assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n,
-    fields: [field(child), field(deeper)] }), /supported nesting depth/u);
+    fields: [field(child), field(deeper)] }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "depth=128");
 });
 
 test("nested accessors are rejected without executing code", () => {
@@ -310,7 +311,7 @@ test("nested accessors are rejected without executing code", () => {
 test("wide descriptor snapshots fail at the metadata budget", () => {
   const empty = snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n });
   const fields = Array.from({ length: 65536 }, () => field(empty));
-  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n, fields }), /metadata value budget/u);
+  assert.throws(() => snapshotMemoryLayout({ ...scalar(), byteSize: 0n, stride: 0n, fields }), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "values=131072");
 });
 
 test("source layout depth failures are diagnosed before a fact transaction is poisoned", () => {
@@ -327,8 +328,25 @@ test("source layout depth failures are diagnosed before a fact transaction is po
   }
   const checked = memorySession(memoryTestPrelude + declarations.join("\n"));
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
-  assert.deepEqual(checked.extensionDiagnostics.map(entry => entry.extensionCode), ["SOURCE_CORE_MEMORY_LAYOUT_CAPTURE_LIMIT"]);
+  assert.deepEqual(checked.extensionDiagnostics.map(entry => entry.extensionCode), ["SOURCE_CORE_MEMORY_COMPILER_RESOURCE_LIMIT"]);
+  assert.equal(checked.extensionDiagnostics[0]?.publicCode, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  assert.match(checked.extensionDiagnostics[0]!.message, /depth=128/u);
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts,
     memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth + 1)), undefined);
   assert.ok(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth)));
+});
+
+test("resource failures do not inspect unvalidated layout source subjects", () => {
+  let reads = 0;
+  const leaf = Object.defineProperty({ ...scalar(), byteSize: 0n, stride: 0n }, "call", {
+    get() { reads += 1; throw new Error("An exhausted resource diagnostic must not execute a source accessor."); },
+  });
+  let nested: TsonicMemoryLayoutFact = leaf;
+  for (let depth = 0; depth < maximumMemoryLayoutDepth; depth += 1)
+    nested = { ...scalar(), byteSize: 0n, stride: 0n, fields: [field(nested)] };
+  assert.throws(() => snapshotMemoryLayout(nested), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+    failure.diagnostic.evidence?.[0] === "depth=128");
+  assert.throws(() => memoryLayoutCaptureLimitsError([leaf], 131_071), (failure: unknown) =>
+    failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.evidence?.[0] === "values=131072");
+  assert.equal(reads, 0, "resource context never reads unvalidated metadata");
 });

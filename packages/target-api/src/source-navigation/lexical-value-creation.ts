@@ -2,6 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceLexicalCaptures, type SourceNodeDomain } from "./lexical-captures.js";
+import { failTargetCompilerResourceLimit } from "../artifacts.js";
 
 export function sourceLexicalFunctionValueOrder(
   declarations: readonly Node[], ast: AstReader,
@@ -19,15 +20,16 @@ export function sourceLexicalFunctionValueOrder(
   const remaining = new Map<Node, Set<Node>>();
   const dependants = new Map<Node, Node[]>();
   const members = new Set(declarations);
-  if (members.size !== declarations.length || declarations.length > 65_536) {
+  if (members.size !== declarations.length) {
     return { kind: "unresolved", reason: "Lexical value ordering requires bounded, unique checked declarations." };
   }
+  if (declarations.length > 65_536) failTargetCompilerResourceLimit("tsonic", "Lexical callable ordering", "declarations", 65_536, declarations[0]);
   let steps = 0;
   for (const declaration of declarations) {
     const captures = sourceLexicalCaptures(declaration, [declaration], ast, navigation, domain).captures;
     const dependencies = new Set<Node>();
     for (const capture of captures) {
-      if (++steps > 262_144) return { kind: "unresolved", reason: "Lexical value ordering exceeded its finite source accounting budget." };
+      if (++steps > 262_144) failTargetCompilerResourceLimit("tsonic", "Lexical callable ordering", "steps", 262_144, declaration);
       if (!members.has(capture.declaration)) continue;
       const references = new Set(capture.references);
       if (navigation.declarationUseSummary(capture.declaration).uses.some(use =>
@@ -47,7 +49,7 @@ export function sourceLexicalFunctionValueOrder(
     ordered.push(declaration);
     remaining.delete(declaration);
     for (const dependant of dependants.get(declaration) ?? []) {
-      if (++steps > 262_144) return { kind: "unresolved", reason: "Lexical value ordering exceeded its finite source accounting budget." };
+      if (++steps > 262_144) failTargetCompilerResourceLimit("tsonic", "Lexical callable ordering", "steps", 262_144, declaration);
       const dependencies = remaining.get(dependant);
       if (dependencies === undefined) continue;
       dependencies.delete(declaration);

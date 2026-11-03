@@ -28,6 +28,23 @@ export interface TargetDiagnostic {
   readonly evidence?: readonly string[];
 }
 
+export class TargetCompilerResourceLimitFailure extends Error {
+  readonly diagnostic: TargetDiagnostic;
+
+  constructor(source: string, subject: string, dimension: string, limit: number, sourceNode?: Node) {
+    super(`${subject} exceeded the compiler resource limit ${dimension}=${limit}.`);
+    this.name = "TargetCompilerResourceLimitFailure";
+    this.diagnostic = Object.freeze({ code: "TSONIC_COMPILER_RESOURCE_LIMIT", category: "error",
+      source, sourceNode, message: this.message, evidence: Object.freeze([`${dimension}=${limit}`]) });
+  }
+}
+
+export function failTargetCompilerResourceLimit(
+  source: string, subject: string, dimension: string, limit: number, sourceNode?: Node,
+): never {
+  throw new TargetCompilerResourceLimitFailure(source, subject, dimension, limit, sourceNode);
+}
+
 export function targetDiagnosticFromExtension(
   node: Node | undefined,
   diagnostic: ExtensionDiagnostic,
@@ -74,6 +91,7 @@ export interface TargetCompilationStages<Program, Plan> {
   readonly analyze: () => TargetStageResult<Program>;
   readonly plan: (program: Program) => TargetStageResult<Plan>;
   readonly materialize: (plan: Plan) => TargetCompileOutput;
+  readonly compilerResourceFailure?: (failure: unknown) => TargetCompilerResourceLimitFailure | undefined;
 }
 
 export interface TargetCompilationObserver<Program, Plan> {
@@ -145,6 +163,13 @@ export function rejectedTargetStage<T>(
   });
 }
 
+function compilerResourceFailure<Program, Plan>(
+  stages: TargetCompilationStages<Program, Plan>,
+  failure: unknown,
+): TargetCompilerResourceLimitFailure | undefined {
+  return failure instanceof TargetCompilerResourceLimitFailure ? failure : stages.compilerResourceFailure?.(failure);
+}
+
 export function runTargetCompilationStages<Program, Plan>(
   stages: TargetCompilationStages<Program, Plan>,
   observer?: TargetCompilationObserver<Program, Plan>,
@@ -153,6 +178,8 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     analysis = stages.analyze();
   } catch (failure) {
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure !== undefined) return rejectedTargetStage([resourceFailure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "analysis") {
       throw failure;
     }
@@ -166,6 +193,8 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     planning = stages.plan(analysis.value);
   } catch (failure) {
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure !== undefined) return rejectedTargetStage([...analysis.diagnostics, resourceFailure.diagnostic]);
     if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "planning") {
       throw failure;
     }
@@ -179,7 +208,13 @@ export function runTargetCompilationStages<Program, Plan>(
     return rejectedTargetStage(diagnostics);
   }
   observer?.planned?.(planning.value);
-  return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
+  try {
+    return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
+  } catch (failure) {
+    const resourceFailure = compilerResourceFailure(stages, failure);
+    if (resourceFailure === undefined) throw failure;
+    return rejectedTargetStage([...diagnostics, resourceFailure.diagnostic]);
+  }
 }
 
 export interface TargetRuntimeContributions {
