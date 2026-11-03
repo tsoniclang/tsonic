@@ -486,14 +486,14 @@ export function analyzeSourcePropertyNames(
     });
     const explicit = declaredFact(selected?.explicitTypeNode);
     if (explicit !== undefined) return explicit;
-    const inputs = call.sourceSelectedSignatureParameters.filter(candidate => {
+    const argumentExpressions = call.sourceSelectedSignatureParameters.filter(candidate => {
       const name = candidate.authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(candidate.authoredTypeNode)
         ? ast.as.AsTypeReferenceNode(candidate.authoredTypeNode)?.TypeName : undefined;
       return name !== undefined && navigation.sourceReferenceFor(name)?.declaration === parameter;
     }).flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
       argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
       call.sourceArguments[argument.sourceArgumentIndex]?.expression));
-    const arguments_ = inputs.map(input => input === undefined ? undefined : facts.get(input));
+    const arguments_ = argumentExpressions.map(input => input === undefined ? undefined : facts.get(input));
     const first = arguments_[0];
     return first?.constant !== undefined && arguments_.every(argument => argument?.constant !== undefined &&
       constantName(argument.constant) === constantName(first.constant!)) ? first : undefined;
