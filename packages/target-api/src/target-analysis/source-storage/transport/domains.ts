@@ -303,12 +303,14 @@ export function createSourceStorageDomains(
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
     bindings.kind === "frame" && bindings.boundary === "declaration" && bindings.parents.length === 1 &&
     bindings.parents[0] === transport.substitutions.empty;
+  const demandedFailure = (selected: ReturnType<typeof transport.substitutions.walk>, purpose: "values" | "storage-producers") =>
+    selected?.fatalReason ?? (purpose === "values" ? selected?.demandReason : undefined);
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings,
       domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined, false);
-    const failure = selected?.fatalReason ?? (purpose === "values" ? selected?.demandReason : undefined);
+    const failure = demandedFailure(selected, purpose);
     if (failure !== undefined) budget.reject(failure);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageScope>[]),
@@ -340,7 +342,8 @@ export function createSourceStorageDomains(
         if (entry.store.reason !== undefined) { reason = sourceStorageMissingProducerReason; break; }
         if (entry.value === undefined) continue;
         const frontier = transport.substitutions.walk(entry.value, demand.scope, { kind: "input", admits: isExternalInput });
-        if (frontier?.fatalReason !== undefined) budget.reject(frontier.fatalReason);
+        const failure = demandedFailure(frontier, purpose);
+        if (failure !== undefined) budget.reject(failure);
         if (frontier === undefined || frontier.reason !== undefined || frontier.fatalReason !== undefined || frontier.emptyDemands.length !== 0) {
           reason = budget.failure() ?? frontier?.reason ?? sourceStorageMissingProducerReason;
           break;
