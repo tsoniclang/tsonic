@@ -193,6 +193,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const effectFrontiers: Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[] = [];
     let reason: string | undefined;
     let fatalReason: string | undefined;
+    let demandReason: string | undefined;
     let absence = false;
     const project = (input: SourceStorageRelation,
       select: (value: SourceStorageTerm) => readonly SourceStorageRelation[] | undefined): boolean => {
@@ -349,6 +350,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         } else {
           reason ??= current.reason;
           if (current.exposure === undefined) fatalReason ??= current.reason;
+          if (current.demandFailure === true) demandReason ??= current.reason;
         }
       }
       const filter = preserveValuePath ? data.filter : undefined;
@@ -389,7 +391,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         selected.push(Object.freeze({ ...witness, views }));
       }
     }
-    return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, absence,
+    return Object.freeze({ subjects: Object.freeze(selected), origins, reason, fatalReason, demandReason, absence,
       effectFrontiers: Object.freeze(effectFrontiers),
       emptyDemands: Object.freeze(emptyDemands) });
     } finally { isolated?.release(); }

@@ -308,7 +308,7 @@ export function createSourceStorageDomains(
     initialize();
     const selected = transport.substitutions.walk(subject, bindings,
       domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined, false);
-    const failure = selected?.fatalReason ?? (purpose === "values" ? selected?.reason : undefined);
+    const failure = selected?.fatalReason ?? (purpose === "values" ? selected?.demandReason : undefined);
     if (failure !== undefined) budget.reject(failure);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageScope>[]),
