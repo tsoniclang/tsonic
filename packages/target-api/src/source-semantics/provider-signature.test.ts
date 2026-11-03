@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 import { test } from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, TstsSourceProviderContractVersion } from "@tsonic/tsts";
-import type { Node, ProviderDeclarationModel, ProviderVirtualDeclarationDocument, ReadonlySourceFactResolver } from "@tsonic/tsts";
+import type { Node, ProviderTypeExpression, ProviderDeclarationModel, ProviderVirtualDeclarationDocument, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceProviderSignature } from "./provider-signature.js";
 
@@ -138,3 +139,25 @@ for (const mutation of ["missing-document", "stale-version", "missing-export", "
     assert.equal(selectSourceProviderSignature(facts, declaration)?.kind, "invalid");
   });
 }
+
+test("finite provider signature exhaustion retains its declaration instead of becoming invalid metadata", () => {
+  const selected = fixture();
+  const declaration = selected.declarations.get("signature.number");
+  let nested: ProviderTypeExpression = word;
+  for (let depth = 0; depth < 130; depth += 1) nested = { kind: "array", elementType: nested };
+  const facts: ReadonlySourceFactResolver = {
+    getFact: (subject, key) => selected.facts.getFact(subject, key),
+    getFacts: subject => selected.facts.getFacts(subject),
+    getVirtualDeclarationDocument(name) {
+      const document = selected.facts.getVirtualDeclarationDocument(name);
+      if (document === undefined) return undefined;
+      return { ...document, declarationModel: { ...document.declarationModel, exports: document.declarationModel.exports.map(exported =>
+        exported.id !== "export.choose" ? exported : { ...exported, signatures: exported.signatures?.map(signature =>
+          signature.id !== "signature.number" ? signature : { ...signature, returnType: nested }) }) } };
+    },
+  };
+  assert.throws(() => selectSourceProviderSignature(facts, declaration), (failure: unknown) =>
+    failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" &&
+      failure.diagnostic.sourceNode === declaration && failure.diagnostic.evidence?.[0] === "depth=128");
+  assert.equal(selectSourceProviderSignature(selected.facts, declaration)?.kind, "available", "the valid provider remains available");
+});

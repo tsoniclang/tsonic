@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  TargetCompilerResourceLimitFailure,
+  failTargetCompilerResourceLimit,
   failTargetAnalysisInvariant,
   failTargetPlannerInvariant,
   rejectedTargetStage,
@@ -428,3 +430,25 @@ test("omitted, empty and partial observers preserve ordinary compilation results
     assert.deepEqual(observed, ordinary);
   }
 });
+
+for (const phase of ["analysis", "planning", "materialization"]) {
+  test(`compiler resource exhaustion at ${phase} retains its named subject and never publishes partial artifacts`, () => {
+    const subject = Object.freeze({});
+    let materialized = false;
+    const fail = () => failTargetCompilerResourceLimit("resource-owner", "finite declared subject", "steps", 3, subject);
+    const result = runTargetCompilationStages({
+      analyze: () => phase === "analysis" ? fail() : resolvedTargetStage({}, [warning]),
+      plan: () => phase === "planning" ? fail() : resolvedTargetStage({}),
+      materialize: () => { if (phase === "materialization") fail(); materialized = true; return { artifacts: [] }; },
+    });
+    assert.equal(result.kind, "rejected");
+    assert.equal(materialized, false, "no partial artifact publication");
+    const diagnostic = result.diagnostics.at(-1);
+    assert.equal(diagnostic.code, "TSONIC_COMPILER_RESOURCE_LIMIT");
+    assert.equal(diagnostic.sourceNode === subject, true, "exact owning subject");
+    assert.match(diagnostic.message, /finite declared subject.*steps=3/u);
+    assert.deepEqual(diagnostic.evidence, ["steps=3"]);
+    assert.equal(result.diagnostics.length, phase === "analysis" ? 1 : 2, "earlier diagnostics remain ordered");
+    assert.throws(fail, TargetCompilerResourceLimitFailure);
+  });
+}

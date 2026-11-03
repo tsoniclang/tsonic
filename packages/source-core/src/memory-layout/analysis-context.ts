@@ -22,6 +22,7 @@ export function memoryDiagnostic(call: MemorySourceCall, code: string, message: 
   context.diagnostics.append({
     extensionId: tsonicCoreSourceExtensionId,
     extensionCode: `SOURCE_CORE_MEMORY_${code}`,
+    ...(code === "COMPILER_RESOURCE_LIMIT" ? { publicCode: "TSONIC_COMPILER_RESOURCE_LIMIT" } : {}),
     numericCode: 9901180,
     category: "error", message, nodeOrSpan: selected.call,
     identity: `memory:${code}:${context.ast.getPath(context.ast.getSourceFile(selected.call))}:${context.ast.pos(selected.call)}:${context.ast.end(selected.call)}`,

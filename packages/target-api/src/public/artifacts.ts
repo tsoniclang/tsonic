@@ -13,6 +13,8 @@ export type {
   TargetSourceFile,
 } from "../artifacts.js";
 export {
+  TargetCompilerResourceLimitFailure,
+  failTargetCompilerResourceLimit,
   failTargetAnalysisInvariant,
   failTargetPlannerInvariant,
   rejectedTargetStage,
