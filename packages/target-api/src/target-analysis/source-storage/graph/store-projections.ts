@@ -1,6 +1,6 @@
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import type { SourceStorageStore } from "./stored-values.js";
+import type { SourceStorageStore } from "../model/stores.js";
 import type { createSourceStorageEdges } from "./edges.js";
 
 export interface SourceStorageStoredProjection {

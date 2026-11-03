@@ -12,7 +12,8 @@ import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-b
 import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
-import type { SourceStorageWrite, createSourceStorageStoredValues } from "../graph/stored-values.js";
+import type { createSourceStorageStoredValues } from "../graph/stored-values.js";
+import type { SourceStorageWrite } from "../model/stores.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceStorageAccessDeclarations } from "../model/components.js";
 import { sourceStoragePointerCallEffect } from "../model/pointer-effects.js";

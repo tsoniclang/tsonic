@@ -6,7 +6,7 @@ import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageReference, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageOperation } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import type { SourceStorageStore } from "../graph/stored-values.js";
+import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { createSourceStoragePointerLocations } from "./pointer-locations.js";
 import { sourceStorageSubjectType } from "../model/components.js";

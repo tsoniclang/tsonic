@@ -14,20 +14,10 @@ import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorag
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { SourceStorageFixedPointQueries } from "../model/relations.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
-  SourceStorageWriteOccurrence, SourceStorageWrittenValue } from "../model/types.js";
+  SourceStorageWriteOccurrence } from "../model/types.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 import type { SourceStorageWriteProjection } from "../model/projections.js";
-
-export interface SourceStorageWrite {
-  readonly reference: Node;
-  readonly operation: Node;
-  readonly kind: "initialization" | "mutation";
-  readonly value?: SourceStorageSubject;
-  readonly values: readonly SourceStorageWrittenValue[];
-  readonly reason?: string;
-  readonly birth?: NonNullable<SourceStorageWriteProjection["birth"]>;
-  readonly destination?: "binding" | "member" | "element" | "pointer";
-}
+import type { SourceStorageStore, SourceStorageWrite } from "../model/stores.js";
 
 export function createSourceStorageFormalMemberWrites(
   source: TargetSourceProgram,
@@ -403,13 +393,6 @@ export function createSourceStorageFormalMemberWrites(
       return result;
     },
   });
-}
-
-export interface SourceStorageStore extends SourceStorageWrite {
-  readonly storage: SourceStorageSubject;
-  readonly region: Node;
-  readonly receiver?: SourceStorageSubject;
-  readonly destination: "binding" | "member" | "element" | "pointer";
 }
 
 export function createSourceStorageStoredValues(

@@ -2,7 +2,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
-import type { SourceStorageStore } from "./stored-values.js";
+import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageCallEffect } from "../model/types.js";
 
 export type SourceStorageContextLocation = "allocation" | "binding";

@@ -28,7 +28,8 @@ import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStora
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
-import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites, type SourceStorageWrite } from "../graph/stored-values.js";
+import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites } from "../graph/stored-values.js";
+import type { SourceStorageWrite } from "../model/stores.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";

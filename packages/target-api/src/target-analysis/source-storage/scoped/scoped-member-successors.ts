@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
-import type { SourceStorageStore } from "../graph/stored-values.js";
+import type { SourceStorageStore } from "../model/stores.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageInputFrontier, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";

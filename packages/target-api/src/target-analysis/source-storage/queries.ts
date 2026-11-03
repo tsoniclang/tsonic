@@ -9,7 +9,7 @@ import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./model/subjects.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
-import { createSourceStorageDomainSelection, type SourceStorageOriginViews } from "./domain-selection.js";
+import { createSourceStorageDomainSelection, type SourceStorageOriginViews } from "./transport/domain-selection.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
