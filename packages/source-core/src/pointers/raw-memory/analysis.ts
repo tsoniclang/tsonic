@@ -27,7 +27,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       return;
     }
     const descriptor = analysis.layout(layout.expression, context);
-    if (descriptor === undefined) {
+    if (descriptor === undefined || !analysis.types.raw(call, descriptor)) {
       memoryDiagnostic(call, "POINTEE_LAYOUT_NOT_PROVEN", "Raw conversion requires the same exact closed memory type and marker domain as its finalized layout.");
       return;
     }
@@ -36,7 +36,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       ? { ...typed, operation: "to-raw", pointerExpression: operand.expression, pointerType: operand.type }
       : { ...typed, operation: "reinterpret", rawExpression: operand.expression, rawType: operand.type,
           ...(pointee.explicitTypeNode === undefined ? {} : { explicitPointeeTypeNode: pointee.explicitTypeNode }) });
-    if (analysis.types.raw(call, descriptor)) analysis.types.publish(call);
+    analysis.types.publish(call);
     return;
   }
   const dataLayoutOperand = args[name === "offsetrawptr" ? 2 : 1];

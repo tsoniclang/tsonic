@@ -43,40 +43,14 @@ export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maxi
 }
 
 export function isFinalizedMemoryLayout(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
-  return finalizedMemoryLayoutFacts(facts, root, layout => {
-    const type = readTsonicMemoryType(facts, layout.call);
-    if (type === undefined || type.sourceType !== layout.sourceType ||
-        !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
-    if (layout.kind === "array") {
-      const childType = readTsonicMemoryType(facts, layout.elementLayout.call);
-      return childType !== undefined && memoryArrayTypeMatches(type.identity, childType.identity, layout.call, layout.fixedArray);
-    }
-    const members = new Set<Symbol>();
-    for (const field of layout.fields) {
-      const fieldType = readTsonicMemoryType(facts, field.call);
-      const childType = readTsonicMemoryType(facts, field.fieldLayout.call);
-      const member = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
-      if (member?.owner !== type.identity || members.has(member.member) ||
-          fieldType === undefined || childType === undefined || fieldType.sourceType !== field.fieldType ||
-          fieldType.identity !== childType.identity) return false;
-      members.add(member.member);
-    }
-    return true;
-  });
-}
-
-export function isFinalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
-  return finalizedMemoryLayoutFacts(facts, root, () => true);
-}
-
-function finalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryLayoutFact,
-  domain: (layout: TsonicMemoryLayoutFact) => boolean): boolean {
   const pending = [root];
   const visited = new Set<TsonicMemoryLayoutFact["call"]>();
   while (pending.length !== 0) {
     const layout = pending.pop()!;
     const selected = readTsonicMemoryLayout(facts, layout.call);
-    if (selected === undefined || !memoryLayoutsEqual(layout, selected) || !domain(layout)) return false;
+    const type = readTsonicMemoryType(facts, layout.call);
+    if (selected === undefined || type === undefined || !memoryLayoutsEqual(layout, selected) || type.sourceType !== layout.sourceType ||
+        !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
     if (visited.has(layout.call)) continue;
     visited.add(layout.call);
     const abi = readTsonicDataLayout(facts, layout.dataLayoutExpression);
@@ -84,18 +58,28 @@ function finalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryL
     if (layout.kind === "array") {
       const fixedArray = facts.getFact(layout.call, tsonicFixedArrayFactKey);
       const selectedChild = readTsonicMemoryLayout(facts, layout.elementLayoutExpression);
-      if (fixedArray === undefined || selectedChild === undefined ||
+      const childType = readTsonicMemoryType(facts, layout.elementLayout.call);
+      if (fixedArray === undefined || childType === undefined || selectedChild === undefined ||
           !fixedArrayFactsEqual(fixedArray, layout.fixedArray) ||
-          !memoryLayoutsEqual(layout.elementLayout, selectedChild)) return false;
+          !memoryLayoutsEqual(layout.elementLayout, selectedChild) ||
+          !memoryArrayTypeMatches(type.identity, childType.identity, layout.call, fixedArray)) return false;
       pending.push(layout.elementLayout);
       continue;
     }
+    const members = new Set<Symbol>();
     for (const field of layout.fields) {
       const selectedField = readTsonicMemoryFieldLayout(facts, field.call);
       const selectedChild = readTsonicMemoryLayout(facts, field.fieldLayoutExpression);
+      const fieldType = readTsonicMemoryType(facts, field.call);
+      const childType = readTsonicMemoryType(facts, field.fieldLayout.call);
+      const member = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
       if (selectedField === undefined || selectedChild === undefined ||
+          member?.owner !== type.identity || members.has(member.member) ||
+          fieldType === undefined || childType === undefined || fieldType.sourceType !== field.fieldType ||
+          fieldType.identity !== childType.identity ||
           !tsonicMemoryFieldLayoutFactKey.equals(field, selectedField) ||
           !memoryLayoutsEqual(field.fieldLayout, selectedChild)) return false;
+      members.add(member.member);
       pending.push(field.fieldLayout);
     }
   }

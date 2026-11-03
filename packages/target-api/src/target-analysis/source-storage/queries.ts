@@ -197,9 +197,8 @@ export function createSourceStorageQuery(
       }
     }
     return selected.kind === "complete"
-      ? Object.freeze({ kind: "complete" as const, producers: Object.freeze(producers), includesAbsence: selected.includesAbsence })
-      : Object.freeze({ kind: "open" as const, producers: Object.freeze(producers), boundaries: selected.boundaries,
-          includesAbsence: selected.includesAbsence });
+      ? Object.freeze({ kind: "complete" as const, producers: Object.freeze(producers) })
+      : Object.freeze({ kind: "open" as const, producers: Object.freeze(producers), boundaries: selected.boundaries });
   });
   const query: SourceStorageQueries = Object.freeze({
     source,
@@ -539,8 +538,8 @@ export function createSourceStorageQuery(
           boundaries.push(Object.freeze({ kind: "unclassified-exposure" as const,
             subject: boundary.subject, exposure: boundary.exposure, bindings }));
         }
-        return boundaries.length === 0 ? Object.freeze({ kind: "complete", producers: Object.freeze(producers), includesAbsence: false })
-          : Object.freeze({ kind: "open", producers: Object.freeze(producers), boundaries: Object.freeze(boundaries), includesAbsence: false });
+        return boundaries.length === 0 ? Object.freeze({ kind: "complete", producers: Object.freeze(producers) })
+          : Object.freeze({ kind: "open", producers: Object.freeze(producers), boundaries: Object.freeze(boundaries) });
       });
     },
     nativeCallbackArgumentsFor(invocation) {

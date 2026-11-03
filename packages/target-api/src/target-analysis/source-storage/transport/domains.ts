@@ -101,8 +101,7 @@ export function createSourceStorageDomains(
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
       for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner, kind)) {
         if (!budget.step()) break;
-        if (boundary.kind === "opaque-result") selected.push(Object.freeze({ ...boundary, subject }));
-        else if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
+        if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write" ||
           boundary.kind === "unclassified-exposure") selected.push(boundary);
       }
     }
@@ -303,15 +302,12 @@ export function createSourceStorageDomains(
   const entryActivation = (bindings: SourceStorageScope): boolean => bindings === transport.substitutions.empty ||
     bindings.kind === "frame" && bindings.boundary === "declaration" && bindings.parents.length === 1 &&
     bindings.parents[0] === transport.substitutions.empty;
-  const demandedFailure = (selected: ReturnType<typeof transport.substitutions.walk>, purpose: "values" | "storage-producers") =>
-    selected?.fatalReason ?? (purpose === "values" ? selected?.demandReason : undefined);
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings,
       domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined, false);
-    const failure = demandedFailure(selected, purpose);
-    if (failure !== undefined) budget.reject(failure);
+    if (selected?.fatalReason !== undefined) budget.reject(selected.fatalReason);
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageScope>[]),
       boundSubjects: Object.freeze([] as SourceStorageScopedSubject[]),
@@ -342,8 +338,7 @@ export function createSourceStorageDomains(
         if (entry.store.reason !== undefined) { reason = sourceStorageMissingProducerReason; break; }
         if (entry.value === undefined) continue;
         const frontier = transport.substitutions.walk(entry.value, demand.scope, { kind: "input", admits: isExternalInput });
-        const failure = demandedFailure(frontier, purpose);
-        if (failure !== undefined) budget.reject(failure);
+        if (frontier?.fatalReason !== undefined) budget.reject(frontier.fatalReason);
         if (frontier === undefined || frontier.reason !== undefined || frontier.fatalReason !== undefined || frontier.emptyDemands.length !== 0) {
           reason = budget.failure() ?? frontier?.reason ?? sourceStorageMissingProducerReason;
           break;

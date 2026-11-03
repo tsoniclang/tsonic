@@ -2,7 +2,7 @@ import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-n
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageInputFrontier, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";
@@ -121,7 +121,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
           const receiverFile = receiver === undefined ? undefined : transport.sourceFileFor(receiver);
-          const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views, receiverFile);
+          const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views);
           if (receiver === undefined || receiverType === undefined || receiverFile === undefined) return undefined;
           const receiverSemantics = semantics.forFile(receiverFile);
           if (sourceStorageIsMemberProjection(component)) {
@@ -193,7 +193,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const receiverViews: readonly SourceStorageProjectionView[] | undefined = term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier"
       ? term.receiver.views : undefined;
     let receiverType = term.selection.kind === "physical" ? term.selection.receiverType : term.selection.kind === "projection"
-      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
+      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews) : selected?.receiver.type;
     let receiverView = term.selection.kind !== "access"
       ? sourceStorageProjectionSubject(term.selection.subject, receiverViews, transport.subject)
       : transport.subjectFor(selected?.receiver.expression);
@@ -210,8 +210,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       if (read === undefined && write === undefined) {
         const subject = transport.subject(access, "value", term.projection);
         return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
-          subject, scope: term.scope, exposure: access, demandFailure: true,
-          reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
+          subject, scope: term.scope, reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
       }
       receiverType = read?.type ?? write?.type;
       selections = [...(read?.declarations ?? []).map(target => ({ target, read: true })),
@@ -273,8 +272,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind !== "access" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
         if (subject === undefined) return undefined;
-        terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason,
-          exposure: access ?? term.receiver.subject.node, demandFailure: true }));
+        terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
       }
       if (members.absent) terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
@@ -320,10 +318,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       }
       if (storageKind === "absent") terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
-      const opaqueResult = sourceStorageIsDataMember(original, ast) && term.receiver.subject.kind === "value" &&
-        ast.is.IsCallExpression(term.receiver.subject.node) && transport.isOpaque(term.receiver.subject.node) &&
-        transport.invocationEffects.get(term.receiver.subject.node)?.resultAlias === undefined;
-      if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver) || opaqueResult) {
+      if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver)) {
         if (prototype) continue;
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
           [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",

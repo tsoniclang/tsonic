@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationOperation, tsonicMemoryTypeFactKey } from "../../public/facts.js";
 
 import { memoryCall, memoryCalls, memorySession } from "./fixtures.js";
 
@@ -94,14 +94,8 @@ test(`${operation} rejects a distinct primitive domain despite equal number carr
           : "memoryfield({ select: (value: Header) => value.value, byteoffset: 0, bytealignment: 4, fieldlayout: signed });"}
     `);
     assert.equal(checked.diagnostics.filter(Boolean).length, 0);
-    if (operation === "field") {
-      assert.ok(checked.extensionDiagnostics.some(entry => entry.extensionCode === "SOURCE_CORE_MEMORY_FIELD_LAYOUT_NOT_PROVEN"));
-    } else {
-      assert.equal(checked.extensionDiagnostics.length, 0);
-      const call = memoryCall(checked, operation === "reinterpret" ? "reinterpretrawptr" : "torawptr");
-      assert.equal(selectTsonicRawLocationFacts(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
-      assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call)?.kind, "rejected");
-    }
+    assert.ok(checked.extensionDiagnostics.some(entry => entry.extensionCode ===
+      (operation === "field" ? "SOURCE_CORE_MEMORY_FIELD_LAYOUT_NOT_PROVEN" : "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN")));
     assert.ok(checked.extensionDiagnostics.every(entry => entry.extensionCode !== "SOURCE_ANALYSIS_FAILED"));
   });
 }

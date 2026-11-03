@@ -14,7 +14,8 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
   const field = fieldOperand === undefined ? undefined : analysis.field(fieldOperand.expression, context);
   if (args.length !== 2 || fieldOperand === undefined || pointer === undefined || field === undefined ||
       sourceType === undefined || pointeeType === undefined ||
-      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value")) {
+      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value") ||
+      !analysis.types.binding(call, field)) {
     memoryDiagnostic(call, "FIELD_BINDING_NOT_PROVEN", "bindmemoryfield requires one finalized field and a non-nil pointer with that field's exact source memory domain.");
     return;
   }
@@ -22,7 +23,7 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
     call: selected.call, resultType: selected.selection.sourceResultType, sourceType, pointeeType,
     fieldExpression: fieldOperand.expression, field, pointerExpression: pointer.expression, pointerType: pointer.type,
   });
-  if (analysis.types.binding(call, field)) analysis.types.publish(call);
+  analysis.types.publish(call);
 }
 
 export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {

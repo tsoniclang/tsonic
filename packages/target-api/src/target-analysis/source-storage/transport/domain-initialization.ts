@@ -170,7 +170,7 @@ export function createSourceStorageDomainInitialization(input: {
         const owner = selectedOwner.subject;
         if (witnesses.forSubject(owner).some(boundary => boundary.kind === "opaque-result")) continue;
         const file = transport.sourceFileFor(owner);
-        const type = sourceStorageProjectionType(source, owner, selectedOwner.views, file);
+        const type = sourceStorageProjectionType(source, owner, selectedOwner.views);
         if (type === undefined || file === undefined) continue;
         const ownerContext = semantics.forFile(file);
         const emptyView = context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&

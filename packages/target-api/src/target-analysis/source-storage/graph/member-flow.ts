@@ -120,12 +120,11 @@ export function createSourceStorageMemberFlow(
   const receiverSelection = (owner: SourceStorageSubject, receiverType: Type) => {
     if (!budget.step()) return undefined;
     const file = sourceFileFor(owner);
-    const checked = sourceStorageSubjectType(source, owner, file);
-    if (file === undefined || checked === undefined) return undefined;
+    const type = sourceStorageSubjectType(source, owner, file);
+    if (file === undefined || type === undefined) return undefined;
     const semantics = source.semantics.forFile(file);
-    const type = memberDestination(semantics, checked);
     const destinationType = memberDestination(semantics, receiverType);
-    if (type === undefined || destinationType === undefined) return undefined;
+    if (destinationType === undefined) return undefined;
     const contextual = owner.projection.length === 0 && source.ast.is.IsObjectLiteralExpression(owner.node)
       ? semantics.types.contextualType(owner.node)?.selectedType : undefined;
     const refinement = semantics.types.isUnion(type) ? semantics.types.refinement(type, destinationType) : undefined;

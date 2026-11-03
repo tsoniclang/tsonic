@@ -2,19 +2,18 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceIndexedStorageProjection } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageProjectionType } from "./projection-views.js";
 
 interface SourceStoragePointerLocationQueries {
   read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
   creatorScope(node: Node, scope: SourceStorageScope): SourceStorageScope;
 }
 
-type SourceStoragePointerLocation = SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "input-frontier" | "empty" | "unresolved" }>;
+type SourceStoragePointerLocation = SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "empty" | "unresolved" }>;
 
 export function createSourceStoragePointerLocations(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerLocationQueries) {
@@ -47,15 +46,13 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
         result.push(original);
         continue;
       }
-      if (original.kind !== "leaf" && original.kind !== "input-frontier") return undefined;
-      const type = sourceStorageProjectionType(source, original.subject, original.views, transport.sourceFileFor(original.subject));
+      if (original.kind !== "leaf") return undefined;
+      const type = sourceStorageSubjectType(source, original.subject);
       if (type === undefined) return undefined;
       sourceStorageProjectComponents(original.subject.projection, type, selected.receiver.type,
         component === undefined ? [{ kind: "member", declaration: declaration! }] : [component], context, ast, budget, projection => {
           const subject = transport.subject(original.subject.node, original.subject.kind, projection);
-          if (subject !== undefined && rows.add(1)) result.push(original.kind === "input-frontier"
-            ? Object.freeze({ ...original, subject, preservesInput: false })
-            : Object.freeze({ ...original, subject }));
+          if (subject !== undefined && rows.add(1)) result.push(Object.freeze({ kind: "leaf", subject, scope: original.scope }));
         });
     }
     return budget.failure() === undefined ? result : undefined;
@@ -67,9 +64,7 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
     while (pending.length !== 0) {
       if (!budget.step()) return undefined;
       const original = pending.pop()!;
-      if (original.kind === "empty" || original.kind === "unresolved" || original.kind === "input-frontier") {
-        result.push(original); continue;
-      }
+      if (original.kind === "empty" || original.kind === "unresolved") { result.push(original); continue; }
       const visited = seen.get(original.scope);
       if (visited?.has(original.subject)) continue;
       if (!rows.add(visited === undefined ? 3 : 2)) return undefined;
@@ -92,7 +87,7 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
       for (const value of selected) {
         if (!budget.step() || !rows.add(1)) return undefined;
         if (value.kind === "empty" || value.kind === "unresolved") { result.push(value); continue; }
-        if (value.kind !== "leaf" && value.kind !== "input-frontier") return undefined;
+        if (value.kind !== "leaf") return undefined;
         if (operation?.operation === "bind-pointer") result.push(value);
         else pending.push(value);
       }

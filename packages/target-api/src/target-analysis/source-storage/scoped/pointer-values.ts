@@ -37,7 +37,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
     ? { mode: "execution", demand: selected.demand, deferred: selected.deferred } : { mode: selected.mode };
   const unresolved = (original: SourceStorageReference, reason: string, invocation: Node): SourceStorageTerm =>
     Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope, reason,
-      ...(queries.isSymbolic(original) || transport.isOpaque(original.subject.node) ? { exposure: invocation } : {}) });
+      ...(queries.isSymbolic(original) ? { exposure: invocation } : {}) });
   const accessor = (expression: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
     argument: SourceStorageTerm | undefined, operation: SourceStorageOperation,
     projection: readonly SourceStorageProjection[] = []): SourceStorageTerm | undefined => {
@@ -94,7 +94,10 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
           continue;
         }
         const identities = locations.identities(entry.pointer);
-        if (identities === undefined) return undefined;
+        if (identities === undefined) {
+          result.push(unresolved(entry.pointer, "A native pointer write requires its exact scoped backing location.", operation.call));
+          continue;
+        }
         const values = queries.read(entry.value);
         if (values === undefined) return undefined;
         for (const receiver of identities) {

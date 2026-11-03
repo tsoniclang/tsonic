@@ -26,7 +26,7 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       const types = new Set<Type>();
       for (const view of views === undefined ? [undefined] : views) {
         if (!budget.step()) return unresolved(budget.failure()!);
-        const type = sourceStorageProjectionType(source, origin, view, sourceFile);
+        const type = sourceStorageProjectionType(source, origin, view);
         if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
         if (!types.has(type)) {
           origins.push(Object.freeze({ subject: origin, type, sourceFile }));
@@ -79,8 +79,8 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects], qualified);
     if (origins.kind === "unresolved") return origins;
-    return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates, includesAbsence: absence })
-      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries), includesAbsence: absence });
+    return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
+      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze(boundaries) });
   });
   return { typedOrigins, selectDomain };
 }

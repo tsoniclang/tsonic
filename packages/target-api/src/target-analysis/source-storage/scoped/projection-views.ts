@@ -1,4 +1,4 @@
-import type { SourceFile, Type } from "@tsonic/tsts";
+import type { Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
@@ -22,11 +22,11 @@ function selectedView(subject: SourceStorageSubject, views: readonly SourceStora
 }
 
 export function sourceStorageProjectionType(source: TargetSourceProgram, subject: SourceStorageSubject,
-  views: readonly SourceStorageProjectionView[] | undefined, sourceFile?: SourceFile): Type | undefined {
+  views: readonly SourceStorageProjectionView[] | undefined): Type | undefined {
   const view = selectedView(subject, views);
-  if (view === undefined) return sourceStorageSubjectType(source, subject, sourceFile);
+  if (view === undefined) return sourceStorageSubjectType(source, subject);
   let type: Type | undefined = view.type;
-  const semantics = sourceFile === undefined ? source.semantics.forNode(view.source.node) : source.semantics.forFile(sourceFile);
+  const semantics = source.semantics.forNode(view.source.node);
   for (const component of subject.projection.slice(view.receiver.projection.length)) {
     if (type === undefined) return undefined;
     type = sourceStorageComponentType(type, component, semantics, source.ast);
