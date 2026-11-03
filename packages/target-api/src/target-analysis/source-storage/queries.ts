@@ -85,7 +85,12 @@ export function createSourceStorageQuery(
   const emptyBindings: SourceStorageBindings = Object.freeze({ kind: "source-storage-bindings" });
   bindingStates.set(emptyBindings, Object.freeze([transport.substitutions.empty]));
   bindingViews.set("0", emptyBindings);
-  const declarationBindings: SourceStorageQueries["bindingsForDeclaration"] = (declaration, parent = emptyBindings) => {
+  const declarationBindings: SourceStorageQueries["bindingsForDeclaration"] = (declaration, parent) => {
+    if (parent === undefined) {
+      if (!checkedDeclaration(declaration))
+        return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
+      return bindingsForLexicalOwner(declaration);
+    }
     const states = bindingStates.get(parent);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     if (!checkedDeclaration(declaration))

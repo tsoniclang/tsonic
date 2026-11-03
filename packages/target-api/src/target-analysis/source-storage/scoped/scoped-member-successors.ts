@@ -210,7 +210,8 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
       if (read === undefined && write === undefined) {
         const subject = transport.subject(access, "value", term.projection);
         return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved",
-          subject, scope: term.scope, reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
+          subject, scope: term.scope, exposure: access,
+          reason: "A dynamic source member requires its actual checked receiver and physical declaration." })] };
       }
       receiverType = read?.type ?? write?.type;
       selections = [...(read?.declarations ?? []).map(target => ({ target, read: true })),
@@ -272,7 +273,10 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind !== "access" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
         if (subject === undefined) return undefined;
-        terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason }));
+        const external = transport.isOpaque(term.receiver.subject.node) ||
+          sourceStorageIsMethodMember(target, ast) && transport.declarationIsAmbient(target) === true;
+        terms.push(Object.freeze({ kind: "unresolved", subject, scope: term.scope, reason: members.reason,
+          ...(external ? { exposure: access ?? term.receiver.subject.node } : {}) }));
       }
       if (members.absent) terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));

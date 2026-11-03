@@ -1,7 +1,7 @@
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceStorageFormalOwner } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -41,7 +41,9 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
         dependencies,
       });
     }
-    const node = term.callee.subject.node;
+    const component = term.callee.subject.projection[term.callee.subject.projection.length - 1];
+    const node = component !== undefined && sourceStorageIsMemberProjection(component)
+      ? component.declaration : term.callee.subject.node;
     if (term.activation.kind === "provided") {
       const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved" || ast.body(selected.implementation.declaration) === undefined)

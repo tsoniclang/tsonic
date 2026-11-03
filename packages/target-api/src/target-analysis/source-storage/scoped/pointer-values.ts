@@ -37,7 +37,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
     ? { mode: "execution", demand: selected.demand, deferred: selected.deferred } : { mode: selected.mode };
   const unresolved = (original: SourceStorageReference, reason: string, invocation: Node): SourceStorageTerm =>
     Object.freeze({ kind: "unresolved", subject: original.subject, scope: original.scope, reason,
-      ...(queries.isSymbolic(original) ? { exposure: invocation } : {}) });
+      ...(queries.isSymbolic(original) || transport.isOpaque(original.subject.node) ? { exposure: invocation } : {}) });
   const accessor = (expression: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
     argument: SourceStorageTerm | undefined, operation: SourceStorageOperation,
     projection: readonly SourceStorageProjection[] = []): SourceStorageTerm | undefined => {
