@@ -121,7 +121,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (type === undefined) return undefined;
     const reference = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node) : undefined;
     if (reference?.TypeName !== undefined) {
-      const declaration = navigation.sourceReferenceFor(reference.TypeName)?.declaration;
+      const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
+      const declaration = navigation.sourceReferenceFor(reference.TypeName)?.declaration ??
+        (symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol));
       if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) && ast.typeParameters(declaration).length === 0) {
         const body = ast.as.AsTypeAliasDeclaration(declaration)?.Type;
         if (body !== undefined && body !== node && !active.has(declaration)) {
