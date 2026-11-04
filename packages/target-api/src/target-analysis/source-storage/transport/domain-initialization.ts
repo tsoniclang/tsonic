@@ -149,8 +149,8 @@ export function createSourceStorageDomainInitialization(input: {
           add(transport.locationFor(storage ?? expression), "opaque-write", boundary.invocation);
       }
     }
-    for (let index = 0; index < publications.size() && budget.step(); index += 1) {
-      const publication = publications.at(index)!;
+  };
+  const expandPublication = (publication: SourceStoragePublication): void => {
       const context = semantics.forFile(publication.sourceFile);
       const present = sourcePresentStorageType(publication.type, context);
       if (present === undefined) {
@@ -159,10 +159,10 @@ export function createSourceStorageDomainInitialization(input: {
           if (!context.types.isNullish(type)) publish(publication.subject, publication.exposure, publication.writes,
             publication.kind, type, publication.sourceFile, publication.externalEntry, publication.inputOwner);
         }
-        continue;
+        return;
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
-        context.types.isVoidLike(present) || context.types.isNever(present)) continue;
+        context.types.isVoidLike(present) || context.types.isNever(present)) return;
       const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
         : transport.substitutions.projectedValues(publication.receiver) ?? [];
       for (const selectedOwner of origins) {
@@ -251,7 +251,6 @@ export function createSourceStorageDomainInitialization(input: {
           }
         }
       }
-    }
   };
-  return initializePublications;
+  return Object.freeze({ initialize: initializePublications, expand: expandPublication });
 }

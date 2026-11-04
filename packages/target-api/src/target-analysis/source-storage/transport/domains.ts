@@ -17,6 +17,7 @@ import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { createSourceStoragePublicationDemands } from "./publication-demands.js";
+import { sourceStoragePublicationDomain } from "./publication-domain.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -35,16 +36,21 @@ export function createSourceStorageDomains(
     source, transport, budget, witnesses, publications, publicationDemands, add,
     publicationOriginsIn: (subject, bindings) => publicationOriginsIn(subject, bindings),
   });
-  const initialize = (): void => {
-    if (initialized) return;
-    initialized = true;
-    try {
-      transport.substitutions.withQuery(initializePublications);
-    } finally {
-      publications.finish();
-      publicationDemands.finish();
-      domainInputs.seal();
-    }
+  const initialize = (subject: SourceStorageSubject): void => {
+    transport.substitutions.withQuery(() => budget.withRows(rows => {
+      if (!initialized) {
+        initialized = true;
+        initializePublications.initialize();
+      }
+      const nodes = sourceStoragePublicationDomain(source, transport, budget, rows, subject);
+      if (nodes === undefined) return;
+      for (let index = 0; index < publications.size() && budget.step(); index += 1) {
+        const publication = publications.at(index);
+        if (publication === undefined || !nodes.has(publication.subject.node)) continue;
+        publications.take(index);
+        initializePublications.expand(publication);
+      }
+    }));
   };
   const memberActivation = (subject: SourceStorageSubject, bindings: SourceStorageScope) => {
     if (subject.kind !== "member") return undefined;
@@ -307,7 +313,7 @@ export function createSourceStorageDomains(
     selected?.fatalReason ?? (purpose === "values" ? selected?.demandReason : undefined);
   const select = (subject: SourceStorageSubject, bindings: SourceStorageScope,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
-    initialize();
+    initialize(subject);
     const selected = transport.substitutions.walk(subject, bindings,
       domainInputs.hasInputs() ? { kind: "input", admits: isExternalInput } : undefined, false);
     const failure = demandedFailure(selected, purpose);
@@ -448,7 +454,7 @@ export function createSourceStorageDomains(
       boundaries: Object.freeze(boundaries), reason, absence: selected.absence });
   });
   const writeBoundariesFor = (subject: SourceStorageSubject) => {
-    initialize();
+    initialize(subject);
     const selected = boundariesFor(subject).filter(boundary => boundary.kind === "external-write" ||
       (boundary.kind === "opaque-write" || boundary.kind === "unclassified-exposure") &&
       !closedSourceInvocation(boundary.exposure, transport.substitutions.empty));
