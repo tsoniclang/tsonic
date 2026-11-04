@@ -18,7 +18,7 @@ const string: SourceTypeDescriptor = Object.freeze({ kind: "string" });
 const array = (element: SourceTypeDescriptor, readonly = false): SourceTypeDescriptor => Object.freeze({ kind: "array", element, readonly });
 
 function fixture(program: string, options: { readonly files?: Readonly<Record<string, string>>;
-  readonly extensions?: readonly CompilerExtension[] } = {}) {
+  readonly extensions?: readonly CompilerExtension[]; readonly onlyConsumer?: boolean } = {}) {
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: { ...options.files, "/src/index.ts": `type int32 = number; type int64 = number; type float32 = number; ${program}` },
@@ -26,10 +26,15 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
     extensionHostOptions: { extensions: options.extensions },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)).slice(0, 2048));
-  const source = createTargetSourceProgram(checked);
-  const { ast, navigation } = source;
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "one exact checked source file");
+  const source = createTargetSourceProgram(options.onlyConsumer ? { ...checked, sourceFiles: Object.freeze([file!]),
+    getSourceFileQueries(selected) {
+      assert.equal(selected === file, true, "excluded metadata never changes the actual checked consumer context");
+      return checked.getSourceFileQueries(selected);
+    },
+  } : checked);
+  const { ast, navigation } = source;
   const inventory = navigation.nodesForFiles([file!]);
   const root = inventory.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "run");
   if (root === undefined) throw new Error("The checked run function is required.");
@@ -203,6 +208,20 @@ test("U5 awaited return widths retain the actual authored child through a declar
   }
 });
 
+test("U5 excluded return-alias metadata retains the actual return consumer's queries", () => {
+  const current = fixture('import type { Reply } from "./excluded.js"; async function run(): Reply { const xs = [1]; return xs; }', {
+    onlyConsumer: true, files: { "/src/excluded.ts": "export type Reply = Promise<number[]>;" },
+  });
+  current.track("xs");
+  const use = current.run()[0];
+  const component = use?.association?.component;
+  assert.equal(use?.kind === "fill" && use.type.kind === "array" && use.type.element === double, true, "the same awaited component is retained");
+  assert.equal(component?.declaration === current.root, true, "the authored return owner never moves to the alias");
+  assert.equal(component?.authoredTypeNode !== undefined && current.text(component.authoredTypeNode) === "number[]", true, "the actual excluded alias child is kept");
+  const file = component?.authoredTypeNode === undefined ? undefined : current.source.ast.getSourceFile(component.authoredTypeNode);
+  assert.equal(file !== undefined && !current.source.semantics.includes(file), true, "the metadata file has no published semantic view");
+});
+
 test("U7 and U8 typed stores and annotated aliases fill only the source value", () => {
   const current = fixture("class Holder { items: number[] = []; } function run(holder: Holder) { const xs = [1]; const other: int32[] = xs; holder.items = xs; }");
   current.track("xs");
@@ -254,6 +273,22 @@ test("U14 B9 accepts only declared compound right-side types", () => {
   const uses = current.run();
   assert.deepEqual(kinds(uses), ["fill", "fill", "fill", "fill"]);
   assert.deepEqual(uses.map(use => use.kind === "fill" && use.type.kind === "primitive" ? use.type.primitive : "missing"), ["float64", "float32", "int64", "float64"]);
+});
+
+test("B9 excluded declared right operands keep their original caller queries and declaration", () => {
+  const current = fixture('import { foreignDeclaredNumber } from "./excluded.js"; function run() { let value = 1; value += foreignDeclaredNumber; }', {
+    onlyConsumer: true, files: { "/src/excluded.ts": "export const foreignDeclaredNumber: number = 3;" },
+  });
+  current.track("value");
+  const operand = current.find("foreignDeclaredNumber");
+  const declaration = current.source.navigation.sourceReferenceFor(operand)?.declaration;
+  assert.equal(declaration !== undefined, true, "the real selected foreign declaration is retained");
+  const uses = current.run();
+  assert.deepEqual(kinds(uses), ["fill"]);
+  assert.equal(uses[0]?.kind === "fill" && uses[0].type === double, true, "the declared right operand supplies its own type");
+  assert.equal(uses[0]?.association?.component?.declaration === declaration, true, "no declaration is reconstructed in the consumer");
+  const file = declaration === undefined ? undefined : current.source.ast.getSourceFile(declaration);
+  assert.equal(file !== undefined && !current.source.semantics.includes(file), true, "no foreign declaration-file semantics are requested");
 });
 
 test("U15 and C20 updates, literal compounds, derived and open right sides are writes only", () => {

@@ -2,7 +2,7 @@ import { pointerOperationFactKey, type AstReader, type Node, type Type } from "@
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
-import type { SourceTypeComponentEvidence } from "../types.js";
+import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { sourcePropertyTypeEvidenceNodes, sourceTupleElementTypeEvidenceNodes } from "../type-component-evidence.js";
 import { sourceArrayElementType } from "../array-types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -121,18 +121,22 @@ export function collectSourceTypeFlowUses(
     if (parent === undefined) return [];
     if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) || ast.is.IsSatisfiesExpression(parent)) &&
       Node_Expression(ast, parent) === value && !ast.isConstAssertion(parent)) {
-      return [requiredUse(context, record, parent, authoredComponent(context, parent), ast.is.IsSatisfiesExpression(parent))];
+      const queries = context.source.semantics.forNode(record.node);
+      return [requiredUse(context, record, parent, authoredComponent(context, parent, queries), ast.is.IsSatisfiesExpression(parent))];
     }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) || ast.is.IsParameterDeclaration(parent)) &&
       Node_Initializer(ast, parent) === value) {
-      return ast.typeNode(parent) === undefined ? [] : [requiredUse(context, record, parent, authoredComponent(context, parent))];
+      if (ast.typeNode(parent) === undefined) return [];
+      const queries = context.source.semantics.forNode(record.node);
+      return [requiredUse(context, record, parent, authoredComponent(context, parent, queries))];
     }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent) && ast.body(parent) === value) {
       const owner = ast.is.IsArrowFunction(parent) ? parent : containingCallable(ast, parent);
       if (owner === undefined || ast.typeNode(owner) === undefined) return [];
-      let component = authoredComponent(context, owner);
+      const queries = context.source.semantics.forNode(record.node);
+      let component = authoredComponent(context, owner, queries);
       if (component !== undefined && ast.hasModifierKind(owner, "async")) {
-        component = awaitedReturnComponent(context, component);
+        component = awaitedReturnComponent(context, component, queries);
       }
       return [requiredUse(context, record, parent, component)];
     }
@@ -275,29 +279,29 @@ function transparentOperand(ast: AstReader, parent: Node, value: Node): boolean 
 function declaredStorageComponent(context: SourceTypeFlowAnalysisContext, expression: Node): SourceTypeComponentEvidence | undefined {
   const { ast, semantics } = context.source;
   if (ast.is.IsPropertyAccessExpression(expression)) {
-    const access = semantics.forNode(expression).operations.propertyAccess(expression);
+    const queries = semantics.forNode(expression);
+    const access = queries.operations.propertyAccess(expression);
     const declaration = access?.selectedWriteDeclaration ?? access?.selectedDeclaration;
     if (declaration !== undefined && ast.is.IsSetAccessorDeclaration(declaration)) {
       const parameter = ast.parameters(declaration);
-      return parameter.length === 1 && parameter[0] !== undefined ? authoredComponent(context, parameter[0], access?.sourceWriteType) : undefined;
+      return parameter.length === 1 && parameter[0] !== undefined ? authoredComponent(context, parameter[0], queries, access?.sourceWriteType) : undefined;
     }
-    if (declaration !== undefined) return authoredComponent(context, declaration, access?.sourceWriteType);
+    if (declaration !== undefined) return authoredComponent(context, declaration, queries, access?.sourceWriteType);
   }
   return declaredValueComponent(context, expression);
 }
 
 function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
-  component: SourceTypeComponentEvidence): SourceTypeComponentEvidence | undefined {
-  const { ast, semantics, navigation } = context.source;
+  component: SourceTypeComponentEvidence, queries: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
+  const { ast, navigation } = context.source;
   const root = component.authoredTypeNode;
   if (root === undefined) return undefined;
-  const awaited = semantics.forNode(root).types.awaitedType(component.selectedType);
+  const awaited = queries.types.awaitedType(component.selectedType);
   if (awaited === undefined) return undefined;
   const visited = new Set<Node>();
   let node: Node | undefined = root;
   while (node !== undefined && !visited.has(node)) {
     visited.add(node);
-    const queries = semantics.forNode(node);
     if (ast.is.IsParenthesizedTypeNode(node)) {
       node = ast.as.AsParenthesizedTypeNode(node)?.Type;
       continue;
@@ -377,11 +381,12 @@ function sourceAssociation(
 function authoredComponent(
   context: SourceTypeFlowAnalysisContext,
   declaration: Node,
+  queries: SourceFileSemantics,
   selectedType?: Type,
 ): SourceTypeComponentEvidence | undefined {
   const authoredTypeNode = context.source.ast.typeNode(declaration);
   if (authoredTypeNode === undefined) return undefined;
-  const selected = selectedType ?? context.source.semantics.forNode(declaration).types.authoredType(authoredTypeNode);
+  const selected = selectedType ?? queries.types.authoredType(authoredTypeNode);
   return selected === undefined ? undefined : Object.freeze({ selectedType: selected, declaration, authoredTypeNode });
 }
 
@@ -421,13 +426,13 @@ function declaredValueComponent(
   expression: Node,
 ): SourceTypeComponentEvidence | undefined {
   const { ast, navigation, semantics } = context.source;
+  const queries = semantics.forNode(expression);
   let node = expression;
   while (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node)) {
     const inner = Node_Expression(ast, node);
     if (inner === undefined) return undefined;
     node = inner;
   }
-  const queries = semantics.forNode(node);
   let declaration: Node | undefined;
   let selectedType: Type | undefined;
   if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
@@ -451,7 +456,7 @@ function declaredValueComponent(
     ast.is.IsPropertySignatureDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
     isSourceCallableBodyBoundary(ast, declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
     ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration))) return undefined;
-  const component = authoredComponent(context, declaration, selectedType);
+  const component = authoredComponent(context, declaration, queries, selectedType);
   return component?.authoredTypeNode !== undefined && !containsTypeVariables(context, component.authoredTypeNode)
     ? component : undefined;
 }
