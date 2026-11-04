@@ -255,7 +255,8 @@ function requiredUse(
   if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
   if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   const readOnly = type.kind === "array" && type.readonly || type.kind === "tuple" && type.readonly;
-  if (check || readOnly || type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
+  if (check || readOnly && association.parameter !== undefined ||
+    type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
     return Object.freeze({ kind: "check", site, variable: record.variable, check: readOnly ? "read-only" : "interface",
       type, required: component.declaration ?? component.authoredTypeNode ?? site, association });
   }

@@ -1,7 +1,7 @@
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
-import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeQueryNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindNamedImports, KindNamedExports, KindNamespaceImport, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTypeQuery, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsImportTypeNode, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeQueryNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
+import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindImportType, KindNamedImports, KindNamedExports, KindNamespaceImport, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTypeQuery, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSourceFileOfNode, GetSymbolId, IsDeclarationName, IsLeftHandSideExpression, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerVirtualDeclarationFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { defineExtensionFactKey } from "./fact-key.js";
@@ -799,11 +799,12 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         return undefined;
     }
     const node = subject;
-    if (node?.Kind !== KindTypeReference) {
+    if (node?.Kind !== KindTypeReference && node?.Kind !== KindImportType) {
         return undefined;
     }
-    const typeName = AsTypeReferenceNode(node)?.TypeName;
-    const primitive = resolveRecordedPrimitiveTypeReference(context.facts, node, typeName, modules);
+    const typeName = node.Kind === KindTypeReference
+        ? AsTypeReferenceNode(node)?.TypeName : AsImportTypeNode(node)?.Qualifier;
+    const primitive = resolveRecordedPrimitiveAnnotation(context.facts, node, typeName, modules);
     if (primitive === undefined) {
         return undefined;
     }
@@ -814,18 +815,26 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
 }
 function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules) {
     visitSourceSemanticsNode(sourceFile, (node) => {
-        if (node?.Kind !== KindTypeReference) {
+        if (node?.Kind !== KindTypeReference && node?.Kind !== KindImportType) {
             return;
         }
-        const typeName = AsTypeReferenceNode(node).TypeName;
+        if (node.Kind === KindImportType && AsImportTypeNode(node)?.IsTypeOf)
+            return;
+        const typeName = node.Kind === KindTypeReference
+            ? AsTypeReferenceNode(node).TypeName : AsImportTypeNode(node)?.Qualifier;
         if (typeName === undefined) {
             return;
         }
-        const marker = resolveSourceSemanticsTypeMarkerReference(facts, typeName);
+        const marker = node.Kind === KindTypeReference
+            ? resolveSourceSemanticsTypeMarkerReference(facts, typeName) : undefined;
         if (marker !== undefined) {
             recordSourceSemanticsTypeMarker(facts, node, typeName, marker);
         }
-        const primitive = resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules);
+        const selectedSymbol = node.Kind === KindImportType ? checker.getSymbolAtLocation(typeName) : undefined;
+        const primitive = node.Kind === KindImportType
+            ? selectedSymbol === undefined || !checker.getSymbolDeclarations(selectedSymbol).some(declaration => declaration !== undefined)
+                ? undefined : resolvePrimitiveFromSelectedSymbol(facts, selectedSymbol, modules)
+            : resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules);
         if (primitive === undefined) {
             return;
         }
@@ -1068,7 +1077,7 @@ function resolvePrimitiveFromSelectedSymbol(facts, symbol, modules) {
     const moduleIdentity = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
     return resolveConfiguredPrimitive(moduleIdentity, identity.exportName, symbol);
 }
-function resolveRecordedPrimitiveTypeReference(facts, typeReference, typeName, modules) {
+function resolveRecordedPrimitiveAnnotation(facts, typeReference, typeName, modules) {
     if (typeName === undefined) {
         return undefined;
     }
