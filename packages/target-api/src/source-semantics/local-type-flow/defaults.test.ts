@@ -79,6 +79,38 @@ test("checked optional-property occurrences keep their narrowed declared width",
   assertSameValue(current.defaults.context.describe(current.declaration("narrowed")), { kind: "primitive", primitive: "int32" });
 });
 
+test("excluded annotations and tuple aliases retain the included consumer's query", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
+    "/src/node_modules/@test/words/index.d.ts": "export type int32 = number; export type float32 = number;",
+    "/src/index.ts": 'import { data } from "./native.js"; function run(): void { const retained = data; const pair = data.pair; }',
+    "/src/native.ts": 'import type { int32, float32 } from "@test/words"; export type Pair = readonly [int32, float32]; export declare const data: { value: int32; pair: Pair };',
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/words", packageName: "@test/words",
+    exports: [sourcePrimitive("int32", "int32", "number", true, 32), sourcePrimitive("float32", "float32", "number", true, 32)] }] })] } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const consumer = checked.getSourceFile("/src/index.ts");
+  const native = checked.getSourceFile("/src/native.ts");
+  if (consumer === undefined || native === undefined) throw new Error("The exact checked files are required.");
+  const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([consumer]), getSourceFileQueries(file) {
+    assert.equal(file === consumer, true, "foreign metadata keeps the original consumer query");
+    return checked.getSourceFileQueries(file);
+  } });
+  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const retained = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "retained");
+  const pair = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "pair");
+  if (retained === undefined || pair === undefined) throw new Error("The included declarations are required.");
+  const type = defaults.context.describe(retained);
+  assert.equal(type?.kind === "shape", true);
+  if (type?.kind !== "shape") throw new Error("The exact checked structural type is required.");
+  assertSameValue(type.members.find(member => member.name === "value")?.type, { kind: "primitive", primitive: "int32" });
+  assertSameValue(defaults.context.describe(pair), { kind: "tuple", readonly: true,
+    elements: [{ kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float32" }] });
+  assert.equal(source.semantics.includes(native), false);
+  assert.equal(source.sourceFiles.length, 1);
+  assert.equal(type.members.every(member => member.declaration !== undefined && source.ast.getSourceFile(member.declaration) === native), true);
+});
+
 test("source order uses exact authored starts and one preorder tie breaker", () => {
   const current = fixture("export const first = 1; export const second = 2;");
   const first = current.defaults.context.order(current.declaration("first"));
