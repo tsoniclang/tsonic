@@ -1,4 +1,5 @@
 export * from "./target-source-program.js";
+export type * from "./local-type-flow/types.js";
 export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 export type {
   SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers,

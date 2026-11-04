@@ -15,6 +15,7 @@ import type { SourceTypeRelationship } from "./type-relationship.js";
 import type { SourceTypeRefinement } from "./type-refinement.js";
 import type { ResolvedSourceCallInfo, SourceCallResultSelection } from "./call-result-selection.js";
 import type { SourceCallParameterSlot } from "./call-parameter-slots.js";
+import type { SourceEffectiveTypes } from "./local-type-flow/types.js";
 
 export interface SourceOperationEvidenceQueries extends SourceNavigationOperationQueries {
   propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
@@ -243,4 +244,5 @@ export interface TargetSourceProgram {
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
   readonly semantics: SourceProgramSemantics;
+  readonly effectiveTypes: SourceEffectiveTypes;
 }
