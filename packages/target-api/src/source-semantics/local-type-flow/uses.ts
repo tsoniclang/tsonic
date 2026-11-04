@@ -94,11 +94,22 @@ export function collectSourceTypeFlowUses(
     }
     for (const reference of allReferences) {
       if (!reference.captured || withinInferenceRoot(ast, reference.reference, record.root)) continue;
+      let stored = false;
       for (let owner = ast.parent(reference.reference); owner !== undefined; owner = ast.parent(owner)) {
-        if (owner === record.root) {
-          uses.push(refusal(record, reference.reference, "TSONIC_LOCAL_TYPE_SELF_REFERENCE"));
+        if (owner === record.root) break;
+        if (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner)) {
+          stored = context.source.navigation.expressionResultDisposition(owner).kind !== "discarded";
           break;
         }
+      }
+      if (stored) {
+        uses.push(refusal(record, reference.reference, "TSONIC_LOCAL_TYPE_SELF_REFERENCE"));
+        continue;
+      }
+      const captured = { ...record, node: reference.reference };
+      for (const use of classify(captured, true)) {
+        uses.push(use.kind === "none" || use.kind === "write" ? use
+          : refusal(record, use.site, "TSONIC_LOCAL_TYPE_SELF_REFERENCE", use.association));
       }
     }
   }
@@ -108,11 +119,11 @@ export function collectSourceTypeFlowUses(
   });
   return Object.freeze(uses);
 
-  function classify(record: SourceTypeFlowNode): readonly SourceTypeFlowUse[] {
+  function classify(record: SourceTypeFlowNode, captured = false): readonly SourceTypeFlowUse[] {
     let value = record.node;
     let parent = ast.parent(value);
     while (parent !== undefined && transparentOperand(ast, parent, value)) {
-      if (nodes.has(parent)) return [];
+      if (!captured && nodes.has(parent)) return [];
       value = parent;
       parent = ast.parent(value);
     }
@@ -124,13 +135,15 @@ export function collectSourceTypeFlowUses(
     }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) || ast.is.IsParameterDeclaration(parent)) &&
       Node_Initializer(ast, parent) === value) {
-      if (ast.typeNode(parent) === undefined) return [];
+      if (ast.typeNode(parent) === undefined) return captured
+        ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
       const queries = context.source.semantics.forNode(record.node);
       return [requiredUse(context, record, parent, authoredComponent(context, parent, queries))];
     }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent) && ast.body(parent) === value) {
       const owner = ast.is.IsArrowFunction(parent) ? parent : containingCallable(ast, parent);
-      if (owner === undefined || ast.typeNode(owner) === undefined) return [];
+      if (owner === undefined || ast.typeNode(owner) === undefined) return captured
+        ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
       const queries = context.source.semantics.forNode(record.node);
       let component = authoredComponent(context, owner, queries);
       if (component !== undefined && ast.hasModifierKind(owner, "async")) {
@@ -143,7 +156,7 @@ export function collectSourceTypeFlowUses(
       const operator = ast.operatorKindName(parent) ?? "";
       if (assignments.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
         if (binary.Left === value) {
-          if (operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
+          if (!captured && operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
             const component = declaredValueComponent(context, binary.Right);
             if (component !== undefined) return [requiredUse(context, record, parent, component)];
           }
@@ -232,7 +245,9 @@ function requiredUse(
   if (queries.types.isUnknown(component.selectedType) || queries.types.isNonPrimitive(component.selectedType) ||
     queries.types.isAny(component.selectedType)) return none();
   if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
-  if (queries.types.isUnion(component.selectedType)) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
+  if (queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
+    return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
+  }
   const type = context.describe(record.node, component);
   if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
   if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);

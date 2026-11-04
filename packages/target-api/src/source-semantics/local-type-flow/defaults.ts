@@ -51,10 +51,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   function declarationFor(node: Node): Node | undefined {
     if (ast.is.IsPropertyAccessExpression(node)) {
       const access = semantics.forNode(node).operations.propertyAccess(node);
-      return access?.selectedReadDeclaration ?? access?.selectedDeclaration;
+      const declaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
+      return declaration !== undefined && ast.is.IsMethodDeclaration(declaration) ? undefined : declaration;
     }
     if (ast.is.IsElementAccessExpression(node)) return semantics.forNode(node).operations.elementAccess(node)?.selectedDeclaration;
-    return navigation.sourceReferenceFor(node)?.declaration ??
+    const declaration = navigation.sourceReferenceFor(node)?.declaration;
+    if (declaration !== undefined && (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration))) return undefined;
+    return declaration ??
       (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
         ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ? node : undefined);
   }
@@ -86,7 +89,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   function describeSyntax(node: Node, queries: SourceFileSemantics, depth: number): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
-    const direct = primitive([node]);
+    const direct = primitive([node, ...queries.facts.authoredTypeSubjects(node)]);
     if (direct !== undefined) return direct;
     const parenthesized = ast.is.IsParenthesizedTypeNode(node) ? ast.as.AsParenthesizedTypeNode(node)?.Type : undefined;
     if (parenthesized !== undefined) return describeSyntax(parenthesized, queries, depth);
@@ -121,11 +124,16 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const type = queries.types.authoredType(node);
     if (type === undefined) return undefined;
-    const reference = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node) : undefined;
-    if (reference?.TypeName !== undefined) {
+    const referenceName = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
+      : ast.is.IsImportTypeNode(node) ? ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
+    if (referenceName !== undefined) {
       const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
-      const declaration = navigation.sourceReferenceFor(reference.TypeName)?.declaration ??
+      const declaration = navigation.sourceReferenceFor(referenceName)?.declaration ??
         (symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol));
+      if (declaration !== undefined) {
+        const declaredPrimitive = primitive([declaration, ...queries.facts.selectedSubjects(undefined, declaration)]);
+        if (declaredPrimitive !== undefined) return declaredPrimitive;
+      }
       if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) && ast.typeParameters(declaration).length === 0) {
         const body = ast.as.AsTypeAliasDeclaration(declaration)?.Type;
         if (body !== undefined && body !== node && !active.has(declaration)) {
@@ -159,6 +167,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       queries.types.isNever(type) || queries.types.isIntersection(type)) return undefined;
     const direct = primitive(queries.facts.typeSubjects(type));
     if (direct !== undefined) return direct;
+    if (queries.types.isBooleanLike(type)) return { kind: "primitive", primitive: "bool" };
     if (queries.types.isUnion(type)) {
       const parts = queries.types.unionOrIntersectionTypes(type);
       const present = parts.filter(part => !queries.types.isNullish(part));
@@ -169,7 +178,6 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return undefined;
     }
     if (queries.types.isNumberLike(type)) return { kind: "primitive", primitive: "float64" };
-    if (queries.types.isBooleanLike(type)) return { kind: "primitive", primitive: "bool" };
     if (queries.types.isStringLike(type)) return { kind: "string" };
     if (queries.types.isBigIntLike(type) || queries.types.isVoidLike(type) || queries.types.isNullish(type)) return undefined;
     if (queries.types.isTuple(type)) {
@@ -191,9 +199,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const symbol = queries.declarations.typeSymbol(type);
     const declaration = symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol);
-    if (declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration)) return undefined;
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
-      ast.is.IsEnumDeclaration(declaration))) {
+      ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration))) {
       const values: SourceTypeDescriptor[] = [];
       const bindings = queries.types.typeArgumentBindings(type);
       for (const argument of bindings?.map(binding => binding.argumentType) ?? queries.types.typeArguments(type)) {

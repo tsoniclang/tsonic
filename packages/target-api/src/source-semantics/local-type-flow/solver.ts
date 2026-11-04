@@ -194,6 +194,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
   }
   for (const selected of groups.values()) {
+    if (!selected.inference && !selected.nodes.some(node => node.kind === "binder") && selected.terms.some(term =>
+      term.kind === "numeric" && term.literal.integerConstant !== undefined &&
+      term.literal.numeric === undefined && term.literal.integer === undefined)) {
+      selected.outside = true;
+    }
     selected.fills.sort((left, right) => compare(left.site, right.site));
     const locals = selected.nodes.filter(node => node.kind === "open-local" || node.kind === "derived-local");
     if (new Set(locals.map(node => node.declaration ?? node.node)).size > 64) {
@@ -237,12 +242,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     for (const fill of selected.fills) if (!sourceTypeDescriptorsEqual(selected.type, fill.type)) {
       refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT",
         fill.site, selected.filledBy ?? selected.signatures[0]?.site);
-    }
-    for (const term of selected.terms) if (term.kind === "numeric" && selected.type.kind === "primitive") {
-      const value = term.literal.integerConstant ?? term.literal.integer;
-      if (term.form === "integer" && value !== undefined && !sourceTypeFlowIntegerFits(value, selected.type.primitive)) {
-        obligations.push(Object.freeze({ kind: "literal-admission", site: term.site, type: selected.type, required: term.site }));
-      }
     }
   }
   function constructed(selected: Group): SourceTypeDescriptor | undefined {

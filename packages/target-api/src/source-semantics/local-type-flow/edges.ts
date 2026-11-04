@@ -443,10 +443,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (ast.is.IsIdentifier(node)) {
       const selected = navigation.sourceReferenceFor(node)?.declaration;
       if (selected === undefined || selected === node || ast.name(selected) === node) return undefined;
+      if (isCallable(ast, selected)) return fixed(node);
       const source = declaration(selected);
       if (rootOf.get(selected) !== rootOf.get(node)) {
         if (openValues.has(selected) || derived.has(selected)) {
-          refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node, selected);
+          const root = rootOf.get(node);
+          if (root !== undefined && (ast.is.IsArrowFunction(root) || ast.is.IsFunctionExpression(root)) &&
+            navigation.expressionResultDisposition(root).kind !== "discarded") {
+            refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node, selected);
+          }
           return undefined;
         }
         return fixed(node, referenceComponent(node, selected));
@@ -546,6 +551,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function array(node: Node, depth: number): SourceTypeFlowVariable | undefined {
+    if (!pairs.has(node) && mixedArrayKinds(node)) return fixed(node);
     const result = record(node, "value");
     if (result === undefined) return undefined;
     active.add(node);
@@ -568,6 +574,29 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       link(source === undefined || spread === undefined ? source : project(source, { kind: "element" }), element, child);
     }
     return result;
+  }
+
+  function mixedArrayKinds(node: Node): boolean {
+    const query = semantics.forNode(node);
+    const type = query.types.expressionType(node);
+    const element = type === undefined ? undefined : query.types.typeArguments(type)[0];
+    if (element === undefined) return false;
+    const kinds = new Set<string | Type>();
+    const pending = [element];
+    while (pending.length !== 0) {
+      const selected = pending.pop()!;
+      if (query.types.isUnion(selected)) {
+        pending.push(...query.types.unionOrIntersectionTypes(selected));
+      } else if (query.types.isNumberLike(selected)) kinds.add("number");
+      else if (query.types.isBigIntLike(selected)) kinds.add("bigint");
+      else if (query.types.isStringLike(selected)) kinds.add("string");
+      else if (query.types.isBooleanLike(selected)) kinds.add("bool");
+      else if (query.types.isNullish(selected)) kinds.add("absence");
+      else if (query.types.isArrayLike(selected)) kinds.add("array");
+      else kinds.add(selected);
+      if (kinds.size > 1) return true;
+    }
+    return false;
   }
 
   function object(node: Node, depth: number): SourceTypeFlowVariable | undefined {
@@ -819,7 +848,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (component === undefined) continue;
       argumentPlace = inlineCallable(ast, selected.expression) === undefined ? { binding, parameter } : undefined;
       const mentioned = mentionedBinders(component.selectedType, query.types, 0);
-      receiverOnly = receiver !== undefined && mentioned.size > 0 &&
+      receiverOnly = source.sourceReceiver !== undefined && mentioned.size > 0 &&
         [...mentioned].every(declaration => receiverBinders.some(binder => binder.declaration === declaration));
       const input = binding.sourceForm === "spread-sequence" ? project(argument, { kind: "element" })
         : binding.sourceForm === "spread-element" && (binding.spreadElementIndex === 0 || binding.spreadElementIndex === 1)
