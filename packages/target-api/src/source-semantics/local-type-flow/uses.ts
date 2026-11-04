@@ -249,7 +249,9 @@ function withinInferenceRoot(ast: AstReader, node: Node, root: Node): boolean {
     if (!ast.is.IsArrowFunction(current) && !ast.is.IsFunctionExpression(current)) return false;
     let expression = current;
     let parent = ast.parent(expression);
-    while (parent !== undefined && ast.is.IsParenthesizedExpression(parent)) {
+    while (parent !== undefined && (ast.is.IsParenthesizedExpression(parent) ||
+      ast.is.IsAsExpression(parent) || ast.is.IsSatisfiesExpression(parent))) {
+      if (Node_Expression(ast, parent) !== expression) return false;
       expression = parent;
       parent = ast.parent(expression);
     }
