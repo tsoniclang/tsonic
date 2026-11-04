@@ -69,6 +69,26 @@ test("a descending or non-unit-step counter is fixed without a counted-loop proo
   assert.equal(Object.isFrozen(rule), true);
 });
 
+for (const selected of [{ annotation: "number", primitive: "float64" }, { annotation: "int32", primitive: "int32" }]) {
+  test(`an annotated ${selected.annotation} counter and its reads never acquire loop-counter authority`, () => {
+    const current = fixture(`function run(): void { for (let index: ${selected.annotation} = 0; index < 3; index++) { const value = index; } }`);
+    const declaration = current.declaration("index");
+    const reads = current.defaults.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
+      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    assert.equal(reads.length >= 3, true, "the exact checked counter reads are retained");
+    for (const node of [declaration, ...reads]) {
+      assert.equal(current.defaults.fixedRule(node) === undefined, true, "an annotation excludes counter authority before caching");
+      assertSameValue(current.defaults.context.describe(node), { kind: "primitive", primitive: selected.primitive });
+      assert.equal(current.defaults.fixedRule(node) === undefined, true, "describing an annotated read does not create a counter receipt");
+      const outcome = current.source.effectiveTypes.get(node);
+      assert.equal(outcome?.kind === "resolved" || outcome?.kind === "default", true, "the annotated occurrence is published");
+      if (outcome?.kind !== "resolved" && outcome?.kind !== "default") throw new Error("The exact annotated effective type is required.");
+      assertSameValue(outcome.type, { kind: "primitive", primitive: selected.primitive });
+      assert.equal(outcome.provenance.fixedRule === undefined, true, "published annotated reads have no counter authority");
+    }
+  });
+}
+
 test("ordinary int64-compatible values do not acquire loop-counter authority", () => {
   const current = fixture("export const value = 8;");
   assert.equal(current.defaults.fixedRule(current.declaration("value")), undefined);

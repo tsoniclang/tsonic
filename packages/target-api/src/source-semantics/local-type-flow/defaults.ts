@@ -61,6 +61,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   function fixedRule(node: Node): SourceTypeFlowFixedRule | undefined {
     const declaration = declarationFor(node);
     if (declaration === undefined || !ast.is.IsVariableDeclaration(declaration)) return undefined;
+    if (ast.typeNode(declaration) !== undefined) return undefined;
     const existing = counters.get(declaration);
     if (existing !== undefined) return existing;
     const list = ast.parent(declaration);
