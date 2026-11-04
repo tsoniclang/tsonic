@@ -24,6 +24,7 @@ interface SignatureVariablePath {
   readonly binders: Map<Node, SignatureVariablePath>;
   readonly tuples: Map<0 | 1, SignatureVariablePath>;
   element?: SignatureVariablePath;
+  optionalValue?: SignatureVariablePath;
   value?: SignatureVariable;
 }
 
@@ -51,6 +52,9 @@ export function collectSourceTypeFlowSignatures(
       if (part.kind === "element") {
         path.element ??= variablePath();
         path = path.element;
+      } else if (part.kind === "optional-value") {
+        path.optionalValue ??= variablePath();
+        path = path.optionalValue;
       } else {
         if (part.kind === "member") {
           let child = path.members.get(part.name);

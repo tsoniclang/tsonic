@@ -80,6 +80,7 @@ function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariabl
   return left.node === right.node && left.path.length === right.path.length && left.path.every((part, index) => {
     const other = right.path[index];
     return part.kind === "element" ? other?.kind === "element"
+      : part.kind === "optional-value" ? other?.kind === "optional-value"
       : part.kind === "member" ? other?.kind === "member" && part.name === other.name
       : part.kind === "tuple" ? other?.kind === "tuple" && part.index === other.index
       : other?.kind === "binder" && part.declaration === other.declaration;

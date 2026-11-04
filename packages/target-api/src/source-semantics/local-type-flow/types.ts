@@ -140,6 +140,7 @@ export interface SourceTypeFlowAnalysisContext {
 
 export type SourceTypeFlowPathPart =
   | { readonly kind: "element" }
+  | { readonly kind: "optional-value" }
   | { readonly kind: "member"; readonly name: string }
   | { readonly kind: "tuple"; readonly index: 0 | 1 }
   | { readonly kind: "binder"; readonly declaration: Node };

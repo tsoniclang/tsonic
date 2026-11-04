@@ -46,6 +46,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const memberParts = new Map<string, SourceTypeFlowPathPart>();
   const binderParts = new Map<Node, SourceTypeFlowPathPart>();
   const elementPart: SourceTypeFlowPathPart = Object.freeze({ kind: "element" });
+  const optionalValuePart: SourceTypeFlowPathPart = Object.freeze({ kind: "optional-value" });
   const tupleParts: readonly SourceTypeFlowPathPart[] = Object.freeze([
     Object.freeze({ kind: "tuple", index: 0 }), Object.freeze({ kind: "tuple", index: 1 }),
   ]);
@@ -135,7 +136,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function project(variable: SourceTypeFlowVariable, part: SourceTypeFlowPathPart): SourceTypeFlowVariable {
-    let canonical = part.kind === "element" ? elementPart : part.kind === "tuple" ? tupleParts[part.index]
+    let canonical = part.kind === "element" ? elementPart : part.kind === "optional-value" ? optionalValuePart
+      : part.kind === "tuple" ? tupleParts[part.index]
       : part.kind === "member" ? memberParts.get(part.name) : binderParts.get(part.declaration);
     if (canonical === undefined) {
       canonical = Object.freeze(part);
@@ -180,9 +182,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const part = argument.path[argument.path.length - 1];
         return part?.kind === "binder" ? project(target, part) : term.typeArguments[index]!;
       })) }));
-    else if (term.kind === "optional") putTerm(target, Object.freeze({ ...term }));
+    else if (term.kind === "optional") putTerm(target, Object.freeze({ ...term, value: project(target, optionalValuePart) }));
     const copied = terms.get(target);
     if (term.kind === "array" && copied?.kind === "array") shareStructure(term.element, copied.element, depth + 1);
+    if (term.kind === "optional" && copied?.kind === "optional") shareStructure(term.value, copied.value, depth + 1);
     if (term.kind === "tuple" && copied?.kind === "tuple") {
       shareStructure(term.elements[0], copied.elements[0], depth + 1);
       shareStructure(term.elements[1], copied.elements[1], depth + 1);
@@ -1069,13 +1072,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         if (role === "result" && formalQuery.types.isUnion(formal) && values.length === 1 && values.length < members.length) {
           if (receiver !== undefined && openValues.has(receiver.node)) { refuse("TSONIC_LOCAL_TYPE_UNION", occurrence); return; }
           const valueType = values[0]!;
-          const valueSymbol = formalQuery.declarations.typeSymbol(valueType);
-          const valueDeclaration = valueSymbol === undefined ? undefined : formalQuery.declarations.primarySymbolDeclaration(valueSymbol);
-          const child = valueDeclaration === undefined ? undefined : binders.get(valueDeclaration);
-          if (child !== undefined) putTerm(variable, Object.freeze({ kind: "optional", site: occurrence, value: child, source: component }));
-          else {
+          const child = project(variable, optionalValuePart);
+          putTerm(variable, Object.freeze({ kind: "optional", site: occurrence, value: child, source: component }));
+          if (mentionedBinders(valueType, formalQuery.types, level + 1).size > 0) {
+            join(valueType, child, occurrence, Object.freeze({ ...component, selectedType: valueType }), level + 1, role);
+          } else {
             const type = context.describe(occurrence, component);
-            if (type !== undefined) putTerm(variable, Object.freeze({ kind: "fixed", site: occurrence, type }));
+            if (type?.kind === "optional") putTerm(child, Object.freeze({ kind: "fixed", site: occurrence, type: type.value }));
             else refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", occurrence);
           }
           return;
@@ -1264,6 +1267,7 @@ function numericLeaves(ast: AstReader, root: Node): boolean {
 
 function descriptorPart(ast: AstReader, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
   if (part.kind === "element") return type.kind === "array" ? type.element : undefined;
+  if (part.kind === "optional-value") return type.kind === "optional" ? type.value : undefined;
   if (part.kind === "tuple") return type.kind === "tuple" ? type.elements[part.index] : undefined;
   if (part.kind === "member") return type.kind === "shape" ? type.members.find(member => member.name === part.name)?.type : undefined;
   if (type.kind !== "declared") return undefined;

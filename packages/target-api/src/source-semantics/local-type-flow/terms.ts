@@ -312,5 +312,6 @@ function structural(term: SourceTypeFlowTerm): term is Extract<SourceTypeFlowTer
 }
 
 function pathKey(part: Exclude<SourceTypeFlowPathPart, { kind: "binder" }>): string {
-  return part.kind === "element" ? "element" : part.kind === "tuple" ? `tuple:${part.index}` : `member:${part.name}`;
+  return part.kind === "element" ? "element" : part.kind === "optional-value" ? "optional-value"
+    : part.kind === "tuple" ? `tuple:${part.index}` : `member:${part.name}`;
 }
