@@ -7,7 +7,8 @@ import type { SourceTypeComponentEvidence } from "../types.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace,
-  SourceTypeFlowCall, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowUse, SourceTypeFlowVariable,
+  SourceTypeFlowCall, SourceTypeFlowGraph, SourceTypeFlowLink, SourceTypeFlowNode, SourceTypeFlowTerm,
+  SourceTypeFlowUse, SourceTypeFlowVariable,
 } from "./types.js";
 
 const double: SourceTypeDescriptor = Object.freeze({ kind: "primitive", primitive: "float64" });
@@ -56,14 +57,17 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   };
   const nodes: SourceTypeFlowNode[] = [];
   const calls: SourceTypeFlowCall[] = [];
+  const links: SourceTypeFlowLink[] = [];
+  const described: { readonly node: Node; readonly component?: SourceTypeComponentEvidence }[] = [];
   const descriptors = new Map<string, SourceTypeDescriptor>([
     ["number", double], ["int32", integer], ["int64", wide], ["float32", single], ["string", string],
-    ["number[]", array(double)], ["int32[]", array(integer)], ["int64[]", array(wide)],
+    ["number[]", array(double)], ["int32[]", array(integer)], ["int64[]", array(wide)], ["float32[]", array(single)],
     ["readonly number[]", array(double, true)], ["readonly int32[]", array(integer, true)],
   ]);
   const context: SourceTypeFlowAnalysisContext = Object.freeze({
     source,
     describe(node: Node, component?: SourceTypeComponentEvidence): SourceTypeDescriptor | undefined {
+      described.push({ node, ...(component === undefined ? {} : { component }) });
       const authored = component?.authoredTypeNode;
       if (authored !== undefined) {
         const syntheticLeaf = descriptors.get(text(authored));
@@ -88,10 +92,11 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
     for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) if (current === owner) return true;
     return false;
   }
-  function add(node: Node, declaration?: Node, kind: SourceTypeFlowNode["kind"] = "read", variable?: SourceTypeFlowVariable): SourceTypeFlowNode {
+  function add(node: Node, declaration?: Node, kind: SourceTypeFlowNode["kind"] = "read", variable?: SourceTypeFlowVariable,
+    term?: SourceTypeFlowTerm): SourceTypeFlowNode {
     const record: SourceTypeFlowNode = Object.freeze({ node, root: root!, kind, publish: true,
       variable: variable ?? Object.freeze({ node: declaration ?? node, path: Object.freeze([]) }),
-      ...(declaration === undefined ? {} : { declaration }) });
+      ...(declaration === undefined ? {} : { declaration }), ...(term === undefined ? {} : { term }) });
     nodes.push(record);
     return record;
   }
@@ -121,9 +126,23 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   }
   function graph(): SourceTypeFlowGraph {
     return Object.freeze({ roots: Object.freeze([root!]), nodes: Object.freeze([...nodes]), calls: Object.freeze([...calls]),
-      links: Object.freeze([]), derived: Object.freeze([]), refusals: Object.freeze([]) });
+      links: Object.freeze([...links]), derived: Object.freeze([]), refusals: Object.freeze([]) });
   }
-  return { source, context, root, inventory, text, named, find, add, track, call, graph,
+  function link(source: SourceTypeFlowVariable, target: SourceTypeFlowVariable, site: Node): void {
+    links.push(Object.freeze({ source, target, site }));
+  }
+  function literalArray(node: Node): SourceTypeFlowNode {
+    assert.equal(ast.is.IsArrayLiteralExpression(node), true, "the graph retains the actual array literal");
+    const element: SourceTypeFlowVariable = Object.freeze({ node, path: Object.freeze([{ kind: "element" as const }]) });
+    const aggregate = add(node, undefined, "value", undefined, Object.freeze({ kind: "array", site: node, element, readonly: false }));
+    for (const child of ast.elements(node)) {
+      if (child === undefined) throw new Error("The finite aggregate control requires every original child.");
+      const selected = nodes.find(record => record.node === child) ?? add(child, undefined, "value");
+      link(selected.variable, element, child);
+    }
+    return aggregate;
+  }
+  return { source, context, root, inventory, text, named, find, add, track, call, graph, link, literalArray, described, descriptors,
     run: () => collectSourceTypeFlowUses(context, graph()) };
 }
 
@@ -240,17 +259,88 @@ test("U9 unannotated declaration aliases create no use-side fill", () => {
 test("U10 typed literal members retain their original authored field rather than raw TS number", () => {
   const current = fixture("declare function take(value: { items: int32[] }): void; function run() { const xs = [1]; take({ items: xs }); }");
   current.track("xs");
-  const use = current.run()[0];
-  assert.equal(use?.kind === "fill" && use.type.kind === "array" && use.type.element === integer, true, "the field's authored width is kept");
-  assert.equal(use?.association?.component?.authoredTypeNode !== undefined && current.text(use.association.component.authoredTypeNode) === "int32[]", true, "the component is the actual field annotation");
+  const literal = current.find("{ items: xs }");
+  const member: SourceTypeFlowVariable = Object.freeze({ node: literal, path: Object.freeze([{ kind: "member" as const, name: "items" }]) });
+  const aggregate = current.add(literal, undefined, "value", undefined, Object.freeze({ kind: "shape", site: literal,
+    members: Object.freeze([{ name: "items", variable: member }]) }));
+  const property = current.source.ast.properties(literal)[0]!;
+  const child = current.source.ast.as.AsPropertyAssignment(property)!.Initializer!;
+  const source = current.graph().nodes.find(record => record.node === child)!;
+  current.link(source.variable, member, property);
+  current.descriptors.set("{ items: int32[] }", Object.freeze({ kind: "shape",
+    members: Object.freeze([{ name: "items", type: array(integer) }]) }));
+  const selected = current.call(current.find("take({ items: xs })"));
+  const uses = current.run();
+  const use = uses[0];
+  const fieldType = use?.kind === "fill" && use.type.kind === "shape" ? use.type.members[0]?.type : undefined;
+  assert.equal(uses.length === 1 && fieldType?.kind === "array" && fieldType.element === integer, true, "the field's authored width is kept");
+  const annotation = use?.association?.component?.authoredTypeNode;
+  const field = current.inventory.find(node => current.source.ast.is.IsPropertySignatureDeclaration(node) && current.source.ast.parent(node) === annotation);
+  const authored = field === undefined ? undefined : current.source.ast.typeNode(field);
+  assert.equal(authored !== undefined && current.text(authored) === "int32[]", true, "the component retains the actual field annotation");
+  assert.equal(use?.variable === aggregate.variable && use.association?.call === selected.source &&
+    use.association?.binding === selected.source.sourceArgumentBindings[0] &&
+    use.association?.parameter === selected.source.sourceSelectedSignatureParameters[0], true, "one whole shape retains the exact selected call binding and formal");
+  assert.equal(current.described.length === 1 && current.described[0]?.node === literal, true, "no raw child context competes with the whole shape");
+  assert.equal(current.graph().links[0]?.source === source.variable && current.graph().links[0]?.target === member, true,
+    "the actual child is retained by the aggregate's member projection");
 });
 
 test("U10 typed array elements keep the actual annotated element component", () => {
   const current = fixture("function run() { const value = 1; const items: int32[] = [value]; void items; }");
   current.track("value");
-  const use = current.run()[0];
-  assert.equal(use?.kind === "fill" && use.type === integer, true, "the element width comes from the original annotation");
+  const literal = current.find("[value]");
+  const aggregate = current.literalArray(literal);
+  const uses = current.run();
+  const use = uses[0];
+  assert.equal(uses.length === 1 && use?.kind === "fill" && use.type.kind === "array" && use.type.element === integer, true,
+    "the element width comes from the original annotation");
+  assert.equal(use?.variable === aggregate.variable && use.association?.component?.declaration === current.named("items"), true,
+    "the same whole array context owns its element projection");
+  assert.equal(current.described.length === 1 && current.described[0]?.node === literal, true, "the element has no second descriptor choice");
+  assert.equal(aggregate.term?.kind === "array" && current.graph().links[0]?.target === aggregate.term.element, true,
+    "the retained child remains linked to the original array element variable");
 });
+
+for (const [label, program] of [
+  ["alias", "type Values = float32[]; function run(value: float32): Values { const result: Values = [value, 1]; return result; }"],
+  ["argument", "declare function first(values: float32[]): float32; function run(value: float32): float32 { return first([value, 1]); }"],
+  ["concise arrow", "function run(value: float32): float32 { const make = (): float32[] => [value, 1]; return make()[0]; }"],
+] as const) {
+  test(`U10 ${label} retains one float32 aggregate context without a raw TS child fill`, () => {
+    const current = fixture(program);
+    current.descriptors.set("Values", array(single));
+    const literal = current.find("[value, 1]");
+    const child = current.source.ast.elements(literal)[0]!;
+    current.add(child, current.named("value"), "fixed", Object.freeze({ node: child, path: Object.freeze([]) }));
+    const aggregate = current.literalArray(literal);
+    const call = label === "argument" ? current.call(current.find("first([value, 1])")) : undefined;
+    const original = current.graph();
+    const arrow = label === "concise arrow" ? current.source.ast.parent(literal) : undefined;
+    if (arrow !== undefined) assert.equal(current.source.ast.is.IsArrowFunction(arrow), true, "the declared concise body keeps its actual inference root");
+    const graph = arrow === undefined ? original : Object.freeze({ ...original, roots: Object.freeze([current.root, arrow]),
+      nodes: Object.freeze(original.nodes.map(node => Object.freeze({ ...node, root: arrow }))) });
+    const uses = collectSourceTypeFlowUses(current.context, graph);
+    const use = uses[0];
+    assert.equal(uses.length === 1 && use?.kind === "fill" && use.type.kind === "array" && use.type.element === single, true,
+      "the exact authored float32 whole-array demand is retained");
+    assert.equal(use?.variable === aggregate.variable && use.variable.path.length === 0, true, "no scalar or nested-array demand is invented for an element");
+    assert.equal(current.described.length === 1 && current.described[0]?.node === literal &&
+      current.described[0]?.component === use?.association?.component, true, "the original aggregate component is described exactly once");
+    assert.equal(use?.association?.sourceFile === current.source.ast.getSourceFile(literal), true, "the actual consumer remains the Source query owner");
+    const element = aggregate.term?.kind === "array" ? aggregate.term.element : undefined;
+    assert.equal(element !== undefined && graph.links.length === 2 && graph.links.every(link => link.target === element), true,
+      "both original children stay in the same production-shaped array element projection");
+    if (call !== undefined) {
+      const parameter = call.source.sourceSelectedSignatureParameters[0]!;
+      const annotation = parameter.parameterDeclaration === undefined ? undefined : current.source.ast.typeNode(parameter.parameterDeclaration);
+      assert.equal(annotation !== undefined && use?.association?.call === call.source &&
+        use.association?.binding === call.source.sourceArgumentBindings[0] &&
+        use.association?.parameter === parameter && use.association?.component?.authoredTypeNode === annotation, true,
+      "the declared demand is the exact retained call binding and formal, not the raw contextual Type");
+    }
+  });
+}
 
 test("U11 concrete assertions fill; interface assertions and U12 satisfies only check", () => {
   const current = fixture("interface View { n: number } function run() { const n = 1; const value = { n: 1 }; void (n as int32); void (value as View); void (value satisfies View); }");
