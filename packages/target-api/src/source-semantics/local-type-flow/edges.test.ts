@@ -540,3 +540,129 @@ test("term depth refuses deeper creation input without constructing an unbounded
   const current = fixture(`function run() { const values = [[[[[[1]]]]]]; return values; }`);
   assert.equal(current.graph.refusals.some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
 });
+
+test("annotated patterns retain fixed destination slots without retyping their physical initializer", () => {
+  const current = fixture(`class View { value: word = 7; }
+    function run(): number {
+      const { value }: { value: number } = new View();
+      const { a }: { a: number } = { a: 1 };
+      const [first, second]: [number, number] = [2, 3];
+      const { maybe }: { maybe?: number } = { maybe: 4 };
+      return value + a + first + second + (maybe ?? 0);
+    }`);
+  const bindings = current.syntax.filter(node => current.source.ast.is.IsBindingElement(node));
+  assert.equal(bindings.length, 5);
+  for (const binding of bindings) {
+    const entry = current.graph.nodes.find(entry => entry.node === binding);
+    assert.equal(entry?.kind, "fixed");
+    const type = entry?.term?.kind === "fixed" ? entry.term.type : undefined;
+    const value = type?.kind === "optional" ? type.value : type;
+    assert.equal(value?.kind === "primitive" && value.primitive === "float64", true);
+    assert.equal(current.graph.links.some(link => link.source.node === binding || link.target.node === binding), false);
+  }
+  const initializer = current.node("new View()", node => current.source.ast.is.IsNewExpression(node));
+  const entry = current.graph.nodes.find(entry => entry.node === initializer);
+  assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "declared", true);
+  const array = current.node("[2, 3]", node => current.source.ast.is.IsArrayLiteralExpression(node));
+  assert.equal(current.graph.nodes.find(entry => entry.node === array)?.term?.kind, "array");
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("declared defaults, nested patterns and rest retain their original checked slots and effects", () => {
+  const current = fixture(`function fallback(): word { return 5; }
+    function run(input: { child?: word; nested: { value: word }; left: number; right: number }) {
+      const { child = fallback(), nested: { value: renamed }, ...rest }:
+        { child?: word; nested: { value: word }; left: number; right: number } = input;
+      const [first, ...tail]: word[] = [1, 2, 3];
+      return renamed;
+    }`);
+  for (const name of ["child", "renamed", "first"]) {
+    const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+      current.source.ast.text(current.source.ast.name(node)) === name);
+    const entry = current.graph.nodes.find(entry => entry.node === binding);
+    assert.equal(entry?.kind, "fixed", name);
+    assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true, name);
+    assert.equal(current.graph.links.some(link => link.target.node === binding), false, name);
+  }
+  const tail = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "tail");
+  const tailEntry = current.graph.nodes.find(entry => entry.node === tail);
+  assert.equal(tailEntry?.term?.kind === "fixed" && tailEntry.term.type.kind === "array" &&
+    tailEntry.term.type.element.kind === "primitive" && tailEntry.term.type.element.primitive === "int32", true);
+  const rest = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "rest");
+  const restEntry = current.graph.nodes.find(entry => entry.node === rest);
+  assert.equal(restEntry?.term?.kind === "fixed" && restEntry.term.type.kind === "shape" &&
+    restEntry.term.type.members.map(member => member.name).join(",") === "left,right", true);
+  const call = current.node("fallback()", node => current.source.ast.is.IsCallExpression(node));
+  assert.equal(current.graph.nodes.some(entry => entry.node === call), true, "the actual default expression is still visited");
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("unannotated patterns over declared values keep declared widths without creating inference links", () => {
+  const current = fixture(`function run(input: { value: word }) { const { value } = input; return value; }`);
+  const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node));
+  const entry = current.graph.nodes.find(entry => entry.node === binding);
+  assert.equal(entry?.kind, "fixed");
+  assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true);
+  assert.equal(current.graph.links.some(link => link.source.node === binding || link.target.node === binding), false);
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("annotated parameter patterns retain fixed source facts in their reads", () => {
+  const current = fixture(`function run({ value, other = 1 }: { value: word; other?: number }) { return value; }`);
+  const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "value");
+  const entry = current.graph.nodes.find(entry => entry.node === binding);
+  assert.equal(entry?.kind, "fixed");
+  assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true);
+  const returned = current.syntax.find(node => current.source.ast.is.IsReturnStatement(node));
+  const read = returned === undefined ? undefined : current.source.ast.as.AsReturnStatement(returned)?.Expression;
+  const readEntry = current.graph.nodes.find(entry => entry.node === read);
+  assert.equal(readEntry?.kind, "fixed");
+  assert.equal(readEntry?.term?.kind === "fixed" && readEntry.term.type.kind === "primitive" && readEntry.term.type.primitive === "int32", true);
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("never-open module and var patterns keep the Host literal defaults without becoming local groups", () => {
+  const current = fixture(`const { value } = { value: 1 };
+    function run() { var [first] = [2]; return value + first; }`);
+  for (const binding of current.syntax.filter(node => current.source.ast.is.IsBindingElement(node))) {
+    const entry = current.graph.nodes.find(entry => entry.node === binding);
+    assert.equal(entry?.kind, "fixed");
+    assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true);
+  }
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("unexpressible declared unions never acquire empty published reference groups", () => {
+  const current = fixture(`type Tree = number | readonly Tree[];
+    function run(value: Tree): Tree { const alias: Tree = value; return alias; }`);
+  const alias = current.declaration("alias");
+  assert.equal(current.graph.nodes.some(entry => entry.node === alias), false);
+  for (const reference of current.syntax.filter(node => current.source.ast.is.IsIdentifier(node) &&
+    (current.text(node) === "value" || current.text(node) === "alias"))) {
+    assert.equal(current.graph.nodes.some(entry => entry.node === reference && entry.publish), false);
+  }
+  assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("a new local container still supplies the open seed when its elements are declared values", () => {
+  const current = fixture(`function run(value: word) { const values = [value, 1]; return values; }`);
+  const declaration = current.declaration("values");
+  assert.equal(current.entry(declaration).kind, "open-local");
+  const literal = current.node("[value, 1]", node => current.source.ast.is.IsArrayLiteralExpression(node));
+  assert.equal(current.entry(literal).term?.kind, "array");
+  const parameter = current.syntax.find(node => current.source.ast.is.IsParameterDeclaration(node));
+  const entry = current.graph.nodes.find(entry => entry.node === parameter);
+  assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true);
+  assert.equal(current.same(current.variable(literal), current.variable(declaration)), true);
+  assert.equal(current.graph.links.some(link => link.source.node === parameter || link.target.node === parameter), false);
+  assert.equal(current.graph.refusals.length, 0);
+});

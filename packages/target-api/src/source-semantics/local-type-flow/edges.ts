@@ -40,6 +40,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const active = new Set<Node>();
   const openValues = new Set<Node>();
   const building = new Set<Node>();
+  const patterns = new Set<Node>();
   const pairs = new Set<Node>();
   const projections = new Map<SourceTypeFlowVariable, Map<SourceTypeFlowPathPart, SourceTypeFlowVariable>>();
   const memberParts = new Map<string, SourceTypeFlowPathPart>();
@@ -200,8 +201,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (dependency !== undefined) derived.set(dependency.node, Object.freeze({ ...dependency, required: true }));
   }
 
-  function fixed(node: Node, component?: SourceTypeComponentEvidence): SourceTypeFlowVariable | undefined {
-    const type = context.describe(node, component);
+  function fixed(node: Node, component?: SourceTypeComponentEvidence,
+    described?: SourceTypeDescriptor): SourceTypeFlowVariable | undefined {
+    const type = described ?? context.describe(node, component);
     const sourceFile = ast.getSourceFile(node);
     const variable = type === undefined ? undefined : record(node, "fixed", Object.freeze({ kind: "fixed", site: node, type }),
       component?.declaration, sourceFile === undefined ? undefined : Object.freeze({ occurrence: node, sourceFile,
@@ -228,13 +230,14 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (root === undefined) return undefined;
     const query = semantics.forNode(node);
     if (building.has(node)) { refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node); return undefined; }
-    const name = ast.name(node);
-    if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) {
-      const initializer = Node_Initializer(ast, node);
-      const source = initializer === undefined ? undefined : value(initializer, true);
-      if (source !== undefined) pattern(name, source, node);
+    if (ast.is.IsBindingElement(node)) {
+      let owner = ast.parent(node);
+      while (owner !== undefined && (ast.is.IsArrayBindingPattern(owner) || ast.is.IsObjectBindingPattern(owner) ||
+        ast.is.IsBindingElement(owner))) owner = ast.parent(owner);
+      if (owner !== undefined && !patterns.has(owner)) declaration(owner);
       return nodes.get(node)?.variable;
     }
+    const name = ast.name(node);
     const initializer = Node_Initializer(ast, node);
     const ownType = ast.typeNode(node);
     const parent = ast.parent(node);
@@ -243,6 +246,21 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const open = isCallable(ast, root) && ownType === undefined && !isLoop &&
       (ast.variableDeclarationKind(node) === "const" || ast.variableDeclarationKind(node) === "let") &&
       !ast.hasModifierKind(node, "export");
+    if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) {
+      if (patterns.has(node)) return undefined;
+      patterns.add(node);
+      const source = initializer === undefined ? undefined : value(initializer, true);
+      if (open && source !== undefined && openValues.has(source.node)) pattern(name, source, node);
+      else {
+        const selectedType = initializer === undefined ? undefined : query.types.expressionType(initializer);
+        const component = ownType === undefined && selectedType !== undefined
+          ? Object.freeze({ selectedType }) : declaredComponent(node, query);
+        const described = ownType === undefined && initializer !== undefined ? context.describe(initializer)
+          : component === undefined ? undefined : context.describe(node, component);
+        declaredPattern(name, component, query, described);
+      }
+      return nodes.get(node)?.variable;
+    }
     if (!open || initializer === undefined || ast.isConstAssertion(initializer) || ast.is.IsBigIntLiteral(initializer)) {
       return fixed(node, declaredComponent(node, query));
     }
@@ -270,11 +288,59 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function declaredComponent(node: Node, query: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
-    const selectedType = query.declarations.declaredValueType(node);
-    if (selectedType === undefined) return undefined;
     const authoredTypeNode = ast.typeNode(node);
+    const selectedType = authoredTypeNode === undefined ? query.declarations.declaredValueType(node)
+      : query.types.authoredType(authoredTypeNode);
+    if (selectedType === undefined) return undefined;
     return Object.freeze({ selectedType, declaration: node,
       ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }) });
+  }
+
+  function declaredPattern(node: Node, component: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics,
+    described: SourceTypeDescriptor | undefined): void {
+    const arrayPattern = ast.is.IsArrayBindingPattern(node);
+    const tuple = component !== undefined && query.types.isTuple(component.selectedType)
+      ? query.types.tupleElementInfos(component.selectedType) : undefined;
+    const elements = ast.elements(node);
+    for (const [index, element] of elements.entries()) {
+      if (element === undefined || ast.is.IsOmittedExpression(element)) continue;
+      const name = ast.name(element);
+      if (name === undefined) continue;
+      let selected = declaredComponent(element, query);
+      let projected: SourceTypeDescriptor | undefined;
+      if (arrayPattern && described?.kind === "array") projected = BindingElement_IsRest(ast, element) ? described : described.element;
+      else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = described.elements[index];
+      if (component !== undefined && !BindingElement_IsRest(ast, element)) {
+        let slot: { readonly type: Type; readonly declaration?: Node } | undefined;
+        if (arrayPattern) slot = tuple?.[index];
+        else {
+          const propertyName = BindingElement_PropertyName(ast, element) ?? name;
+          const selection = query.propertyNames.get(propertyName);
+          const property = selection?.kind === "resolved"
+            ? query.types.propertyInfos(component.selectedType).find(property => property.name === selection.name) : undefined;
+          if (selection?.kind === "resolved" && described?.kind === "shape") {
+            projected = described.members.find(member => member.name === selection.name)?.type;
+          }
+          if (property !== undefined) {
+            const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
+            slot = { type: property.type, ...(declaration === undefined ? {} : { declaration }) };
+          }
+        }
+        if (slot !== undefined) {
+          const annotation = slot.declaration === undefined ? undefined : isTypeSyntaxNode(ast, slot.declaration)
+            ? slot.declaration : ast.typeNode(slot.declaration);
+          selected = Object.freeze({ selectedType: selected?.selectedType ?? slot.type,
+            ...(slot.declaration === undefined ? {} : { declaration: slot.declaration }),
+            ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
+        }
+      }
+      if (projected?.kind === "optional" && selected !== undefined && !query.types.isUnion(selected.selectedType) &&
+        !query.types.isNullish(selected.selectedType)) projected = projected.value;
+      fixed(element, selected, projected);
+      if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
+        declaredPattern(name, selected, query, projected ?? (selected === undefined ? undefined : context.describe(element, selected)));
+      }
+    }
   }
 
   function referenceComponent(node: Node, declarationNode: Node): SourceTypeComponentEvidence | undefined {
@@ -302,6 +368,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         return fixed(node, referenceComponent(node, selected));
       }
       const selectedNode = nodes.get(selected);
+      if (source === undefined) return fixed(node, referenceComponent(node, selected));
       if (selectedNode?.term?.kind === "fixed") {
         const result = fixed(node, referenceComponent(node, selected));
         if (result !== undefined && selectedNode.kind === "parameter" && selectedNode.association?.component !== undefined) {
