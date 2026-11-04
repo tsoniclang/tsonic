@@ -409,7 +409,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function publish(node: Node, selected: Group, association?: SourceTypeFlowAssociation): void {
     const record = declaredRecord(node);
     const declared = record !== undefined;
-    if (!declared && !selected.inference) return;
+    if (!declared && !selected.inference && (selected.filledBy === undefined || selected.defaulted)) return;
     const type = record !== undefined ? declaredDescriptor(record) : selected.type;
     if (declared && type === undefined) return;
     if (!declared && selected.outside) return;
@@ -445,6 +445,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
   }
   for (const call of graph.calls) {
+    if (graph.refusals.some(issue => issue.site === call.node)) continue;
     const vector = (binders: typeof call.receiver) => binders.flatMap(binder => {
       const selected = group(binder.variable);
       return selected.type === undefined || selected.issues.length > 0 || selected.outside ? []
