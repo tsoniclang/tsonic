@@ -67,7 +67,8 @@ export interface SourceTypeFlowTerms {
 }
 
 export function isSourceTypeFlowDeclaredConstruction(node: SourceTypeFlowNode): boolean {
-  return node.kind === "fixed" && (node.term?.kind === "array" || node.term?.kind === "shape");
+  return node.kind === "fixed" && (node.term?.kind === "array" || node.term?.kind === "shape") &&
+    node.term.site === node.node;
 }
 
 interface TermSlot {

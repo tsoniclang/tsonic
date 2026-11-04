@@ -322,7 +322,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function solve(selected: Group, accumulator = false): void {
     const fixed = selected.fills.filter(fill => fill.fixed);
     const declared = selected.signatures.length > 0;
-    const anchor = selected.constructions[0] ?? (!selected.inference ? selected.fills.find(fill => !fill.fixed) ?? fixed[0]
+    const retainedStructure = !selected.inference && selected.terms.some(term => term.kind !== "fixed" && term.kind !== "numeric" &&
+      !source.ast.is.IsArrayLiteralExpression(term.site) && !source.ast.is.IsObjectLiteralExpression(term.site))
+      ? constructed(selected) : undefined;
+    const anchor = selected.constructions[0] ?? (!selected.inference ? fixed[0] ??
+      (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
+        : { type: retainedStructure, site: selected.variable.node, fixed: true })
       : declared ? fixed[0] : selected.fills[0]);
     if (anchor !== undefined && (selected.derived.length === 0 || accumulator)) {
       selected.type = anchor.type; selected.filledBy = anchor.site;

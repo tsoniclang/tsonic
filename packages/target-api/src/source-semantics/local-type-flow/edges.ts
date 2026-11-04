@@ -285,7 +285,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       replace(node, { publish: sourceNode.publish });
       return result;
     }
-    const kind = derived.has(source.node) ? "derived-local" : openValues.has(source.node) ? "open-local" : "fixed";
+    const kind = derived.has(source.node) ? "derived-local" : openValues.has(source.node) ? "open-local" : "read";
     const result = record(node, kind, undefined, node);
     replace(node, { initializer });
     active.add(node);
@@ -503,7 +503,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) || ast.is.IsTypeAssertion(node)) {
       const operand = Node_Expression(ast, node);
       const source = operand === undefined ? undefined : value(operand, initializer, depth);
-      if (source === undefined || !active.has(source.node)) return fixed(node);
+      if (source === undefined || !active.has(source.node)) return fixed(node,
+        ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)
+          ? declaredComponent(node, semantics.forNode(node)) : undefined);
       const result = record(node, "read");
       link(narrowedRead(source, node), result, node);
       return result;
@@ -864,10 +866,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const signature = declaration === undefined ? undefined : query.types.declarationSignatureInfo(declaration);
     const dependentResult = signature?.returnType !== undefined && mentionedBinders(signature.returnType, query.types, 0).size > 0;
     if (signature?.returnType !== undefined && dependentResult) join(signature.returnType, result, node,
-      Object.freeze({ selectedType: signature.returnType, ...(declaration === undefined ? {} : { declaration }),
+      Object.freeze({ selectedType: source.sourceResultType, ...(declaration === undefined ? {} : { declaration }),
         ...(declaration === undefined || ast.typeNode(declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(declaration)! }) }), 0, "result");
-    const resultType = signature?.returnType ?? source.sourceResultType;
-    if (terms.get(result) === undefined && !derived.has(node)) {
+    const resultType = source.sourceResultType;
+    if (!dependentResult && terms.get(result) === undefined && !derived.has(node)) {
       const type = context.describe(node, Object.freeze({ selectedType: resultType,
         ...(declaration === undefined ? {} : { declaration }),
         ...(declaration === undefined || ast.typeNode(declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(declaration)! }) }));

@@ -321,6 +321,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const type = component?.selectedType ?? queries.types.expressionType(node);
       if (node === declaration || type !== undefined && queries.types.isUnion(type)) result = { kind: "optional", value: result };
     }
+    if (result !== undefined && result.kind !== "optional" && component !== undefined &&
+      queries.types.isUnion(component.selectedType) && queries.types.unionOrIntersectionTypes(component.selectedType)
+        .some(type => queries.types.isNullish(type))) {
+      result = { kind: "optional", value: result };
+    }
     if (result?.kind === "optional" && declaration !== undefined && node !== declaration &&
       declaration === declarationFor(node)) {
       const selected = component?.selectedType ?? queries.types.expressionType(node);
