@@ -62,6 +62,7 @@ export interface SourceTypeFlowTermGroup {
 export interface SourceTypeFlowTerms {
   group(variable: SourceTypeFlowVariable): SourceTypeFlowTermGroup;
   groups(): readonly SourceTypeFlowTermGroup[];
+  isInference(variable: SourceTypeFlowVariable): boolean;
   refuse(variable: SourceTypeFlowVariable, refusal: SourceTypeFlowRefusal): void;
 }
 
@@ -222,9 +223,37 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
   }
   for (const call of graph.calls) {
     [...call.receiver, ...call.method].forEach(binder => intern(binder.variable));
+    call.argumentPlaces.forEach(place => intern(place.value));
     if (call.result !== undefined) intern(call.result);
   }
   for (const link of graph.links) union(intern(link.source), intern(link.target), link.site);
+  const inference = new Set<TermSlot>();
+  const successors = new Map<TermSlot, Set<TermSlot>>();
+  const connect = (from: TermSlot, to: TermSlot): void => {
+    const source = root(from), target = root(to);
+    let selected = successors.get(source);
+    if (selected === undefined) successors.set(source, selected = new Set());
+    selected.add(target);
+  };
+  for (const slot of slots) {
+    const selected = root(slot);
+    if (selected.nodes.some(node => node.kind === "open-local" || node.kind === "derived-local")) inference.add(selected);
+    for (const child of children(selected)) {
+      connect(selected, child);
+      connect(child, selected);
+    }
+  }
+  for (const derived of graph.derived) {
+    for (const operand of derived.operands) connect(intern(operand), intern(derived.result));
+  }
+  const pendingInference = [...inference];
+  for (let index = 0; index < pendingInference.length; index += 1) {
+    for (const next of successors.get(pendingInference[index]!) ?? []) {
+      if (inference.has(next)) continue;
+      inference.add(next);
+      pendingInference.push(next);
+    }
+  }
   function depth(slot: TermSlot, active = new Set<TermSlot>()): number {
     const selected = root(slot);
     if (active.has(selected)) return 5;
@@ -247,6 +276,7 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
   return Object.freeze({
     group: (variable: SourceTypeFlowVariable) => view(intern(variable)),
     groups: () => [...new Set(slots.map(root))].map(view),
+    isInference: (variable: SourceTypeFlowVariable) => inference.has(root(intern(variable))),
     refuse: (variable: SourceTypeFlowVariable, refusal: SourceTypeFlowRefusal) => refuse(intern(variable), refusal),
   });
 }

@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
@@ -28,6 +28,8 @@ interface Group {
   readonly dependencies: Set<Group>;
   readonly dependents: Set<Group>;
   readonly issues: SourceTypeFlowRefusal[];
+  readonly inference: boolean;
+  outside: boolean;
   type?: SourceTypeDescriptor;
   filledBy?: Node;
   defaulted: boolean;
@@ -46,16 +48,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const graph: SourceTypeFlowGraph = { ...collected,
     links: [...collected.links].sort((left, right) => compare(left.site, right.site)) };
   const uses = [...collectSourceTypeFlowUses(context, graph)].sort((left, right) => compare(left.site, right.site));
-  const signatures = collectSourceTypeFlowSignatures(context, graph);
   const terms = createSourceTypeFlowTerms(graph);
+  const signatures = collectSourceTypeFlowSignatures(context, graph, terms.isInference);
   const groups = new Map<SourceTypeFlowVariable, Group>();
   const outcomes = new WeakMap<Node, SourceEffectiveTypeOutcome>();
   const calls = new WeakMap<Node, SourceEffectiveCallInstantiation>();
   const obligations: SourceTypeFlowObligation[] = [];
-  const issues: SourceTypeFlowRefusal[] = [...graph.refusals];
+  const issues: SourceTypeFlowRefusal[] = [];
   const valueVariables = new WeakMap<Node, SourceTypeFlowVariable>();
+  const records = new WeakMap<Node, SourceTypeFlowNode>();
   for (const node of graph.nodes) if (node.publish && node.kind !== "binder" && node.variable.path.length === 0) {
     valueVariables.set(node.node, node.variable);
+    records.set(node.node, node);
   }
   for (const derived of graph.derived) valueVariables.set(derived.node, derived.result);
 
@@ -65,20 +69,60 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (result === undefined) {
       result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
         fills: [], signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
-        issues: [...selected.refusals], defaulted: false, solved: false };
+        issues: terms.isInference(variable) ? [...selected.refusals] : [], inference: terms.isInference(variable),
+        outside: !terms.isInference(variable) && selected.refusals.length > 0,
+        defaulted: false, solved: false };
       groups.set(selected.variable, result);
     }
     return result;
   }
+  function declaredRecord(node: Node): SourceTypeFlowNode | undefined {
+    const record = records.get(node);
+    return record !== undefined && (record.term?.kind === "fixed" || record.kind === "fixed" ||
+      record.declaration !== undefined && source.ast.typeNode(record.declaration) !== undefined) ? record : undefined;
+  }
+  function declaredDescriptor(record: SourceTypeFlowNode): SourceTypeDescriptor | undefined {
+    return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
+  }
   for (const selected of terms.groups()) group(selected.variable);
   for (const use of uses) group(use.variable);
   for (const use of uses) if (use.kind === "write" && use.valueVariable !== undefined) group(use.valueVariable);
-  for (const use of uses) if (use.kind === "refused") group(use.variable).issues.push(use.refusal);
-  for (const signature of signatures) group(signature.variable).signatures.push(signature);
+  for (const use of uses) if (use.kind === "refused") {
+    const selected = group(use.variable);
+    if (selected.inference) selected.issues.push(use.refusal);
+    else selected.outside = true;
+  }
+  for (const signature of signatures) if (group(signature.variable).inference) group(signature.variable).signatures.push(signature);
   for (const derived of graph.derived) group(derived.result).derived.push(derived);
+  const owners = new WeakMap<Node, Set<Group>>();
+  for (const node of graph.nodes) {
+    let selected = owners.get(node.node);
+    if (selected === undefined) owners.set(node.node, selected = new Set());
+    selected.add(group(node.variable));
+  }
+  function inferenceOwner(node: Node | undefined): Group | undefined {
+    for (let current = node; current !== undefined; current = source.ast.parent(current)) {
+      const selected = [...(owners.get(current) ?? [])].find(owner => owner.inference);
+      if (selected !== undefined) return selected;
+      if (graph.roots.includes(current)) break;
+    }
+    return undefined;
+  }
+  for (const issue of graph.refusals) {
+    const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
+    if (owner !== undefined) owner.issues.push(issue);
+    else for (let current: Node | undefined = issue.site; current !== undefined; current = source.ast.parent(current)) {
+      const selected = owners.get(current);
+      if (selected !== undefined) {
+        for (const candidate of selected) candidate.outside = true;
+        break;
+      }
+      if (graph.roots.includes(current)) break;
+    }
+  }
 
   function refuse(selected: Group, code: SourceTypeFlowRefusal["code"], site: Node, related?: Node): void {
-    if (!selected.issues.some(issue => issue.code === code && issue.site === site)) {
+    if (selected.inference && !selected.issues.some(issue => issue.code === code && issue.site === site)) {
       selected.issues.push(createSourceTypeFlowRefusal(code, site, related));
     }
   }
@@ -152,6 +196,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     selected.dependencies.delete(selected);
   }
   for (const selected of groups.values()) for (const dependency of selected.dependencies) dependency.dependents.add(selected);
+  const outside = [...groups.values()].filter(selected => selected.outside);
+  for (let index = 0; index < outside.length; index += 1) {
+    const selected = outside[index]!;
+    const linked = [...selected.dependents];
+    for (const term of selected.terms) for (const child of children(term)) linked.push(group(child));
+    for (const dependent of linked) if (!dependent.inference && !dependent.outside) {
+      dependent.outside = true;
+      outside.push(dependent);
+    }
+  }
 
   function validate(selected: Group): void {
     if (selected.type === undefined) return;
@@ -244,11 +298,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       for (const index of [0, 1]) {
         const leaf = literal(operands[index]!); const other = types[1 - index];
         if (leaf === undefined || other?.kind !== "primitive") continue;
-        if (leaf.form === "fractional" && ["int32", "uint32", "int64", "uint64"].includes(other.primitive)) {
+        const floating = leaf.form === "fractional" || sourceTypeFlowNumericLiteralKind(leaf.literal) === "float64";
+        if (floating && ["int32", "uint32", "int64", "uint64"].includes(other.primitive)) {
           return { kind: "primitive", primitive: "float64" };
         }
         const value = leaf.literal.integerConstant ?? leaf.literal.integer;
-        if (leaf.form === "integer" && value !== undefined && sourceTypeFlowIntegerFits(value, other.primitive)) return other;
+        if (!floating && leaf.form === "integer" && value !== undefined && sourceTypeFlowIntegerFits(value, other.primitive)) return other;
       }
     }
     return undefined;
@@ -257,14 +312,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function solve(selected: Group, accumulator = false): void {
     const fixed = selected.fills.filter(fill => fill.fixed);
     const declared = selected.signatures.length > 0;
-    const anchor = declared ? fixed[0] : selected.fills[0];
+    const anchor = !selected.inference ? selected.fills.find(fill => !fill.fixed) ?? fixed[0]
+      : declared ? fixed[0] : selected.fills[0];
     if (anchor !== undefined && (selected.derived.length === 0 || accumulator)) {
       selected.type = anchor.type; selected.filledBy = anchor.site;
     }
     if (selected.type === undefined && (selected.derived.length === 0 || accumulator)) {
       selected.type = constructed(selected);
       if (selected.type === undefined && selected.terms.some(term => term.kind === "numeric")) {
-        selected.type = { kind: "primitive", primitive: selected.terms.some(term => term.kind === "numeric" && term.form === "fractional") ? "float64" : "int32" };
+        selected.type = { kind: "primitive", primitive: selected.terms.some(term => term.kind === "numeric" &&
+          (term.form === "fractional" || sourceTypeFlowNumericLiteralKind(term.literal) === "float64")) ? "float64" : "int32" };
       }
       selected.defaulted = selected.type !== undefined;
     }
@@ -280,7 +337,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (sourceTypeDescriptorDepth(selected.type) > 4) refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
       validate(selected);
     }
-    for (const dependency of selected.dependencies) for (const issue of dependency.issues) {
+    for (const dependency of selected.dependencies) for (const issue of selected.inference ? dependency.issues : []) {
       if (!selected.issues.includes(issue)) selected.issues.push(issue);
     }
     selected.solved = true;
@@ -310,14 +367,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
 
   function obligation(use: SourceTypeFlowUse, selected: Group): void {
-    if (selected.type === undefined || selected.issues.length > 0) return;
+    if (selected.type === undefined || selected.issues.length > 0 || selected.outside) return;
     if (use.kind === "check") {
       obligations.push(Object.freeze({ kind: use.check, site: use.site, type: selected.type,
         required: use.required, requiredType: freezeSourceTypeDescriptor(use.type), association: use.association }));
     } else if (use.kind === "write") {
       const valueVariable = use.valueVariable ?? valueVariables.get(use.value);
       const valueGroup = valueVariable === undefined ? undefined : group(valueVariable);
-      const selectedValue = valueGroup?.issues.length === 0 ? valueGroup.type : undefined;
+      const record = valueVariable?.path.length === 0 ? declaredRecord(valueVariable.node) : undefined;
+      const selectedValue = record !== undefined ? declaredDescriptor(record)
+        : valueGroup?.issues.length === 0 ? valueGroup.type : undefined;
       obligations.push(Object.freeze({ kind: "write-fit", site: use.site, type: selected.type, required: use.required,
         value: use.value, ...(selectedValue === undefined ? {} : { valueType: freezeSourceTypeDescriptor(selectedValue) }),
         ...(valueVariable === undefined ? {} : { valueVariable: Object.freeze({ node: valueVariable.node,
@@ -329,15 +388,21 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     obligation(use, selected);
   }
   function publish(node: Node, selected: Group, association?: SourceTypeFlowAssociation): void {
+    const record = declaredRecord(node);
+    const declared = record !== undefined;
+    const type = record !== undefined ? declaredDescriptor(record) : selected.type;
+    if (declared && type === undefined) return;
+    if (!declared && selected.outside) return;
     selected.issues.sort((left, right) => compare(left.site, right.site));
-    if (selected.issues[0] !== undefined) { outcomes.set(node, selected.issues[0]); return; }
-    if (selected.type === undefined) {
+    if (!declared && selected.inference && selected.issues[0] !== undefined) { outcomes.set(node, selected.issues[0]); return; }
+    if (type === undefined) {
+      if (!selected.inference) return;
       const issue = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
       outcomes.set(node, issue); issues.push(issue); return;
     }
     const sourceFile = source.ast.getSourceFile(node);
     if (sourceFile === undefined) throw new Error("A checked effective type occurrence requires its original source file.");
-    outcomes.set(node, Object.freeze({ kind: selected.defaulted ? "default" : "resolved", type: selected.type,
+    outcomes.set(node, Object.freeze({ kind: !declared && selected.defaulted ? "default" : "resolved", type,
       provenance: Object.freeze({ group: selected.nodes.find(candidate => candidate.declaration !== undefined)?.declaration ?? selected.variable.node,
         occurrence: node, sourceFile, ...(selected.filledBy === undefined ? {} : { filledBy: selected.filledBy }),
         ...(association?.component === undefined ? {} : { component: association.component }),
@@ -352,14 +417,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         publish(use.reference, selected, node.association);
       }
     }
-    if (selected.type !== undefined) for (const term of selected.terms) if (term.kind === "numeric" || term.kind === "array" || term.kind === "shape") {
+    if (selected.type !== undefined && !selected.outside) for (const term of selected.terms) if (
+      term.kind === "numeric" && context.literal(term.site) !== undefined ||
+      term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
+      term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site)) {
       obligations.push(Object.freeze({ kind: "literal-admission", site: term.site, type: selected.type, required: term.site }));
     }
   }
   for (const call of graph.calls) {
     const vector = (binders: typeof call.receiver) => binders.flatMap(binder => {
       const selected = group(binder.variable);
-      return selected.type === undefined || selected.issues.length > 0 ? [] : [Object.freeze({ declaration: binder.declaration, type: selected.type })];
+      return selected.type === undefined || selected.issues.length > 0 || selected.outside ? []
+        : [Object.freeze({ declaration: binder.declaration, type: selected.type })];
     });
     const receiver = vector(call.receiver); const method = vector(call.method);
     if (receiver.length !== call.receiver.length || method.length !== call.method.length) continue;
@@ -385,13 +454,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       ? source.ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
     const literalDefault = initializer !== undefined && (context.literal(initializer) !== undefined || source.ast.is.IsObjectLiteralExpression(initializer));
     if (defaults.fixedRule(node) === undefined && !defaults.hasDeclaredSourceType(node) && !literalDefault) continue;
-    if (initializer !== undefined && source.ast.typeNode(declaration) === undefined &&
-      (source.ast.is.IsArrayLiteralExpression(initializer) && source.ast.elements(initializer).length === 0 ||
-        source.ast.is.IsObjectLiteralExpression(initializer) && source.ast.properties(initializer).length === 0)) {
-      const code = source.ast.is.IsArrayLiteralExpression(initializer) ? "TSONIC_UNTYPED_ARRAY_LITERAL" : "TSONIC_UNTYPED_OBJECT_LITERAL";
-      const issue = createSourceTypeFlowRefusal(code, initializer);
-      outcomes.set(node, issue); issues.push(issue); continue;
-    }
     const type = context.describe(node);
     const sourceFile = source.ast.getSourceFile(node);
     if (type === undefined || sourceFile === undefined) continue;
