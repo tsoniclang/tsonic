@@ -66,6 +66,10 @@ export interface SourceTypeFlowTerms {
   refuse(variable: SourceTypeFlowVariable, refusal: SourceTypeFlowRefusal): void;
 }
 
+export function isSourceTypeFlowDeclaredConstruction(node: SourceTypeFlowNode): boolean {
+  return node.kind === "fixed" && (node.term?.kind === "array" || node.term?.kind === "shape");
+}
+
 interface TermSlot {
   readonly variable: SourceTypeFlowVariable;
   parent: TermSlot | undefined;
@@ -226,7 +230,12 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
     call.argumentPlaces.forEach(place => intern(place.value));
     if (call.result !== undefined) intern(call.result);
   }
-  for (const link of graph.links) union(intern(link.source), intern(link.target), link.site);
+  const constructions = new Set(graph.nodes.filter(isSourceTypeFlowDeclaredConstruction).map(node => intern(node.variable)));
+  const conversionPositions = new Set([...constructions].flatMap(children));
+  for (const link of graph.links) {
+    if (!conversionPositions.has(intern(link.target))) union(intern(link.source), intern(link.target), link.site);
+  }
+  const declaredRoots = new Set([...constructions].map(root));
   const inference = new Set<TermSlot>();
   const successors = new Map<TermSlot, Set<TermSlot>>();
   const connect = (from: TermSlot, to: TermSlot): void => {
@@ -238,7 +247,7 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
   for (const slot of slots) {
     const selected = root(slot);
     if (selected.nodes.some(node => node.kind === "open-local" || node.kind === "derived-local")) inference.add(selected);
-    for (const child of children(selected)) {
+    for (const child of declaredRoots.has(selected) ? [] : children(selected)) {
       connect(selected, child);
       connect(child, selected);
     }

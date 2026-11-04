@@ -3,7 +3,7 @@ import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceT
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual } from "./terms.js";
+import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import type {
   SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor,
@@ -23,6 +23,7 @@ interface Group {
   readonly nodes: readonly SourceTypeFlowNode[];
   readonly terms: readonly SourceTypeFlowTerm[];
   readonly fills: Fill[];
+  readonly constructions: readonly Fill[];
   readonly signatures: SourceTypeFlowSignature[];
   readonly derived: SourceTypeFlowDerived[];
   readonly dependencies: Set<Group>;
@@ -67,10 +68,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const selected = terms.group(variable);
     let result = groups.get(selected.variable);
     if (result === undefined) {
+      const declared = selected.nodes.filter(isSourceTypeFlowDeclaredConstruction);
+      const constructions = declared.flatMap(node => {
+        const component = node.association?.component;
+        const type = component === undefined ? undefined : context.describe(node.node, component);
+        return type === undefined ? [] : [{ type, site: node.node, fixed: true }];
+      });
       result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
-        fills: [], signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
+        fills: [], constructions, signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
         issues: terms.isInference(variable) ? [...selected.refusals] : [], inference: terms.isInference(variable),
-        outside: !terms.isInference(variable) && selected.refusals.length > 0,
+        outside: !terms.isInference(variable) && (selected.refusals.length > 0 || constructions.length < declared.length),
         defaulted: false, solved: false };
       groups.set(selected.variable, result);
     }
@@ -82,6 +89,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       record.declaration !== undefined && source.ast.typeNode(record.declaration) !== undefined) ? record : undefined;
   }
   function declaredDescriptor(record: SourceTypeFlowNode): SourceTypeDescriptor | undefined {
+    if (isSourceTypeFlowDeclaredConstruction(record)) {
+      return group(record.variable).constructions.find(fill => fill.site === record.node)?.type;
+    }
     return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
   }
   for (const selected of terms.groups()) group(selected.variable);
@@ -150,6 +160,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   const pendingFills: { readonly variable: SourceTypeFlowVariable; readonly fill: Fill }[] = [];
   for (const selected of groups.values()) {
+    for (const fill of selected.constructions) pendingFills.push({ variable: selected.variable, fill });
     for (const term of selected.terms) if (term.kind === "fixed") {
       pendingFills.push({ variable: selected.variable, fill: { type: term.type, site: term.site, fixed: true } });
     }
@@ -312,8 +323,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function solve(selected: Group, accumulator = false): void {
     const fixed = selected.fills.filter(fill => fill.fixed);
     const declared = selected.signatures.length > 0;
-    const anchor = !selected.inference ? selected.fills.find(fill => !fill.fixed) ?? fixed[0]
-      : declared ? fixed[0] : selected.fills[0];
+    const anchor = selected.constructions[0] ?? (!selected.inference ? selected.fills.find(fill => !fill.fixed) ?? fixed[0]
+      : declared ? fixed[0] : selected.fills[0]);
     if (anchor !== undefined && (selected.derived.length === 0 || accumulator)) {
       selected.type = anchor.type; selected.filledBy = anchor.site;
     }
