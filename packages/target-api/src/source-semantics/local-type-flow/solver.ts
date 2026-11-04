@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -437,11 +438,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         publish(use.reference, selected, node.association);
       }
     }
-    if (selected.inference && selected.type !== undefined && !selected.outside) for (const term of selected.terms) if (
+  }
+  for (const node of graph.nodes) {
+    const term = node.term;
+    if (term === undefined || term.site !== node.node || node.variable.path.length !== 0) continue;
+    const selected = group(node.variable);
+    if (selected.inference && selected.type !== undefined && !selected.outside && selected.issues.length === 0 && (
       term.kind === "numeric" && context.literal(term.site) !== undefined ||
       term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
-      term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site)) {
-      obligations.push(Object.freeze({ kind: "literal-admission", site: term.site, type: selected.type, required: term.site }));
+      term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site))) {
+      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: selected.type, required: node.node }));
     }
   }
   for (const call of graph.calls) {
@@ -471,8 +477,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       !source.ast.is.IsPropertyAccessExpression(node) && !source.ast.is.IsElementAccessExpression(node) &&
       !source.ast.is.IsCallExpression(node)) continue;
     const declaration = source.navigation.sourceReferenceFor(node)?.declaration ?? node;
-    const initializer = source.ast.is.IsVariableDeclaration(declaration)
-      ? source.ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
+    const initializer = source.ast.is.IsVariableDeclaration(declaration) || source.ast.is.IsPropertyDeclaration(declaration) ||
+      source.ast.is.IsParameterDeclaration(declaration) ? Node_Initializer(source.ast, declaration) : undefined;
     const literalDefault = initializer !== undefined && (context.literal(initializer) !== undefined || source.ast.is.IsObjectLiteralExpression(initializer));
     if (defaults.fixedRule(node) === undefined && !defaults.hasDeclaredSourceType(node) && !literalDefault) continue;
     const type = context.describe(node);

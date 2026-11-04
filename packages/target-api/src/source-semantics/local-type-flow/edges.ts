@@ -761,7 +761,6 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (element === undefined || ast.is.IsOmittedExpression(element)) continue;
       const name = ast.name(element);
       if (name === undefined) continue;
-      if (Node_Initializer(ast, element) !== undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element); continue; }
       if (!arrayPattern && BindingElement_IsRest(ast, element)) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element); continue; }
       const property = BindingElement_PropertyName(ast, element) ?? name;
       const term = nodes.get(source.node)?.term;
