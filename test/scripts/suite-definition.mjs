@@ -190,6 +190,7 @@ export function createParallelSuiteDefinition(repos) {
         scope: "csharp-js",
         group: "runtime-dotnet",
         taskMode: "assembly",
+        exclusiveGroups: Object.freeze(["assembly"]),
         cwd: repos.csharpJs,
         projectOrSolution: resolve(repos.csharpJs, "Tsonic.CSharp.Js.sln"),
         directory: resolve(repos.csharpJs, "tests/Tsonic.CSharp.Js.Tests"),

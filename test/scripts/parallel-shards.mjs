@@ -127,10 +127,9 @@ export function createParallelShardPlan(suiteDefinition, repos, { statusRoot, ts
       }
       const files = listDotnetTestFiles(testSuite.directory);
       const exclusiveGroups = testSuite.exclusiveGroups ?? [];
-      if (exclusiveGroups.length > 0 && testSuite.taskMode !== "directory") {
-        failures.push(`${testSuite.scope} dotnet exclusive groups require directory task mode`);
-      }
-      const availableGroups = new Set(groupFilesByDirectory(testSuite.directory, files).keys());
+      const availableGroups = testSuite.taskMode === "assembly"
+        ? new Set(["assembly"])
+        : new Set(groupFilesByDirectory(testSuite.directory, files).keys());
       const seenExclusiveGroups = new Set();
       for (const group of exclusiveGroups) {
         if (typeof group !== "string" || group.length === 0) {

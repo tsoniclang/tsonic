@@ -6,6 +6,7 @@ import test from "node:test";
 import { createParallelShardPlan } from "../../scripts/parallel-shards.mjs";
 import { requiredParallelPreRuns, runParallelPreRuns } from "../../scripts/parallel-preruns.mjs";
 import { createDotnetTestShards } from "../../scripts/parallel-dotnet.mjs";
+import { runBoundedTestQueue } from "../../scripts/parallel-scheduler.mjs";
 import { writeParallelReport } from "../../scripts/parallel-report.mjs";
 import { readNodeTestResults } from "../../scripts/test-results.mjs";
 import { testResultCounts } from "../../scripts/parallel-test-counts.mjs";
@@ -128,5 +129,86 @@ test("extracted dotnet task modes receive their status directory without a modul
       `${taskMode}: native result paths use the explicit status directory`);
     assert.equal(shards[0].args.some(argument => argument.startsWith("trx;LogFileName=")), true,
       `${taskMode}: the native reporter receives its owned result path`);
+  }
+});
+
+test("exclusive native task groups validate in both assembly and directory modes", () => {
+  mkdirSync(paths.statusRoot, { recursive: true });
+  const root = mkdtempSync(resolve(paths.statusRoot, "exclusive-"));
+  const directory = resolve(root, "tests");
+  mkdirSync(directory);
+  writeFileSync(resolve(directory, "Example.cs"), "namespace Explicit; public class Example { [Fact] public void Check() {} }\n");
+  const projectOrSolution = resolve(root, "Fixture.csproj");
+  writeFileSync(projectOrSolution, "<Project />\n");
+  for (const [taskMode, group] of [["assembly", "assembly"], ["directory", "."]]) {
+    const suite = { scope: "tsonic", group: "native-fixture", taskMode, exclusiveGroups: [group],
+      directory, cwd: root, projectOrSolution };
+    const definition = { nodeSuites: [], architectureSuites: [], dotnetSuites: [suite] };
+    const { shards, inventory } = createParallelShardPlan(definition, { tsonic: root }, paths);
+    assert.equal(shards.length, 1, taskMode);
+    assert.equal(shards[0].exclusive, true, `${taskMode}: declared metadata reaches the real task`);
+    assert.equal(inventory.files[0].exclusive, true, `${taskMode}: inventory retains the same task flag`);
+    const [ordinary] = createDotnetTestShards({ ...suite, exclusiveGroups: [] }, paths);
+    assert.deepEqual(shards[0], { ...ordinary, exclusive: true },
+      `${taskMode}: exclusivity changes no native command, files, resources or result path`);
+  }
+  for (const [taskMode, exclusiveGroups, message] of [
+    ["assembly", ["."], /exclusive group has no test task/u],
+    ["assembly", ["assembly", "assembly"], /exclusive group is duplicated/u],
+    ["assembly", [""], /exclusive group must be a non-empty string/u],
+    ["directory", ["assembly"], /exclusive group has no test task/u],
+  ]) {
+    const suite = { scope: "tsonic", group: "native-fixture", taskMode, exclusiveGroups,
+      directory, cwd: root, projectOrSolution };
+    const script = `import { createParallelShardPlan } from ${JSON.stringify(resolve(tsonicRoot, "test/scripts/parallel-shards.mjs"))};
+      createParallelShardPlan({ nodeSuites: [], architectureSuites: [], dotnetSuites: [${JSON.stringify(suite)}] },
+        { tsonic: ${JSON.stringify(root)} }, ${JSON.stringify(paths)});`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
+    assert.equal(result.error === undefined, true, `${taskMode}: invalid metadata completes validation`);
+    assert.equal(result.status, 2, `${taskMode}: invalid exclusive metadata is refused`);
+    assert.match(result.stderr, message);
+  }
+});
+
+test("the allocation assembly uses declared exclusivity without changing its native invocation", () => {
+  const definition = createParallelSuiteDefinition(testRepositoryRoots);
+  const suite = definition.dotnetSuites.find(entry => entry.scope === "csharp-js");
+  assert.deepEqual(suite.exclusiveGroups, ["assembly"]);
+  const { shards } = createParallelShardPlan(definition, testRepositoryRoots, paths);
+  const assembly = shards.find(shard => shard.id === "csharp-js:dotnet:assembly");
+  const [ordinary] = createDotnetTestShards({ ...suite, exclusiveGroups: [] }, paths);
+  assert.deepEqual(assembly, { ...ordinary, exclusive: true });
+  assert.equal(shards.find(shard => shard.id === "csharp-runtime:dotnet:assembly").exclusive, false);
+  assert.equal(shards.find(shard => shard.id === "csharp-nodejs:dotnet:net").exclusive, true);
+});
+
+test("an exclusive assembly task drains earlier work and blocks later tasks", async () => {
+  const definition = createParallelSuiteDefinition(testRepositoryRoots);
+  const suite = definition.dotnetSuites.find(entry => entry.scope === "csharp-js");
+  const [assembly] = createDotnetTestShards({ ...suite, scope: "renamed-runtime" }, paths);
+  for (const position of [0, 1, 2]) {
+    const tasks = [{ id: "first", group: "ordinary" }, { id: "second", group: "ordinary" }];
+    tasks.splice(position, 0, assembly);
+    const active = new Set();
+    const events = [];
+    const results = await runBoundedTestQueue(tasks, { workers: 3 }, async task => {
+      assert.equal(active.has(assembly.id), false, "no other task starts during the assembly");
+      if (task.id === assembly.id) assert.equal(active.size, 0, "earlier tasks drain before the assembly starts");
+      active.add(task.id);
+      events.push(`start:${task.id}`);
+      await new Promise(resolve => setImmediate(resolve));
+      events.push(`finish:${task.id}`);
+      active.delete(task.id);
+      return task.id;
+    });
+    assert.equal(results.length, tasks.length);
+    assert.equal(active.size, 0);
+    for (const task of tasks.slice(0, position)) {
+      assert.equal(events.indexOf(`finish:${task.id}`) < events.indexOf(`start:${assembly.id}`), true, task.id);
+    }
+    for (const task of tasks.slice(position + 1)) {
+      assert.equal(events.indexOf(`start:${task.id}`) > events.indexOf(`finish:${assembly.id}`), true, task.id);
+    }
   }
 });
