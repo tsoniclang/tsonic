@@ -149,6 +149,30 @@ test("range admission distinguishes signed, unsigned, floating and decimal domai
   assert.equal(sourceTypeFlowIntegerFits(79228162514264337593543950336n, "decimal"), false);
 });
 
+test("negative zero keeps the floating leaf default without changing ordinary zero", () => {
+  const current = fixture("function run(): void { const negative = -0; const ordinary = 0; } export const exported = -0;");
+  for (const name of ["negative", "exported"]) {
+    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
+  }
+  assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int32" });
+});
+
+test("unrepresentable annotations never acquire their initializer's narrower type", () => {
+  const current = fixture("function run(): void { const value: number | string = 1; const dictionary: { [key: string]: number } = {}; }");
+  for (const name of ["value", "dictionary"]) {
+    assert.equal(current.defaults.context.describe(current.declaration(name)) === undefined, true, name);
+    assert.equal(current.source.effectiveTypes.get(current.declaration(name)) === undefined, true, name);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("an opaque declared object is outside the structural descriptor domain", () => {
+  const current = fixture("declare const value: object;");
+  assert.equal(current.defaults.context.describe(current.declaration("value")) === undefined, true);
+  assert.equal(current.source.effectiveTypes.get(current.declaration("value")) === undefined, true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }

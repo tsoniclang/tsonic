@@ -1,6 +1,7 @@
 import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type SourcePrimitiveKind, type Type } from "@tsonic/tsts";
 import { sourceArrayElementType } from "../array-types.js";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
+import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.js";
 import type {
@@ -154,7 +155,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   function describeType(type: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
     depth: number, declared: boolean): SourceTypeDescriptor | undefined {
-    if (depth > 4 || queries.types.isAny(type) || queries.types.isUnknown(type) ||
+    if (depth > 4 || queries.types.isAny(type) || queries.types.isUnknown(type) || queries.types.isNonPrimitive(type) ||
       queries.types.isNever(type) || queries.types.isIntersection(type)) return undefined;
     const direct = primitive(queries.facts.typeSubjects(type));
     if (direct !== undefined) return direct;
@@ -203,6 +204,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return { kind: "declared", declaration, typeArguments: values, source: component };
     }
     if (queries.types.callSignatures(type).length > 0 || queries.types.constructSignatures(type).length > 0) return undefined;
+    if (queries.types.indexInfos(type).length > 0) return undefined;
     const members: SourceTypeDescriptorMember[] = [];
     for (const property of queries.types.propertyInfos(type)) {
       const selected = queries.declarations.primarySymbolDeclaration(property.symbol);
@@ -223,8 +225,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (depth > 4) return undefined;
     const literal = literals.get(node);
     if (literal?.form === "numeric" || literal?.form === "prefix-unary" || literal?.form === "parenthesized" || literal?.form === "binary") {
-      if (literal.numeric?.kind === "authored") return { kind: "primitive",
-        primitive: /[.eE]/u.test(literal.numeric.token.decimalText) ? "float64" : "int32" };
+      if (literal.numeric?.kind === "authored") return { kind: "primitive", primitive: sourceTypeFlowNumericLiteralKind(literal) };
       if (literal.form === "binary" && literal.integerConstant !== undefined) {
         const pending: Node[] = [node]; let bigint = false;
         while (pending.length > 0) {
@@ -281,6 +282,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const declaration = component?.declaration ?? declarationFor(node);
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
     if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth);
+    if (result === undefined && annotation !== undefined) {
+      active.delete(node);
+      return undefined;
+    }
     if (result === undefined) result = primitive([...(component === undefined ? [node] : []),
       ...queries.facts.selectedSubjects(undefined, declaration),
       ...(component === undefined ? [] : queries.facts.typeSubjects(component.selectedType))]);
@@ -336,6 +341,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return { start: range.kind === "authored" ? range.start : ast.pos(node), preorder: ordinals.get(node) ?? nodes.length };
     } });
   return Object.freeze({ context, nodes: Object.freeze(nodes), fixedRule, hasDeclaredSourceType });
+}
+
+export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): "int32" | "float64" {
+  const numeric = literal.numeric;
+  return numeric?.kind === "checked-float64" || numeric?.kind === "authored" &&
+    (numeric.token.negative && numeric.token.coefficient === 0n || /[.eE]/u.test(numeric.token.decimalText))
+    ? "float64" : "int32";
 }
 
 export function sourceTypeFlowIntegerFits(value: bigint, kind: SourcePrimitiveKind): boolean {

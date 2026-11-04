@@ -105,3 +105,37 @@ test("term depth and declared optional descriptors use the same bounded algebra"
   assert.equal(sourceTypeDescriptorDepth({ kind: "optional", value: type }), 5);
   assert.equal(sourceTypeDescriptorsEqual({ kind: "optional", value: type }, type), false);
 });
+
+test("C29 eligibility follows canonical aliases and containment but not syntax alone", () => {
+  const current = fixture();
+  const container = current.variable(0), alias = current.variable(1), unrelated = current.variable(2);
+  const element: SourceTypeFlowVariable = { node: container.node, path: [{ kind: "element" }] };
+  const graph = current.graph([
+    { ...current.entry(container, { kind: "array", site: container.node, readonly: false, element }), kind: "open-local" },
+    current.entry(alias), current.entry(unrelated),
+  ], [{ source: container, target: alias, site: alias.node }]);
+  const terms = createSourceTypeFlowTerms(graph);
+  assert.equal(terms.isInference(container), true);
+  assert.equal(terms.isInference(alias), true);
+  assert.equal(terms.isInference(element), true);
+  assert.equal(terms.isInference(unrelated), false);
+});
+
+test("C29 derived eligibility is directional and does not open fixed operands", () => {
+  const current = fixture();
+  const operand = current.variable(0), result = current.variable(1), fixed = current.variable(2);
+  const graph = current.graph([
+    { ...current.entry(result), kind: "derived-local" }, current.entry(operand), current.entry(fixed),
+  ]);
+  const terms = createSourceTypeFlowTerms({ ...graph,
+    derived: [{ node: result.node, result, operator: "add", operands: [operand, fixed], required: true }] });
+  assert.equal(terms.isInference(result), true);
+  assert.equal(terms.isInference(operand), false);
+  assert.equal(terms.isInference(fixed), false);
+  const downstream = createSourceTypeFlowTerms({ ...graph,
+    nodes: [{ ...current.entry(operand), kind: "open-local" }, current.entry(result), current.entry(fixed)],
+    derived: [{ node: result.node, result, operator: "add", operands: [operand, fixed], required: true }] });
+  assert.equal(downstream.isInference(operand), true);
+  assert.equal(downstream.isInference(result), true);
+  assert.equal(downstream.isInference(fixed), false);
+});

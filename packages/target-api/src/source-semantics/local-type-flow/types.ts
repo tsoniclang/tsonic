@@ -280,4 +280,5 @@ export type SourceTypeFlowEdgeCollector = (
 export type SourceTypeFlowSignatureCollector = (
   context: SourceTypeFlowAnalysisContext,
   graph: SourceTypeFlowGraph,
+  isInference: (variable: SourceTypeFlowVariable) => boolean,
 ) => readonly SourceTypeFlowSignature[];

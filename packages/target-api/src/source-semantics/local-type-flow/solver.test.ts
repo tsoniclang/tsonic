@@ -3,6 +3,7 @@ import test from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
+import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor } from "./types.js";
 
@@ -254,6 +255,74 @@ test("a depth-five open literal refuses instead of publishing a shallow descript
 test("a fractional bitwise derived local never publishes a floating bitwise carrier", () => {
   const current = fixture("function run(): void { const value = 0.5; const derived = ~value; }");
   assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED"), true);
+});
+
+test("C29 module declarations keep their own type without signature refusals", () => {
+  const current = fixture('const foo = "bar"; export const record: Record<string, string> = { foo }; export const plain = 7 / 2; export const typed: int32 = 7 / 2;');
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const defaults = createSourceTypeFlowAnalysisContext(current.source);
+  assertSameValue(current.type("plain"), defaults.context.describe(current.declaration("plain")));
+  assertSameValue(current.type("typed"), { kind: "primitive", primitive: "int32" });
+  assert.equal(current.source.effectiveTypes.get(current.declaration("record")) === undefined, true);
+});
+
+test("C29 declared recursive unions stay outside the descriptor domain without refusing", () => {
+  const current = fixture("type Tree = number | readonly Tree[]; declare const input: Tree; function run(value: Tree): Tree { const retained: Tree = value; return retained; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  for (const name of ["input", "retained"]) {
+    assert.equal(current.source.effectiveTypes.get(current.declaration(name)) === undefined, true, name);
+  }
+});
+
+test("C29 a fixed read keeps its own carrier when an open sibling conflicts", () => {
+  const current = fixture("declare function take(values: number[]): void; function run(value: int32): void { const values = [value, 1]; take(values); }");
+  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT"), true);
+  const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "value");
+  if (parameter === undefined) throw new Error("The exact declared parameter is required.");
+  for (const use of current.source.navigation.declarationUses(parameter)) {
+    if (use.kind === "type-only" || use.kind === "source-linkage") continue;
+    const outcome = current.source.effectiveTypes.get(use.reference);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
+    if (outcome === undefined || outcome.kind === "refused") throw new Error("The fixed read is not an inference refusal.");
+    assertSameValue(outcome.type, { kind: "primitive", primitive: "int32" });
+  }
+});
+
+test("C29 annotated aggregate construction does not retype its fixed children", () => {
+  const current = fixture("function run(narrow: float32, signed: int32): void { const values: float32[] = [narrow, signed]; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assertSameValue(current.type("values"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float32" } });
+  const signed = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "signed");
+  if (signed === undefined) throw new Error("The exact signed source parameter is required.");
+  for (const use of current.source.navigation.declarationUses(signed)) {
+    const outcome = current.source.effectiveTypes.get(use.reference);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
+    if (outcome === undefined || outcome.kind === "refused") throw new Error("The original fixed source read is required.");
+    assertSameValue(outcome.type, { kind: "primitive", primitive: "int32" });
+  }
+});
+
+test("C29 open union demands still produce the original Host refusal", () => {
+  const current = fixture("declare function take(value: number | string): void; function run(): void { const value = 1; take(value); }");
+  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true);
+  assert.equal(outcomeCode(current.source.effectiveTypes.get(current.declaration("value"))), "TSONIC_LOCAL_TYPE_UNION");
+});
+
+test("synthetic call result terms never request literal construction admission", () => {
+  const current = fixture("function run(values: int32[]): void { const mapped = values.map(value => value); const filtered = values.filter(value => value > 0); const actual = [1, 2]; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission");
+  const aggregate = admissions.filter(obligation => obligation.type.kind === "array" || obligation.type.kind === "shape");
+  assert.equal(aggregate.length > 0, true);
+  assert.equal(aggregate.every(obligation => current.source.ast.is.IsArrayLiteralExpression(obligation.site) ||
+    current.source.ast.is.IsObjectLiteralExpression(obligation.site)), true);
+  assert.equal(admissions.every(obligation => !current.source.ast.is.IsCallExpression(obligation.site)), true);
+  assert.equal(admissions.some(obligation => current.source.ast.is.IsNumericLiteral(obligation.site)), true);
+});
+
+test("negative zero publishes the floating default for an open and an exported binding", () => {
+  const current = fixture("function run(): void { const local = -0; const derived = local + 1; } export const exported = -0;");
+  for (const name of ["local", "derived", "exported"]) assertSameValue(current.type(name), { kind: "primitive", primitive: "float64" });
 });
 
 function assertSameValue(actual: unknown, expected: unknown): void {
