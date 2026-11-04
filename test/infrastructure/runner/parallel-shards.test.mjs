@@ -143,7 +143,7 @@ test("exclusive native task groups validate in both assembly and directory modes
   for (const [taskMode, group] of [["assembly", "assembly"], ["directory", "."]]) {
     const suite = { scope: "tsonic", group: "native-fixture", taskMode, exclusiveGroups: [group],
       directory, cwd: root, projectOrSolution };
-    const definition = { nodeSuites: [], architectureSuites: [], dotnetSuites: [suite] };
+    const definition = { bank: "host", preRuns: [], nodeSuites: [], architectureSuites: [], dotnetSuites: [suite] };
     const { shards, inventory } = createParallelShardPlan(definition, { tsonic: root }, paths);
     assert.equal(shards.length, 1, taskMode);
     assert.equal(shards[0].exclusive, true, `${taskMode}: declared metadata reaches the real task`);
@@ -161,7 +161,7 @@ test("exclusive native task groups validate in both assembly and directory modes
     const suite = { scope: "tsonic", group: "native-fixture", taskMode, exclusiveGroups,
       directory, cwd: root, projectOrSolution };
     const script = `import { createParallelShardPlan } from ${JSON.stringify(resolve(tsonicRoot, "test/scripts/parallel-shards.mjs"))};
-      createParallelShardPlan({ nodeSuites: [], architectureSuites: [], dotnetSuites: [${JSON.stringify(suite)}] },
+      createParallelShardPlan({ bank: "host", preRuns: [], nodeSuites: [], architectureSuites: [], dotnetSuites: [${JSON.stringify(suite)}] },
         { tsonic: ${JSON.stringify(root)} }, ${JSON.stringify(paths)});`;
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", script],
       { encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
