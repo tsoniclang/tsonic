@@ -53,6 +53,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const calls = new WeakMap<Node, SourceEffectiveCallInstantiation>();
   const obligations: SourceTypeFlowObligation[] = [];
   const issues: SourceTypeFlowRefusal[] = [...graph.refusals];
+  const valueVariables = new WeakMap<Node, SourceTypeFlowVariable>();
+  for (const node of graph.nodes) if (node.publish && node.kind !== "binder" && node.variable.path.length === 0) {
+    valueVariables.set(node.node, node.variable);
+  }
+  for (const derived of graph.derived) valueVariables.set(derived.node, derived.result);
 
   function group(variable: SourceTypeFlowVariable): Group {
     const selected = terms.group(variable);
@@ -67,6 +72,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   for (const selected of terms.groups()) group(selected.variable);
   for (const use of uses) group(use.variable);
+  for (const use of uses) if (use.kind === "write" && use.valueVariable !== undefined) group(use.valueVariable);
   for (const use of uses) if (use.kind === "refused") group(use.variable).issues.push(use.refusal);
   for (const signature of signatures) group(signature.variable).signatures.push(signature);
   for (const derived of graph.derived) group(derived.result).derived.push(derived);
@@ -88,29 +94,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (prior === undefined) interfaceChecks.set(selected, { type: use.type, site: use.site });
     else if (!sourceTypeDescriptorsEqual(prior.type, use.type)) refuse(selected, "TSONIC_LOCAL_TYPE_CONFLICT", use.site, prior.site);
   }
-  function member(type: SourceTypeDescriptor, name: string): SourceTypeDescriptor | undefined {
+  function member(type: SourceTypeDescriptor, name: string, site: Node): SourceTypeDescriptor | undefined {
     if (type.kind === "shape") return type.members.find(selected => selected.name === name)?.type;
     if (type.kind !== "declared" || type.source === undefined) return undefined;
-    const queries = source.semantics.forNode(type.declaration);
+    const queries = source.semantics.forNode(site);
     const property = queries.types.propertyInfos(type.source.selectedType).find(candidate => candidate.name === name);
     if (property === undefined) return undefined;
     const declaration = queries.declarations.primarySymbolDeclaration(property.symbol);
-    return context.describe(declaration ?? type.declaration, { selectedType: property.type,
+    return context.describe(site, { selectedType: property.type,
       ...(declaration === undefined ? {} : { declaration, authoredTypeNode: source.ast.typeNode(declaration) }) });
-  }
-  function project(variable: SourceTypeFlowVariable, type: SourceTypeDescriptor): SourceTypeDescriptor | undefined {
-    let selected: SourceTypeDescriptor | undefined = type;
-    for (const part of variable.path) {
-      if (selected === undefined) break;
-      if (part.kind === "element") selected = selected.kind === "array" ? selected.element : undefined;
-      else if (part.kind === "tuple") selected = selected.kind === "tuple" ? selected.elements[part.index] : undefined;
-      else if (part.kind === "member") selected = member(selected, part.name);
-      else if (selected.kind === "declared") {
-        const parameters = source.ast.typeParameters(selected.declaration);
-        selected = selected.typeArguments[parameters.indexOf(part.declaration)];
-      } else selected = undefined;
-    }
-    return selected;
   }
   const pendingFills: { readonly variable: SourceTypeFlowVariable; readonly fill: Fill }[] = [];
   for (const selected of groups.values()) {
@@ -142,7 +134,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       } else if (term.kind === "declared" && fill.type.kind === "declared" && term.declaration === fill.type.declaration) {
         term.typeArguments.forEach((argument, offset) => add(argument, fill.type.kind === "declared" ? fill.type.typeArguments[offset] : undefined));
       } else if (term.kind === "shape" && (fill.type.kind === "shape" || fill.type.kind === "declared")) {
-        for (const entry of term.members) add(entry.variable, member(fill.type, entry.name));
+        for (const entry of term.members) add(entry.variable, member(fill.type, entry.name, fill.site));
       }
     }
   }
@@ -323,17 +315,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       obligations.push(Object.freeze({ kind: use.check, site: use.site, type: selected.type,
         required: use.required, requiredType: freezeSourceTypeDescriptor(use.type), association: use.association }));
     } else if (use.kind === "write") {
-      const valueType = use.valueVariable === undefined ? outcomes.get(use.value) : undefined;
-      const selectedValue = use.valueVariable === undefined
-        ? valueType?.kind === "resolved" || valueType?.kind === "default" ? valueType.type : context.describe(use.value)
-        : group(use.valueVariable).type ?? (() => {
-          const actual = context.describe(use.value);
-          return actual === undefined ? undefined : project(use.valueVariable, actual);
-        })();
+      const valueVariable = use.valueVariable ?? valueVariables.get(use.value);
+      const valueGroup = valueVariable === undefined ? undefined : group(valueVariable);
+      const selectedValue = valueGroup?.issues.length === 0 ? valueGroup.type : undefined;
       obligations.push(Object.freeze({ kind: "write-fit", site: use.site, type: selected.type, required: use.required,
         value: use.value, ...(selectedValue === undefined ? {} : { valueType: freezeSourceTypeDescriptor(selectedValue) }),
-        ...(use.valueVariable === undefined ? {} : { valueVariable: Object.freeze({ node: use.valueVariable.node,
-          path: Object.freeze(use.valueVariable.path.map(part => Object.freeze({ ...part }))) }) }), association: use.association }));
+        ...(valueVariable === undefined ? {} : { valueVariable: Object.freeze({ node: valueVariable.node,
+          path: Object.freeze(valueVariable.path.map(part => Object.freeze({ ...part }))) }) }), association: use.association }));
     }
   }
   for (const use of uses) {

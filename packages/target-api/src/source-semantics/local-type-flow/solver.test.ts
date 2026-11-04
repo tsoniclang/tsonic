@@ -96,6 +96,28 @@ test("a declared compound-assignment right side fills the local", () => {
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
 });
 
+for (const statement of ["values[0] = value;", "target = value;"]) {
+  test(`write-fit retains the already-solved right side of ${statement}`, () => {
+    const current = fixture(`declare function broad(value: number): void; function run(): void { const values = [1]; let target = 1; let value = 1; broad(value); ${statement} }`);
+    assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
+    const write = current.source.effectiveTypes.obligations().find(row => row.kind === "write-fit" &&
+      current.source.ast.is.IsBinaryExpression(row.site) && current.source.ast.text(current.source.ast.as.AsBinaryExpression(row.site)?.Right) === "value");
+    assert.equal(write !== undefined, true);
+    assertSameValue(write?.type, { kind: "primitive", primitive: "int32" });
+    assertSameValue(write?.valueType, { kind: "primitive", primitive: "float64" });
+    assert.equal(write?.valueVariable?.node === write?.value && write?.valueVariable?.path.length === 0, true);
+  });
+}
+
+test("ordinary fixed API write values retain Native resolution outside the Host domain", () => {
+  const current = fixture("function run(input: number[]): void { const values = [1]; values[0] = input.length; }");
+  const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node));
+  const write = current.source.effectiveTypes.obligations().find(row => row.kind === "write-fit" && row.value === access);
+  assert.equal(access !== undefined && write !== undefined, true);
+  assert.equal(access !== undefined && current.source.effectiveTypes.get(access) === undefined, true);
+  assert.equal(write?.valueType === undefined && write?.valueVariable === undefined, true);
+});
+
 test("derived-local demands never flow back into arithmetic operands", () => {
   const current = fixture("declare function broad(value: number): void; function run(): void { const value = 1; const derived = value * 2; broad(derived); }");
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "int32" });
@@ -178,6 +200,23 @@ test("a seeded accumulator is checked once against its non-cyclic type", () => {
   const current = fixture("function run(): void { const values = [1, 2]; const total = values.reduce((sum, value) => sum + value, 0); }");
   assertSameValue(current.type("total"), { kind: "primitive", primitive: "int32" });
   assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), false);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("inline callable construction stays private while its chosen parameter and result are published", () => {
+  const current = fixture("function run(): void { const values = [1, 2]; const mapped = values.map(value => value * 2); }");
+  assertSameValue(current.type("mapped"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
+  const arrow = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
+  const parameter = arrow === undefined ? undefined : current.source.ast.parameters(arrow)[0];
+  const body = arrow === undefined ? undefined : current.source.ast.body(arrow);
+  assert.equal(arrow !== undefined && parameter !== undefined && body !== undefined, true);
+  assert.equal(arrow !== undefined && current.source.effectiveTypes.get(arrow) === undefined, true);
+  for (const node of [parameter, body]) {
+    const outcome = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
+    if (outcome !== undefined && outcome.kind !== "refused") assertSameValue(outcome.type, { kind: "primitive", primitive: "int32" });
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("a fractional accumulator return cannot retype an integer seed", () => {

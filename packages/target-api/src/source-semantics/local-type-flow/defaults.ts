@@ -126,7 +126,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         const body = ast.as.AsTypeAliasDeclaration(declaration)?.Type;
         if (body !== undefined && body !== node && !active.has(declaration)) {
           active.add(declaration);
-          const result = describeSyntax(body, semantics.forNode(declaration), depth);
+          const result = describeSyntax(body, queries, depth);
           active.delete(declaration);
           if (result !== undefined) return result;
         }
@@ -174,7 +174,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const values = elements.map(element => {
         const syntax = element.declaration === undefined ? undefined : ast.typeNode(element.declaration);
         return syntax === undefined ? describeType(element.type, queries, { selectedType: element.type }, depth + 1, declared)
-          : describeSyntax(syntax, semantics.forNode(syntax), depth + 1);
+          : describeSyntax(syntax, queries, depth + 1);
       });
       return values[0] === undefined || values[1] === undefined ? undefined
         : { kind: "tuple", readonly: queries.types.indexInfos(type).some(info => info.readonly), elements: [values[0], values[1]] };
@@ -208,7 +208,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const annotation = ast.typeNode(selected);
       const value = annotation === undefined
         ? describeType(property.type, queries, { selectedType: property.type, declaration: selected }, depth + 1, declared)
-        : describeSyntax(annotation, semantics.forNode(selected), depth + 1);
+        : describeSyntax(annotation, queries, depth + 1);
       if (value === undefined) return undefined;
       members.push({ name: property.name, type: property.optional && value.kind !== "optional"
         ? { kind: "optional", value } : value, declaration: selected, readonly: property.readonly });
@@ -261,13 +261,14 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return undefined;
   }
 
-  function describe(node: Node, component?: SourceTypeComponentEvidence, depth = 0): SourceTypeDescriptor | undefined {
+  function describe(node: Node, component?: SourceTypeComponentEvidence, depth = 0,
+    consumer?: SourceFileSemantics): SourceTypeDescriptor | undefined {
     if (depth > 4 || active.has(node)) return undefined;
     if (component === undefined) {
       const cached = cache.get(node);
       if (cached !== undefined) return cached;
     }
-    const queries = semantics.forNode(node);
+    const queries = consumer ?? semantics.forNode(node);
     active.add(node);
     let result: SourceTypeDescriptor | undefined;
     const rule = fixedRule(node);
@@ -276,22 +277,24 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const declaration = component?.declaration ?? declarationFor(node);
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
-    if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, semantics.forNode(annotation), depth);
+    if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth);
     if (result === undefined) result = primitive([...(component === undefined ? [node] : []),
       ...queries.facts.selectedSubjects(undefined, declaration),
       ...(component === undefined ? [] : queries.facts.typeSubjects(component.selectedType))]);
-    if (result === undefined && component === undefined && declaration !== undefined && declaration !== node) {
-      result = describe(declaration, undefined, depth);
+    const declarationFile = declaration === undefined ? undefined : ast.getSourceFile(declaration);
+    const includedDeclaration = declarationFile !== undefined && semantics.includes(declarationFile);
+    if (result === undefined && component === undefined && declaration !== undefined && declaration !== node && includedDeclaration) {
+      result = describe(declaration, undefined, depth, queries);
     }
     if (result === undefined && component === undefined) {
       const initializer = initializerOf(node);
-      if (initializer !== undefined) result = describe(initializer, undefined, depth);
+      if (initializer !== undefined) result = describe(initializer, undefined, depth, queries);
       else result = ownLiteral(node, depth);
     }
     if (result === undefined && annotation === undefined && component?.declaration !== undefined &&
-      component.declaration === declarationFor(node)) {
+      component.declaration === declarationFor(node) && includedDeclaration) {
       const initializer = initializerOf(component.declaration);
-      if (initializer !== undefined) result = describe(initializer, undefined, depth);
+      if (initializer !== undefined) result = describe(initializer, undefined, depth, queries);
     }
     if (result === undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node) ??
