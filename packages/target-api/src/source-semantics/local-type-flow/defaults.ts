@@ -182,6 +182,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const symbol = queries.declarations.typeSymbol(type);
     const declaration = symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol);
+    if (declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration)) return undefined;
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
       ast.is.IsEnumDeclaration(declaration))) {
       const values: SourceTypeDescriptor[] = [];
@@ -297,8 +298,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const type = component?.selectedType ?? queries.types.expressionType(node);
       if (node === declaration || type !== undefined && queries.types.isUnion(type)) result = { kind: "optional", value: result };
     }
-    if (result?.kind === "optional" && component === undefined && declaration !== undefined && node !== declaration) {
-      const selected = queries.types.expressionType(node);
+    if (result?.kind === "optional" && declaration !== undefined && node !== declaration &&
+      declaration === declarationFor(node)) {
+      const selected = component?.selectedType ?? queries.types.expressionType(node);
       if (selected !== undefined && !queries.types.isUnion(selected) && !queries.types.isNullish(selected)) result = result.value;
     }
     active.delete(node);

@@ -51,9 +51,13 @@ test("one eager publication fills numeric locals from the first exact demand", (
 test("a later conflicting exact demand retains its original checked site", () => {
   const current = fixture("declare function narrow(value: int32): void; declare function broad(value: number): void; function run(): void { const value = 1; narrow(value); broad(value); }");
   const failure = current.source.effectiveTypes.refusals().find(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT");
+  const later = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.text(current.source.ast.as.AsCallExpression(node)?.Expression) === "broad");
+  const earlier = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.source.ast.text(current.source.ast.as.AsCallExpression(node)?.Expression) === "narrow");
   assert.equal(failure !== undefined, true);
-  assert.equal(failure !== undefined && current.source.ast.text(failure.site).includes("broad"), true);
-  assert.equal(failure?.related !== undefined, true);
+  assert.equal(later !== undefined && failure?.site === current.source.ast.arguments(later)[0], true);
+  assert.equal(earlier !== undefined && failure?.related === current.source.ast.arguments(earlier)[0], true);
 });
 
 test("signature closure defaults leaves before exact use demands", () => {
@@ -205,4 +209,9 @@ test("the use bound is a Host refusal rather than a partial use prefix", () => {
 test("a depth-five open literal refuses instead of publishing a shallow descriptor", () => {
   const current = fixture("function run(): void { const value = [[[[[1]]]]]; }");
   assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
+});
+
+test("a fractional bitwise derived local never publishes a floating bitwise carrier", () => {
+  const current = fixture("function run(): void { const value = 0.5; const derived = ~value; }");
+  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED"), true);
 });

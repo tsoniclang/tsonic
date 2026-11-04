@@ -81,6 +81,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       : term.kind === "tuple" ? term.elements : term.kind === "shape" ? term.members.map(member => member.variable)
       : term.kind === "declared" ? term.typeArguments : [];
   }
+  const interfaceChecks = new Map<Group, { readonly type: SourceTypeDescriptor; readonly site: Node }>();
+  for (const use of uses) if (use.kind === "check" && use.check === "interface") {
+    const selected = group(use.variable);
+    const prior = interfaceChecks.get(selected);
+    if (prior === undefined) interfaceChecks.set(selected, { type: use.type, site: use.site });
+    else if (!sourceTypeDescriptorsEqual(prior.type, use.type)) refuse(selected, "TSONIC_LOCAL_TYPE_CONFLICT", use.site, prior.site);
+  }
   function member(type: SourceTypeDescriptor, name: string): SourceTypeDescriptor | undefined {
     if (type.kind === "shape") return type.members.find(selected => selected.name === name)?.type;
     if (type.kind !== "declared" || type.source === undefined) return undefined;
@@ -233,6 +240,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const first = types[0];
     if (first?.kind !== "primitive") return undefined;
     if (derived.operator === "negate" && (first.primitive === "uint32" || first.primitive === "uint64")) return undefined;
+    if (["bit-and", "bit-or", "bit-xor", "bit-not"].includes(derived.operator) &&
+      types.some(type => type?.kind !== "primitive" || !["int32", "uint32", "int64", "uint64"].includes(type.primitive))) return undefined;
     if (derived.operator === "shift-left" || derived.operator === "shift-right" || derived.operator === "shift-right-unsigned") {
       return ["int32", "uint32", "int64", "uint64"].includes(first.primitive) ? first : undefined;
     }
@@ -311,11 +320,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function obligation(use: SourceTypeFlowUse, selected: Group): void {
     if (selected.type === undefined || selected.issues.length > 0) return;
     if (use.kind === "check") {
-      const prior = obligations.find(row => row.kind === "interface" && row.requiredType !== undefined &&
-        uses.some(candidate => candidate.site === row.site && group(candidate.variable) === selected));
-      if (use.check === "interface" && prior?.requiredType !== undefined && !sourceTypeDescriptorsEqual(prior.requiredType, use.type)) {
-        refuse(selected, "TSONIC_LOCAL_TYPE_CONFLICT", use.site, prior.site);
-      }
       obligations.push(Object.freeze({ kind: use.check, site: use.site, type: selected.type,
         required: use.required, requiredType: freezeSourceTypeDescriptor(use.type), association: use.association }));
     } else if (use.kind === "write") {
