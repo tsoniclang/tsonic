@@ -295,6 +295,61 @@ test("U20 an inline argument closure belongs to the same inference root", () => 
   assert.deepEqual(kinds(current.run()), ["fill"]);
 });
 
+for (const invocation of ["consume", "new construct"]) {
+  for (const wrapper of [
+    { name: "parenthesized", wrap: (body: string) => `((${body}))` },
+    { name: "as", wrap: (body: string) => `((${body}) as ((value: unknown) => void))` },
+    { name: "satisfies", wrap: (body: string) => `((${body}) satisfies ((value: unknown) => void))` },
+  ]) {
+    test(`U20 ${invocation} keeps ${wrapper.name} inline roots and the original checked argument slot`, () => {
+      const original = `${invocation}(${wrapper.wrap("(value: unknown): void => {}")})`;
+      const captured = `${invocation}(${wrapper.wrap("(value: unknown): void => { take(n); }")})`;
+      const current = fixture(`declare function consume(callback: (value: unknown) => void): void;
+declare const construct: new (callback: (value: unknown) => void) => object;
+declare function take(value: int32): void;
+function run() { const n = 1; ${original}; ${captured}; }`);
+      const declaration = current.track("n");
+      const reference = current.source.navigation.declarationUses(declaration).find(use => use.captured);
+      if (reference === undefined) throw new Error("The original checked closure capture is required.");
+      current.add(reference.reference, declaration);
+      const closures = current.inventory.filter(node => current.source.ast.is.IsArrowFunction(node));
+      assert.equal(closures.length, 2, "both real closures remain published finite graph records");
+      for (const closure of closures) current.add(closure, undefined, "value");
+      const direct = current.call(current.find(original));
+      current.call(current.find(captured));
+      const uses = current.run();
+      assert.deepEqual(kinds(uses), ["fill"]);
+      assert.equal(uses[0]?.kind === "fill" && uses[0].type === integer, true, "the captured use keeps the original declared demand");
+      const argument = current.source.ast.arguments(direct.node)[0];
+      assert.equal(direct.source.sourceArguments[0]?.expression === argument, true, "the authored outer wrapper is the checked argument");
+      assert.equal(current.source.semantics.forNode(direct.node).operations.call(direct.node) === direct.source, true, "the original checked call is not reconstructed");
+      const foreignArguments: SourceTypeFlowAnalysisContext = { ...current.context, source: { ...current.source,
+        ast: { ...current.source.ast, arguments(node: Node | undefined) {
+          return node === direct.node ? [] : current.source.ast.arguments(node);
+        } },
+      } };
+      assert.throws(() => collectSourceTypeFlowUses(foreignArguments, current.graph()), /original inference root/u);
+    });
+  }
+}
+
+test("U20 root validation rejects stored, named and non-inline wrapper boundaries", () => {
+  for (const body of [
+    "const stored = (() => n) satisfies (() => number); void stored;",
+    "function nested() { return n; } void nested;",
+    "consume(<((value: unknown) => void)>((value: unknown): void => { take(n); }));",
+    "consume(((value: unknown): void => { take(n); })!);",
+  ]) {
+    const current = fixture(`declare function consume(callback: (value: unknown) => void): void;
+declare function take(value: int32): void; function run() { const n = 1; ${body} }`);
+    const declaration = current.track("n");
+    const reference = current.source.navigation.declarationUses(declaration).find(use => use.captured);
+    if (reference === undefined) throw new Error("The checked non-inline capture is required.");
+    current.add(reference.reference, declaration);
+    assert.throws(() => current.run(), /original inference root/u, "a separate callable root cannot be substituted by an outer graph root");
+  }
+});
+
 test("U21 a stored closure cannot transport an open group's inference across roots", () => {
   const current = fixture("function run() { const n = 1; const callback = () => n; void callback; }");
   current.track("n");
