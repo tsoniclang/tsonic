@@ -132,8 +132,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       : ast.is.IsImportTypeNode(node) ? ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
     if (referenceName !== undefined) {
       const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
-      const declaration = navigation.sourceReferenceFor(referenceName)?.declaration ??
-        (symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol));
+      const declaration = (symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol)) ??
+        navigation.sourceReferenceFor(referenceName)?.declaration;
       if (declaration !== undefined) {
         const declaredPrimitive = primitive([declaration, ...queries.facts.selectedSubjects(undefined, declaration)]);
         if (declaredPrimitive !== undefined) return declaredPrimitive;
