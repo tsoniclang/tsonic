@@ -215,8 +215,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     described?: SourceTypeDescriptor): SourceTypeFlowVariable | undefined {
     const type = described ?? context.describe(node, component);
     const sourceFile = ast.getSourceFile(node);
+    const declarationNode = ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
+      ast.is.IsBindingElement(node) || ast.is.IsPropertyDeclaration(node) ? node : component?.declaration;
     const variable = type === undefined ? undefined : record(node, "fixed", Object.freeze({ kind: "fixed", site: node, type }),
-      component?.declaration, sourceFile === undefined ? undefined : Object.freeze({ occurrence: node, sourceFile,
+      declarationNode, sourceFile === undefined ? undefined : Object.freeze({ occurrence: node, sourceFile,
         ...(component === undefined ? {} : { component }) }));
     const entry = nodes.get(node);
     if (entry !== undefined && type !== undefined && !declaredWidth(type)) nodes.set(node, Object.freeze({ ...entry, publish: false }));
