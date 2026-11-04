@@ -87,6 +87,14 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return undefined;
   }
 
+  function typeDeclaration(type: Type, queries: SourceFileSemantics): Node | undefined {
+    const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
+    return symbol === undefined ? undefined : queries.declarations.symbolDeclarations(symbol).find(declaration =>
+      ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
+      ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsEnumDeclaration(declaration) ||
+      ast.is.IsTypeParameterDeclaration(declaration));
+  }
+
   function describeSyntax(node: Node, queries: SourceFileSemantics, depth: number): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
     const direct = primitive([node]);
@@ -131,9 +139,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const referenceName = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
       : ast.is.IsImportTypeNode(node) ? ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
     if (referenceName !== undefined) {
-      const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
-      const declaration = (symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol)) ??
-        navigation.sourceReferenceFor(referenceName)?.declaration;
+      const declaration = typeDeclaration(type, queries);
       if (declaration !== undefined) {
         const declaredPrimitive = primitive([declaration, ...queries.facts.selectedSubjects(undefined, declaration)]);
         if (declaredPrimitive !== undefined) return declaredPrimitive;
@@ -201,8 +207,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return element === undefined ? undefined
         : { kind: "array", readonly: queries.types.indexInfos(type).some(info => info.readonly), element };
     }
-    const symbol = queries.declarations.typeSymbol(type);
-    const declaration = symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol);
+    const declaration = typeDeclaration(type, queries);
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
       ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration))) {
       const values: SourceTypeDescriptor[] = [];
