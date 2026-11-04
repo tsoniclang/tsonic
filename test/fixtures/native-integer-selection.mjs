@@ -3,7 +3,7 @@ import type { int8, int32, uint32 } from "@tsonic/core/types.js";
 function integerCopy(value: int32): int32 { value++; return value; }
 export function forwardedCount(bound: int32): int32 {
   let sum: int32 = 0;
-  for (let index = 0; index < bound; index++) sum += integerCopy(index);
+  for (let index: int32 = 0; index < bound; index++) sum += integerCopy(index);
   return sum;
 }
 export function boundedCount(bound: int8): int32 {
@@ -41,7 +41,7 @@ export function growing(): string {
 }
 export function fractional(values: string[]): number {
   let result = 0;
-  for (let index = 0; index < values.length; index++) result += index / 2;
+  for (let index: number = 0; index < values.length; index++) result += index / 2;
   return result;
 }
 export function annotated(values: string[]): number {
@@ -51,7 +51,7 @@ export function annotated(values: string[]): number {
 }
 export function mutableCounter(values: string[]): number {
   let result = 0;
-  for (let index = 0; index < values.length; index++) { result += index; index += 0.5; }
+  for (let index: number = 0; index < values.length; index++) { result += index; index += 0.5; }
   return result;
 }
 export function integralFloor(value: int32) { return Math.floor(value); }
