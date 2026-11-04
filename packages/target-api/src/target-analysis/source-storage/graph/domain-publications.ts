@@ -17,7 +17,7 @@ export interface SourceStoragePublication {
 }
 
 export function createSourceStorageDomainPublications(budget: SourceStorageBudget, emptyBindings: SourceStorageScope) {
-  const pending: SourceStoragePublication[] = [];
+  const pending: (SourceStoragePublication | undefined)[] = [];
   const admitted = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, Map<Node, number>>>>();
   type ViewAdmissions = Map<SourceStorageSubject | undefined, Map<Type | undefined, typeof admitted>>;
   const scopedAdmissions = new Map<SourceStorageSubject, Map<SourceStorageScope, ViewAdmissions>>();
@@ -82,6 +82,11 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
     },
     size: (): number => pending.length,
     at: (index: number): SourceStoragePublication | undefined => pending[index],
+    take(index: number): SourceStoragePublication | undefined {
+      const publication = pending[index];
+      pending[index] = undefined;
+      return publication;
+    },
     finish(): void {
       if (closed) return;
       closed = true;

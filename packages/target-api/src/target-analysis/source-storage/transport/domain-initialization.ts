@@ -96,19 +96,22 @@ export function createSourceStorageDomainInitialization(input: {
     }
   };
   const accessible = (declaration: Node): boolean => !ast.hasModifierKind(declaration, "private");
+  const initializeAmbientVariable = (node: Node): boolean => {
+    if (!ast.is.IsVariableDeclaration(node) || Node_Initializer(ast, node) !== undefined) return true;
+    const ambient = transport.declarationIsAmbient(node);
+    if (ambient === undefined) return false;
+    if (ambient) {
+      const subject = transport.subjectFor(node);
+      add(subject, "external-input", node);
+      publish(subject, node, false, "external-write", undefined, undefined, true, subject);
+    }
+    return true;
+  };
   const initializePublications = (): void => {
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsVariableDeclaration(node) && !ast.is.IsFunctionDeclaration(node) && !ast.is.IsClassDeclaration(node)) continue;
-      if (ast.is.IsVariableDeclaration(node) && navigation.isProjectDeclaration(node) && Node_Initializer(ast, node) === undefined) {
-        const ambient = transport.declarationIsAmbient(node);
-        if (ambient === undefined) return;
-        if (ambient) {
-          const subject = transport.subjectFor(node);
-          add(subject, "external-input", node);
-          publish(subject, node, false, "external-write", undefined, undefined, true, subject);
-        }
-      }
+      if (!initializeAmbientVariable(node)) return;
       const summary = navigation.declarationUseSummary(node);
       if (summary.exported) {
         const subject = transport.subjectFor(node);
@@ -120,6 +123,7 @@ export function createSourceStorageDomainInitialization(input: {
     }
     for (const node of transport.checkedDeclarations.keys()) {
       if (!budget.step()) return;
+      if (!initializeAmbientVariable(node)) return;
       if (!ast.is.IsPropertyDeclaration(node) || !ast.hasModifierKind(node, "static") ||
         transport.declarationIsAmbient(node) !== true) continue;
       const subject = transport.subject(node, "member");
@@ -149,8 +153,8 @@ export function createSourceStorageDomainInitialization(input: {
           add(transport.locationFor(storage ?? expression), "opaque-write", boundary.invocation);
       }
     }
-    for (let index = 0; index < publications.size() && budget.step(); index += 1) {
-      const publication = publications.at(index)!;
+  };
+  const expandPublication = (publication: SourceStoragePublication): void => {
       const context = semantics.forFile(publication.sourceFile);
       const present = sourcePresentStorageType(publication.type, context);
       if (present === undefined) {
@@ -159,10 +163,10 @@ export function createSourceStorageDomainInitialization(input: {
           if (!context.types.isNullish(type)) publish(publication.subject, publication.exposure, publication.writes,
             publication.kind, type, publication.sourceFile, publication.externalEntry, publication.inputOwner);
         }
-        continue;
+        return;
       }
       if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
-        context.types.isVoidLike(present) || context.types.isNever(present)) continue;
+        context.types.isVoidLike(present) || context.types.isNever(present)) return;
       const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
         : transport.substitutions.projectedValues(publication.receiver) ?? [];
       for (const selectedOwner of origins) {
@@ -251,7 +255,6 @@ export function createSourceStorageDomainInitialization(input: {
           }
         }
       }
-    }
   };
-  return initializePublications;
+  return Object.freeze({ initialize: initializePublications, expand: expandPublication });
 }
