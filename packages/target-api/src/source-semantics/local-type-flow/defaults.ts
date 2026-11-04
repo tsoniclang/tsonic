@@ -48,6 +48,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   }
 
   function declarationFor(node: Node): Node | undefined {
+    if (ast.is.IsPropertyAccessExpression(node)) {
+      const access = semantics.forNode(node).operations.propertyAccess(node);
+      return access?.selectedReadDeclaration ?? access?.selectedDeclaration;
+    }
+    if (ast.is.IsElementAccessExpression(node)) return semantics.forNode(node).operations.elementAccess(node)?.selectedDeclaration;
     return navigation.sourceReferenceFor(node)?.declaration ??
       (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
         ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ? node : undefined);

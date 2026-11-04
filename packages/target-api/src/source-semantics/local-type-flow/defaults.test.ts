@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits } from "./defaults.js";
@@ -25,14 +26,14 @@ function fixture(text: string) {
 
 test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
   const current = fixture("export const integer = 1; export const fractional = 1.0; export const exponent = 1e3; export const radix = 0xff;");
-  for (const name of ["integer", "radix"]) assert.deepEqual(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int32" });
-  for (const name of ["fractional", "exponent"]) assert.deepEqual(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
+  for (const name of ["integer", "radix"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int32" });
+  for (const name of ["fractional", "exponent"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
 });
 
 test("authored array syntax preserves the element source fact instead of erasing to number", () => {
   const current = fixture("declare const integers: int32[]; declare const singles: readonly float32[];");
-  assert.deepEqual(current.defaults.context.describe(current.declaration("integers")), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
-  assert.deepEqual(current.defaults.context.describe(current.declaration("singles")), { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float32" } });
+  assertSameValue(current.defaults.context.describe(current.declaration("integers")), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
+  assertSameValue(current.defaults.context.describe(current.declaration("singles")), { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float32" } });
 });
 
 test("a required component overrides the occurrence's literal default", () => {
@@ -43,7 +44,7 @@ test("a required component overrides the occurrence's literal default", () => {
   if (selectedType === undefined) throw new Error("The checked required type is required.");
   const value = current.defaults.context.describe(current.declaration("literal"), { selectedType, declaration,
     authoredTypeNode: current.source.ast.typeNode(declaration) });
-  assert.deepEqual(value, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
+  assertSameValue(value, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
 });
 
 test("nominal source identity is a declaration and its ordered actual descriptors", () => {
@@ -51,19 +52,19 @@ test("nominal source identity is a declaration and its ordered actual descriptor
   const type = current.defaults.context.describe(current.declaration("box"));
   assert.equal(type?.kind === "declared", true);
   assert.equal(type?.kind === "declared" && current.source.ast.is.IsClassDeclaration(type.declaration), true);
-  if (type?.kind === "declared") assert.deepEqual(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
+  if (type?.kind === "declared") assertSameValue(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
 });
 
 test("the two readonly tuple positions retain independent source widths", () => {
   const current = fixture("declare const pair: readonly [int32, float32];");
-  assert.deepEqual(current.defaults.context.describe(current.declaration("pair")), { kind: "tuple", readonly: true,
+  assertSameValue(current.defaults.context.describe(current.declaration("pair")), { kind: "tuple", readonly: true,
     elements: [{ kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float32" }] });
 });
 
 test("a descending or non-unit-step counter is fixed without a counted-loop proof", () => {
   const current = fixture("function run(): void { for (let index = 8; index >= 0; index -= 2) {} }");
   const node = current.declaration("index"); const rule = current.defaults.fixedRule(node);
-  assert.deepEqual(current.defaults.context.describe(node), { kind: "primitive", primitive: "int64" });
+  assertSameValue(current.defaults.context.describe(node), { kind: "primitive", primitive: "int64" });
   assert.equal(rule?.kind, "loop-counter"); assert.equal(rule?.declaration === node, true);
   assert.equal(Object.isFrozen(rule), true);
 });
@@ -71,6 +72,11 @@ test("a descending or non-unit-step counter is fixed without a counted-loop proo
 test("ordinary int64-compatible values do not acquire loop-counter authority", () => {
   const current = fixture("export const value = 8;");
   assert.equal(current.defaults.fixedRule(current.declaration("value")), undefined);
+});
+
+test("checked optional-property occurrences keep their narrowed declared width", () => {
+  const current = fixture("declare const data: { value?: int32 }; function run(): void { if (data.value !== undefined) { const narrowed = data.value; } }");
+  assertSameValue(current.defaults.context.describe(current.declaration("narrowed")), { kind: "primitive", primitive: "int32" });
 });
 
 test("source order uses exact authored starts and one preorder tie breaker", () => {
@@ -90,3 +96,7 @@ test("range admission distinguishes signed, unsigned, floating and decimal domai
   assert.equal(sourceTypeFlowIntegerFits(10n ** 400n, "float64"), false);
   assert.equal(sourceTypeFlowIntegerFits(79228162514264337593543950336n, "decimal"), false);
 });
+
+function assertSameValue(actual: unknown, expected: unknown): void {
+  assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
+}
