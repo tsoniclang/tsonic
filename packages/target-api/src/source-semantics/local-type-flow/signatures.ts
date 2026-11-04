@@ -210,7 +210,8 @@ function inlineArgument(ast: AstReader, callable: Node): boolean {
   for (;;) {
     const parent = ast.parent(current);
     if (parent === undefined) return false;
-    if (ast.is.IsParenthesizedExpression(parent) && Node_Expression(ast, parent) === current) {
+    if ((ast.is.IsParenthesizedExpression(parent) || ast.is.IsAsExpression(parent) ||
+      ast.is.IsSatisfiesExpression(parent)) && Node_Expression(ast, parent) === current) {
       current = parent;
       continue;
     }

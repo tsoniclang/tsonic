@@ -169,6 +169,8 @@ test("unannotated fields and parameter defaults are signature roots; annotated o
 for (const [label, statement] of [
   ["arrow", "consume((sourceValue = 1) => sourceValue);"],
   ["parenthesized arrow", "consume((((sourceValue = 1) => sourceValue)));"],
+  ["satisfies arrow", "consume(((sourceValue = 1) => sourceValue) satisfies ((value?: number) => number));"],
+  ["asserted arrow", "consume(((sourceValue = 1) => sourceValue) as ((value?: number) => number));"],
   ["function expression", "consume(function(sourceValue = 1) { return sourceValue; });"],
 ] as const) {
   test(`direct-argument ${label} parameters and returns are not signatures`, () => {
