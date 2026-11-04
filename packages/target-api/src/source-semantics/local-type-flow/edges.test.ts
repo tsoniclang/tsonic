@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics,
-  sourcePrimitive, type Node,
+  sourcePrimitive, type Node, type SourceFile,
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
@@ -12,7 +12,7 @@ import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
 function lastPath(variable: SourceTypeFlowVariable) { return variable.path[variable.path.length - 1]; }
 
-function fixture(program: string) {
+function fixture(program: string, excludedFiles: Readonly<Record<string, string>> = {}) {
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
@@ -39,6 +39,7 @@ function fixture(program: string) {
         }
       `,
       "/src/index.ts": `import type { word } from "@test/native/types.js";\n${program}`,
+      ...excludedFiles,
     },
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
     extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{
@@ -48,12 +49,18 @@ function fixture(program: string) {
   }).checkSource();
   assert.equal(formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined), "/src"), "");
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the checked program has its exact source file");
+  const source = createTargetSourceProgram(Object.keys(excludedFiles).length === 0 ? checked : {
+    ...checked, sourceFiles: Object.freeze([file!]),
+    getSourceFileQueries(sourceFile: SourceFile | undefined) {
+      assert.equal(sourceFile === file, true, "excluded declarations retain the included checked consumer query context");
+      return checked.getSourceFileQueries(sourceFile);
+    },
+  });
   const context = createSourceTypeFlowAnalysisContext(source).context;
   const graph = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(graph);
-  const file = checked.getSourceFile("/src/index.ts");
-  assert.equal(file !== undefined, true, "the checked program has its exact source file");
   const syntax: Node[] = [];
   const pending: Node[] = [file!];
   while (pending.length !== 0) {
@@ -91,8 +98,72 @@ function fixture(program: string) {
     assert.equal(selected.length, 1, `one exact binding: ${name}`);
     return selected[0]!;
   }
-  return { source, context, graph, terms, syntax, text, node, entry, variable, same, declaration };
+  return { checked, file: file!, source, context, graph, terms, syntax, text, node, entry, variable, same, declaration };
 }
+
+test("excluded declaration owners retain the included consumer query context", () => {
+  const current = fixture(`import { Native } from "./native.js";
+    export function read(value: Native): number { return value.field; }`, {
+    "/src/native.ts": "export class Native { field: number = 7; }",
+  });
+  const native = current.checked.getSourceFile("/src/native.ts")!;
+  const declaration = current.source.ast.statements(native).find(node => node !== undefined && current.source.ast.is.IsClassDeclaration(node))!;
+  const checker = current.checked.getSourceFileQueries(current.file).checker;
+  const expected = checker.getSymbolAtLocation(current.source.ast.name(declaration));
+  assert.equal(expected !== undefined, true);
+  assert.equal(current.source.navigation.declarationSymbol(declaration, current.file) === expected, true);
+  const semantics = current.source.semantics.forFile(current.file);
+  assert.equal(semantics.declarations.declaredValueType(declaration) === checker.getTypeOfSymbol(expected), true);
+  assert.equal(semantics.declarations.declaredType(declaration) === checker.getDeclaredTypeOfSymbol(expected), true);
+  assert.equal(current.source.sourceFiles.length, 1);
+  assert.equal(current.source.sourceFiles[0] === current.file, true);
+  assert.equal(current.source.semantics.includes(native), false);
+  assert.equal(current.source.navigation.isProjectDeclaration(declaration), false);
+  assert.equal(current.graph.roots.includes(native), false);
+  assert.equal(current.graph.nodes.every(entry => current.source.ast.getSourceFile(entry.node) === current.file), true);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("foreign generic formals keep the caller queries and exact selected binder associations", () => {
+  const current = fixture(`import { Native } from "./native.js";
+    function run(receiver: Native<word>) {
+      const constructor = Native;
+      const seed = [1];
+      const result = receiver.apply(2, seed, (value, index) => seed);
+      const pairs = new PairStore([[1, "value"]]);
+      return result;
+    }`, {
+    "/src/native.ts": `import type { word } from "@test/native/types.js";
+      export class Native<T> {
+        apply<U extends { readonly length: word }>(value: T, seed: U, callback: (value: T, index: word) => U): U {
+          return callback(value, 0 as word);
+        }
+      }`,
+  });
+  const native = current.checked.getSourceFile("/src/native.ts")!;
+  const selected = current.graph.calls.find(call => current.text(call.node).startsWith("receiver.apply("));
+  assert.equal(selected?.receiver.length, 1);
+  assert.equal(selected?.method.length, 1);
+  assert.equal(selected?.argumentPlaces.length, 2);
+  assert.equal(selected !== undefined && selected.receiver[0]!.declaration !== selected.method[0]!.declaration, true);
+  assert.equal(selected !== undefined && current.source.ast.getSourceFile(selected.receiver[0]!.declaration) === native, true);
+  assert.equal(selected !== undefined && current.source.ast.getSourceFile(selected.method[0]!.declaration) === native, true);
+  assert.equal(selected?.method[0]?.constraint !== undefined, true);
+  assert.equal(selected !== undefined && selected.argumentPlaces.every(place =>
+    selected.source.sourceArgumentBindings.includes(place.binding) && selected.source.sourceSelectedSignatureParameters.includes(place.parameter)), true);
+  assert.equal(selected !== undefined && !current.same(selected.argumentPlaces[0]!.value, selected.receiver[0]!.variable), true);
+  assert.equal(selected !== undefined && current.same(selected.argumentPlaces[1]!.value, selected.method[0]!.variable), true);
+  const index = current.graph.nodes.find(entry => entry.kind === "parameter" && current.source.ast.text(current.source.ast.name(entry.node)) === "index");
+  assert.equal(index?.term?.kind === "fixed" && index.term.type.kind === "primitive" && index.term.type.primitive === "int32", true);
+  const pair = current.graph.calls.find(call => current.source.ast.is.IsNewExpression(call.node));
+  assert.equal(pair?.method.length, 2);
+  assert.equal(pair?.argumentPlaces.length, 2);
+  const constructor = current.graph.nodes.find(entry => entry.node === current.declaration("constructor"));
+  assert.equal(constructor?.kind, "fixed");
+  assert.equal(current.graph.roots.includes(native), false);
+  assert.equal(current.graph.nodes.every(entry => current.source.ast.getSourceFile(entry.node) === current.file), true);
+  assert.equal(current.graph.refusals.length, 0);
+});
 
 test("declaration aliases and nested member reads keep the same structural variables", () => {
   const current = fixture(`function run() {
@@ -154,6 +225,56 @@ test("object spread overwrites keep only the final creation-time member", () => 
   const result = current.node("copy.value", node => current.source.ast.is.IsPropertyAccessExpression(node));
   assert.equal(current.same(current.variable(second), current.variable(result)), true);
   assert.equal(current.same(current.variable(first), current.variable(result)), false);
+});
+
+test("computed and numeric binding paths consume the exact completed Source property names", () => {
+  const current = fixture(`function run() {
+    const values = { 16: 1, 0: 2, name: 3 }; const key = "name";
+    const { 0x10: numbered, [-0]: zero, [key]: named } = values;
+    return numbered;
+  }`);
+  for (const [name, expected] of [["numbered", "16"], ["zero", "0"], ["named", "name"]]) {
+    const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+      current.source.ast.text(current.source.ast.name(node)) === name);
+    assert.equal(binding !== undefined, true);
+    const property = current.source.ast.as.AsBindingElement(binding!)?.PropertyName;
+    const selection = property === undefined ? undefined : current.source.semantics.forNode(binding!).propertyNames.get(property);
+    assert.equal(selection?.kind === "resolved" && selection.name === expected, true);
+    const link = current.graph.links.find(link => link.target === current.variable(binding!));
+    const part = link === undefined ? undefined : lastPath(link.source);
+    assert.equal(part?.kind === "member" && part.name === expected, true);
+  }
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("rejected computed binding keys preserve the Source selection without guessed member links", () => {
+  const current = fixture(`function run() {
+    const key = 9007199254740993; const values = { [key]: 1, 16: 2 };
+    const { [key]: first, 0x10: second } = values; return second;
+  }`);
+  const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "first");
+  assert.equal(binding !== undefined, true);
+  const property = current.source.ast.as.AsBindingElement(binding!)?.PropertyName;
+  const selection = property === undefined ? undefined : current.source.semantics.forNode(binding!).propertyNames.get(property);
+  assert.equal(selection?.kind, "rejected");
+  assert.equal(current.graph.refusals.some(refusal => refusal.site === binding && refusal.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED"), true);
+  assert.equal(current.graph.links.some(link => link.target.node === binding), false);
+});
+
+test("type-syntax literal tokens never become runtime value publications", () => {
+  const current = fixture(`declare function hasOne(value: unknown): value is { count: 1; extra: boolean };
+    type Shape = { count: 2 }; interface Contract { count: 3 }
+    function run(value: 4): number { const actual = 5; return actual; }`);
+  const typeLiterals = current.syntax.filter(node => current.source.ast.is.IsNumericLiteral(node) &&
+    current.source.ast.is.IsLiteralTypeNode(current.source.ast.parent(node)));
+  assert.equal(typeLiterals.length, 4);
+  assert.equal(typeLiterals.every(node => current.context.literal(node) !== undefined), true,
+    "the shared literal reader retains syntax evidence without declaring it a runtime value");
+  assert.equal(typeLiterals.every(node => !current.graph.nodes.some(entry => entry.node === node)), true);
+  const actual = current.node("5", node => current.source.ast.is.IsNumericLiteral(node));
+  assert.equal(current.graph.nodes.some(entry => entry.node === actual && entry.publish), true);
+  assert.equal(current.graph.refusals.length, 0);
 });
 
 test("arithmetic records ordered dependencies and never propagates a use into operands", () => {
@@ -278,6 +399,32 @@ test("inline argument closures share a root while stored closures never acquire 
     const second = stored.graph.nodes.find(entry => entry.node === link.target.node);
     return first?.root === second?.root;
   }), true);
+});
+
+test("inline callback construction positions are internal while their parameter and return groups publish", () => {
+  const current = fixture(`function run() {
+    const values = [1, 2];
+    const mapped = values.map(value => value * 2);
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return mapped;
+  }`);
+  const calls = current.graph.calls.filter(call => current.text(call.node).startsWith("values."));
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    const callback = call.source.sourceArguments.find(argument => current.source.ast.is.IsArrowFunction(argument.expression))?.expression;
+    assert.equal(callback !== undefined, true);
+    const construction = current.graph.nodes.find(entry => entry.node === callback && entry.variable.path.length === 0);
+    assert.equal(construction !== undefined, true);
+    assert.equal(construction?.publish, false, "the construction position has no callable descriptor to publish");
+    assert.equal(construction?.term === undefined, true);
+    for (const parameter of current.source.ast.parameters(callback!)) {
+      assert.equal(parameter !== undefined && current.graph.nodes.some(entry => entry.node === parameter && entry.publish), true);
+    }
+    const returned = current.source.ast.body(callback!);
+    assert.equal(returned !== undefined && current.graph.nodes.some(entry => entry.node === returned && entry.publish), true);
+    assert.equal(call.source === current.source.semantics.forNode(call.node).operations.call(call.node), true);
+  }
+  assert.equal(current.graph.refusals.length, 0);
 });
 
 test("declared one-absence results keep their binder and open receiver unions are refused", () => {
