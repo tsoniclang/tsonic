@@ -302,6 +302,77 @@ test("C29 annotated aggregate construction does not retype its fixed children", 
   }
 });
 
+for (const [name, body] of [
+  ["annotated alias initializer", "type Values = float32[]; function run(narrow: float32, signed: int32): void { const values: Values = [narrow, signed]; }"],
+  ["declared return", "function run(narrow: float32, signed: int32): float32[] { return [narrow, signed]; }"],
+  ["declared concise body", "function run(narrow: float32, signed: int32): void { const make = (): float32[] => [narrow, signed]; }"],
+  ["declared async return", "async function run(narrow: float32, signed: int32): Promise<float32[]> { return [narrow, signed]; }"],
+  ["concrete as position", "function run(narrow: float32, signed: int32): void { const values = ([narrow, signed] as float32[]); }"],
+  ["concrete satisfies position", "function run(narrow: float32, signed: int32): void { const values = ([narrow, signed] satisfies float32[]); }"],
+] as const) {
+  test(`C30 ${name} owns the construction type without joining fixed element carriers`, () => {
+    const current = fixture(body);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+    if (literal === undefined) throw new Error("The original declared array literal is required.");
+    const outcome = current.source.effectiveTypes.get(literal);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true, name);
+    if (outcome === undefined || outcome.kind === "refused") throw new Error("The declared construction type is required.");
+    assertSameValue(outcome.type, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float32" } });
+    assert.equal(outcome.provenance.component?.authoredTypeNode !== undefined, true);
+    for (const [parameterName, primitive] of [["narrow", "float32"], ["signed", "int32"]] as const) {
+      const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) &&
+        current.source.ast.text(current.source.ast.name(node)) === parameterName);
+      if (parameter === undefined) throw new Error("The exact fixed source parameter is required.");
+      for (const use of current.source.navigation.declarationUses(parameter)) {
+        if (use.kind === "type-only" || use.kind === "source-linkage") continue;
+        const value = current.source.effectiveTypes.get(use.reference);
+        assert.equal(value !== undefined && value.kind !== "refused", true, parameterName);
+        if (value === undefined || value.kind === "refused") throw new Error("The original fixed operand is required.");
+        assertSameValue(value.type, { kind: "primitive", primitive });
+      }
+    }
+    assert.equal(current.source.effectiveTypes.obligations().some(obligation => obligation.kind === "literal-admission" &&
+      obligation.site === literal && isDeepStrictEqual(obligation.type, outcome.type)), true);
+  });
+}
+
+test("C30 a declared construction never retypes an independently filled open operand", () => {
+  const current = fixture("declare function broad(value: number): void; function run(signed: int32): void { const value = 1; broad(value); const values: float32[] = [value, signed]; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
+  assertSameValue(current.type("values"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float32" } });
+  const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
+});
+
+test("C30 data-member construction keeps its declared shape and the original operands", () => {
+  const current = fixture("declare function broad(value: number): void; function run(signed: int32): void { const value = 1; broad(value); const data: { first: float32; second: number } = { first: value, second: signed }; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape", true);
+  if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "shape") {
+    throw new Error("The exact declared data-member construction is required.");
+  }
+  for (const [name, primitive] of [["first", "float32"], ["second", "float64"]] as const) {
+    assert.equal(outcome.type.members.some(member => member.name === name && member.type.kind === "primitive" &&
+      member.type.primitive === primitive), true, name);
+  }
+});
+
+test("C30 an unrepresentable declared construction stays outside without an initializer retry", () => {
+  const current = fixture("type Indexed = { [name: string]: number }; function run(): void { const data: Indexed = { value: 1 }; }");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  assert.equal(literal !== undefined, true);
+  assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal) === undefined, true);
+  assert.equal(current.source.effectiveTypes.get(current.declaration("data")) === undefined, true);
+  assert.equal(current.source.effectiveTypes.obligations().some(obligation => obligation.site === literal), false);
+});
+
 test("C29 open union demands still produce the original Host refusal", () => {
   const current = fixture("declare function take(value: number | string): void; function run(): void { const value = 1; take(value); }");
   assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true);

@@ -139,3 +139,43 @@ test("C29 derived eligibility is directional and does not open fixed operands", 
   assert.equal(downstream.isInference(result), true);
   assert.equal(downstream.isInference(fixed), false);
 });
+
+for (const kind of ["array", "shape"] as const) {
+  test(`C30 declared ${kind} construction positions do not unite or inherit operand inference`, () => {
+    const current = fixture();
+    const container = current.variable(0), first = current.variable(1), second = current.variable(2);
+    const firstPosition: SourceTypeFlowVariable = { node: container.node, path: kind === "array"
+      ? [{ kind: "element" }] : [{ kind: "member", name: "first" }] };
+    const secondPosition: SourceTypeFlowVariable = kind === "array" ? firstPosition
+      : { node: container.node, path: [{ kind: "member", name: "second" }] };
+    const term: SourceTypeFlowTerm = kind === "array"
+      ? { kind, site: container.node, readonly: false, element: firstPosition }
+      : { kind, site: container.node, members: [
+        { name: "first", variable: firstPosition }, { name: "second", variable: secondPosition },
+      ] };
+    const entries: SourceTypeFlowNode[] = [
+      { ...current.entry(container, term), kind: "fixed" },
+      { ...current.entry(first, { kind: "fixed", site: first.node, type: { kind: "primitive", primitive: "float32" } }), kind: "open-local" },
+      { ...current.entry(second, { kind: "fixed", site: second.node, type: { kind: "primitive", primitive: "int32" } }), kind: "fixed" },
+    ];
+    const links = [
+      { source: first, target: firstPosition, site: first.node },
+      { source: second, target: secondPosition, site: second.node },
+    ];
+    const terms = createSourceTypeFlowTerms(current.graph(entries, links));
+    assert.equal(terms.group(first).variable === terms.group(firstPosition).variable, false);
+    assert.equal(terms.group(second).variable === terms.group(secondPosition).variable, false);
+    assert.equal(terms.group(first).variable === terms.group(second).variable, false);
+    assert.equal(terms.isInference(first), true);
+    for (const variable of [container, firstPosition, secondPosition, second]) {
+      assert.equal(terms.isInference(variable), false);
+    }
+    assert.equal(terms.group(container).terms[0] === term, true);
+    const open = createSourceTypeFlowTerms(current.graph([
+      { ...entries[0]!, kind: "open-local" }, ...entries.slice(1),
+    ], links));
+    assert.equal(open.group(first).variable === open.group(firstPosition).variable, true);
+    assert.equal(open.group(second).variable === open.group(secondPosition).variable, true);
+    assert.equal(open.isInference(container), true);
+  });
+}
