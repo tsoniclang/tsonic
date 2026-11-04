@@ -96,19 +96,22 @@ export function createSourceStorageDomainInitialization(input: {
     }
   };
   const accessible = (declaration: Node): boolean => !ast.hasModifierKind(declaration, "private");
+  const initializeAmbientVariable = (node: Node): boolean => {
+    if (!ast.is.IsVariableDeclaration(node) || Node_Initializer(ast, node) !== undefined) return true;
+    const ambient = transport.declarationIsAmbient(node);
+    if (ambient === undefined) return false;
+    if (ambient) {
+      const subject = transport.subjectFor(node);
+      add(subject, "external-input", node);
+      publish(subject, node, false, "external-write", undefined, undefined, true, subject);
+    }
+    return true;
+  };
   const initializePublications = (): void => {
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsVariableDeclaration(node) && !ast.is.IsFunctionDeclaration(node) && !ast.is.IsClassDeclaration(node)) continue;
-      if (ast.is.IsVariableDeclaration(node) && navigation.isProjectDeclaration(node) && Node_Initializer(ast, node) === undefined) {
-        const ambient = transport.declarationIsAmbient(node);
-        if (ambient === undefined) return;
-        if (ambient) {
-          const subject = transport.subjectFor(node);
-          add(subject, "external-input", node);
-          publish(subject, node, false, "external-write", undefined, undefined, true, subject);
-        }
-      }
+      if (!initializeAmbientVariable(node)) return;
       const summary = navigation.declarationUseSummary(node);
       if (summary.exported) {
         const subject = transport.subjectFor(node);
@@ -120,6 +123,7 @@ export function createSourceStorageDomainInitialization(input: {
     }
     for (const node of transport.checkedDeclarations.keys()) {
       if (!budget.step()) return;
+      if (!initializeAmbientVariable(node)) return;
       if (!ast.is.IsPropertyDeclaration(node) || !ast.hasModifierKind(node, "static") ||
         transport.declarationIsAmbient(node) !== true) continue;
       const subject = transport.subject(node, "member");

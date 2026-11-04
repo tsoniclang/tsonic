@@ -42,11 +42,11 @@ export function createSourceStorageDomains(
         initialized = true;
         initializePublications.initialize();
       }
-      const nodes = sourceStoragePublicationDomain(source, transport, budget, rows, subject);
-      if (nodes === undefined) return;
+      const exposures = sourceStoragePublicationDomain(source, transport, budget, rows, subject, publications);
+      if (exposures === undefined) return;
       for (let index = 0; index < publications.size() && budget.step(); index += 1) {
         const publication = publications.at(index);
-        if (publication === undefined || !nodes.has(publication.subject.node)) continue;
+        if (publication === undefined || !exposures.has(publication.exposure)) continue;
         publications.take(index);
         initializePublications.expand(publication);
       }
