@@ -3,8 +3,6 @@ import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.j
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import { sourcePropertyTypeEvidenceNodes, sourceTupleElementTypeEvidenceNodes } from "../type-component-evidence.js";
-import { sourceArrayElementType } from "../array-types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
@@ -178,7 +176,7 @@ export function collectSourceTypeFlowUses(
       const owner = ast.parent(parent);
       if (owner !== undefined && (ast.is.IsCallExpression(owner) || ast.is.IsNewExpression(owner))) return callUses(record, parent, owner);
     }
-    return literalMemberUses(context, record, value, parent);
+    return [];
   }
 
   function callUses(record: SourceTypeFlowNode, argument: Node, node: Node): readonly SourceTypeFlowUse[] {
@@ -319,51 +317,6 @@ function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
       ? ast.typeNode(declaration) : undefined;
   }
   return undefined;
-}
-
-function literalMemberUses(context: SourceTypeFlowAnalysisContext, record: SourceTypeFlowNode,
-  value: Node, parent: Node): readonly SourceTypeFlowUse[] {
-  const { ast, semantics } = context.source;
-  const property = ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === value ||
-    ast.is.IsShorthandPropertyAssignment(parent) && ast.name(parent) === value;
-  const literal = property ? ast.parent(parent) : ast.is.IsArrayLiteralExpression(parent) ? parent : undefined;
-  if (literal === undefined || !(ast.is.IsObjectLiteralExpression(literal) || ast.is.IsArrayLiteralExpression(literal))) return [];
-  const queries = semantics.forNode(literal);
-  const contextual = queries.types.contextualType(literal);
-  if (contextual === undefined) return [];
-  if (property) {
-    const nameNode = ast.name(parent);
-    const name = nameNode === undefined ? undefined : queries.propertyNames.get(nameNode);
-    if (name?.kind !== "resolved") return [refusal(record, value, "TSONIC_LOCAL_TYPE_UNSUPPORTED")];
-    const members = queries.types.propertyInfos(contextual.selectedType).filter(member => member.name === name.name);
-    if (members.length !== 1) return [refusal(record, value, "TSONIC_LOCAL_TYPE_UNSUPPORTED")];
-    const member = members[0]!;
-    const evidence = sourcePropertyTypeEvidenceNodes(ast, queries, member);
-    const declaration = queries.declarations.primarySymbolDeclaration(member.symbol);
-    const component = Object.freeze({ selectedType: member.type,
-      ...(declaration === undefined ? {} : { declaration }),
-      ...(evidence.length === 1 ? { authoredTypeNode: evidence[0]! } : {}),
-      ...(contextual.contextualCall === undefined ? {} : { contextualCall: contextual.contextualCall }) });
-    return [requiredUse(context, record, value, component)];
-  }
-  const index = ast.elements(literal).indexOf(value);
-  const tuple = queries.types.isTuple(contextual.selectedType) ? queries.types.tupleElementInfos(contextual.selectedType)[index] : undefined;
-  const selectedType = tuple?.type ?? sourceArrayElementType(contextual.selectedType, queries);
-  if (index < 0 || selectedType === undefined) return [refusal(record, value, "TSONIC_LOCAL_TYPE_UNSUPPORTED")];
-  let evidence = tuple === undefined ? [] : sourceTupleElementTypeEvidenceNodes(ast, queries, tuple);
-  let authored = contextual.authoredTypeNode;
-  while (authored !== undefined && (ast.is.IsParenthesizedTypeNode(authored) || ast.is.IsTypeOperatorNode(authored))) {
-    authored = ast.is.IsParenthesizedTypeNode(authored) ? ast.as.AsParenthesizedTypeNode(authored)?.Type : ast.as.AsTypeOperatorNode(authored)?.Type;
-  }
-  if (evidence.length === 0 && authored !== undefined) {
-    const element = ast.is.IsArrayTypeNode(authored) ? ast.as.AsArrayTypeNode(authored)?.ElementType :
-      ast.is.IsTypeReferenceNode(authored) && ast.typeArguments(authored).length === 1 ? ast.typeArguments(authored)[0] : undefined;
-    if (element !== undefined) evidence = [element];
-  }
-  return [requiredUse(context, record, value, Object.freeze({ selectedType,
-    ...(contextual.declaration === undefined ? {} : { declaration: contextual.declaration }),
-    ...(evidence.length === 1 ? { authoredTypeNode: evidence[0]! } : {}),
-    ...(contextual.contextualCall === undefined ? {} : { contextualCall: contextual.contextualCall }) }))];
 }
 
 function sourceAssociation(
