@@ -579,6 +579,18 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function mixedArrayKinds(node: Node): boolean {
+    const elements = ast.elements(node);
+    if (elements.length > 0 && elements.every(element => {
+      if (element === undefined) return false;
+      const spread = ast.is.IsSpreadElement(element);
+      const operand = spread ? Node_Expression(ast, element) : element;
+      const descriptor = operand === undefined ? undefined : context.describe(operand);
+      const contributions = !spread ? descriptor === undefined ? [] : [descriptor]
+        : descriptor?.kind === "array" ? [descriptor.element]
+          : descriptor?.kind === "tuple" ? descriptor.elements : [];
+      return contributions.length > 0 && contributions.every(type => type.kind === "primitive" &&
+        type.primitive !== "bool" && type.primitive !== "char");
+    })) return false;
     const query = semantics.forNode(node);
     const type = query.types.expressionType(node);
     const element = type === undefined ? undefined : query.types.typeArguments(type)[0];
