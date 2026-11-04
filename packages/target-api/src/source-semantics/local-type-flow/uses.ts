@@ -472,6 +472,7 @@ function ambiguousNumericOverload(
   const { ast, semantics } = context.source;
   const queries = semantics.forNode(call.call);
   const signatures = queries.types.signatureInfos(call.sourceCallee.type, ast.is.IsNewExpression(call.call) ? "construct" : "call");
+  if (signatures.length < 2) return false;
   const seen = new Map<string, string>();
   for (const signature of signatures) {
     const parameter = signature.parameters[binding.sourceParameterIndex];

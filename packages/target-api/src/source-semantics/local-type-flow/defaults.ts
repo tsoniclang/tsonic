@@ -89,7 +89,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   function describeSyntax(node: Node, queries: SourceFileSemantics, depth: number): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
-    const direct = primitive([node, ...queries.facts.authoredTypeSubjects(node)]);
+    const direct = primitive([node]);
     if (direct !== undefined) return direct;
     const parenthesized = ast.is.IsParenthesizedTypeNode(node) ? ast.as.AsParenthesizedTypeNode(node)?.Type : undefined;
     if (parenthesized !== undefined) return describeSyntax(parenthesized, queries, depth);

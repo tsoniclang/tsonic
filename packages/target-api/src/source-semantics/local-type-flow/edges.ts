@@ -400,6 +400,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         else {
           const propertyName = BindingElement_PropertyName(ast, element) ?? name;
           const selection = query.propertyNames.get(propertyName);
+          if (selection?.kind !== "resolved") {
+            refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element);
+            continue;
+          }
           const property = selection?.kind === "resolved"
             ? query.types.propertyInfos(component.selectedType).find(property => property.name === selection.name) : undefined;
           if (selection?.kind === "resolved" && described?.kind === "shape") {
