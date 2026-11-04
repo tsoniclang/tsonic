@@ -579,6 +579,7 @@ test("declared defaults, nested patterns and rest retain their original checked 
     }`);
   for (const name of ["child", "renamed", "first"]) {
     const binding = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+      current.source.ast.is.IsIdentifier(current.source.ast.name(node)) &&
       current.source.ast.text(current.source.ast.name(node)) === name);
     const entry = current.graph.nodes.find(entry => entry.node === binding);
     assert.equal(entry?.kind, "fixed", name);
@@ -586,11 +587,13 @@ test("declared defaults, nested patterns and rest retain their original checked 
     assert.equal(current.graph.links.some(link => link.target.node === binding), false, name);
   }
   const tail = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.is.IsIdentifier(current.source.ast.name(node)) &&
     current.source.ast.text(current.source.ast.name(node)) === "tail");
   const tailEntry = current.graph.nodes.find(entry => entry.node === tail);
   assert.equal(tailEntry?.term?.kind === "fixed" && tailEntry.term.type.kind === "array" &&
     tailEntry.term.type.element.kind === "primitive" && tailEntry.term.type.element.primitive === "int32", true);
   const rest = current.syntax.find(node => current.source.ast.is.IsBindingElement(node) &&
+    current.source.ast.is.IsIdentifier(current.source.ast.name(node)) &&
     current.source.ast.text(current.source.ast.name(node)) === "rest");
   const restEntry = current.graph.nodes.find(entry => entry.node === rest);
   assert.equal(restEntry?.term?.kind === "fixed" && restEntry.term.type.kind === "shape" &&
