@@ -39,6 +39,7 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
     if (scope === undefined) return;
     const selected = origins(receiver, scope);
     if (selected === undefined) return;
+    const values: SourceStoragePublicationDemand[] = [];
     for (const current of selected) {
       if (!budget.step()) return;
       for (const selectedComponent of selectedComponents) {
@@ -46,10 +47,17 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
         const component = selectedComponent.component;
         const subject = selectedComponent.subject ??
           transport.subject(current.subject.node, current.subject.kind, [...current.subject.projection, component]);
-        if (subject === undefined) continue;
-        if (!temporary.add(1)) return;
-        const value = Object.freeze({ subject, bindings: current.bindings, type: selectedComponent.type,
-          receiver: Object.freeze({ ...current, type, view: receiver, component }) });
+        if (subject !== undefined) {
+          if (!temporary.add(1)) return;
+          values.push(Object.freeze({ subject, bindings: current.bindings, type: selectedComponent.type,
+            receiver: Object.freeze({ ...current, type, view: receiver, component }) }));
+        }
+      }
+    }
+    for (const current of selected) {
+      if (!budget.step()) return;
+      for (const value of values) {
+        if (!budget.step()) return;
         const contexts = demands.get(current.subject);
         const known = contexts?.get(current.bindings);
         if (known?.some(previous => previous.subject === value.subject && previous.bindings === value.bindings &&
