@@ -60,7 +60,7 @@ function fixture(program: string, excludedFiles: Readonly<Record<string, string>
   });
   const context = createSourceTypeFlowAnalysisContext(source).context;
   const graph = collectSourceTypeFlowEdges(context);
-  const terms = createSourceTypeFlowTerms(graph);
+  const terms = createSourceTypeFlowTerms(source.ast, graph);
   const syntax: Node[] = [];
   const pending: Node[] = [file!];
   while (pending.length !== 0) {

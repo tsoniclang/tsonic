@@ -101,7 +101,7 @@ function collectInScope(
   context: SourceTypeFlowAnalysisContext,
   input: SourceTypeFlowGraph,
 ): readonly SourceTypeFlowSignature[] {
-  const terms = createSourceTypeFlowTerms(input);
+  const terms = createSourceTypeFlowTerms(context.source.ast, input);
   return collectSourceTypeFlowSignatures(context, input, terms.isInference);
 }
 
@@ -287,7 +287,7 @@ test("whole-container signatures close through shape and array terms to their or
   const arrayValue = variable(array);
   const element = variable(array, [{ kind: "element" }]);
   const result = collectEligibleMetadata(checked.context, graph([owner], [
-    valueNode(literal, owner, { term: { kind: "shape", site: literal, members: [{ name: "count", variable: arrayValue }] } }),
+    valueNode(literal, owner, { term: { kind: "shape", site: literal, members: [{ name: "count", optional: false, variable: arrayValue }] } }),
     valueNode(array, owner, { variable: arrayValue, term: { kind: "array", site: array, element, readonly: false } }),
     valueNode(source.node, owner, { variable: source }),
   ], [{ source: element, target: source, site: array }]));
@@ -304,7 +304,7 @@ test("a returned member does not fix the parent structure or unrelated members",
   const returned = checked.find("KindPropertyAccessExpression");
   const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(declaration, owner, { term: { kind: "shape", site: declaration,
-      members: [{ name: "first", variable: first }, { name: "second", variable: second }] } }), valueNode(returned, owner),
+      members: [{ name: "first", optional: false, variable: first }, { name: "second", optional: false, variable: second }] } }), valueNode(returned, owner),
   ], [{ source: variable(returned), target: first, site: returned }]));
   assert.equal(includes(result, first), true, "the read's precise member group reaches the signature");
   assert.equal(includes(result, second) || includes(result, variable(declaration)), false,
@@ -483,7 +483,7 @@ for (const [label, text] of [
     const checked = fixture(text);
     const root = checked.source.sourceFiles[0]!;
     const input = graph([root], checked.nodes.map(node => valueNode(node, root, { kind: "fixed" })));
-    const terms = createSourceTypeFlowTerms(input);
+    const terms = createSourceTypeFlowTerms(checked.source.ast, input);
     assert.equal(input.nodes.some(node => terms.isInference(node.variable)), false,
       "actual canonical terms contain no open-local or derived-local origin");
     assert.equal(collectSourceTypeFlowSignatures(checked.context, input, terms.isInference).length, 0,
@@ -503,7 +503,7 @@ test("C24 uses the same canonical inference scope and never flows arithmetic ope
     valueNode(fixed.node, owner, { kind: "fixed", variable: fixed })],
   [{ source, target: read, site: read.node }],
   [{ node: expression, result: variable(expression), operator: "add", operands: [read, fixed], required: true }]);
-  const terms = createSourceTypeFlowTerms(input);
+  const terms = createSourceTypeFlowTerms(checked.source.ast, input);
   const result = collectSourceTypeFlowSignatures(checked.context, input, terms.isInference);
   assert.equal(terms.isInference(variable(expression)) && terms.isInference(read), true,
     "canonical equality and operand-to-result propagation retain the actual open group");
@@ -526,7 +526,7 @@ test("a never-open return cannot start closure into a separately inferred arithm
     valueNode(returned.node, owner, { kind: "read", variable: returned })],
   [{ source: fixed, target: operand, site: operand.node }, { source: fixed, target: returned, site: returned.node }],
   [{ node: expression, result: variable(expression), operator: "add", operands: [source, operand], required: true }]);
-  const terms = createSourceTypeFlowTerms(input);
+  const terms = createSourceTypeFlowTerms(checked.source.ast, input);
   assert.equal(terms.isInference(variable(expression)) && !terms.isInference(returned), true,
     "the supplied scope distinguishes a genuine derived group from its declared operand");
   assert.equal(collectSourceTypeFlowSignatures(checked.context, input, terms.isInference).length, 0,

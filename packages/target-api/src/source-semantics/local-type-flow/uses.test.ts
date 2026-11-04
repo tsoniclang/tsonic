@@ -262,13 +262,13 @@ test("U10 typed literal members retain their original authored field rather than
   const literal = current.find("{ items: xs }");
   const member: SourceTypeFlowVariable = Object.freeze({ node: literal, path: Object.freeze([{ kind: "member" as const, name: "items" }]) });
   const aggregate = current.add(literal, undefined, "value", undefined, Object.freeze({ kind: "shape", site: literal,
-    members: Object.freeze([{ name: "items", variable: member }]) }));
+    members: Object.freeze([{ name: "items", optional: false, variable: member }]) }));
   const property = current.source.ast.properties(literal)[0]!;
   const child = current.source.ast.as.AsPropertyAssignment(property)!.Initializer!;
   const source = current.graph().nodes.find(record => record.node === child)!;
   current.link(source.variable, member, property);
   current.descriptors.set("{ items: int32[] }", Object.freeze({ kind: "shape",
-    members: Object.freeze([{ name: "items", type: array(integer) }]) }));
+    members: Object.freeze([{ name: "items", optional: false, type: array(integer) }]) }));
   const selected = current.call(current.find("take({ items: xs })"));
   const uses = current.run();
   const use = uses[0];

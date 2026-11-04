@@ -42,6 +42,72 @@ function fixture(text: string) {
   return { source, nodes, declaration, type };
 }
 
+for (const [expression, code, reason] of [
+  ["{}", "TSONIC_UNTYPED_OBJECT_LITERAL", "This object literal has no target type. Declare one, e.g. 'function baseOptions(): MakeDirectoryOptions'."],
+  ["[]", "TSONIC_UNTYPED_ARRAY_LITERAL", "This empty array has no element type. Declare one, e.g. 'function emptyBuffer(): number[]'."],
+] as const) {
+  test(`C32 unbound ${expression} return keeps its original annotation refusal`, () => {
+    const current = fixture(`function make() { return ${expression}; }`);
+    const literal = current.nodes.find(node => expression === "{}"
+      ? current.source.ast.is.IsObjectLiteralExpression(node) : current.source.ast.is.IsArrayLiteralExpression(node));
+    const refusal = current.source.effectiveTypes.refusals().find(issue => issue.site === literal);
+    assert.equal(literal !== undefined && refusal?.code === code && refusal.reason === reason, true,
+      "the canonical Terms group owns the unchanged original code, message and construction occurrence");
+    assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal)?.kind === "refused", true);
+  });
+}
+
+test("C32 unbound constructions retain ordinary exact call fills and C24 signature closure", () => {
+  const current = fixture(`declare function arrays(value: number[]): void;
+    declare function fields(value: { count: number }): void;
+    function run(): void { arrays([]); fields({ count: 1 }); }
+    function make() { return [1, 2]; }`);
+  const outcomes = current.nodes.filter(node => current.source.ast.is.IsArrayLiteralExpression(node) ||
+    current.source.ast.is.IsObjectLiteralExpression(node)).map(node => current.source.effectiveTypes.get(node));
+  assert.equal(outcomes.length, 3);
+  assert.equal(outcomes[0]?.kind !== "refused" && outcomes[0]?.type.kind === "array" &&
+    outcomes[0].type.element.kind === "primitive" && outcomes[0].type.element.primitive === "float64", true);
+  assert.equal(outcomes[1]?.kind !== "refused" && outcomes[1]?.type.kind === "shape" &&
+    outcomes[1].type.members[0]?.type.kind === "primitive" && outcomes[1].type.members[0].type.primitive === "float64", true);
+  assert.equal(outcomes[2]?.kind !== "refused" && outcomes[2]?.type.kind === "array" &&
+    outcomes[2].type.element.kind === "primitive" && outcomes[2].type.element.primitive === "int32", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C32 never opens an annotated or module construction or a scalar literal", () => {
+  const current = fixture(`export const moduleValue: {} = {};
+    function run(): number[] { const declared: {} = {}; return []; }
+    function scalar(): number { return 1; }`);
+  const constructions = current.nodes.filter(node => current.source.ast.is.IsArrayLiteralExpression(node) ||
+    current.source.ast.is.IsObjectLiteralExpression(node));
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(constructions.every(node => current.source.effectiveTypes.get(node)?.kind !== "refused"), true);
+  assert.equal(current.source.effectiveTypes.obligations().some(row => row.kind === "literal-admission" &&
+    constructions.includes(row.site)), false, "declared construction admission remains Native-owned");
+});
+
+test("declared readonly array returns and their conditional branches retain the same floating element", () => {
+  const current = fixture("function direct(): readonly number[] { return [1, 2]; } function choose(flag: boolean): readonly number[] { return flag ? [1] : [2, 3]; }");
+  const arrays = current.nodes.filter(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  assert.equal(arrays.length, 3);
+  for (const node of arrays) {
+    const outcome = current.source.effectiveTypes.get(node);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
+      outcome.type.element.kind === "primitive" && outcome.type.element.primitive === "float64", true,
+      "actual declared slots or ordinary C32 return demand select the same element without an array-copy conversion");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("an empty inferred literal consumed through a generic call keeps only its real construction refusal", () => {
+  const current = fixture("declare function identity<T>(value: T): T; function run(): void { const value = {}; void identity(value); }");
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.code === "TSONIC_UNTYPED_OBJECT_LITERAL" && issues[0].site === literal, true,
+    "synthetic result and binder shape terms do not fabricate additional object-construction sites");
+});
+
 test("one eager publication fills numeric locals from the first exact demand", () => {
   const current = fixture("declare function take(value: number): void; function run(): void { const value = 1; take(value); }");
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
@@ -333,7 +399,7 @@ for (const [name, body] of [
       }
     }
     assert.equal(current.source.effectiveTypes.obligations().some(obligation => obligation.kind === "literal-admission" &&
-      obligation.site === literal && isDeepStrictEqual(obligation.type, outcome.type)), true);
+      obligation.site === literal && isDeepStrictEqual(obligation.type, outcome.type)), false);
   });
 }
 

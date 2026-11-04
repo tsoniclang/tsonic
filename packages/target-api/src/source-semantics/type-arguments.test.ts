@@ -2,6 +2,38 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { getEffectiveSourceTypeArguments } from "../source-navigation/type-arguments.js";
+import { getSourceTypeArgumentBindings } from "./type-arguments.js";
+
+test("merged generic declarations retain their actual canonical checked binder", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "interface Pair<T> { first: T; } interface Pair<T> { second: T; } declare const pair: Pair<number>;",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The exact checked file is required.");
+  const queries = checked.getSourceFileQueries(file);
+  let declaration: Node | undefined;
+  const visit = (node: Node): void => {
+    if (checked.ast.is.IsVariableDeclaration(node)) declaration = node;
+    checked.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  if (declaration === undefined) throw new Error("The real generic application is required.");
+  const selectedType = queries.checker.getTypeAtLocation(checked.ast.name(declaration));
+  if (selectedType === undefined) throw new Error("The checked type is required.");
+  const bindings = getSourceTypeArgumentBindings(checked.ast, queries, selectedType);
+  assert.equal(bindings?.length, 1);
+  const binding = bindings?.[0];
+  if (binding === undefined) throw new Error("The exact binder is required.");
+  const symbol = queries.checker.getTypeSymbol(binding.parameterType);
+  if (symbol === undefined) throw new Error("The checked binder symbol is required.");
+  const declarations = queries.checker.getSymbolDeclarations(symbol);
+  assert.equal(declarations.filter(node => checked.ast.is.IsTypeParameterDeclaration(node)).length, 2);
+  assert.equal(binding.declaration === queries.checker.getPrimarySymbolDeclaration(symbol) && declarations.includes(binding.declaration), true,
+    "declaration multiplicity never substitutes a fabricated or name-matched binder");
+  assert.equal(queries.typeShape.isNumberLike(binding.argumentType), true);
+  assert.equal(Object.isFrozen(binding) && Object.isFrozen(bindings), true);
+});
 
 test("effective arguments never replace missing class bindings with authored arity", () => {
   const checked = createCompilerSessionFromFiles({

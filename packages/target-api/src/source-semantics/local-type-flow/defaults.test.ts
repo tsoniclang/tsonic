@@ -36,6 +36,30 @@ test("authored array syntax preserves the element source fact instead of erasing
   assertSameValue(current.defaults.context.describe(current.declaration("singles")), { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float32" } });
 });
 
+test("never-open folded arithmetic keeps its checked type rather than a local integer-constant default", () => {
+  const current = fixture("export const quotient = 7 / 2; export const sum = 1 + 2;");
+  for (const name of ["quotient", "sum"]) {
+    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
+  }
+});
+
+test("an imported primitive qualifier keeps its declaration fact instead of its erased number type", () => {
+  const current = fixture('declare const value: import("@test/words").int32;');
+  assertSameValue(current.defaults.context.describe(current.declaration("value")), { kind: "primitive", primitive: "int32" });
+});
+
+test("optional member presence is independent of an absence-capable member value", () => {
+  const current = fixture("declare const absent: { value?: int32 }; declare const present: { value: int32 | undefined };");
+  for (const [name, optional] of [["absent", true], ["present", false]] as const) {
+    const type = current.defaults.context.describe(current.declaration(name));
+    assert.equal(type?.kind === "shape", true);
+    if (type?.kind !== "shape") throw new Error("The exact declared shape is required.");
+    assert.equal(type.members.length, 1);
+    assert.equal(type.members[0]!.optional, optional);
+    assertSameValue(type.members[0]!.type, { kind: "optional", value: { kind: "primitive", primitive: "int32" } });
+  }
+});
+
 test("a required component overrides the occurrence's literal default", () => {
   const current = fixture("declare const required: number[]; export const literal = [1];");
   const declaration = current.declaration("required");
