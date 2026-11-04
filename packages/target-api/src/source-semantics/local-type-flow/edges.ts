@@ -320,6 +320,22 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       parent = ast.parent(parent);
     }
     if (parent === undefined) return undefined;
+    if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {
+      const literal = ast.parent(parent);
+      const enclosing = literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? declaredLiteralSlot(literal) : undefined;
+      if (enclosing === undefined) return undefined;
+      const query = semantics.forNode(node);
+      const name = ast.name(parent);
+      const selected = name === undefined ? undefined : query.propertyNames.get(name);
+      const property = enclosing.component === undefined || selected?.kind !== "resolved" ? undefined
+        : query.types.propertyInfos(enclosing.component.selectedType).find(property => property.name === selected.name);
+      if (property === undefined) return Object.freeze({});
+      const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
+      const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
+      return Object.freeze({ component: Object.freeze({ selectedType: property.type,
+        ...(declaration === undefined ? {} : { declaration }),
+        ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) }) });
+    }
     let owner: Node | undefined;
     let returned = false;
     let assertion = false;
@@ -339,6 +355,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       returned = true;
     }
     if (owner === undefined || ast.typeNode(owner) === undefined) return undefined;
+    const name = ast.name(owner);
+    if ((ast.is.IsVariableDeclaration(owner) || ast.is.IsParameterDeclaration(owner)) && name !== undefined &&
+      (ast.is.IsObjectBindingPattern(name) || ast.is.IsArrayBindingPattern(name))) return Object.freeze({});
     const query = semantics.forNode(node);
     let component = declaredComponent(owner, query);
     if (assertion) {
@@ -417,10 +436,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           }
         }
         if (slot !== undefined) {
-          const annotation = slot.declaration === undefined ? undefined : isTypeSyntaxNode(ast, slot.declaration)
+          const method = slot.declaration !== undefined &&
+            (ast.is.IsMethodDeclaration(slot.declaration) || ast.is.IsMethodSignatureDeclaration(slot.declaration));
+          const annotation = slot.declaration === undefined || method ? undefined : isTypeSyntaxNode(ast, slot.declaration)
             ? slot.declaration : ast.typeNode(slot.declaration);
           selected = Object.freeze({ selectedType: selected?.selectedType ?? slot.type,
-            ...(slot.declaration === undefined ? {} : { declaration: slot.declaration }),
+            ...(slot.declaration === undefined || method ? {} : { declaration: slot.declaration }),
             ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
         }
       }
@@ -492,8 +513,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       openValues.add(node);
       return variable;
     }
-    if (ast.is.IsArrayLiteralExpression(node)) return array(node, depth);
-    if (ast.is.IsObjectLiteralExpression(node)) return object(node, depth);
+    if (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) {
+      if (assignmentPattern(node)) return undefined;
+      return ast.is.IsArrayLiteralExpression(node) ? array(node, depth) : object(node, depth);
+    }
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) return collectInvocation(node, depth);
     const closure = inlineCallable(ast, node);
     if (closure !== undefined) {
@@ -583,6 +606,21 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       link(source === undefined || spread === undefined ? source : project(source, { kind: "element" }), element, child);
     }
     return result;
+  }
+
+  function assignmentPattern(node: Node): boolean {
+    let current = node;
+    for (let parent = ast.parent(current); parent !== undefined; parent = ast.parent(current)) {
+      if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindEqualsToken") {
+        return ast.as.AsBinaryExpression(parent)?.Left === current;
+      }
+      if (ast.is.IsArrayLiteralExpression(parent) || ast.is.IsObjectLiteralExpression(parent) ||
+        ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === current ||
+        (ast.is.IsSpreadElement(parent) || ast.is.IsSpreadAssignment(parent) || ast.is.IsParenthesizedExpression(parent)) &&
+          Node_Expression(ast, parent) === current) current = parent;
+      else return false;
+    }
+    return false;
   }
 
   function mixedArrayKinds(node: Node): boolean {
@@ -794,7 +832,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     }
     const genericConstruction = ast.is.IsNewExpression(node) && (source.sourceSelectedMethodTypeArguments?.length ?? 0) > 0;
     if (!genericConstruction && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
-      (receiver === undefined || !active.has(receiver.node))) return fixed(node);
+      (receiver === undefined || !active.has(receiver.node))) {
+      const result = query.operations.callResult(source);
+      const declaration = query.declarations.signatureDeclaration(source.selectedSignature);
+      return result === undefined ? fixed(node) : fixed(node, Object.freeze({ selectedType: result.resultType, contextualCall: source,
+        ...(declaration === undefined ? {} : { declaration }),
+        ...(result.authoredTypeNode === undefined ? {} : { authoredTypeNode: result.authoredTypeNode }) }));
+    }
     return genericInvocation(node, source, arguments_, receiver, query, depth);
   }
 
@@ -831,6 +875,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const argumentPlaces: SourceTypeFlowArgumentPlace[] = [];
     const binders = new Map<Node, SourceTypeFlowVariable>();
     const seeds = new Set<Node>();
+    const inheritedReceiverArguments = new Map<Node, Type>();
     let argumentPlace: Pick<SourceTypeFlowArgumentPlace, "binding" | "parameter"> | undefined;
     let receiverOnly = false;
     const receiverArguments = receiverParameters(source);
@@ -851,6 +896,19 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     }
     for (const declaration of receiverArguments) {
       if (receiver === undefined) break;
+      const inherited = inheritedReceiverArguments.get(declaration);
+      if (inherited !== undefined) {
+        const destination = binders.get(declaration)!;
+        const component = Object.freeze({ selectedType: inherited });
+        if (mentionedBinders(inherited, query.types, 0).size > 0) join(inherited, destination, node, component, 0, "result");
+        else {
+          const descriptor = context.describe(node, component);
+          if (descriptor === undefined) refuse("TSONIC_LOCAL_TYPE_GENERIC", node, declaration);
+          else putTerm(destination, Object.freeze({ kind: "fixed", site: node, type: descriptor }));
+        }
+        seeds.add(declaration);
+        continue;
+      }
       const term = nodes.get(receiver.node)?.term;
       const descriptor = context.describe(receiver.node);
       const part: SourceTypeFlowPathPart = term?.kind === "array" || descriptor?.kind === "array" ? { kind: "element" }
@@ -893,11 +951,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const signature = declaration === undefined ? undefined : query.types.declarationSignatureInfo(declaration);
     const dependentResult = signature?.returnType !== undefined && mentionedBinders(signature.returnType, query.types, 0).size > 0;
     if (signature?.returnType !== undefined && dependentResult) join(signature.returnType, result, node,
-      Object.freeze({ selectedType: source.sourceResultType, ...(declaration === undefined ? {} : { declaration }),
+      Object.freeze({ selectedType: source.sourceResultType, contextualCall: source, ...(declaration === undefined ? {} : { declaration }),
         ...(declaration === undefined || ast.typeNode(declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(declaration)! }) }), 0, "result");
     const resultType = source.sourceResultType;
     if (!dependentResult && terms.get(result) === undefined && !derived.has(node)) {
-      const type = context.describe(node, Object.freeze({ selectedType: resultType,
+      const type = context.describe(node, Object.freeze({ selectedType: resultType, contextualCall: source,
         ...(declaration === undefined ? {} : { declaration }),
         ...(declaration === undefined || ast.typeNode(declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(declaration)! }) }));
       if (type !== undefined) replace(node, { term: Object.freeze({ kind: "fixed", site: node, type }) });
@@ -922,13 +980,46 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       }
       if (owner === undefined) return [];
       const symbol = query.declarations.typeSymbol(call.sourceReceiver.type);
-      if (symbol === undefined || !query.declarations.symbolDeclarations(symbol).includes(owner)) {
+      const receiverDeclarations = symbol === undefined ? [] : query.declarations.symbolDeclarations(symbol);
+      const receiverOwner = receiverDeclarations.includes(owner) ? owner : receiverDeclarations.find(declaration =>
+        ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration));
+      if (receiverOwner === undefined) {
         refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner);
         return [];
       }
+      if (receiverOwner !== owner) {
+        const declared = query.declarations.declaredType(receiverOwner);
+        const pending = declared === undefined ? [] : [{ type: declared, depth: 0 }];
+        const visited = new Set<Type>();
+        let selected: Type | undefined;
+        while (pending.length > 0) {
+          const current = pending.pop()!;
+          if (visited.has(current.type) || current.depth > 4) continue;
+          visited.add(current.type);
+          const symbol = query.declarations.typeSymbol(current.type);
+          if (symbol !== undefined && query.declarations.symbolDeclarations(symbol).includes(owner)) {
+            if (selected !== undefined && !query.types.isIdentical(selected, current.type)) {
+              refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner);
+              return [];
+            }
+            selected = current.type;
+          } else for (const type of query.types.instantiatedBaseTypes(current.type) ?? []) {
+            pending.push({ type, depth: current.depth + 1 });
+          }
+        }
+        const arguments_ = selected === undefined ? undefined : query.types.typeArgumentBindings(selected);
+        if (arguments_ === undefined || receiver === undefined) {
+          refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner);
+          return [];
+        }
+        for (const argument of declared === undefined ? [] : query.types.typeArgumentBindings(declared) ?? []) {
+          binders.set(argument.declaration, project(receiver, { kind: "binder", declaration: argument.declaration }));
+        }
+        for (const argument of arguments_) inheritedReceiverArguments.set(argument.declaration, argument.argumentType);
+      }
       const parameters = ast.typeParameters(owner);
       const arguments_ = query.types.typeArguments(call.sourceReceiver.type);
-      if (arguments_.length < parameters.length) { refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner); return []; }
+      if (receiverOwner === owner && arguments_.length < parameters.length) { refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner); return []; }
       const declarations: Node[] = [];
       for (const parameter of parameters) {
         if (parameter === undefined) { refuse("TSONIC_LOCAL_TYPE_GENERIC", node); continue; }

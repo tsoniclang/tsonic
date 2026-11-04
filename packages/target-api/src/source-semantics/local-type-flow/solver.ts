@@ -154,6 +154,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const queries = source.semantics.forNode(site);
     const property = queries.types.propertyInfos(type.source.selectedType).find(candidate => candidate.name === name);
     if (property === undefined) return undefined;
+    if (queries.types.callSignatures(property.type).length > 0 || queries.types.constructSignatures(property.type).length > 0) return undefined;
     const declaration = queries.declarations.primarySymbolDeclaration(property.symbol);
     return context.describe(site, { selectedType: property.type,
       ...(declaration === undefined ? {} : { declaration, authoredTypeNode: source.ast.typeNode(declaration) }) });
@@ -408,6 +409,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function publish(node: Node, selected: Group, association?: SourceTypeFlowAssociation): void {
     const record = declaredRecord(node);
     const declared = record !== undefined;
+    if (!declared && !selected.inference) return;
     const type = record !== undefined ? declaredDescriptor(record) : selected.type;
     if (declared && type === undefined) return;
     if (!declared && selected.outside) return;

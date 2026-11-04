@@ -52,11 +52,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (ast.is.IsPropertyAccessExpression(node)) {
       const access = semantics.forNode(node).operations.propertyAccess(node);
       const declaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
-      return declaration !== undefined && ast.is.IsMethodDeclaration(declaration) ? undefined : declaration;
+      return declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration))
+        ? undefined : declaration;
     }
     if (ast.is.IsElementAccessExpression(node)) return semantics.forNode(node).operations.elementAccess(node)?.selectedDeclaration;
     const declaration = navigation.sourceReferenceFor(node)?.declaration;
-    if (declaration !== undefined && (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration))) return undefined;
+    if (declaration !== undefined && (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration) ||
+      ast.is.IsMethodSignatureDeclaration(declaration))) return undefined;
     return declaration ??
       (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
         ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ? node : undefined);
@@ -211,6 +213,19 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
       ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration))) {
       const values: SourceTypeDescriptor[] = [];
+      const construction = component.contextualCall;
+      const syntaxArguments = construction !== undefined && ast.is.IsNewExpression(construction.call)
+        ? ast.typeArguments(construction.call) : [];
+      if (syntaxArguments.length > 0) {
+        if (!(ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration)) ||
+          syntaxArguments.length !== ast.typeParameters(declaration).length) return undefined;
+        for (const argument of syntaxArguments) {
+          const value = argument === undefined ? undefined : describeSyntax(argument, queries, depth + 1);
+          if (value === undefined) return undefined;
+          values.push(value);
+        }
+        return { kind: "declared", declaration, typeArguments: values, source: component };
+      }
       const bindings = queries.types.typeArgumentBindings(type);
       for (const argument of bindings?.map(binding => binding.argumentType) ?? queries.types.typeArguments(type)) {
         const value = describeType(argument, queries, { selectedType: argument }, depth + 1, declared);
@@ -239,6 +254,12 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   function ownLiteral(node: Node, depth: number): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
+    if (ast.is.IsNewExpression(node)) {
+      const queries = semantics.forNode(node);
+      const call = queries.operations.call(node);
+      if (call?.sourceSelectedSignatureKind === "resolved") return describeType(call.sourceResultType, queries,
+        { selectedType: call.sourceResultType, contextualCall: call }, depth, true);
+    }
     const literal = literals.get(node);
     if (literal?.form === "numeric" || literal?.form === "prefix-unary" || literal?.form === "parenthesized" || literal?.form === "binary") {
       if (literal.numeric?.kind === "authored") return { kind: "primitive", primitive: sourceTypeFlowNumericLiteralKind(literal) };

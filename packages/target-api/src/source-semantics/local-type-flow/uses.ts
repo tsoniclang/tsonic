@@ -112,7 +112,7 @@ export function collectSourceTypeFlowUses(
       const captured = { ...record, node: reference.reference };
       for (const use of classify(captured, true)) {
         uses.push(use.kind === "none" || use.kind === "write" ? use
-          : refusal(record, use.site, "TSONIC_LOCAL_TYPE_SELF_REFERENCE", use.association));
+          : refusal(record, use.association?.call?.call ?? use.site, "TSONIC_LOCAL_TYPE_SELF_REFERENCE", use.association));
       }
     }
   }
@@ -255,7 +255,8 @@ function requiredUse(
   if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
   if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   const readOnly = type.kind === "array" && type.readonly || type.kind === "tuple" && type.readonly;
-  if (check || readOnly && association.parameter !== undefined ||
+  const assertion = context.source.ast.is.IsAsExpression(site) || context.source.ast.is.IsTypeAssertion(site);
+  if (check || readOnly && association.parameter !== undefined || assertion &&
     type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
     return Object.freeze({ kind: "check", site, variable: record.variable, check: readOnly ? "read-only" : "interface",
       type, required: component.declaration ?? component.authoredTypeNode ?? site, association });
