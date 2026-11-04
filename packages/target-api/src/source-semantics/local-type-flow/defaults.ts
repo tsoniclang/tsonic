@@ -122,6 +122,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const value = describeSyntax(present[0]!, queries, depth + 1);
       return value === undefined ? undefined : { kind: "optional", value };
     }
+    if (ast.is.IsImportTypeNode(node) && ast.typeArguments(node).length === 0) {
+      const importedPrimitive = primitive(queries.facts.authoredTypeSubjects(node));
+      if (importedPrimitive !== undefined) return importedPrimitive;
+    }
     const type = queries.types.authoredType(node);
     if (type === undefined) return undefined;
     const referenceName = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
@@ -222,7 +226,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         ? describeType(property.type, queries, { selectedType: property.type, declaration: selected }, depth + 1, declared)
         : describeSyntax(annotation, queries, depth + 1);
       if (value === undefined) return undefined;
-      members.push({ name: property.name, type: property.optional && value.kind !== "optional"
+      members.push({ name: property.name, optional: property.optional, type: property.optional && value.kind !== "optional"
         ? { kind: "optional", value } : value, declaration: selected, readonly: property.readonly });
     }
     return { kind: "shape", members };
@@ -233,15 +237,6 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const literal = literals.get(node);
     if (literal?.form === "numeric" || literal?.form === "prefix-unary" || literal?.form === "parenthesized" || literal?.form === "binary") {
       if (literal.numeric?.kind === "authored") return { kind: "primitive", primitive: sourceTypeFlowNumericLiteralKind(literal) };
-      if (literal.form === "binary" && literal.integerConstant !== undefined) {
-        const pending: Node[] = [node]; let bigint = false;
-        while (pending.length > 0) {
-          const current = pending.pop()!;
-          if (ast.is.IsBigIntLiteral(current)) { bigint = true; break; }
-          for (const child of ast.children(current)) if (child !== undefined) pending.push(child);
-        }
-        if (!bigint) return { kind: "primitive", primitive: "int32" };
-      }
       if (literal.numeric?.kind === "checked-float64") return { kind: "primitive", primitive: "float64" };
     }
     if (literal?.form === "true" || literal?.form === "false") return { kind: "primitive", primitive: "bool" };
@@ -256,6 +251,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return selected === undefined ? undefined : { kind: "array", readonly: false, element: selected };
     }
     if (ast.is.IsObjectLiteralExpression(node)) {
+      const queries = semantics.forNode(node);
+      const selectedType = queries.types.expressionType(node);
+      if (selectedType === undefined) return undefined;
+      const selectedMembers = queries.types.propertyInfos(selectedType);
       const members: SourceTypeDescriptorMember[] = [];
       for (const property of ast.properties(node)) {
         if (property === undefined) return undefined;
@@ -265,7 +264,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
           (ast.is.IsShorthandPropertyAssignment(property) ? nameNode : undefined);
         const value = initializer === undefined ? undefined : describe(initializer, undefined, depth + 1);
         if (value === undefined) return undefined;
-        members.push({ name: ast.text(nameNode), type: value, declaration: property });
+        const name = queries.propertyNames.get(nameNode);
+        const selected = name?.kind !== "resolved" ? undefined : selectedMembers.find(member => member.name === name.name);
+        if (selected === undefined) return undefined;
+        members.push({ name: selected.name, optional: selected.optional, type: value, declaration: property });
       }
       return members.length === 0 ? undefined : { kind: "shape", members };
     }

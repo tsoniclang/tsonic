@@ -49,7 +49,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const graph: SourceTypeFlowGraph = { ...collected,
     links: [...collected.links].sort((left, right) => compare(left.site, right.site)) };
   const uses = [...collectSourceTypeFlowUses(context, graph)].sort((left, right) => compare(left.site, right.site));
-  const terms = createSourceTypeFlowTerms(graph);
+  const terms = createSourceTypeFlowTerms(source.ast, graph);
   const signatures = collectSourceTypeFlowSignatures(context, graph, terms.isInference);
   const groups = new Map<SourceTypeFlowVariable, Group>();
   const outcomes = new WeakMap<Node, SourceEffectiveTypeOutcome>();
@@ -234,7 +234,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     const fixed = selected.fills.filter(fill => fill.fixed);
     if (fixed.length > 1 && fixed.some(fill => !sourceTypeDescriptorsEqual(fixed[0]!.type, fill.type))) {
-      const array = graph.nodes.find(node => node.term?.kind === "array" && group(node.term.element) === selected);
+      const array = graph.nodes.find(node => node.term?.kind === "array" &&
+        source.ast.is.IsArrayLiteralExpression(node.node) && group(node.term.element) === selected);
       refuse(selected, array === undefined ? "TSONIC_LOCAL_TYPE_CONFLICT" : "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS",
         array?.node ?? fixed[1]!.site, fixed[0]!.site);
       return;
@@ -249,7 +250,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (term.kind === "array") {
         const element = group(term.element).type;
         if (element !== undefined) return { kind: "array", readonly: term.readonly, element };
-        refuse(selected, "TSONIC_UNTYPED_ARRAY_LITERAL", term.site);
+        if (source.ast.is.IsArrayLiteralExpression(term.site)) {
+          refuse(selected, "TSONIC_UNTYPED_ARRAY_LITERAL", term.site);
+        }
       } else if (term.kind === "optional") {
         const value = group(term.value).type;
         if (value !== undefined) return { kind: "optional", value };
@@ -266,7 +269,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         return { kind: "declared", declaration: term.declaration, typeArguments: arguments_,
           ...(term.source === undefined ? {} : { source: term.source }) };
       } else if (term.kind === "shape") {
-        if (term.members.length === 0) {
+        if (term.members.length === 0 && source.ast.is.IsObjectLiteralExpression(term.site)) {
           refuse(selected, "TSONIC_UNTYPED_OBJECT_LITERAL", term.site);
           continue;
         }
@@ -274,7 +277,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         for (const entry of term.members) {
           const type = group(entry.variable).type;
           if (type === undefined) return undefined;
-          members.push({ name: entry.name, type,
+          members.push({ name: entry.name, optional: entry.optional, type,
             ...(entry.declaration === undefined ? {} : { declaration: entry.declaration }),
             ...(entry.readonly === undefined ? {} : { readonly: entry.readonly }) });
         }
@@ -432,7 +435,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         publish(use.reference, selected, node.association);
       }
     }
-    if (selected.type !== undefined && !selected.outside) for (const term of selected.terms) if (
+    if (selected.inference && selected.type !== undefined && !selected.outside) for (const term of selected.terms) if (
       term.kind === "numeric" && context.literal(term.site) !== undefined ||
       term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
       term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site)) {

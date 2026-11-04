@@ -1,7 +1,7 @@
 import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, TypeCheckerQueries } from "@tsonic/tsts";
 import { sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/index.js";
-import { sourceTypeFactSubjects } from "./fact-subjects.js";
+import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
 
 export function authoredSourceTypeFactDependencies(
   ast: AstReader,
@@ -58,6 +58,13 @@ function collectAuthoredSourceTypeFactDependencies(
     const hasFacts = facts.getFacts(current).length > 0;
     if (hasFacts) {
       subjects.push(current);
+    }
+    if (ast.is.IsImportTypeNode(current)) {
+      const qualifier = ast.as.AsImportTypeNode(current)?.Qualifier;
+      const symbol = qualifier === undefined ? undefined : checker.getSymbolAtLocation(qualifier);
+      for (const subject of sourceSelectedFactSubjects(checker, symbol, undefined)) {
+        if (facts.getFacts(subject).length > 0 && !subjects.includes(subject)) subjects.push(subject);
+      }
     }
     if (hasFacts || ast.is.IsKeywordTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current) ||
       ast.is.IsArrayTypeNode(current) || ast.is.IsTupleTypeNode(current) ||

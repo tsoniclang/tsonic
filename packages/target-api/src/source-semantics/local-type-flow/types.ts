@@ -20,6 +20,7 @@ export type SourceTypeDescriptor =
 
 export interface SourceTypeDescriptorMember {
   readonly name: string;
+  readonly optional: boolean;
   readonly type: SourceTypeDescriptor;
   readonly declaration?: Node;
   readonly readonly?: boolean;
@@ -165,6 +166,7 @@ export type SourceTypeFlowTerm =
 
 export interface SourceTypeFlowMember {
   readonly name: string;
+  readonly optional: boolean;
   readonly variable: SourceTypeFlowVariable;
   readonly declaration?: Node;
   readonly readonly?: boolean;

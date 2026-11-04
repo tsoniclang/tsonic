@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
@@ -22,7 +22,7 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
     case "shape": return right.kind === "shape" && left.members.length === right.members.length &&
       left.members.every(member => {
         const selected = right.members.find(candidate => candidate.name === member.name);
-        return selected !== undefined && !!member.readonly === !!selected.readonly &&
+        return selected !== undefined && member.optional === selected.optional && !!member.readonly === !!selected.readonly &&
           sourceTypeDescriptorsEqual(member.type, selected.type);
       });
   }
@@ -88,7 +88,7 @@ interface PathIndex {
   slot?: TermSlot;
 }
 
-export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTypeFlowTerms {
+export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowGraph): SourceTypeFlowTerms {
   const indexes = new WeakMap<Node, PathIndex>();
   const slots: TermSlot[] = [];
   function intern(variable: SourceTypeFlowVariable): TermSlot {
@@ -237,6 +237,20 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
     if (!conversionPositions.has(intern(link.target))) union(intern(link.source), intern(link.target), link.site);
   }
   const declaredRoots = new Set([...constructions].map(root));
+  const unboundConstructions = new Set(graph.nodes.filter(node => {
+    if (node.kind === "fixed" || node.variable.path.length !== 0 || ast.is.IsSourceFile(node.root) ||
+      !(ast.is.IsArrayLiteralExpression(node.node) || ast.is.IsObjectLiteralExpression(node.node))) return false;
+    let occurrence = node.node;
+    let owner = ast.parent(occurrence);
+    while (owner !== undefined && (ast.is.IsParenthesizedExpression(owner) || ast.is.IsNonNullExpression(owner) ||
+      ast.is.IsAsExpression(owner) || ast.is.IsSatisfiesExpression(owner))) {
+      occurrence = owner;
+      owner = ast.parent(owner);
+    }
+    return owner === undefined || !(ast.is.IsVariableDeclaration(owner) || ast.is.IsPropertyDeclaration(owner) ||
+      ast.is.IsParameterDeclaration(owner)) || ast.as.AsVariableDeclaration(owner)?.Initializer !== occurrence &&
+        ast.as.AsPropertyDeclaration(owner)?.Initializer !== occurrence && ast.as.AsParameterDeclaration(owner)?.Initializer !== occurrence;
+  }).map(node => root(intern(node.variable))));
   const inference = new Set<TermSlot>();
   const successors = new Map<TermSlot, Set<TermSlot>>();
   const connect = (from: TermSlot, to: TermSlot): void => {
@@ -247,7 +261,9 @@ export function createSourceTypeFlowTerms(graph: SourceTypeFlowGraph): SourceTyp
   };
   for (const slot of slots) {
     const selected = root(slot);
-    if (selected.nodes.some(node => node.kind === "open-local" || node.kind === "derived-local")) inference.add(selected);
+    if (unboundConstructions.has(selected) || selected.nodes.some(node => node.kind === "open-local" || node.kind === "derived-local")) {
+      inference.add(selected);
+    }
     for (const child of declaredRoots.has(selected) ? [] : children(selected)) {
       connect(selected, child);
       connect(child, selected);

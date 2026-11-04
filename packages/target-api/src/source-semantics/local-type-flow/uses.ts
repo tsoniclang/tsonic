@@ -49,7 +49,7 @@ export function collectSourceTypeFlowUses(
     assertRetainedCall(context, call.node, call.source);
     const receiver = call.source.sourceReceiver;
     const receiverNode = receiver === undefined ? undefined : nodes.get(receiver.expression);
-    if (receiverNode === undefined || receiverNode.kind === "fixed" || receiverNode.term?.kind === "fixed") continue;
+    if (receiverNode === undefined) continue;
     const receiverBinders = new Map(call.receiver.map(binder => [binder.declaration, binder]));
     if (call.method.some(binder => receiverBinders.has(binder.declaration))) {
       throw new Error("Local type uses require distinct receiver and method binder owners.");
@@ -95,13 +95,16 @@ export function collectSourceTypeFlowUses(
     for (const reference of allReferences) {
       if (!reference.captured || withinInferenceRoot(ast, reference.reference, record.root)) continue;
       let stored = false;
+      let discarded = false;
       for (let owner = ast.parent(reference.reference); owner !== undefined; owner = ast.parent(owner)) {
         if (owner === record.root) break;
         if (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner)) {
           stored = context.source.navigation.expressionResultDisposition(owner).kind !== "discarded";
+          discarded = !stored;
           break;
         }
       }
+      if (discarded) continue;
       if (stored) {
         uses.push(refusal(record, reference.reference, "TSONIC_LOCAL_TYPE_SELF_REFERENCE"));
         continue;

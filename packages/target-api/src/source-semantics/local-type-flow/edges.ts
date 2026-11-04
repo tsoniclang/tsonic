@@ -559,12 +559,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function array(node: Node, depth: number): SourceTypeFlowVariable | undefined {
+    const elements = ast.elements(node);
+    if (elements.some(element => element === undefined || ast.is.IsOmittedExpression(element))) return fixed(node);
     if (!pairs.has(node) && mixedArrayKinds(node)) return fixed(node);
     const result = record(node, "value");
     if (result === undefined) return undefined;
     active.add(node);
     if (!declaredConstruction(node)) openValues.add(node);
-    const elements = ast.elements(node);
     if (pairs.has(node) && elements.length === 2 && elements[0] !== undefined && elements[1] !== undefined) {
       const first = project(result, { kind: "tuple", index: 0 });
       const second = project(result, { kind: "tuple", index: 1 });
@@ -576,7 +577,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const element = project(result, { kind: "element" });
     replace(node, { term: Object.freeze({ kind: "array", site: node, element, readonly: false }) });
     for (const child of elements) {
-      if (child === undefined || ast.is.IsOmittedExpression(child)) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); continue; }
+      if (child === undefined) continue;
       const spread = ast.is.IsSpreadElement(child) ? Node_Expression(ast, child) : undefined;
       const source = value(spread ?? child, true, depth + 1);
       link(source === undefined || spread === undefined ? source : project(source, { kind: "element" }), element, child);
@@ -649,11 +650,19 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (name.kind !== "resolved" || source === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
       members.set(name.name, { source, site: property, declaration: property });
     }
-    const shape = [...members].map(([name, member]) => {
+    const query = semantics.forNode(node);
+    const selectedType = query.types.expressionType(node);
+    if (selectedType === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
+    const selectedMembers = query.types.propertyInfos(selectedType);
+    const shape = [];
+    for (const [name, member] of members) {
+      const selected = selectedMembers.find(candidate => candidate.name === name);
+      if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
       const variable = project(result, { kind: "member", name });
       link(member.source, variable, member.site);
-      return Object.freeze({ name, variable, ...(member.declaration === undefined ? {} : { declaration: member.declaration }) });
-    });
+      shape.push(Object.freeze({ name, variable, optional: selected.optional,
+        ...(member.declaration === undefined ? {} : { declaration: member.declaration }) }));
+    }
     replace(node, { term: Object.freeze({ kind: "shape", site: node, members: Object.freeze(shape) }) });
     return result;
   }
