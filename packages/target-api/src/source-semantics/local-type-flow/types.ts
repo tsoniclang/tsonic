@@ -94,7 +94,7 @@ export interface SourceTypeFlowObligation {
   readonly requiredType?: SourceTypeDescriptor;
   readonly value?: Node;
   readonly valueType?: SourceTypeDescriptor;
-  readonly valuePath?: readonly SourceTypeFlowValuePathPart[];
+  readonly valueVariable?: SourceTypeFlowVariable;
   readonly association?: SourceTypeFlowAssociation;
 }
 
@@ -142,8 +142,6 @@ export type SourceTypeFlowPathPart =
   | { readonly kind: "member"; readonly name: string }
   | { readonly kind: "tuple"; readonly index: 0 | 1 }
   | { readonly kind: "binder"; readonly declaration: Node };
-
-export type SourceTypeFlowValuePathPart = Exclude<SourceTypeFlowPathPart, { readonly kind: "binder" }>;
 
 export interface SourceTypeFlowVariable {
   readonly node: Node;
