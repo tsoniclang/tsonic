@@ -34,6 +34,7 @@ function variablePath(): SignatureVariablePath {
 export function collectSourceTypeFlowSignatures(
   context: SourceTypeFlowAnalysisContext,
   graph: SourceTypeFlowGraph,
+  isInference: (variable: SourceTypeFlowVariable) => boolean,
 ): readonly SourceTypeFlowSignature[] {
   const variables = new Map<Node, SignatureVariablePath>();
   const entries: SignatureVariable[] = [];
@@ -83,6 +84,7 @@ export function collectSourceTypeFlowSignatures(
   };
 
   const seed = (node: Node, variable: SourceTypeFlowVariable): void => {
+    if (!isInference(variable)) return;
     const origin = signatureOrigin(ast, node, declaration =>
       context.source.navigation.declarationUseSummary(declaration).exported);
     if (origin !== undefined) seeds.push({ variable: entry(variable), origin });
@@ -132,7 +134,7 @@ export function collectSourceTypeFlowSignatures(
     const pending = [selected.variable];
     while (pending.length > 0) {
       const current = pending.pop()!;
-      if (current.origin !== undefined) continue;
+      if (current.origin !== undefined || !isInference(current.variable)) continue;
       current.origin = selected.origin;
       for (const dependency of current.dependencies) pending.push(dependency);
     }

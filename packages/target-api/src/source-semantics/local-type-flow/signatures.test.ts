@@ -4,6 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@t
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
+import { createSourceTypeFlowTerms } from "./terms.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowCall,
@@ -89,6 +90,21 @@ function includes(signatures: readonly SourceTypeFlowSignature[], selected: Sour
   return signatures.some(signature => sameVariable(signature.variable, selected));
 }
 
+function collectEligibleMetadata(
+  context: SourceTypeFlowAnalysisContext,
+  input: SourceTypeFlowGraph,
+): readonly SourceTypeFlowSignature[] {
+  return collectSourceTypeFlowSignatures(context, input, () => true);
+}
+
+function collectInScope(
+  context: SourceTypeFlowAnalysisContext,
+  input: SourceTypeFlowGraph,
+): readonly SourceTypeFlowSignature[] {
+  const terms = createSourceTypeFlowTerms(input);
+  return collectSourceTypeFlowSignatures(context, input, terms.isInference);
+}
+
 for (const [label, text, ownerKind, ownerName, valueKind, valueName] of [
   ["function", "function makeValue() { const sourceValue = 1; return sourceValue; }",
     "KindFunctionDeclaration", "makeValue", "KindIdentifier", "sourceValue"],
@@ -106,7 +122,7 @@ for (const [label, text, ownerKind, ownerName, valueKind, valueName] of [
     const owner = checked.find(ownerKind, ownerName);
     const value = checked.find(valueKind, valueName, -1);
     const selected = variable(value);
-    const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [valueNode(value, owner, { variable: selected })]));
+    const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner, { variable: selected })]));
     assert.equal(result.length, 1, `${label}: one original value is declaration-typed`);
     assert.equal(result[0]!.owner === owner && result[0]!.variable === selected, true,
       `${label}: the actual checked owner and original variable are retained`);
@@ -124,7 +140,7 @@ for (const [label, text] of [
     const checked = fixture(text);
     const owner = checked.find("KindFunctionDeclaration", "makeValue");
     const value = checked.find("KindIdentifier", "sourceValue", -1);
-    assert.equal(collectSourceTypeFlowSignatures(checked.context, graph([owner], [valueNode(value, owner)])).length, 0,
+    assert.equal(collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner)])).length, 0,
       "a declared result must be handled by the use collector's fill, not declaration-typing");
   });
 }
@@ -137,7 +153,7 @@ for (const [label, text] of [
     const checked = fixture(text);
     const owner = checked.find("KindFunctionDeclaration", "makeValue");
     const value = checked.find("KindIdentifier", "sourceValue", -1);
-    const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [valueNode(value, owner)]));
+    const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner)]));
     assert.equal(result.length, 1, "the original inferred result cannot be changed by a local use");
     assert.equal(result[0]!.owner === owner, true, "the original async or generator owner is retained");
   });
@@ -147,7 +163,7 @@ test("inferred return ownership does not borrow an enclosing function's declared
   const checked = fixture("function outer(): number { function inner() { const sourceValue = 1; return sourceValue; } return inner(); }");
   const owner = checked.find("KindFunctionDeclaration", "inner");
   const value = checked.find("KindIdentifier", "sourceValue", -1);
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [valueNode(value, owner)]));
+  const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner)]));
   assert.equal(result.length === 1 && result[0]!.owner === owner, true,
     "the nearest original callable owns its own inferred signature");
 });
@@ -159,7 +175,7 @@ test("unannotated fields and parameter defaults are signature roots; annotated o
     checked.find("KindParameter", "value"), checked.find("KindParameter", "typed")];
   const nodes = declarations.map(declaration => valueNode(declaration, owner,
     { initializer: Node_Initializer(checked.source.ast, declaration), declaration }));
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], nodes));
+  const result = collectEligibleMetadata(checked.context, graph([owner], nodes));
   assert.equal(result.length, 2, "only the two genuinely unannotated declarations fix their initializers");
   assert.equal(result.every(signature => signature.site === signature.owner &&
     (signature.owner === declarations[0] || signature.owner === declarations[2])), true,
@@ -178,7 +194,7 @@ for (const [label, statement] of [
     const owner = checked.find("KindFunctionDeclaration", "outer");
     const parameter = checked.find("KindParameter", "sourceValue");
     const returned = checked.find("KindIdentifier", "sourceValue", -1);
-    const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+    const result = collectEligibleMetadata(checked.context, graph([owner], [
       valueNode(parameter, owner, { initializer: Node_Initializer(checked.source.ast, parameter) }), valueNode(returned, owner),
     ]));
     assert.equal(result.length, 0, "the actual C7 inline slots are joined by the generic edge collector instead");
@@ -194,7 +210,7 @@ for (const [label, statement] of [
     const owner = checked.find("KindArrowFunction");
     const parameter = checked.find("KindParameter", "sourceValue");
     const returned = checked.find("KindIdentifier", "sourceValue", -1);
-    const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+    const result = collectEligibleMetadata(checked.context, graph([owner], [
       valueNode(parameter, owner, { initializer: Node_Initializer(checked.source.ast, parameter) }), valueNode(returned, owner),
     ]));
     assert.equal(result.length, 2, "classification never silently admits a stored/returned closure as C7");
@@ -208,7 +224,7 @@ for (const [label, text] of [
   test(`${label} uses the actual Host export summary`, () => {
     const checked = fixture(text);
     const declaration = checked.find("KindVariableDeclaration", "sourceValue");
-    const result = collectSourceTypeFlowSignatures(checked.context, graph([], [valueNode(declaration, declaration)]));
+    const result = collectEligibleMetadata(checked.context, graph([], [valueNode(declaration, declaration)]));
     assert.equal(result.length === 1 && result[0]!.owner === declaration, true,
       "the exact exported declaration keeps its own type even without a direct export modifier");
   });
@@ -235,7 +251,7 @@ test("C24 closes inferred signatures transitively through arithmetic-derived loc
   ];
   const selected = graph([owner], [source, other, first, second, returnedValue].map(value =>
     valueNode(value.node, owner, { variable: value })), links, derived);
-  const result = collectSourceTypeFlowSignatures(checked.context, selected);
+  const result = collectEligibleMetadata(checked.context, selected);
   for (const value of [source, first, second, productResult, additionResult, returnedValue]) {
     assert.equal(includes(result, value), true, "every actual result dependency is declaration-typed");
   }
@@ -254,7 +270,7 @@ test("signature dependency traversal is directional and never types a derived re
   const expression = checked.find("KindBinaryExpression");
   const derivedResult = variable(expression);
   const returned = checked.find("KindIdentifier", "sourceValue", -1);
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner],
+  const result = collectEligibleMetadata(checked.context, graph([owner],
     [valueNode(source.node, owner, { variable: source }), valueNode(returned, owner)],
     [{ source: variable(returned), target: source, site: returned }],
     [{ node: expression, result: derivedResult, operator: "multiply", operands: [source], required: true }]));
@@ -270,7 +286,7 @@ test("whole-container signatures close through shape and array terms to their or
   const array = checked.find("KindArrayLiteralExpression");
   const arrayValue = variable(array);
   const element = variable(array, [{ kind: "element" }]);
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(literal, owner, { term: { kind: "shape", site: literal, members: [{ name: "count", variable: arrayValue }] } }),
     valueNode(array, owner, { variable: arrayValue, term: { kind: "array", site: array, element, readonly: false } }),
     valueNode(source.node, owner, { variable: source }),
@@ -286,7 +302,7 @@ test("a returned member does not fix the parent structure or unrelated members",
   const first = variable(declaration, [{ kind: "member", name: "first" }]);
   const second = variable(declaration, [{ kind: "member", name: "second" }]);
   const returned = checked.find("KindPropertyAccessExpression");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(declaration, owner, { term: { kind: "shape", site: declaration,
       members: [{ name: "first", variable: first }, { name: "second", variable: second }] } }), valueNode(returned, owner),
   ], [{ source: variable(returned), target: first, site: returned }]));
@@ -305,7 +321,7 @@ test("B7 pair paths and nominal argument dependencies remain distinct", () => {
   const rightBinder = checked.find("KindTypeParameter", "Right");
   const left = variable(literal, [{ kind: "binder", declaration: leftBinder }]);
   const right = variable(literal, [{ kind: "binder", declaration: rightBinder }]);
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(literal, owner, { term: { kind: "tuple", site: literal, elements: [first, second], readonly: true } }),
     valueNode(left.node, owner, { kind: "binder", variable: left, term: { kind: "declared", site: literal,
       declaration: checked.find("KindClassDeclaration", "Pair"), typeArguments: [right] } }),
@@ -323,7 +339,7 @@ test("a signature of a declared call result does not include its argument merely
   const call = checked.find("KindCallExpression");
   const receipt = checked.source.semantics.forNode(call).operations.call(call);
   assert.equal(receipt !== undefined, true, "the original selected call is actual checked evidence");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [valueNode(argument, owner)], [], [],
+  const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(argument, owner)], [], [],
     [{ node: call, source: receipt!, receiver: [], method: [], argumentPlaces: [], result: variable(call) }]));
   assert.equal(includes(result, variable(call)), true, "the declared result occurrence reaches the signature");
   assert.equal(includes(result, variable(argument)), false, "no unrecorded argument-to-result dependency is invented");
@@ -340,7 +356,7 @@ test("canonical variable paths and cyclic equality links are visited once withou
   const input = graph([owner], [valueNode(returned, owner, { variable: read })], [
     { source: read, target: original, site: returned }, { source: same, target: read, site: returned },
   ]);
-  const result = collectSourceTypeFlowSignatures(checked.context, input);
+  const result = collectEligibleMetadata(checked.context, input);
   assert.equal(result.length, 2, "cloned records of the same checked variable path are one closure entry");
   assert.equal(includes(result, original) && includes(result, same), true, "node/path identity is structural without AST serialization");
   assert.equal(input.links[0]!.target === original && input.links[1]!.source === same, true,
@@ -357,8 +373,8 @@ test("multiple signature origins use checked source order and AST preorder, inde
   const links = [{ source: variable(first), target: declaration, site: first }, { source: variable(last), target: declaration, site: last }];
   const order = checked.context.order;
   const tied: SourceTypeFlowAnalysisContext = { ...checked.context, order: node => ({ ...order(node), start: 0 }) };
-  const ordinary = collectSourceTypeFlowSignatures(checked.context, graph([owner], nodes, links));
-  const shuffled = collectSourceTypeFlowSignatures(tied, graph([owner], [...nodes].reverse(), [...links].reverse()));
+  const ordinary = collectEligibleMetadata(checked.context, graph([owner], nodes, links));
+  const shuffled = collectEligibleMetadata(tied, graph([owner], [...nodes].reverse(), [...links].reverse()));
   assert.equal(ordinary.length === 3 && shuffled.length === ordinary.length, true, "shared dependencies are marked only once");
   assert.equal(ordinary.every(signature => signature.site === checked.find("KindReturnStatement", undefined, 0)) &&
     shuffled.every(signature => signature.site === checked.find("KindReturnStatement", undefined, 0)), true,
@@ -372,7 +388,7 @@ test("C24 declaration-types the consumed local through a directly returned arith
   const consumed = checked.find("KindIdentifier", "sourceValue", 1);
   const operand = checked.find("KindIdentifier", "sourceValue", 2);
   const expression = checked.find("KindBinaryExpression");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(declaration.node, owner, { kind: "open-local", variable: declaration }),
     valueNode(consumed, owner), valueNode(operand, owner),
   ], [{ source: variable(consumed), target: declaration, site: consumed },
@@ -389,7 +405,7 @@ test("default-export arithmetic retains the real export site through the same C2
   const declaration = variable(checked.find("KindVariableDeclaration", "sourceValue"));
   const expression = checked.find("KindBinaryExpression");
   const owner = checked.find("KindExportAssignment");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([], [
+  const result = collectEligibleMetadata(checked.context, graph([], [
     valueNode(declaration.node, owner, { kind: "fixed", variable: declaration }),
   ], [], [{ node: expression, result: variable(expression), operator: "add", operands: [declaration], required: true }]));
   assert.equal(includes(result, declaration), true, "the exported derived value keeps its declaration-typed dependency");
@@ -409,7 +425,7 @@ test("only result-dependent method binders are signature roots at a returned gen
   const argument = checked.find("KindIdentifier", "sourceValue", -1);
   assert.equal(receipt !== undefined && receipt.sourceArgumentBindings[0] !== undefined &&
     receipt.sourceSelectedSignatureParameters[0] !== undefined, true, "the original checked binder places are available");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(call, owner, { kind: "binder", variable: argumentBinder }),
     valueNode(call, owner, { kind: "binder", variable: resultBinder }), valueNode(argument, owner),
   ], [{ source: variable(call), target: resultBinder, site: call }], [], [{
@@ -430,7 +446,7 @@ test("construction positions sharing a returned occurrence are dependencies, nev
   const first = variable(returned, [{ kind: "member", name: "first" }]);
   const second = variable(returned, [{ kind: "member", name: "second" }]);
   const element = variable(returned, [{ kind: "member", name: "second" }, { kind: "element" }]);
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(returned, owner), valueNode(returned, owner, { variable: first, publish: false }),
     valueNode(returned, owner, { variable: second, publish: false,
       term: { kind: "array", site: returned, element, readonly: false } }),
@@ -449,11 +465,95 @@ test("a returned declared optional result retains its actual value dependency", 
   const component = checked.source.semantics.forNode(call).operations.call(call);
   const binder = variable(call, [{ kind: "binder", declaration }]);
   assert.equal(component !== undefined, true, "the actual selected declared result is retained");
-  const result = collectSourceTypeFlowSignatures(checked.context, graph([owner], [
+  const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(call, owner, { term: { kind: "optional", site: call, value: binder,
       source: { selectedType: component!.sourceResultType } } }),
     valueNode(call, owner, { kind: "binder", variable: binder, publish: false }),
   ]));
   assert.equal(result.length === 2 && includes(result, binder), true,
     "declared one-absence structure closes through its exact result binder, not a fabricated union");
+});
+
+for (const [label, text] of [
+  ["module shorthand", 'const foo = "bar"; export const record: Record<string, string> = { foo };'],
+  ["module exports", "export const plain = 7 / 2; export const typed: number = 7 / 2;"],
+  ["declared union", "function read(value: number | string) { return value; }"],
+] as const) {
+  test(`C29 ${label} never starts a signature closure without an inference group`, () => {
+    const checked = fixture(text);
+    const root = checked.source.sourceFiles[0]!;
+    const input = graph([root], checked.nodes.map(node => valueNode(node, root, { kind: "fixed" })));
+    const terms = createSourceTypeFlowTerms(input);
+    assert.equal(input.nodes.some(node => terms.isInference(node.variable)), false,
+      "actual canonical terms contain no open-local or derived-local origin");
+    assert.equal(collectSourceTypeFlowSignatures(checked.context, input, terms.isInference).length, 0,
+      "never-open declarations keep their declared path, without signature marks or a second scope classifier");
+  });
+}
+
+test("C24 uses the same canonical inference scope and never flows arithmetic openness backward", () => {
+  const checked = fixture("function read(limit: number) { const sourceValue = 1; return sourceValue + limit; }");
+  const owner = checked.find("KindFunctionDeclaration", "read");
+  const source = variable(checked.find("KindVariableDeclaration", "sourceValue"));
+  const read = variable(checked.find("KindIdentifier", "sourceValue", -1));
+  const fixed = variable(checked.find("KindIdentifier", "limit", -1));
+  const expression = checked.find("KindBinaryExpression");
+  const input = graph([owner], [valueNode(source.node, owner, { kind: "open-local", variable: source }),
+    valueNode(read.node, owner, { kind: "read", variable: read }),
+    valueNode(fixed.node, owner, { kind: "fixed", variable: fixed })],
+  [{ source, target: read, site: read.node }],
+  [{ node: expression, result: variable(expression), operator: "add", operands: [read, fixed], required: true }]);
+  const terms = createSourceTypeFlowTerms(input);
+  const result = collectSourceTypeFlowSignatures(checked.context, input, terms.isInference);
+  assert.equal(terms.isInference(variable(expression)) && terms.isInference(read), true,
+    "canonical equality and operand-to-result propagation retain the actual open group");
+  assert.equal(terms.isInference(fixed) || includes(result, fixed), false,
+    "a declared operand is not made open or declaration-typed by an arithmetic dependent");
+  assert.equal(includes(result, source) && includes(result, read) && includes(result, variable(expression)), true,
+    "the same scoped predicate permits the complete original C24 dependency closure");
+});
+
+test("a never-open return cannot start closure into a separately inferred arithmetic dependent", () => {
+  const checked = fixture("function read(limit: number) { const sourceValue = 1; const derivedValue = sourceValue + limit; return limit; }");
+  const owner = checked.find("KindFunctionDeclaration", "read");
+  const source = variable(checked.find("KindVariableDeclaration", "sourceValue"));
+  const fixed = variable(checked.find("KindParameter", "limit"));
+  const operand = variable(checked.find("KindIdentifier", "limit", 1));
+  const returned = variable(checked.find("KindIdentifier", "limit", 2));
+  const expression = checked.find("KindBinaryExpression");
+  const input = graph([owner], [valueNode(source.node, owner, { kind: "open-local", variable: source }),
+    valueNode(operand.node, owner, { kind: "fixed", variable: operand }),
+    valueNode(returned.node, owner, { kind: "read", variable: returned })],
+  [{ source: fixed, target: operand, site: operand.node }, { source: fixed, target: returned, site: returned.node }],
+  [{ node: expression, result: variable(expression), operator: "add", operands: [source, operand], required: true }]);
+  const terms = createSourceTypeFlowTerms(input);
+  assert.equal(terms.isInference(variable(expression)) && !terms.isInference(returned), true,
+    "the supplied scope distinguishes a genuine derived group from its declared operand");
+  assert.equal(collectSourceTypeFlowSignatures(checked.context, input, terms.isInference).length, 0,
+    "origin eligibility is checked before traversing a signature, not filtered after it");
+});
+
+test("the actual canonical scope retains structural containment without a second unifier", () => {
+  const checked = fixture("function read() { const values = [1]; return values; }");
+  const owner = checked.find("KindFunctionDeclaration", "read");
+  const declaration = variable(checked.find("KindVariableDeclaration", "values"));
+  const element = variable(declaration.node, [{ kind: "element" }]);
+  const returned = variable(checked.find("KindIdentifier", "values", -1));
+  const input = graph([owner], [valueNode(declaration.node, owner, { kind: "open-local", variable: declaration,
+    term: { kind: "array", site: declaration.node, element, readonly: false } }),
+  valueNode(returned.node, owner, { kind: "read", variable: returned })],
+  [{ source: declaration, target: returned, site: returned.node }]);
+  const result = collectInScope(checked.context, input);
+  assert.equal(result.length === 3 && includes(result, declaration) && includes(result, element), true,
+    "the shared terms instance, not a copied openness rule, covers the original element and container");
+});
+
+test("signature collection requires its supplied inference predicate and rejects the retired invocation", () => {
+  const checked = fixture("function read() { const value = 1; return value; }");
+  const owner = checked.find("KindFunctionDeclaration", "read");
+  const returned = checked.find("KindIdentifier", "value", -1);
+  const input = graph([owner], [valueNode(returned, owner)]);
+  assert.equal(collectSourceTypeFlowSignatures.length, 3, "the current API has no optional scope argument");
+  assert.throws(() => Reflect.apply(collectSourceTypeFlowSignatures, undefined, [checked.context, input]), TypeError,
+    "the old unscoped signature cannot silently acquire a default or compatibility path");
 });
