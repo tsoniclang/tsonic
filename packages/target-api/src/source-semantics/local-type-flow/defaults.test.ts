@@ -197,6 +197,19 @@ test("an opaque declared object is outside the structural descriptor domain", ()
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("a generic type annotation retains its checked type declaration beside a same-name constructor value", () => {
+  const current = fixture(`interface Box<Value> { value: Value; }
+    declare const Box: { new<Value>(value: Value): Box<Value> };
+    function run(): void { const selected: Box<int32> = new Box<int32>(1); }`);
+  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Box");
+  const type = current.defaults.context.describe(current.declaration("selected"));
+  assert.equal(declaration !== undefined && type?.kind === "declared", true, "the real checked generic declaration is retained");
+  if (type?.kind !== "declared") throw new Error("The declared generic descriptor is required.");
+  assert.equal(type.declaration === declaration, true, "the constructor value cannot own a type annotation's binders");
+  assertSameValue(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }
