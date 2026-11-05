@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
-  SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
+  SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
   SourceTypeFlowRefusal, SourceTypeFlowTerm, SourceTypeFlowVariable,
 } from "./types.js";
 
@@ -23,14 +23,38 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
       left.elements.every((element, index) => sourceTypeDescriptorsEqual(element, right.elements[index]!));
     case "declared": return right.kind === "declared" && left.declaration === right.declaration &&
       left.typeArguments.length === right.typeArguments.length &&
-      left.typeArguments.every((argument, index) => sourceTypeDescriptorsEqual(argument, right.typeArguments[index]!));
+      left.typeArguments.every((argument, index) => sourceTypeDescriptorsEqual(argument, right.typeArguments[index]!)) &&
+      indexesEqual(left.indexes, right.indexes);
     case "shape": return right.kind === "shape" && left.members.length === right.members.length &&
+      indexesEqual(left.indexes, right.indexes) &&
       left.members.every(member => {
         const selected = right.members.find(candidate => candidate.name === member.name);
         return selected !== undefined && member.optional === selected.optional && !!member.readonly === !!selected.readonly &&
           sourceTypeDescriptorsEqual(member.type, selected.type);
       });
   }
+}
+
+function indexesEqual(left: readonly SourceTypeDescriptorIndex[], right: readonly SourceTypeDescriptorIndex[]): boolean {
+  return left.length === right.length && left.every(index => right.some(selected =>
+    index.readonly === selected.readonly && sourceTypeDescriptorsEqual(index.key, selected.key) &&
+    sourceTypeDescriptorsEqual(index.value, selected.value)));
+}
+
+export function sourceTypeDescriptorUnion(types: readonly SourceTypeDescriptor[]): SourceTypeDescriptor | undefined {
+  const members: SourceTypeDescriptor[] = [];
+  let absent = false;
+  const pending = [...types];
+  while (pending.length > 0) {
+    const selected = pending.shift()!;
+    if (selected.kind === "union") pending.unshift(...selected.types);
+    else if (selected.kind === "optional") { absent = true; pending.unshift(selected.value); }
+    else if (selected.kind === "intrinsic" && selected.intrinsic === "absence") absent = true;
+    else if (!members.some(member => sourceTypeDescriptorsEqual(member, selected))) members.push(selected);
+  }
+  const value: SourceTypeDescriptor | undefined = members.length === 0 ? undefined
+    : members.length === 1 ? members[0] : { kind: "union", types: members };
+  return absent ? value === undefined ? { kind: "intrinsic", intrinsic: "absence" } : { kind: "optional", value } : value;
 }
 
 function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: readonly SourceTypeDescriptorSignature[]): boolean {
@@ -46,6 +70,8 @@ function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: 
 }
 
 export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
+  const indexes = (values: readonly SourceTypeDescriptorIndex[]) => Object.freeze(values.map(index =>
+    Object.freeze({ ...index, key: freezeSourceTypeDescriptor(index.key), value: freezeSourceTypeDescriptor(index.value) })));
   switch (type.kind) {
     case "primitive": case "string": case "intrinsic": return Object.freeze({ ...type });
     case "union": return Object.freeze({ ...type, types: Object.freeze(type.types.map(freezeSourceTypeDescriptor)) });
@@ -63,9 +89,11 @@ export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTy
     ] as const) });
     case "declared": return Object.freeze({ ...type,
       typeArguments: Object.freeze(type.typeArguments.map(freezeSourceTypeDescriptor)),
+      indexes: indexes(type.indexes),
+      ...(type.definition === undefined ? {} : { definition: freezeSourceTypeDescriptor(type.definition) }),
       ...(type.members === undefined ? {} : { members: Object.freeze(type.members.map(member =>
         Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) }) });
-    case "shape": return Object.freeze({ ...type, members: Object.freeze(type.members.map(member =>
+    case "shape": return Object.freeze({ ...type, indexes: indexes(type.indexes), members: Object.freeze(type.members.map(member =>
       Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) });
   }
 }
@@ -75,7 +103,7 @@ export function sourceTypeDescriptorDepth(type: SourceTypeDescriptor): number {
     : type.kind === "union" ? type.types : type.kind === "callable" ? [...type.calls, ...type.constructs]
       .flatMap(signature => [...signature.parameters.map(parameter => parameter.type), signature.result])
     : type.kind === "tuple" ? type.elements : type.kind === "declared" ? type.typeArguments
-    : type.kind === "shape" ? type.members.map(member => member.type) : [];
+    : type.kind === "shape" ? [...type.members.map(member => member.type), ...type.indexes.flatMap(index => [index.key, index.value])] : [];
   let depth = -1;
   for (const child of children) depth = Math.max(depth, sourceTypeDescriptorDepth(child));
   return depth + 1;

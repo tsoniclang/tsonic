@@ -181,19 +181,36 @@ test("negative zero keeps the floating leaf default without changing ordinary ze
   assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int32" });
 });
 
-test("unrepresentable annotations never acquire their initializer's narrower type", () => {
+test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {
   const current = fixture("function run(): void { const value: number | string = 1; const dictionary: { [key: string]: number } = {}; }");
-  for (const name of ["value", "dictionary"]) {
-    assert.equal(current.defaults.context.describe(current.declaration(name)) === undefined, true, name);
-    assert.equal(current.source.effectiveTypes.get(current.declaration(name)) === undefined, true, name);
+  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
+  assert.equal(index !== undefined, true);
+  if (index === undefined) throw new Error("The actual checked index declaration is required.");
+  for (const [name, expected] of [["value", { kind: "union", types: [{ kind: "primitive", primitive: "float64" }, { kind: "string" }] }],
+    ["dictionary", { kind: "shape", members: [], indexes: [{ declaration: index, key: { kind: "string" },
+      value: { kind: "primitive", primitive: "float64" }, readonly: false }] }]] as const) {
+    const described = current.defaults.context.describe(current.declaration(name));
+    const published = current.source.effectiveTypes.get(current.declaration(name));
+    assertSameValue(described, expected);
+    assert.equal(published !== undefined && published.kind !== "refused", true, name);
+    if (published === undefined || published.kind === "refused") throw new Error("The declared type must be published.");
+    assertSameValue(published.type, expected);
+    assert.equal(described?.kind === "primitive" && described.primitive === "int32", false);
+    assert.equal(name === "value" ? described?.kind === "union" && described.types.length > 1
+      : described?.kind === "shape" && described.indexes.length > 0, true);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("an opaque declared object is outside the structural descriptor domain", () => {
+test("an opaque declared object publishes the object intrinsic, not a structural shape", () => {
   const current = fixture("declare const value: object;");
-  assert.equal(current.defaults.context.describe(current.declaration("value")) === undefined, true);
-  assert.equal(current.source.effectiveTypes.get(current.declaration("value")) === undefined, true);
+  const described = current.defaults.context.describe(current.declaration("value"));
+  const published = current.source.effectiveTypes.get(current.declaration("value"));
+  assertSameValue(described, { kind: "intrinsic", intrinsic: "object" });
+  assert.equal(published !== undefined && published.kind !== "refused", true);
+  if (published === undefined || published.kind === "refused") throw new Error("The declared type must be published.");
+  assertSameValue(published.type, { kind: "intrinsic", intrinsic: "object" });
+  assert.equal(described?.kind === "shape" || published.type.kind === "shape", false);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
@@ -208,6 +225,67 @@ test("a generic type annotation retains its checked type declaration beside a sa
   if (type?.kind !== "declared") throw new Error("The declared generic descriptor is required.");
   assert.equal(type.declaration === declaration, true, "the constructor value cannot own a type annotation's binders");
   assertSameValue(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
+});
+
+test("declared index aliases retain the actual signature in both reference and resolved definition", () => {
+  const current = fixture("type Indexed = { [name: string]: number }; const data: Indexed = { value: 1 };");
+  const alias = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
+  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
+  const type = current.defaults.context.describe(current.declaration("data"));
+  assert.equal(alias !== undefined && index !== undefined && type?.kind === "declared", true);
+  if (type?.kind !== "declared") throw new Error("The nominal index alias is required.");
+  assert.equal(type.declaration === alias && type.members?.length === 0 && type.indexes.length === 1, true);
+  assert.equal(type.indexes[0]?.declaration === index && type.indexes[0]?.readonly === false, true);
+  assertSameValue(type.indexes[0]?.key, { kind: "string" });
+  assertSameValue(type.indexes[0]?.value, { kind: "primitive", primitive: "float64" });
+  assert.equal(type.definition?.kind === "shape", true);
+  if (type.definition?.kind !== "shape") throw new Error("The Host-resolved alias body is required.");
+  assert.equal(type.definition.members.length === 0 && type.definition.indexes[0]?.declaration === index, true);
+  assertSameValue(type.definition.indexes[0]?.value, type.indexes[0]?.value);
+  const literal = current.defaults.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  assert.equal(current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal).length, 1);
+});
+
+test("a recursive alias definition closes at the same declaration and arguments without expanding the inner reference", () => {
+  const current = fixture("type Tree = number | readonly Tree[]; declare const retained: Tree;");
+  const alias = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
+  const type = current.defaults.context.describe(current.declaration("retained"));
+  assert.equal(type?.kind === "declared" && type.declaration === alias && type.definition?.kind === "union", true);
+  if (type?.kind !== "declared" || type.definition?.kind !== "union") throw new Error("The complete recursive alias body is required.");
+  assert.equal(type.typeArguments.length, 0);
+  assert.equal(type.definition.types.some(member => member.kind === "primitive" && member.primitive === "float64"), true);
+  const array = type.definition.types.find(member => member.kind === "array");
+  assert.equal(array?.kind === "array" && array.readonly && array.element.kind === "declared", true);
+  if (array?.kind !== "array" || array.element.kind !== "declared") throw new Error("The recursive array reference is required.");
+  assert.equal(array.element.declaration === alias && array.element.typeArguments.length === 0 && array.element.definition === undefined, true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("a mapped Record index retains its real mapped origin and substituted primitive width", () => {
+  const current = fixture("const retained: Record<string, int32> = { count: 1 };");
+  const type = current.defaults.context.describe(current.declaration("retained"));
+  assert.equal(type?.kind === "declared" && type.definition?.kind === "shape" && type.indexes.length === 1, true);
+  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The resolved Record alias body is required.");
+  const origin = current.source.ast.typeNode(type.declaration);
+  assert.equal(origin !== undefined && current.source.ast.is.IsMappedTypeNode(origin), true);
+  assert.equal(type.indexes[0]?.declaration === origin && type.definition.indexes[0]?.declaration === origin, true);
+  assertSameValue(type.typeArguments, [{ kind: "string" }, { kind: "primitive", primitive: "int32" }]);
+  assertSameValue(type.indexes[0]?.key, { kind: "string" });
+  assertSameValue(type.indexes[0]?.value, { kind: "primitive", primitive: "int32" });
+  assert.equal(type.indexes[0]?.readonly, false);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("class and interface indexes retain their exact declaration and readonly metadata", () => {
+  const current = fixture("interface Values { readonly [key: string]: int32; } declare const retained: Values;");
+  const type = current.defaults.context.describe(current.declaration("retained"));
+  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node));
+  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
+  assert.equal(type?.kind === "declared" && type.declaration === declaration && type.indexes.length === 1, true);
+  if (type?.kind !== "declared") throw new Error("The declared interface is required.");
+  assert.equal(type.definition === undefined && type.indexes[0]?.declaration === index && type.indexes[0]?.readonly === true, true);
+  assertSameValue(type.indexes[0]?.key, { kind: "string" });
+  assertSameValue(type.indexes[0]?.value, { kind: "primitive", primitive: "int32" });
 });
 
 function assertSameValue(actual: unknown, expected: unknown): void {

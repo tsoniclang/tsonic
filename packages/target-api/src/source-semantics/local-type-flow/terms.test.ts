@@ -82,7 +82,7 @@ test("nominal identity includes the original declaration and ordered arguments",
   const current = fixture();
   const integer: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
   const floating: SourceTypeDescriptor = { kind: "primitive", primitive: "float64" };
-  const first: SourceTypeDescriptor = { kind: "declared", declaration: current.nodes[3]!, typeArguments: [integer, floating] };
+  const first: SourceTypeDescriptor = { kind: "declared", declaration: current.nodes[3]!, typeArguments: [integer, floating], indexes: [] };
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, declaration: current.nodes[4]! }), false);
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, typeArguments: [floating, integer] }), false);
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, typeArguments: [integer, floating] }), true);
@@ -90,7 +90,7 @@ test("nominal identity includes the original declaration and ordered arguments",
 
 test("descriptor freezing owns vectors but never freezes checked source nodes", () => {
   const current = fixture(); const declaration = current.nodes[3]!;
-  const source: SourceTypeDescriptor = { kind: "declared", declaration, typeArguments: [{ kind: "primitive", primitive: "int32" }] };
+  const source: SourceTypeDescriptor = { kind: "declared", declaration, typeArguments: [{ kind: "primitive", primitive: "int32" }], indexes: [] };
   const frozen = freezeSourceTypeDescriptor(source);
   assert.equal(Object.isFrozen(frozen), true);
   assert.equal(frozen.kind === "declared" && Object.isFrozen(frozen.typeArguments), true);
@@ -100,8 +100,8 @@ test("descriptor freezing owns vectors but never freezes checked source nodes", 
 
 test("member presence survives freezing and is not inferred from its optional value type", () => {
   const value: SourceTypeDescriptor = { kind: "optional", value: { kind: "primitive", primitive: "int32" } };
-  const required: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: false, type: value }] };
-  const optional: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: true, type: value }] };
+  const required: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: false, type: value }], indexes: [] };
+  const optional: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: true, type: value }], indexes: [] };
   assert.equal(sourceTypeDescriptorsEqual(required, optional), false);
   const frozen = freezeSourceTypeDescriptor(required);
   assert.equal(sourceTypeDescriptorsEqual(required, frozen), true);

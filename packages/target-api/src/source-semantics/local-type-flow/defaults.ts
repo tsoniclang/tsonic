@@ -4,6 +4,7 @@ import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.js";
 import { createSourceTypeDescriptorReader } from "./descriptors.js";
+import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowSource,
@@ -12,6 +13,7 @@ import type {
 export interface SourceTypeFlowDefaults {
   readonly context: SourceTypeFlowAnalysisContext;
   readonly nodes: readonly Node[];
+  readonly values: readonly Node[];
   fixedRule(node: Node): SourceTypeFlowFixedRule | undefined;
   hasDeclaredSourceType(node: Node): boolean;
 }
@@ -52,25 +54,41 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const { ast, semantics, navigation, sourceFacts } = source;
   const literals = analyzeSourceLiteralValues(ast, source.sourceFiles).literalValue;
   const nodes: Node[] = [];
+  const values: Node[] = [];
   const ordinals = new WeakMap<Node, number>();
   const counters = new WeakMap<Node, SourceTypeFlowFixedRule>();
-  const pending: Node[] = [];
+  const pending: { readonly node: Node; readonly typeOnly: boolean }[] = [];
   for (let index = source.sourceFiles.length - 1; index >= 0; index -= 1) {
     const file = source.sourceFiles[index]!;
-    if (!ast.isDeclarationFile(file)) pending.push(file);
+    if (!ast.isDeclarationFile(file)) pending.push({ node: file, typeOnly: false });
   }
   while (pending.length > 0) {
-    const node = pending.pop()!;
+    const entry = pending.pop()!;
+    const { node } = entry;
+    const typeOnly = entry.typeOnly || sourceTypeFlowTypeSyntax(ast, node);
     ordinals.set(node, nodes.length);
     nodes.push(node);
+    if (!typeOnly && sourceTypeFlowValueSyntax(ast, node)) values.push(node);
     const children = ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      if (child !== undefined) pending.push(child);
+      if (child !== undefined) pending.push({ node: child, typeOnly });
     }
   }
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
   const active = new Set<Node>();
+  const declarationQueries = new WeakMap<Node, SourceFileSemantics>();
+  for (const node of nodes) {
+    if (!(ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node) ||
+      ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))) continue;
+    const queries = semantics.forNode(node);
+    const access = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node)
+      : ast.is.IsElementAccessExpression(node) ? queries.operations.elementAccess(node) : undefined;
+    const call = ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ? queries.operations.call(node) : undefined;
+    for (const declaration of [access?.selectedDeclaration, call === undefined ? undefined : queries.declarations.signatureDeclaration(call.selectedSignature)]) {
+      if (declaration !== undefined) declarationQueries.set(declaration, queries);
+    }
+  }
 
   function primitive(subjects: readonly ExtensionFactSubject[]): SourceTypeDescriptor | undefined {
     for (const subject of subjects) {
@@ -126,7 +144,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   }
 
   const { syntax: describeSyntax, type: describeType } = createSourceTypeDescriptorReader(source, typeDeclaration,
-    declaration => sourceTypeFlowTypeParameters(ast, declaration));
+    declaration => sourceTypeFlowTypeParameters(ast, declaration), (declaration, queries, bindings) =>
+      describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))));
 
   function occurrenceBindings(node: Node, queries: SourceFileSemantics,
     component?: SourceTypeComponentEvidence): ReadonlyMap<Node, SourceTypeDescriptor> {
@@ -199,7 +218,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         if (selected === undefined) return undefined;
         members.push({ name: selected.name, optional: selected.optional, type: value, declaration: property });
       }
-      return members.length === 0 ? undefined : { kind: "shape", members };
+      return members.length === 0 ? undefined : { kind: "shape", members, indexes: [] };
     }
     return undefined;
   }
@@ -211,16 +230,27 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const cached = cache.get(node);
       if (cached !== undefined) return cached;
     }
-    const queries = consumer ?? semantics.forNode(node);
+    const file = ast.getSourceFile(node);
+    const queries = consumer ?? (file !== undefined && semantics.includes(file) ? semantics.forFile(file) : declarationQueries.get(node));
+    if (queries === undefined) return undefined;
     active.add(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
     let result: SourceTypeDescriptor | undefined;
-    const rule = fixedRule(node);
+    const rule = component === undefined && file !== undefined && semantics.includes(file) ? fixedRule(node) : undefined;
     if (rule !== undefined && (component === undefined || component.declaration === rule.declaration)) {
       result = { kind: "primitive", primitive: "int64" };
     }
     const declaration = component?.declaration ?? declarationFor(node);
+    if (result === undefined && component === undefined && ast.is.IsPropertyAccessExpression(node)) {
+      const access = queries.operations.propertyAccess(node);
+      const receiver = access?.receiver.expression;
+      const descriptor = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
+      const selectedDeclaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
+      if (selectedDeclaration !== undefined && (descriptor?.kind === "shape" || descriptor?.kind === "declared")) {
+        result = descriptor.members?.find(member => member.declaration === selectedDeclaration)?.type;
+      }
+    }
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
     if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth, bindings);
     if (result === undefined && annotation !== undefined) {
@@ -288,7 +318,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const range = ast.authoredRange(node);
       return { start: range.kind === "authored" ? range.start : ast.pos(node), preorder: ordinals.get(node) ?? nodes.length };
     } });
-  return Object.freeze({ context, nodes: Object.freeze(nodes), fixedRule, hasDeclaredSourceType });
+  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), fixedRule, hasDeclaredSourceType });
 }
 
 export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): "int32" | "float64" {

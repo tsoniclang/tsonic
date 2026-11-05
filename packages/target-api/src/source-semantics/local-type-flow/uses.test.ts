@@ -75,7 +75,7 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
         if (ast.is.IsTypeReferenceNode(authored)) {
           const declaration = navigation.sourceReferenceFor(ast.as.AsTypeReferenceNode(authored)?.TypeName)?.declaration;
           if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration))) {
-            return Object.freeze({ kind: "declared", declaration, typeArguments: Object.freeze([]) });
+            return Object.freeze({ kind: "declared", declaration, typeArguments: Object.freeze([]), indexes: Object.freeze([]) });
           }
         }
       }
@@ -268,7 +268,7 @@ test("U10 typed literal members retain their original authored field rather than
   const source = current.graph().nodes.find(record => record.node === child)!;
   current.link(source.variable, member, property);
   current.descriptors.set("{ items: int32[] }", Object.freeze({ kind: "shape",
-    members: Object.freeze([{ name: "items", optional: false, type: array(integer) }]) }));
+    members: Object.freeze([{ name: "items", optional: false, type: array(integer) }]), indexes: Object.freeze([]) }));
   const selected = current.call(current.find("take({ items: xs })"));
   const uses = current.run();
   const use = uses[0];

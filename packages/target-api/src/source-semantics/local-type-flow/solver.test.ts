@@ -4,8 +4,10 @@ import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { collectSourceTypeFlowEdges } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor } from "./types.js";
+import { sourceTypeDescriptorsEqual } from "./terms.js";
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -176,13 +178,22 @@ for (const statement of ["values[0] = value;", "target = value;"]) {
   });
 }
 
-test("ordinary fixed API write values retain Native resolution outside the Host domain", () => {
+test("ordinary fixed API write values publish their declared read type and a write-fit obligation", () => {
   const current = fixture("function run(input: number[]): void { const values = [1]; values[0] = input.length; }");
   const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node));
   const write = current.source.effectiveTypes.obligations().find(row => row.kind === "write-fit" && row.value === access);
   assert.equal(access !== undefined && write !== undefined, true);
-  assert.equal(access !== undefined && current.source.effectiveTypes.get(access) === undefined, true);
-  assert.equal(write?.valueType === undefined && write?.valueVariable === undefined, true);
+  const selected = access === undefined ? undefined : current.source.semantics.forNode(access).operations.propertyAccess(access);
+  const declaration = selected?.selectedReadDeclaration ?? selected?.selectedDeclaration;
+  assert.equal(declaration !== undefined, true);
+  const described = declaration === undefined ? undefined : createSourceTypeFlowAnalysisContext(current.source).context.describe(declaration);
+  const outcome = access === undefined ? undefined : current.source.effectiveTypes.get(access);
+  assert.equal(described !== undefined && outcome !== undefined && outcome.kind !== "refused", true);
+  if (outcome === undefined || outcome.kind === "refused") throw new Error("The declared read type must be published.");
+  assertSameValue(outcome.type, described);
+  assertSameValue(write?.valueType, described);
+  assert.equal(write?.valueVariable === undefined, true);
+  assertSameValue(current.type("values"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
 });
 
 test("derived-local demands never flow back into arithmetic operands", () => {
@@ -270,14 +281,19 @@ test("a seeded accumulator is checked once against its non-cyclic type", () => {
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("inline callable construction stays private while its chosen parameter and result are published", () => {
+test("inline callable construction publishes one callable type consistent with its chosen parameter and result", () => {
   const current = fixture("function run(): void { const values = [1, 2]; const mapped = values.map(value => value * 2); }");
   assertSameValue(current.type("mapped"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
   const arrow = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
   const parameter = arrow === undefined ? undefined : current.source.ast.parameters(arrow)[0];
   const body = arrow === undefined ? undefined : current.source.ast.body(arrow);
   assert.equal(arrow !== undefined && parameter !== undefined && body !== undefined, true);
-  assert.equal(arrow !== undefined && current.source.effectiveTypes.get(arrow) === undefined, true);
+  const arrowType = arrow === undefined ? undefined : current.source.effectiveTypes.get(arrow);
+  assert.equal(arrowType !== undefined && arrowType.kind !== "refused", true);
+  if (arrowType === undefined || arrowType.kind === "refused") throw new Error("The inline callable type must be published.");
+  assertSameValue(arrowType.type, { kind: "callable", calls: [{ declaration: arrow, typeParameters: [],
+    parameters: [{ declaration: parameter, kind: "required", type: { kind: "primitive", primitive: "int32" } }],
+    result: { kind: "primitive", primitive: "int32" } }], constructs: [] });
   for (const node of [parameter, body]) {
     const outcome = node === undefined ? undefined : current.source.effectiveTypes.get(node);
     assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
@@ -521,6 +537,205 @@ test("C2224 independent empty constructions retain independent causes", () => {
   assert.equal(issues.length, 2);
   assert.equal(issues.every(issue => issue.code === "TSONIC_UNTYPED_OBJECT_LITERAL"), true);
   assert.equal(issues[0] !== issues[1] && issues[0]?.site !== issues[1]?.site, true);
+});
+
+test("C30 uses the unique kind-matching declared parameter arm and retains its member declaration", () => {
+  const current = fixture(`declare function take(value: { count: int32 } | readonly number[]): void;
+    function run(): void { take({ count: 1 }); take([1, 2]); }`);
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  const array = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  const member = current.nodes.find(node => current.source.ast.is.IsPropertySignatureDeclaration(node));
+  const objectType = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  const arrayType = array === undefined ? undefined : current.source.effectiveTypes.get(array);
+  assert.equal(objectType !== undefined && objectType.kind !== "refused" && objectType.type.kind === "shape", true);
+  if (objectType === undefined || objectType.kind === "refused" || objectType.type.kind !== "shape") throw new Error("The chosen object arm is required.");
+  assert.equal(member !== undefined && objectType.type.members[0]?.declaration === member, true);
+  assertSameValue(objectType.type.members[0]?.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(arrayType !== undefined && arrayType.kind !== "refused", true);
+  if (arrayType === undefined || arrayType.kind === "refused") throw new Error("The chosen array arm is required.");
+  assertSameValue(arrayType.type, { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float64" } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C30 ambiguous declared object arms retain their own structural refusal origin", () => {
+  const current = fixture(`declare function take(value: { count: int32 } | { count: float32 }): void;
+    function run(): void { take({ count: 1 }); }`);
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const record = graph.nodes.find(node => node.node === literal && node.variable.path.length === 0);
+  assert.equal(record?.declaredSlotRefusal !== undefined && graph.refusals.includes(record.declaredSlotRefusal), true);
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_UNION" && issues[0].site === literal, true);
+  assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal)?.kind === "refused", true);
+});
+
+test("C30 carries declared nested element slots through both coalescing return branches", () => {
+  const current = fixture(`declare const input: { rows: readonly number[][] } | undefined;
+    function run(): { rows: readonly number[][] } { return input ?? { rows: [[1, 2]] }; }`);
+  const arrays = current.nodes.filter(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  assert.equal(arrays.length, 2);
+  const selected = arrays.map(node => current.source.effectiveTypes.get(node));
+  assert.equal(selected.every(type => type !== undefined && type.kind !== "refused"), true);
+  if (selected[0] === undefined || selected[0].kind === "refused" || selected[1] === undefined || selected[1].kind === "refused") {
+    throw new Error("Both declared array construction slots are required.");
+  }
+  assertSameValue(selected[0].type, { kind: "array", readonly: true, element: {
+    kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } } });
+  assertSameValue(selected[1].type, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+for (const returned of ["Value", "Locked<Value>"]) {
+  test(`B2 fills a generic ${returned} result and its original unbound construction structurally`, () => {
+    const current = fixture(`type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+      declare function retain<Value>(value: Value): ${returned};
+      function run(): void { const selected: object = retain({}); }`);
+    const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+    const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node));
+    const selected = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    assert.equal(selected !== undefined && selected.kind !== "refused", true);
+    if (selected === undefined || selected.kind === "refused") throw new Error("The filled construction is required.");
+    assertSameValue(selected.type, { kind: "intrinsic", intrinsic: "object" });
+    assertSameValue(current.type("selected"), { kind: "intrinsic", intrinsic: "object" });
+    const instance = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+    assert.equal(instance?.method.length, 1);
+    assertSameValue(instance?.method[0]?.type, { kind: "intrinsic", intrinsic: "object" });
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("a merged Map constructor retains the actual type declaration and both source arguments", () => {
+  const current = fixture(`function run(): void { const selected = new Map<int32, string>(); }`);
+  const selected = current.type("selected");
+  assert.equal(selected.kind === "declared", true);
+  if (selected.kind !== "declared") throw new Error("The actual Map type declaration is required.");
+  assert.equal(current.source.ast.is.IsInterfaceDeclaration(selected.declaration), true);
+  assert.equal(current.source.ast.typeParameters(selected.declaration).length, 2);
+  assertSameValue(selected.typeArguments, [{ kind: "primitive", primitive: "int32" }, { kind: "string" }]);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("inherited receiver and method binders retain their distinct declarations and chosen widths", () => {
+  const current = fixture(`interface Root<Outer> { read<Value extends Outer>(value: Value): Outer; }
+    interface View<Body> extends Root<Body> {}
+    function run(view: View<int32>, value: int32): void { const selected = view.read(value); }`);
+  const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node));
+  const instance = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+  const outer = current.nodes.find(node => current.source.ast.is.IsTypeParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "Outer");
+  const method = current.nodes.find(node => current.source.ast.is.IsTypeParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "Value");
+  assert.equal(instance?.receiver.length === 1 && instance.receiver[0]?.declaration === outer, true);
+  assert.equal(instance?.method.length === 1 && instance.method[0]?.declaration === method && outer !== method, true);
+  assertSameValue(instance?.receiver[0]?.type, { kind: "primitive", primitive: "int32" });
+  assertSameValue(instance?.method[0]?.type, { kind: "primitive", primitive: "int32" });
+  assertSameValue(current.type("selected"), { kind: "primitive", primitive: "int32" });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("a declared generic binding leaf retains the substituted property and callable member identities", () => {
+  const current = fixture(`interface Box<Value> { value: Value; read(): Value; }
+    function run(box: Box<int32>): void { const { value, read } = box; }`);
+  const leaves = current.nodes.filter(node => current.source.ast.is.IsBindingElement(node));
+  const value = leaves.find(node => current.source.ast.text(current.source.ast.name(node)) === "value");
+  const read = leaves.find(node => current.source.ast.text(current.source.ast.name(node)) === "read");
+  const valueType = value === undefined ? undefined : current.source.effectiveTypes.get(value);
+  const readType = read === undefined ? undefined : current.source.effectiveTypes.get(read);
+  assert.equal(valueType !== undefined && valueType.kind !== "refused" && readType !== undefined && readType.kind !== "refused", true);
+  if (valueType === undefined || valueType.kind === "refused" || readType === undefined || readType.kind === "refused") throw new Error("The declared binding leaves are required.");
+  assertSameValue(valueType.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(readType.type.kind === "callable", true);
+  if (readType.type.kind !== "callable") throw new Error("A selected method value is callable, not its return type.");
+  const declaredMethod = current.nodes.find(node => current.source.ast.is.IsMethodSignatureDeclaration(node));
+  assert.equal(readType.type.calls[0]?.declaration === declaredMethod, true);
+  assertSameValue(readType.type.calls[0]?.result, { kind: "primitive", primitive: "int32" });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("never-open field arrays publish one int32 default at their declaration, initializer and reads", () => {
+  const current = fixture(`class Counter { values = [1, 2]; read() { return this.values; } }`);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsPropertyDeclaration(node));
+  const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node));
+  for (const node of [declaration, literal, access]) {
+    const selected = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(selected !== undefined && selected.kind !== "refused", true);
+    if (selected === undefined || selected.kind === "refused") throw new Error("Every field value occurrence is required.");
+    assertSameValue(selected.type, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("one callable return publication retains zero-argument declared results and full inferred async carriers", () => {
+  const current = fixture(`const exact = (): int32 => 1; const first = exact();
+    async function deferred() { return exact(); }`);
+  assertSameValue(current.type("first"), { kind: "primitive", primitive: "int32" });
+  const arrow = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
+  const asynchronous = current.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node));
+  const exact = arrow === undefined ? undefined : current.source.effectiveTypes.callableReturn(arrow);
+  const deferred = asynchronous === undefined ? undefined : current.source.effectiveTypes.callableReturn(asynchronous);
+  assert.equal(exact !== undefined && exact.kind !== "refused" && deferred !== undefined && deferred.kind !== "refused", true);
+  if (exact === undefined || exact.kind === "refused" || deferred === undefined || deferred.kind === "refused") throw new Error("Both complete callable returns are required.");
+  assert.equal(exact.provenance.occurrence === arrow && deferred.provenance.occurrence === asynchronous, true);
+  assertSameValue(exact.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(deferred.type.kind === "declared", true);
+  if (deferred.type.kind !== "declared") throw new Error("An async return is the full carrier, not its payload.");
+  assertSameValue(deferred.type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("an intrinsic object slot preserves separately published physical values, methods and getter returns", () => {
+  const current = fixture(`function run(): void { const selected: object = {
+    count: 7, read(): int32 { return 1; }, get total(): int32 { return 2; }
+  }; }`);
+  const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+  const property = current.nodes.find(node => current.source.ast.is.IsPropertyAssignment(node));
+  const child = property === undefined ? undefined : current.source.ast.as.AsPropertyAssignment(property)?.Initializer;
+  const method = current.nodes.find(node => current.source.ast.is.IsMethodDeclaration(node));
+  const getter = current.nodes.find(node => current.source.ast.is.IsGetAccessorDeclaration(node));
+  const object = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  const count = child === undefined ? undefined : current.source.effectiveTypes.get(child);
+  const callable = method === undefined ? undefined : current.source.effectiveTypes.get(method);
+  const returned = getter === undefined ? undefined : current.source.effectiveTypes.callableReturn(getter);
+  assert.equal(object !== undefined && object.kind !== "refused" && count !== undefined && count.kind !== "refused", true);
+  if (object === undefined || object.kind === "refused" || count === undefined || count.kind === "refused") throw new Error("The slot and its original child publication are required.");
+  assertSameValue(object.type, { kind: "intrinsic", intrinsic: "object" });
+  assertSameValue(count.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(callable !== undefined && callable.kind !== "refused" && callable.type.kind === "callable", true);
+  if (callable === undefined || callable.kind === "refused" || callable.type.kind !== "callable") throw new Error("The real method publication is required.");
+  assert.equal(callable.type.calls[0]?.declaration === method, true);
+  assertSameValue(callable.type.calls[0]?.result, { kind: "primitive", primitive: "int32" });
+  assert.equal(returned !== undefined && returned.kind !== "refused" && returned.provenance.occurrence === getter, true);
+  if (returned === undefined || returned.kind === "refused") throw new Error("The getter's actual value return is required.");
+  assertSameValue(returned.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("a C8 fixed heterogeneous construction keeps its scalar child at the complete closed source element type", () => {
+  const current = fixture(`function run(): void { const values = ["text", 9007199254740993]; }`);
+  const number = current.nodes.find(node => current.source.ast.is.IsNumericLiteral(node));
+  const selected = number === undefined ? undefined : current.source.effectiveTypes.get(number);
+  assert.equal(selected !== undefined && selected.kind !== "refused", true);
+  if (selected === undefined || selected.kind === "refused") throw new Error("The original numeric value publication is required.");
+  assert.equal(sourceTypeDescriptorsEqual(selected.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "float64" }] }), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2232 scalar tokens retain the entire declared union instead of selecting a physical arm", () => {
+  const current = fixture(`declare function take(value: string | int32): void;
+    function run(narrow: float32, signed: int32): void {
+      take(1); const values: (float32 | int32 | number)[] = [narrow, signed, 9007199254740992];
+    }`);
+  const tokens = current.nodes.filter(node => current.source.ast.is.IsNumericLiteral(node));
+  assert.equal(tokens.length, 2);
+  const first = tokens[0] === undefined ? undefined : current.source.effectiveTypes.get(tokens[0]);
+  const second = tokens[1] === undefined ? undefined : current.source.effectiveTypes.get(tokens[1]);
+  assert.equal(first !== undefined && first.kind !== "refused" && second !== undefined && second.kind !== "refused", true);
+  if (first === undefined || first.kind === "refused" || second === undefined || second.kind === "refused") throw new Error("Both complete scalar slots are required.");
+  assert.equal(sourceTypeDescriptorsEqual(first.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "int32" }] }), true);
+  assert.equal(sourceTypeDescriptorsEqual(second.type, { kind: "union", types: [
+    { kind: "primitive", primitive: "float32" }, { kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float64" },
+  ] }), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("negative zero publishes the floating default for an open and an exported binding", () => {

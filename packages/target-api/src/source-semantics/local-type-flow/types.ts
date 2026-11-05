@@ -11,7 +11,7 @@ export type SourceTypeDescriptor =
   | { readonly kind: "union"; readonly types: readonly SourceTypeDescriptor[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceTypeDescriptor }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly [SourceTypeDescriptor, SourceTypeDescriptor] }
-  | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[] }
+  | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[]; readonly indexes: readonly SourceTypeDescriptorIndex[] }
   | { readonly kind: "callable"; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | {
       readonly kind: "declared";
@@ -19,6 +19,8 @@ export type SourceTypeDescriptor =
       readonly typeArguments: readonly SourceTypeDescriptor[];
       readonly source?: SourceTypeComponentEvidence;
       readonly members?: readonly SourceTypeDescriptorMember[];
+      readonly indexes: readonly SourceTypeDescriptorIndex[];
+      readonly definition?: SourceTypeDescriptor;
     }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor };
 
@@ -39,6 +41,13 @@ export interface SourceTypeDescriptorMember {
   readonly type: SourceTypeDescriptor;
   readonly declaration?: Node;
   readonly readonly?: boolean;
+}
+
+export interface SourceTypeDescriptorIndex {
+  readonly declaration: Node;
+  readonly key: SourceTypeDescriptor;
+  readonly value: SourceTypeDescriptor;
+  readonly readonly: boolean;
 }
 
 export type SourceTypeFlowRefusalCode =
@@ -210,6 +219,7 @@ export interface SourceTypeFlowNode {
   readonly term?: SourceTypeFlowTerm;
   readonly association?: SourceTypeFlowAssociation;
   readonly declaredType?: SourceTypeDescriptor;
+  readonly declaredSlotRefusal?: SourceTypeFlowRefusal;
 }
 
 export interface SourceTypeFlowLink {
