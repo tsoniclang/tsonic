@@ -162,7 +162,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
       Node_Initializer(ast, parent) === occurrence) {
       const name = ast.name(parent);
-      if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) return Object.freeze({ authority: "inferred" });
+      if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) &&
+        ast.typeNode(parent) === undefined) return Object.freeze({ authority: "inferred" });
       if (ast.typeNode(parent) === undefined) {
         let owner = ast.parent(parent);
         while (owner !== undefined && !callable(owner) && !ast.is.IsSourceFile(owner)) owner = ast.parent(owner);
