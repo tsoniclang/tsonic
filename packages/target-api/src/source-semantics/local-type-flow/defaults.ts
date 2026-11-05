@@ -5,7 +5,7 @@ import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
-import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowDiscardedSelection, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
@@ -85,7 +85,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const typeOnly = entry.typeOnly || sourceTypeFlowTypeSyntax(ast, node);
     ordinals.set(node, nodes.length);
     nodes.push(node);
-    if (!typeOnly && sourceTypeFlowValueSyntax(ast, node)) values.push(node);
+    if (!typeOnly && sourceTypeFlowValueSyntax(ast, node) && !sourceTypeFlowDiscardedSelection(source, node)) values.push(node);
     const children = ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
@@ -482,7 +482,7 @@ export function sourceTypeFlowIntegerFits(value: bigint, kind: SourcePrimitiveKi
 // An index read takes the value of the one index signature whose key kind accepts the key: a number key reads a
 // numeric index, or else the string index (number keys are converted to strings); a string key reads the string index;
 // a symbol key reads the symbol index. Zero or several candidate indexes give no value.
-function sourceTypeDescriptorIndexValue(descriptor: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>,
+export function sourceTypeDescriptorIndexValue(descriptor: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>,
   key: "number" | "string" | "symbol"): SourceTypeDescriptor | undefined {
   const kindOf = (selected: SourceTypeDescriptor): "number" | "string" | "symbol" | undefined => selected.kind === "string" ? "string"
     : selected.kind === "primitive" ? "number" : selected.kind === "intrinsic" && selected.intrinsic === "symbol" ? "symbol" : undefined;

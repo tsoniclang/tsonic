@@ -1,6 +1,11 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import type { SourceTypeFlowSource } from "./types.js";
+
+const effectSelectionOperators: ReadonlySet<string> = new Set([
+  "KindAmpersandAmpersandToken", "KindBarBarToken", "KindQuestionQuestionToken",
+]);
 
 const expressions: ReadonlySet<string> = new Set([
   "KindIdentifier", "KindPrivateIdentifier", "KindNumericLiteral", "KindBigIntLiteral", "KindStringLiteral",
@@ -26,6 +31,13 @@ export function sourceTypeFlowValueSyntax(ast: AstReader, node: Node): boolean {
   if (parent !== undefined && (ast.is.IsImportDeclaration(parent) || ast.is.IsExportDeclaration(parent))) return false;
   if (parent === undefined || ast.name(parent) !== node) return true;
   return ast.is.IsShorthandPropertyAssignment(parent);
+}
+
+export function sourceTypeFlowDiscardedSelection(source: SourceTypeFlowSource, node: Node): boolean {
+  const { ast } = source;
+  return (ast.is.IsConditionalExpression(node) || ast.is.IsBinaryExpression(node) &&
+    effectSelectionOperators.has(ast.operatorKindName(node))) &&
+    source.navigation.expressionResultDisposition(node).kind === "discarded";
 }
 
 export function sourceTypeFlowAssignmentPattern(ast: AstReader, node: Node): boolean {

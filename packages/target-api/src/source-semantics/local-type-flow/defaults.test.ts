@@ -8,6 +8,7 @@ import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
 import { sourceTypeDescriptorStructure } from "./terms.js";
+import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 
 function fixture(text: string, noImplicitAny = true) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -90,6 +91,26 @@ test("nested checked conditional steps retain an outer infer binding by its exac
   assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
     "the outer infer binding survives into the checker's selected inner branch");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("discarded selections leave the result-publication domain without dropping their operands", () => {
+  const current = fixture(`function run(flag: boolean, optional?: () => number): number {
+    flag && (() => 1); flag || (() => 2); optional ?? (() => 3); flag ? (() => 4) : (() => 5);
+    const selected = flag && true; return selected ? 1 : 0;
+  }`);
+  const selections = current.defaults.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
+  assert.equal(selections.length, 4, "only the three discarded logical forms and discarded conditional are excluded");
+  for (const selection of selections) {
+    assert.equal(current.defaults.values.includes(selection), false, "an effect selection publishes no result");
+    const condition = current.source.ast.is.IsConditionalExpression(selection)
+      ? current.source.ast.as.AsConditionalExpression(selection)?.Condition
+      : current.source.ast.as.AsBinaryExpression(selection)?.Left;
+    assert.equal(condition !== undefined && current.defaults.values.includes(condition), true,
+      "the actual condition or presence operand remains in its own value domain");
+  }
+  const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
+  assert.equal(initializer !== undefined && !sourceTypeFlowDiscardedSelection(current.source, initializer) &&
+    current.defaults.values.includes(initializer), true, "a consumed logical expression still requires a Source result");
 });
 
 test("direct callable values retain their instantiated owner bindings without a property receiver", () => {
