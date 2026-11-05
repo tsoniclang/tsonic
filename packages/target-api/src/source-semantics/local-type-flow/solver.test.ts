@@ -2036,7 +2036,8 @@ test("LM checked computed, numeric, quoted and symbol members keep their actual 
   assert.equal(shape.members.length, 7);
   for (const property of ast.properties(literal)) {
     if (property === undefined || ast.is.IsPropertyAssignment(property) || ast.is.IsSetAccessorDeclaration(property)) continue;
-    const member = shape.members.find(member => member.origin.kind === "declared" && member.origin.declaration === property);
+    const member: SourceTypeDescriptorMember | undefined = shape.members.find(member =>
+      member.origin.kind === "declared" && member.origin.declaration === property);
     assert.equal(member !== undefined, true, `member ${ast.pos(property)}: actual origin`);
     if (ast.is.IsMethodDeclaration(property)) {
       assert.equal(member?.type.kind === "callable" && member.type.calls[0]?.declaration === property &&
@@ -2302,7 +2303,7 @@ test("OWN read-only checks retain declared construction authority without fillin
     const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
     const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions.length === 1 && admissions[0]?.type === outcome.type &&
-      admissions[0]?.authority === "declared", true, sample.name);
+      admissions[0]?.kind === "literal-admission" && admissions[0].authority === "declared", true, sample.name);
     if (sample.name === "array_alias" || sample.name === "union_alias") {
       const type = current.type("input");
       assert.equal(type.kind === "array" && !type.readonly && type.element.kind === "primitive" && type.element.primitive === "int32", true,
