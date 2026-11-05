@@ -24,6 +24,25 @@ function fixture(text: string) {
   return { source, defaults, declaration };
 }
 
+test("C2284 finite mapped members retain their exact checked declaration tuple for the origin ruling", () => {
+  const current = fixture('type Flags = { [Key in "left" | "right"]: number }; declare const flags: Flags;');
+  const declaration = current.declaration("flags");
+  const queries = current.source.semantics.forNode(declaration);
+  const selected = queries.declarations.declaredValueType(declaration);
+  const mapped = current.defaults.nodes.find(node => current.source.ast.is.IsMappedTypeNode(node));
+  assert.equal(selected !== undefined && mapped !== undefined, true, "the actual checked mapped type and value are retained");
+  if (selected === undefined || mapped === undefined) throw new Error("The original checked mapped type is required.");
+  const members = queries.types.propertyInfos(selected);
+  assert.equal(members.length, 2, "both finite authored keys are observed without an invented member origin");
+  for (const member of members) {
+    const declarations = queries.declarations.symbolDeclarations(member.symbol);
+    console.log(`C2284 mapped member: ${JSON.stringify({ name: member.name, flags: member.symbol.Flags,
+      declarationCount: declarations.length, declarations: declarations.map(declaration => ({
+        kind: current.source.ast.kindName(declaration), position: current.source.ast.pos(declaration), sameMappedType: declaration === mapped,
+      })) })}`);
+  }
+});
+
 test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
   const current = fixture("export const integer = 1; export const fractional = 1.0; export const exponent = 1e3; export const radix = 0xff;");
   for (const name of ["integer", "radix"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int32" });
