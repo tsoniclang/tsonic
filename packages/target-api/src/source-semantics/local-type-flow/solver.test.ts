@@ -1047,7 +1047,7 @@ test("C14 every derived form preserves declaration-typed operands across the com
       `function api(input: { length: int32 }, other: { length: int32 }): void { ${body} }` },
   ];
   const current = fixture(`declare const flag: boolean; ${sources.map(source => source.wrap(operators.map((operator, index) =>
-    `const cell_${source.name}_${index} = ${operator.expression.replaceAll("$left", source.left).replaceAll("$right", source.right)};`
+    `const cell_${source.name}_${index} = ${operator.expression.split("$left").join(source.left).split("$right").join(source.right)};`
   ).join("\n"))).join("\n")}`);
   for (const source of sources) for (const [index, operator] of operators.entries()) {
     const declaration = current.declaration(`cell_${source.name}_${index}`);
