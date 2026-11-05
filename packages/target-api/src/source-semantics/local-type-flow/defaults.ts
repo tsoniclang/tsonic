@@ -237,7 +237,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
     let result: SourceTypeDescriptor | undefined;
-    const rule = component === undefined && file !== undefined && semantics.includes(file) ? fixedRule(node) : undefined;
+    const rule = file !== undefined && semantics.includes(file) ? fixedRule(node) : undefined;
     if (rule !== undefined && (component === undefined || component.declaration === rule.declaration)) {
       result = { kind: "primitive", primitive: "int64" };
     }

@@ -512,6 +512,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       provenance: Object.freeze({ group: declaration, occurrence: node, sourceFile,
         ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
   }
+  for (const node of defaults.nodes) {
+    if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node) ||
+      source.ast.is.IsClassExpression(node))) continue;
+    const queries = source.semantics.forNode(node);
+    const selectedType = queries.declarations.declaredType(node);
+    const type = selectedType === undefined ? undefined : context.describe(node, { selectedType, declaration: node });
+    const sourceFile = source.ast.getSourceFile(node);
+    if (type === undefined || sourceFile === undefined) continue;
+    outcomes.set(node, Object.freeze({ kind: "resolved", type,
+      provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+  }
   const uniqueIssues = [...new Set([...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused]))]
     .sort((left, right) => compare(left.site, right.site));
   const frozenIssues = Object.freeze(uniqueIssues);

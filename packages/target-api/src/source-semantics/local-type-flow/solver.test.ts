@@ -743,6 +743,65 @@ test("negative zero publishes the floating default for an open and an exported b
   for (const name of ["local", "derived", "exported"]) assertSameValue(current.type(name), { kind: "primitive", primitive: "float64" });
 });
 
+test("C30 signed literal children retain the same declared scalar and union slot", () => {
+  const current = fixture(`function direct(): number { return -2147483649; }
+    function values(): (string | number)[] { return ["text", 9007199254740993, -9007199254740993, 1e100]; }
+    const signed: number = -2147483649;
+    const minimum: int32 = -2147483648;`);
+  const { ast } = current.source;
+  const negative = current.nodes.filter(node => ast.is.IsPrefixUnaryExpression(node) && ast.operatorKindName(node) === "KindMinusToken");
+  assert.equal(negative.length, 4);
+  for (const node of negative) {
+    const operand = ast.as.AsPrefixUnaryExpression(node)?.Operand;
+    const whole = current.source.effectiveTypes.get(node);
+    const child = operand === undefined ? undefined : current.source.effectiveTypes.get(operand);
+    assert.equal(whole !== undefined && whole.kind !== "refused" && child !== undefined && child.kind !== "refused", true,
+      "the original signed construction and spelling child both have an exact publication");
+    if (whole === undefined || whole.kind === "refused" || child === undefined || child.kind === "refused") throw new Error("Both original signed-literal outcomes are required.");
+    assert.equal(sourceTypeDescriptorsEqual(whole.type, child.type), true,
+      "the spelling child does not acquire an independent int32 default under a declared floating slot");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("B8 counters keep their int64 rule through checked declaration components and every read", () => {
+  const current = fixture(`function run(values: int32[]): int32 {
+    let total: int32 = 0;
+    for (let index = 0; index < values.length; index++) total += values[index];
+    return total;
+  }`);
+  const { ast } = current.source;
+  const declaration = current.declaration("index");
+  const occurrences = current.nodes.filter(node => node === declaration || ast.is.IsIdentifier(node) && ast.text(node) === "index" &&
+    ast.name(ast.parent(node)) !== node);
+  assert.equal(occurrences.length >= 4, true);
+  for (const node of occurrences) {
+    const result = current.source.effectiveTypes.get(node);
+    assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "primitive" &&
+      result.type.primitive === "int64" && result.provenance.fixedRule?.kind === "loop-counter" &&
+      result.provenance.fixedRule.declaration === declaration, true, "one original counter rule owns the declaration and its reads");
+  }
+});
+
+test("project class and interface declarations publish their own member identities without a value read", () => {
+  const current = fixture(`interface View<T> { value: T; accept?(next: T): T; }
+    class Box<T> { value: T; constructor(value: T) { this.value = value; } read(): T { return this.value; } }`);
+  const { ast } = current.source;
+  const owners = current.nodes.filter(node => ast.is.IsInterfaceDeclaration(node) || ast.is.IsClassDeclaration(node));
+  assert.equal(owners.length, 2);
+  for (const node of owners) {
+    const result = current.source.effectiveTypes.get(node);
+    assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "declared" && result.type.declaration === node &&
+      result.provenance.occurrence === node, true, "the exact declaration has its instance descriptor, not a constructor-value or an absent outcome");
+    if (result === undefined || result.kind === "refused" || result.type.kind !== "declared") throw new Error("The project declaration descriptor is required.");
+    const members = result.type.members;
+    assert.equal(members !== undefined && members.length === 2, true);
+    for (const member of members ?? []) assert.equal(member.declaration !== undefined && ast.parent(member.declaration) === node, true,
+      "each published member keeps its actual owning source declaration");
+    if (ast.is.IsInterfaceDeclaration(node)) assert.equal(members?.find(member => member.name === "accept")?.optional, true);
+  }
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }
