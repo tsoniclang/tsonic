@@ -6,6 +6,7 @@ import {
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceLiteralToken } from "../literal-token.js";
+import { sourceArrayElementType } from "../array-types.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceTypeComponentEvidence } from "../types.js";
 import { sourceTypeDescriptorIndexValue, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
@@ -35,7 +36,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const derived = new Map<Node, SourceTypeFlowDerived>();
   const calls = new Map<Node, SourceTypeFlowCall>();
   const refusals: SourceTypeFlowRefusal[] = [];
-  const refusedOperations = new WeakSet<Node>();
+  const refusedOperations = new WeakMap<Node, SourceTypeFlowRefusal>();
   const active = new Set<Node>();
   const literalReceiverValues = new Set<SourceTypeFlowVariable>();
   const openValues = new Set<Node>();
@@ -132,7 +133,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   });
 
   function refuse(code: SourceTypeFlowRefusal["code"], site: Node, related?: Node): void {
-    refusals.push(createSourceTypeFlowRefusal(code, site, related));
+    const refusal = createSourceTypeFlowRefusal(code, site, related);
+    refusals.push(refusal);
+    refusedOperations.set(site, refusal);
   }
 
   function fixedAggregateOrigin(variable: SourceTypeFlowVariable): SourceTypeFlowVariable | undefined {
@@ -583,7 +586,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const operand = Node_Expression(ast, node);
       const source = operand === undefined ? undefined : value(operand, initializer, depth);
       if (operand !== undefined && source === undefined && refusedOperations.has(operand)) {
-        refusedOperations.add(node);
+        refusedOperations.set(node, refusedOperations.get(operand)!);
         return undefined;
       }
       if (source === undefined || !active.has(source.node)) return fixed(node,
@@ -677,10 +680,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     })) return false;
     const query = semantics.forNode(node);
     const type = query.types.expressionType(node);
-    const element = type === undefined ? undefined : query.types.typeArguments(type)[0];
-    if (element === undefined) return false;
+    const element = type === undefined ? undefined : sourceArrayElementType(type, query);
+    const pending = type !== undefined && query.types.isTuple(type) ? [...query.types.tupleElementTypes(type)]
+      : element === undefined ? [] : [element];
+    if (pending.length === 0) return false;
     const kinds = new Set<string | Type>();
-    const pending = [element];
     while (pending.length !== 0) {
       const selected = pending.pop()!;
       if (query.types.isUnion(selected)) {
@@ -896,8 +900,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const selected = operands.map(operand => value(operand, false, depth));
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
     if (inputs.length !== selected.length) {
-      refusedOperations.add(node);
-      refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+      const refusal = operands.map(operand => refusedOperations.get(operand)).find(issue => issue !== undefined);
+      if (refusal === undefined) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+      else refusedOperations.set(node, refusal);
       return undefined;
     }
     if (operator === "sequence" && inputs.length === 1 && openValues.has(inputs[0]!.node) && !derived.has(inputs[0]!.node)) {

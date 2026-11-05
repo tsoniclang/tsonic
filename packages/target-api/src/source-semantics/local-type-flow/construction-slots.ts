@@ -1,7 +1,51 @@
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourceLiteralValue } from "../literal-values-model.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
 import type { SourceTypeDescriptor } from "./types.js";
+
+export type SourceTypeFlowScalarCalculationArm =
+  | { readonly kind: "resolved"; readonly primitive: SourcePrimitiveKind }
+  | { readonly kind: "unfitted" };
+
+// equals the tag's canonical C# layout order (C-2339); pending maintainer Q8
+const wholeLiteralUnionArmPriority: Readonly<Record<SourcePrimitiveKind, number>> = Object.freeze({
+  bool: 0, char: 1, decimal: 2, float16: 3, float32: 4, float64: 5,
+  int128: 6, int16: 7, int32: 8, int64: 9, int8: 10, "native-int": 11, "native-uint": 12,
+  uint128: 13, uint16: 14, uint32: 15, uint64: 16, uint8: 17,
+});
+
+export function sourceTypeFlowScalarCalculationArm(
+  type: SourceTypeDescriptor, literal: SourceLiteralValue,
+): SourceTypeFlowScalarCalculationArm {
+  const seen = new Set<SourceTypeDescriptor>();
+  let fixed: SourceTypeDescriptor | undefined = type;
+  while (fixed !== undefined && !seen.has(fixed)) {
+    seen.add(fixed);
+    if (fixed.kind === "primitive") return Object.freeze({ kind: "resolved", primitive: fixed.primitive });
+    fixed = fixed.kind === "declared" ? fixed.definition : fixed.kind === "optional" ? fixed.value : undefined;
+  }
+  const candidates = new Set<SourcePrimitiveKind>();
+  const pending = [type];
+  seen.clear();
+  while (pending.length > 0) {
+    const selected = pending.pop()!;
+    if (seen.has(selected)) continue;
+    seen.add(selected);
+    if (selected.kind === "declared" && selected.definition !== undefined) pending.push(selected.definition);
+    else if (selected.kind === "optional") pending.push(selected.value);
+    else if (selected.kind === "union") pending.push(...selected.types);
+    else if (selected.kind === "primitive" && sourcePrimitiveOperatorLiteralFits(literal, selected.primitive)) {
+      candidates.add(selected.primitive);
+    }
+  }
+  let primitive: SourcePrimitiveKind | undefined;
+  for (const candidate of candidates) {
+    if (primitive === undefined || wholeLiteralUnionArmPriority[candidate] < wholeLiteralUnionArmPriority[primitive]) primitive = candidate;
+  }
+  return primitive === undefined ? Object.freeze({ kind: "unfitted" }) : Object.freeze({ kind: "resolved", primitive });
+}
 
 export function sourceTypeFlowConstructionSlot(
   ast: AstReader, node: Node, type: SourceTypeDescriptor, authority: SourceTypeFlowDeclaredSlot["authority"],

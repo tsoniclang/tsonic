@@ -14,6 +14,8 @@ import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
+import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
+import { sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -38,7 +40,11 @@ function fixture(text: string) {
     for (let index = children.length - 1; index >= 0; index -= 1) if (children[index] !== undefined) pending.push(children[index]!);
   }
   const declaration = (name: string): Node => {
-    const found = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+    const found = nodes.find(node => {
+      if (!source.ast.is.IsVariableDeclaration(node)) return false;
+      const selected = source.ast.name(node);
+      return selected !== undefined && source.ast.is.IsIdentifier(selected) && source.ast.text(selected) === name;
+    });
     if (found === undefined) throw new Error(`The original declaration ${name} is required.`);
     return found;
   };
@@ -2360,9 +2366,11 @@ test("C2330 an unavailable operation operand retains its one original-site Sourc
   const current = fixture("function run(): void { const outer = 1; const saved = () => outer + 1; void saved; }");
   const { ast } = current.source;
   const expression = current.nodes.find(node => ast.is.IsBinaryExpression(node));
+  const reference = expression === undefined ? undefined : ast.as.AsBinaryExpression(expression)?.Left;
   const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
-  assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true);
-  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === expression).length, 1);
+  assert.equal(outcome?.kind === "refused" && outcome.site === reference && outcome.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
+    outcome.related === current.declaration("outer"), true);
+  assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === outcome, true);
 });
 
 test("C2332 discarded selectors publish no result while conditions and effects keep their own outcomes", () => {
@@ -2571,4 +2579,259 @@ test("C2335 reference coalescing retains its produced descriptors and discarded 
     assert.equal(discarded.every(node => current.source.effectiveTypes.get(node) === undefined), true, annotation);
     assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
   }
+});
+
+test("C2337 assignment-pattern RHS retains every heterogeneous checked tuple element and its inferred admission", () => {
+  const current = fixture(`function run(): void { let first: string | number;
+    [first] = ["marker", 9007199254740993, -9007199254740993, 1e100]; void first; }`);
+  const { ast } = current.source;
+  const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
+    ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]));
+  const selected = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+  assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "tuple" &&
+    selected.type.elements.length === 4 && selected.type.elements[0]?.type.kind === "string" &&
+    selected.type.elements.slice(1).every(element => element.type.kind === "primitive" && element.type.primitive === "float64"), true);
+  assert.equal(selected !== undefined && selected.kind !== "refused" && admissions.length === 1 &&
+    admissions[0]?.authority === "inferred" && admissions[0].type === selected.type, true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2337 conditional dependencies retain boolean and optional call terms even when the call has no public graph value", () => {
+  const current = fixture(`declare function condition(): boolean; declare function maybe(): (() => int32) | undefined;
+    declare function effect(): int32;
+    function run(): void { const selected = condition() ? 1 : 2;
+      condition() ? effect() : effect(); condition() && effect(); condition() || effect(); maybe() ?? effect(); void selected; }`);
+  assertSameValue(current.type("selected"), { kind: "primitive", primitive: "int32" });
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const conditions = graph.nodes.filter(record => {
+    const expression = current.source.ast.as.AsCallExpression(record.node)?.Expression;
+    return expression !== undefined && current.source.ast.is.IsIdentifier(expression) &&
+      ["condition", "maybe"].includes(current.source.ast.text(expression));
+  });
+  assert.equal(conditions.length, 5);
+  assert.equal(conditions.every(record => !record.publish && record.term?.kind === "fixed"), true);
+  const discarded = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
+  assert.equal(discarded.length, 4);
+  assert.equal(discarded.every(node => current.source.effectiveTypes.get(node) === undefined), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2337 the canonical scalar calculation-arm reader preserves fixed nonfits and orders fitting primitive identities", () => {
+  const current = fixture(`function run(fixed: int8, unique: string | float32, multiple: int32 | float32,
+    unfitted: string | boolean): void { const value = -129; void value; }`);
+  const { ast } = current.source;
+  const literal = current.nodes.find(node => ast.is.IsPrefixUnaryExpression(node));
+  const defaults = createSourceTypeFlowAnalysisContext(current.source);
+  const receipt = literal === undefined ? undefined : defaults.context.literal(literal);
+  if (receipt === undefined) throw new Error("The actual whole signed literal receipt is required.");
+  for (const [name, kind, primitive] of [["fixed", "resolved", "int8"], ["unique", "resolved", "float32"],
+    ["multiple", "resolved", "float32"], ["unfitted", "unfitted", undefined]] as const) {
+    const parameter = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === name);
+    const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+    if (outcome === undefined || outcome.kind === "refused") throw new Error(`The actual ${name} slot is required.`);
+    const selected = sourceTypeFlowScalarCalculationArm(outcome.type, receipt);
+    assert.equal(selected.kind === kind && (selected.kind !== "resolved" || selected.primitive === primitive), true, name);
+  }
+});
+
+test("C2337 signed literal calculation arms do not replace the published scalar union or its spelling child", () => {
+  for (const [width, token] of [["int32", "-2147483648"], ["float32", "-1.5"], ["number", "-9007199254740993"]] as const) {
+    const current = fixture(`function run(): (string | ${width})[] { return ["marker", ${token}]; }`);
+    const { ast } = current.source;
+    const expression = current.nodes.find(node => ast.is.IsPrefixUnaryExpression(node));
+    const child = expression === undefined ? undefined : ast.as.AsPrefixUnaryExpression(expression)?.Operand;
+    const whole = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+    const spelling = child === undefined ? undefined : current.source.effectiveTypes.get(child);
+    assert.equal(whole !== undefined && whole.kind !== "refused" && whole.type.kind === "union" &&
+      spelling !== undefined && spelling.kind !== "refused" && sourceTypeDescriptorsEqual(whole.type, spelling.type), true, width);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, width);
+  }
+});
+
+test("C2337 a stored capture keeps one canonical refusal per original owner through repeated reads and compound writes", () => {
+  const current = fixture(`function run(): void { let visits = 0; let other = 0;
+    const read = () => { visits += 1; return visits + visits; };
+    const second = () => { other += 1; return other; }; void read; void second; }`);
+  const { ast } = current.source;
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 2);
+  for (const name of ["visits", "other"]) {
+    const declaration = current.declaration(name);
+    const matching = issues.filter(issue => issue.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" && issue.related === declaration);
+    assert.equal(matching.length, 1, name);
+    const captured = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.text(node) === name && ast.name(declaration) !== node);
+    for (const node of captured) {
+      const outcome = current.source.effectiveTypes.get(node);
+      assert.equal(outcome === matching[0], true, name);
+    }
+  }
+});
+
+test("C2337 nested discarded coalescing validates only retained branch dependencies and preserves false as present", () => {
+  const current = fixture(`declare function condition(value: boolean): boolean; declare function effect(): int32;
+    function run(flag: boolean): void {
+      (condition(flag) ? (() => 1) : undefined) ?? (() => 2);
+      (condition(false) && (() => 1)) ?? (() => 2);
+      (condition(flag) || (() => 1)) ?? (() => 2);
+      (condition(flag) ? (effect(), () => 1) : (effect(), undefined)) ?? (effect(), () => 2);
+    }`);
+  const selectors = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
+  assert.equal(selectors.length, 8);
+  assert.equal(selectors.every(node => current.source.effectiveTypes.get(node) === undefined), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2337 nested discarded primitive selection does not bypass a coalescing refusal", () => {
+  const current = fixture(`declare function effect(): void;
+    function run(flag: boolean): void { const first = 1; const second = 2; (flag ? first : second) ?? effect(); }`);
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length === 1 && current.source.ast.operatorKindName(issues[0]?.site) === "KindQuestionQuestionToken" &&
+    issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" && issues[0].reason.includes("nullable"), true);
+});
+
+test("C2338 multiple fitting literal arms use stable primitive identity priority in both authored union orders", () => {
+  for (const annotation of ["int32 | number", "number | int32"]) {
+    const current = fixture(`function run(value: ${annotation}): (${annotation})[] { return [-1, 1 + 2, (8 / 2 + 1)]; }`);
+    const { ast } = current.source;
+    const defaults = createSourceTypeFlowAnalysisContext(current.source);
+    const parameter = current.nodes.find(node => ast.is.IsParameterDeclaration(node));
+    const destination = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+    if (destination === undefined || destination.kind === "refused") throw new Error("The original union slot is required.");
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const expressions = literal === undefined ? [] : ast.elements(literal).filter((node): node is Node => node !== undefined);
+    assert.equal(expressions.length, 3, annotation);
+    for (const expression of expressions) {
+      const receipt = defaults.context.literal(expression);
+      if (receipt === undefined) throw new Error("Each actual folded or signed receipt is required.");
+      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt);
+      assert.equal(selected.kind === "resolved" && selected.primitive === "float64", true, annotation);
+      const outcome = current.source.effectiveTypes.get(expression);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
+        sourceTypeDescriptorsEqual(outcome.type, destination.type), true, annotation);
+    }
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+  }
+});
+
+test("C2338 folded literal union slots reuse the same fit decision without admitting a refused power operation", () => {
+  for (const [annotation, primitive] of [["string | float32", "float32"], ["string | number", "float64"]] as const) {
+    const current = fixture(`function run(value: ${annotation}): (${annotation})[] { return [1 + 2, (8 / 2 + 1)]; }`);
+    const { ast } = current.source;
+    const defaults = createSourceTypeFlowAnalysisContext(current.source);
+    const parameter = current.nodes.find(node => ast.is.IsParameterDeclaration(node));
+    const destination = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+    if (destination === undefined || destination.kind === "refused") throw new Error("The original folded destination is required.");
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const expressions = literal === undefined ? [] : ast.elements(literal).filter((node): node is Node => node !== undefined);
+    assert.equal(expressions.length, 2, annotation);
+    for (const expression of expressions) {
+      const receipt = defaults.context.literal(expression);
+      if (receipt === undefined) throw new Error("The actual whole folded receipt is required.");
+      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt);
+      assert.equal(selected.kind === "resolved" && selected.primitive === primitive, true, annotation);
+      const outcome = current.source.effectiveTypes.get(expression);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
+        sourceTypeDescriptorsEqual(outcome.type, destination.type), true, annotation);
+    }
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+  }
+  const power = fixture("function run(): (int32 | number)[] { return [2 ** 2]; }");
+  const expression = power.nodes.find(node => power.source.ast.is.IsBinaryExpression(node));
+  const outcome = expression === undefined ? undefined : power.source.effectiveTypes.get(expression);
+  assert.equal(outcome !== undefined && outcome.kind === "refused" && outcome.reason.includes("Exponentiation"), true);
+});
+
+test("C2338 declared and bound numeric operands cannot retarget as open literals under a union destination", () => {
+  const current = fixture(`const moduleFixed: uint32 = 1;
+    function run(value: uint32): (int32 | number)[] {
+      const declared: uint32 = 1;
+      return [moduleFixed + 1, value + 1, declared + 1, (1 as uint32) + 1];
+    }`);
+  const expressions = current.nodes.filter(node => current.source.ast.is.IsBinaryExpression(node));
+  assert.equal(expressions.length, 4);
+  for (const expression of expressions) {
+    const left = current.source.ast.as.AsBinaryExpression(expression)?.Left;
+    const outcome = left === undefined ? undefined : current.source.effectiveTypes.get(left);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+      outcome.type.primitive === "uint32", true);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const selected = fixture("function run(value: int32 | number): void { const result = -value; void result; }");
+  const expression = selected.nodes.find(node => selected.source.ast.is.IsPrefixUnaryExpression(node));
+  const outcome = expression === undefined ? undefined : selected.source.effectiveTypes.get(expression);
+  assert.equal(outcome !== undefined && outcome.kind === "refused" && outcome.reason.includes("union operand"), true);
+});
+
+test("C2339 all co-fitting numeric pairs use the explicit whole-literal priority in both authored orders", () => {
+  const primitives = [
+    ["decimal", "decimal", "number", true, 128], ["float16", "float16", "number", true, 16],
+    ["float32", "float32", "number", true, 32], ["float64", "float64", "number", true, 64],
+    ["int128", "int128", "bigint", true, 128], ["int16", "int16", "number", true, 16],
+    ["int32", "int32", "number", true, 32], ["int64", "int64", "bigint", true, 64],
+    ["int8", "int8", "number", true, 8], ["nativeInt", "native-int", "number", true, undefined],
+    ["nativeUint", "native-uint", "number", false, undefined], ["uint128", "uint128", "bigint", false, 128],
+    ["uint16", "uint16", "number", false, 16], ["uint32", "uint32", "number", false, 32],
+    ["uint64", "uint64", "bigint", false, 64], ["uint8", "uint8", "number", false, 8],
+  ] as const;
+  const pairs = primitives.flatMap((first, index) => primitives.slice(index + 1).flatMap(second =>
+    [[first, second], [second, first]].map(([left, right], order) => ({
+      name: `pair_${index}_${primitives.indexOf(second)}_${order}`, left: left!, right: right!, expected: first[1],
+    }))));
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/node_modules/@test/widths/package.json": JSON.stringify({ name: "@test/widths", version: "1.0.0", type: "module",
+      exports: { ".": "./index.d.ts" } }),
+    "/src/node_modules/@test/widths/index.d.ts": primitives.map(([name, , base]) => `export type ${name} = ${base};`).join("\n"),
+    "/src/index.ts": `import type { ${primitives.map(([name]) => name).join(", ")} } from "@test/widths";
+      const positive = 1; const negative = -1;
+      ${pairs.map(pair => `function accept_${pair.name}(${pair.name}: ${pair.left[0]} | ${pair.right[0]}): void {}`).join("\n")}`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/widths",
+    packageName: "@test/widths", exports: primitives.map(([name, kind, base, signed, width]) =>
+      sourcePrimitive(name, kind, base, signed, width)) }] })] } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
+  assert.equal(checked.extensionDiagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The actual all-pairs Source file is required.");
+  const nodes: Node[] = [];
+  const pending: Node[] = [file];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    nodes.push(node);
+    pending.push(...source.ast.children(node).filter((child): child is Node => child !== undefined));
+  }
+  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const positiveDeclaration = nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
+    source.ast.name(node) !== undefined && source.ast.is.IsIdentifier(source.ast.name(node)) && source.ast.text(source.ast.name(node)) === "positive");
+  const positive = positiveDeclaration === undefined ? undefined : source.ast.as.AsVariableDeclaration(positiveDeclaration)?.Initializer;
+  const negative = nodes.find(node => source.ast.is.IsPrefixUnaryExpression(node));
+  const positiveReceipt = positive === undefined ? undefined : defaults.context.literal(positive);
+  const negativeReceipt = negative === undefined ? undefined : defaults.context.literal(negative);
+  if (positiveReceipt === undefined || negativeReceipt === undefined) throw new Error("Both original whole literal receipts are required.");
+  assert.equal(primitives.length, 16);
+  assert.equal(new Set(primitives.map(([, kind]) => kind)).size, 16);
+  assert.equal(sourcePrimitiveOperatorKinds.filter(kind => kind !== "bool" && kind !== "char").every(kind =>
+    primitives.some(([, selected]) => kind === selected)), true);
+  assert.equal(pairs.length, 240);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(positiveReceipt, "bool") || sourcePrimitiveOperatorLiteralFits(positiveReceipt, "char"), false);
+  const parameters = new Map(nodes.filter(node => source.ast.is.IsParameterDeclaration(node))
+    .map(node => [source.ast.text(source.ast.name(node)), node] as const));
+  for (const pair of pairs) {
+    const parameter = parameters.get(pair.name);
+    const destination = parameter === undefined ? undefined : source.effectiveTypes.get(parameter);
+    if (destination === undefined || destination.kind === "refused") throw new Error(`The original ${pair.name} union slot is required.`);
+    const structure = sourceTypeDescriptorStructure(destination.type);
+    assert.equal(structure.kind === "union" && structure.types.length === 2 &&
+      structure.types.every(type => type.kind === "primitive" && [pair.left[1], pair.right[1]].some(kind => kind === type.primitive)), true, pair.name);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.left[1]) &&
+      sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.right[1]), true, pair.name);
+    const selected = sourceTypeFlowScalarCalculationArm(destination.type, positiveReceipt);
+    assert.equal(selected.kind === "resolved" && selected.primitive === pair.expected, true, pair.name);
+    if ([pair.left[1], pair.right[1]].includes("int32") && [pair.left[1], pair.right[1]].includes("float64")) {
+      const signed = sourceTypeFlowScalarCalculationArm(destination.type, negativeReceipt);
+      assert.equal(signed.kind === "resolved" && signed.primitive === "float64", true, pair.name);
+    }
+  }
+  assert.equal(source.effectiveTypes.refusals().length, 0);
 });

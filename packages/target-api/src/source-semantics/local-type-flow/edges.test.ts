@@ -767,7 +767,10 @@ test("C2330 object members resolve only against their retained element tuple inv
 test("C2330 a missing operation operand publishes one graph refusal without a partial term or derived record", () => {
   const current = fixture("function run() { const outer = 1; const saved = () => outer + 1; return saved; }");
   const expression = current.node("outer + 1", node => current.source.ast.is.IsBinaryExpression(node));
-  assert.equal(current.graph.refusals.filter(issue => issue.site === expression && issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED").length, 1);
+  const reference = current.source.ast.as.AsBinaryExpression(expression)?.Left;
+  assert.equal(current.graph.refusals.length === 1 && current.graph.refusals[0]?.site === reference &&
+    current.graph.refusals[0].code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
+    current.graph.refusals[0].related === current.declaration("outer"), true);
   assert.equal(current.graph.nodes.some(record => record.node === expression), false);
   assert.equal(current.graph.derived.some(operation => operation.node === expression), false);
 });
@@ -812,5 +815,18 @@ test("C2330 a generic recursive alias joins matching declared arguments without 
   const alias = current.syntax.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
   const result = call === undefined ? undefined : current.graph.nodes.find(node => node.node === call.node);
   assert.equal(result?.term?.kind === "declared" && result.term.declaration === alias && result.term.typeArguments.length === 1, true);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2337 heterogeneous assignment-pattern RHS reads all checked tuple elements before deciding whether to link them", () => {
+  const current = fixture(`function run(): void { let first: string | number; [first] = ["marker", -1, 2]; void first; }`);
+  const { ast } = current.source;
+  const literal = current.syntax.find(node => ast.is.IsArrayLiteralExpression(node) &&
+    ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]));
+  if (literal === undefined) throw new Error("The actual assignment RHS is required.");
+  const selected = current.source.semantics.forNode(literal).types.expressionType(literal);
+  assert.equal(selected !== undefined && current.source.semantics.forNode(literal).types.isTuple(selected), true);
+  const term = current.entry(literal).term;
+  assert.equal(term?.kind === "fixed" && term.type.kind === "tuple" && term.type.elements.length === 3, true);
   assert.equal(current.graph.refusals.length, 0);
 });

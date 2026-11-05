@@ -1,5 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import { sourceArrayElementType } from "../array-types.js";
 import { sourceLiteralToken } from "../literal-token.js";
@@ -15,6 +15,7 @@ import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection } fro
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
+import { sourceTypeFlowScalarCalculationArm, type SourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator, sourcePrimitiveBinaryOperators,
   sourcePrimitiveOperatorIsIntegral, type SourcePrimitiveOperatorOperand, type SourcePrimitiveUnaryOperator,
@@ -87,9 +88,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const compoundCalculationTypes = new WeakMap<Node, SourceTypeDescriptor>();
   const directGraphRefusals: SourceTypeFlowRefusal[] = [];
   const domainValues = new Set(defaults.values);
+  const retainedVariables = new WeakMap<Node, SourceTypeFlowVariable>();
   const valueVariables = new WeakMap<Node, SourceTypeFlowVariable>();
   const records = new WeakMap<Node, SourceTypeFlowNode>();
-  for (const node of graph.nodes) if (node.publish && node.kind !== "binder" && node.variable.path.length === 0) {
+  for (const node of graph.nodes) if (node.kind !== "binder" && node.variable.path.length === 0) {
+    retainedVariables.set(node.node, node.variable);
+    if (!node.publish) continue;
     valueVariables.set(node.node, node.variable);
     records.set(node.node, node);
   }
@@ -197,18 +201,22 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     return undefined;
   }
+  const graphRefusalOwners = new Map<SourceTypeFlowRefusal, Group>();
   for (const issue of graph.refusals) {
     const construction = records.get(issue.site);
     if (construction?.declaredSlotRefusal === issue) {
       group(construction.variable).refused = issue;
       continue;
     }
-    if (!valueVariables.has(issue.site) && domainValues.has(issue.site)) {
+    const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
+    if (owner === undefined && !valueVariables.has(issue.site) && domainValues.has(issue.site)) {
       outcomes.set(issue.site, issue);
       directGraphRefusals.push(issue);
     }
-    const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
-    if (owner !== undefined) owner.pendingRefusals.push(issue);
+    if (owner !== undefined) {
+      graphRefusalOwners.set(issue, owner);
+      owner.pendingRefusals.push(issue);
+    }
   }
 
   function refuse(selected: Group, code: SourceTypeFlowRefusal["code"], site: Node, related?: Node): void {
@@ -310,7 +318,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     for (const derived of selected.derived) {
       for (const operand of derived.operands) selected.dependencies.add(group(operand));
       const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
-      const variable = condition === undefined ? undefined : valueVariables.get(condition);
+      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
       if (variable !== undefined) selected.dependencies.add(group(variable));
     }
     for (const receiver of receiverProjections.get(selected) ?? []) selected.dependencies.add(receiver.source);
@@ -431,7 +439,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (derived.operator === "sequence") return types[types.length - 1];
     if (derived.operator === "conditional") {
       const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
-      const variable = condition === undefined ? undefined : valueVariables.get(condition);
+      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
       const type = variable === undefined ? undefined : group(variable).type;
       const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
       if (structure?.kind !== "primitive" || structure.primitive !== "bool") {
@@ -460,7 +468,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       derived.operator === "bit-not" || derived.operator === "logical-not" ? derived.operator : undefined);
     if (unary !== undefined) {
       const operand = types[0] === undefined ? undefined : sourceTypeDescriptorStructure(types[0]);
-      if (operand?.kind === "union") return unionOperandRefusal(derived, operand);
       if (types.length === 1 && operand?.kind === "intrinsic" && operand.intrinsic === "bigint") {
         return unary === "negate" || unary === "bit-not" || unary === "increment" || unary === "decrement"
           ? update === undefined ? { kind: "intrinsic", intrinsic: "bigint" } : producedOperandType(derived.operands[0]!)
@@ -468,11 +475,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
       let primitive = operand?.kind === "primitive" ? operand.primitive : undefined;
       const literal = context.literal(derived.node);
+      const selected = group(derived.result);
       if ((unary === "positive" || unary === "negate") && literal !== undefined &&
-        group(derived.result).terms.some(term => term.kind === "numeric" && term.site === derived.node)) {
-        const expected = expectedOperatorKind(group(derived.result));
-        primitive = expected ?? sourceTypeFlowNumericLiteralKind(literal);
-      }
+        selected.terms.some(term => term.kind === "numeric" && term.site === derived.node)) {
+        const expected = expectedOperatorKind(selected);
+        const arm = literalDestinationArm(derived);
+        if (expected !== undefined) primitive = expected;
+        else if (arm !== undefined) {
+          if (arm.kind === "unfitted") return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
+          primitive = arm.primitive;
+        } else if (operand?.kind === "union") return unionOperandRefusal(derived, operand);
+        else primitive = sourceTypeFlowNumericLiteralKind(literal);
+      } else if (operand?.kind === "union") return unionOperandRefusal(derived, operand);
       if (types.length !== 1 || primitive === undefined) return operatorRefusal(derived, "A unary operator requires one exact primitive operand.");
       const decision = decideSourcePrimitiveUnaryOperator(unary, primitive);
       return decision.kind === "refused" ? operatorRefusal(derived, decision.reason)
@@ -494,13 +508,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const left = derived.operands[0] === undefined ? undefined : primitiveOperand(derived.operands[0]);
       const right = derived.operands[1] === undefined ? undefined : primitiveOperand(derived.operands[1]);
       if (derived.operands.length === 2 && left !== undefined && right !== undefined) {
-        const decision = decideSourcePrimitiveBinaryOperator(binary, left, right, expectedOperatorKind(group(derived.result)));
-        if (decision.kind === "refused") return operatorRefusal(derived, decision.reason);
         const selected = group(derived.result);
+        const arm = literalDestinationArm(derived);
+        const expected = expectedOperatorKind(selected);
+        const decision = decideSourcePrimitiveBinaryOperator(binary, left, right,
+          expected ?? (arm?.kind === "resolved" ? arm.primitive : undefined));
+        if (decision.kind === "refused") return operatorRefusal(derived, decision.reason);
+        if (arm?.kind === "unfitted") return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
         const folded = selected.terms.find((term): term is Extract<SourceTypeFlowTerm, { kind: "numeric" }> =>
           term.kind === "numeric" && term.site === derived.node);
-        const expected = expectedOperatorKind(selected);
-        const primitive = folded === undefined ? decision.result : expected ?? sourceTypeFlowNumericLiteralKind(folded.literal);
+        const primitive = folded === undefined ? decision.result
+          : expected ?? (arm?.kind === "resolved" ? arm.primitive : sourceTypeFlowNumericLiteralKind(folded.literal));
         return binaryResult(derived, { kind: "primitive", primitive });
       }
       if (binary === "power") return operatorRefusal(derived, "Exponentiation has no admitted native operator result.");
@@ -543,6 +561,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function expectedOperatorKind(selected: Group): SourcePrimitiveKind | undefined {
     const type = selected.fills.map(fill => sourceTypeDescriptorStructure(fill.type)).find(type => type.kind === "primitive");
     return type?.kind === "primitive" ? type.primitive : undefined;
+  }
+
+  function literalDestinationArm(derived: SourceTypeFlowDerived): SourceTypeFlowScalarCalculationArm | undefined {
+    const selected = group(derived.result);
+    if (selected.filledBy !== undefined || expectedOperatorKind(selected) !== undefined) return undefined;
+    const whole = selected.terms.find((term): term is Extract<SourceTypeFlowTerm, { kind: "numeric" }> =>
+      term.kind === "numeric" && term.site === derived.node);
+    if (whole === undefined) return undefined;
+    const destination = defaults.declaredSlots.get(derived.node)?.type ?? selected.fills[0]?.type;
+    const structure = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination);
+    return destination !== undefined && (structure?.kind === "union" || structure?.kind === "optional")
+      ? sourceTypeFlowScalarCalculationArm(destination, whole.literal) : undefined;
   }
 
   function producedOperandType(variable: SourceTypeFlowVariable): SourceTypeDescriptor | undefined {
@@ -719,25 +749,77 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
 
   const conditionRefusals: SourceTypeFlowRefusal[] = [];
   const derivedNodes = new Set(graph.derived.map(derived => derived.node));
-  for (const node of defaults.nodes) {
-    if (!sourceTypeFlowDiscardedSelection(source, node) &&
-      (!source.ast.is.IsConditionalExpression(node) || derivedNodes.has(node))) continue;
-    const conditional = source.ast.as.AsConditionalExpression(node);
-    const condition = conditional?.Condition ?? source.ast.as.AsBinaryExpression(node)?.Left;
-    const variable = condition === undefined ? undefined : valueVariables.get(condition);
-    const selected = variable === undefined ? undefined : group(variable);
-    if (selected?.refused !== undefined) continue;
-    const structure = selected?.type === undefined ? undefined : sourceTypeDescriptorStructure(selected.type);
-    const nullish = source.ast.operatorKindName(node) === "KindQuestionQuestionToken";
-    const admitted = nullish ? structure !== undefined && structure.kind !== "primitive"
-      : structure?.kind === "primitive" && structure.primitive === "bool";
-    if (admitted) continue;
-    conditionRefusals.push(Object.freeze({
-      ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node),
-      reason: nullish ? "A coalescing operator requires a nullable or runtime-union left operand."
-        : conditional === undefined ? "A logical operator requires exact bool operands."
-          : "A conditional operator requires an exact bool condition.",
-    }));
+  function selectionLeafTypes(node: Node):
+    | { readonly kind: "resolved"; readonly types: readonly SourceTypeDescriptor[] }
+    | { readonly kind: "refused"; readonly refusal: SourceTypeFlowRefusal } {
+    const types: SourceTypeDescriptor[] = [];
+    const pending = [{ node, present: false }];
+    const seen = [new Set<Node>(), new Set<Node>()];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      const visited = seen[current.present ? 1 : 0]!;
+      if (visited.has(current.node)) continue;
+      visited.add(current.node);
+      let expression = current.node;
+      for (let operand = sourceTransparentExpressionOperand(source.ast, expression); operand !== undefined;
+        operand = sourceTransparentExpressionOperand(source.ast, expression)) expression = operand;
+      const conditional = source.ast.as.AsConditionalExpression(expression);
+      const binary = source.ast.as.AsBinaryExpression(expression);
+      const operator = source.ast.operatorKindName(expression);
+      if (sourceTypeFlowDiscardedSelection(source, expression) && conditional !== undefined) {
+        if (conditional.WhenTrue === undefined || conditional.WhenFalse === undefined) return { kind: "refused",
+          refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", expression) };
+        pending.push({ node: conditional.WhenTrue, present: current.present }, { node: conditional.WhenFalse, present: current.present });
+        continue;
+      }
+      if (binary?.Left !== undefined && binary.Right !== undefined &&
+        (sourceTypeFlowDiscardedSelection(source, expression) || operator === "KindCommaToken")) {
+        if (operator !== "KindCommaToken") pending.push({ node: binary.Left,
+          present: current.present || operator === "KindQuestionQuestionToken" });
+        pending.push({ node: binary.Right, present: current.present });
+        continue;
+      }
+      const outcome = outcomes.get(current.node);
+      if (outcome?.kind === "refused") return { kind: "refused", refusal: outcome };
+      const variable = retainedVariables.get(current.node);
+      const selected = variable === undefined ? undefined : group(variable);
+      if (selected?.refused !== undefined) return { kind: "refused", refusal: selected.refused };
+      let type = selected?.type;
+      if (type === undefined) return { kind: "refused",
+        refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", current.node) };
+      if (current.present) {
+        const structure = sourceTypeDescriptorStructure(type);
+        if (structure.kind === "intrinsic" && structure.intrinsic === "absence") continue;
+        if (structure.kind === "optional") type = structure.value;
+      }
+      types.push(type);
+    }
+    return { kind: "resolved", types };
+  }
+  function validateSelectionConditions(): void {
+    for (const node of defaults.nodes) {
+      if (!sourceTypeFlowDiscardedSelection(source, node) &&
+        (!source.ast.is.IsConditionalExpression(node) || derivedNodes.has(node))) continue;
+      const conditional = source.ast.as.AsConditionalExpression(node);
+      const condition = conditional?.Condition ?? source.ast.as.AsBinaryExpression(node)?.Left;
+      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
+      const selected = variable === undefined ? undefined : group(variable);
+      if (selected?.refused !== undefined) continue;
+      const nullish = source.ast.operatorKindName(node) === "KindQuestionQuestionToken";
+      const leaves = nullish && condition !== undefined ? selectionLeafTypes(condition) : undefined;
+      if (leaves?.kind === "refused") { conditionRefusals.push(leaves.refusal); continue; }
+      const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(leaves.types) : selected?.type;
+      const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+      const admitted = nullish ? structure !== undefined && structure.kind !== "primitive"
+        : structure?.kind === "primitive" && structure.primitive === "bool";
+      if (admitted) continue;
+      conditionRefusals.push(Object.freeze({
+        ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node),
+        reason: nullish ? "A coalescing operator requires a nullable or runtime-union left operand."
+          : conditional === undefined ? "A logical operator requires exact bool operands."
+            : "A conditional operator requires an exact bool condition.",
+      }));
+    }
   }
 
   function propagateRefusal(selected: Group): void {
@@ -765,6 +847,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     selected.refused = pending;
     propagateRefusal(selected);
   }
+  for (const issue of graph.refusals) {
+    const refusal = graphRefusalOwners.get(issue)?.refused ?? issue;
+    for (let node: Node | undefined = issue.site; node !== undefined && !graph.roots.includes(node); node = source.ast.parent(node)) {
+      if (domainValues.has(node) && !retainedVariables.has(node) && !outcomes.has(node)) outcomes.set(node, refusal);
+    }
+  }
+  validateSelectionConditions();
 
   function obligation(use: SourceTypeFlowUse, selected: Group): void {
     if (selected.type === undefined || selected.refused !== undefined) return;
