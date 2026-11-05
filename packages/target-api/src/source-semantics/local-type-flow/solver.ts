@@ -7,6 +7,7 @@ import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
+import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import type { SourceFileSemantics } from "../types.js";
 import type {
   SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor,
@@ -468,19 +469,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
     }
   }
-  for (const node of graph.nodes) {
-    const term = node.term;
-    if (term === undefined || term.site !== node.node || node.variable.path.length !== 0) continue;
-    const selected = group(node.variable);
-    const chosen = node.declaredType ?? selected.type;
-    if ((selected.inference || chosen?.kind === "declared") && chosen !== undefined && selected.refused === undefined && (
-      term.kind === "numeric" && context.literal(term.site) !== undefined ||
-      term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
-      term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site))) {
-      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: chosen, required: node.node,
-        authority: node.declaredType !== undefined || isSourceTypeFlowDeclaredConstruction(node) ? "declared" : "inferred" }));
-    }
-  }
   for (const call of graph.calls) {
     if (graph.refusals.some(issue => issue.site === call.node)) continue;
     const vector = (binders: typeof call.receiver) => binders.flatMap(binder => {
@@ -683,6 +671,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (file !== undefined) outcomes.set(node, Object.freeze({ ...returned,
         provenance: Object.freeze({ ...returned.provenance, occurrence: node, sourceFile: file }) }));
     }
+  }
+  for (const node of defaults.values) {
+    const ast = source.ast;
+    if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) ||
+      sourceTypeFlowAssignmentPattern(ast, node)) continue;
+    const outcome = outcomes.get(node);
+    if (outcome === undefined || outcome.kind === "refused") continue;
+    const slot = defaults.declaredSlots.get(node);
+    obligations.push(Object.freeze({ kind: "literal-admission", site: node, type: outcome.type, required: node,
+      authority: slot === undefined ? "inferred" : slot.authority }));
   }
   const frozenObligations = Object.freeze(obligations);
   return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),

@@ -11,7 +11,7 @@ import { sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./d
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowAssignmentPattern, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
@@ -445,7 +445,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       return variable;
     }
     if (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) {
-      if (assignmentPattern(node)) return undefined;
+      if (sourceTypeFlowAssignmentPattern(ast, node)) return undefined;
       return ast.is.IsArrayLiteralExpression(node) ? array(node, depth) : object(node, depth);
     }
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) return collectInvocation(node, depth);
@@ -536,21 +536,6 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       link(source === undefined || spread === undefined ? source : project(source, { kind: "element" }), element, child);
     }
     return result;
-  }
-
-  function assignmentPattern(node: Node): boolean {
-    let current = node;
-    for (let parent = ast.parent(current); parent !== undefined; parent = ast.parent(current)) {
-      if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindEqualsToken") {
-        return ast.as.AsBinaryExpression(parent)?.Left === current;
-      }
-      if (ast.is.IsArrayLiteralExpression(parent) || ast.is.IsObjectLiteralExpression(parent) ||
-        ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === current ||
-        (ast.is.IsSpreadElement(parent) || ast.is.IsSpreadAssignment(parent) || ast.is.IsParenthesizedExpression(parent)) &&
-          Node_Expression(ast, parent) === current) current = parent;
-      else return false;
-    }
-    return false;
   }
 
   function mixedArrayKinds(node: Node): boolean {

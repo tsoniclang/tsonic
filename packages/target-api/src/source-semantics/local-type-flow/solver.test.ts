@@ -84,8 +84,15 @@ test("C32 never opens an annotated or module construction or a scalar literal", 
     current.source.ast.is.IsObjectLiteralExpression(node));
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
   assert.equal(constructions.every(node => current.source.effectiveTypes.get(node)?.kind !== "refused"), true);
-  assert.equal(current.source.effectiveTypes.obligations().some(row => row.kind === "literal-admission" &&
-    constructions.includes(row.site)), false, "declared construction admission remains Native-owned");
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
+  const scalar = current.nodes.find(node => current.source.ast.is.IsNumericLiteral(node));
+  assert.equal(constructions.every(node => {
+    const matching = admissions.filter(row => row.site === node);
+    const published = current.source.effectiveTypes.get(node);
+    return matching.length === 1 && matching[0]?.kind === "literal-admission" && matching[0].authority === "declared" &&
+      published !== undefined && published.kind !== "refused" && sourceTypeDescriptorsEqual(matching[0].type, published.type);
+  }) && scalar !== undefined && !admissions.some(row => row.site === scalar), true,
+  "declared constructions carry one canonical D2 admission obligation; admission stays target-owned");
 });
 
 test("declared readonly array returns and their conditional branches retain the same floating element", () => {
@@ -882,6 +889,25 @@ test("nested declared callables retain authored union order and async returns re
     deferred.type.typeArguments[0]?.kind === "primitive" && deferred.type.typeArguments[0].primitive === "int32", true,
     "the canonical callable return contains the complete Promise, not a target-wrapped payload");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("fixed heterogeneous parents retain inferred admission authority without admissions on reads or assignment patterns", () => {
+  const current = fixture(`function run(): void {
+    const values = ["text", 9007199254740993]; const alias = values; void alias;
+    let first: number = 0; const declared: number[] = [1]; [first] = declared;
+  }`);
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual heterogeneous construction is required.");
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
+  const matching = admissions.filter(row => row.site === literal);
+  const outcome = current.source.effectiveTypes.get(literal);
+  assert.equal(matching.length, 1);
+  assert.equal(matching[0]?.kind === "literal-admission" && matching[0].authority === "inferred" &&
+    outcome !== undefined && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(matching[0].type, outcome.type), true,
+    "a fixed C8 parent carries its published type and actual inferred origin, never a fabricated declared origin");
+  assert.equal(admissions.length, 2, "only the two real aggregate constructions request D2 admission");
+  assert.equal(admissions.every(row => ast.is.IsArrayLiteralExpression(row.site)), true);
 });
 
 test("literal admission retains its actual inferred or declared Source authority", () => {

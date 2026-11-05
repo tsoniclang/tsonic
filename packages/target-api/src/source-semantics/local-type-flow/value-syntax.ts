@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
+import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 
 const expressions: ReadonlySet<string> = new Set([
   "KindIdentifier", "KindPrivateIdentifier", "KindNumericLiteral", "KindBigIntLiteral", "KindStringLiteral",
@@ -25,4 +26,19 @@ export function sourceTypeFlowValueSyntax(ast: AstReader, node: Node): boolean {
   if (parent !== undefined && (ast.is.IsImportDeclaration(parent) || ast.is.IsExportDeclaration(parent))) return false;
   if (parent === undefined || ast.name(parent) !== node) return true;
   return ast.is.IsShorthandPropertyAssignment(parent);
+}
+
+export function sourceTypeFlowAssignmentPattern(ast: AstReader, node: Node): boolean {
+  let current = node;
+  for (let parent = ast.parent(current); parent !== undefined; parent = ast.parent(current)) {
+    if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindEqualsToken") {
+      return ast.as.AsBinaryExpression(parent)?.Left === current;
+    }
+    if (ast.is.IsArrayLiteralExpression(parent) || ast.is.IsObjectLiteralExpression(parent) ||
+      ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === current ||
+      (ast.is.IsSpreadElement(parent) || ast.is.IsSpreadAssignment(parent) || ast.is.IsParenthesizedExpression(parent)) &&
+        Node_Expression(ast, parent) === current) current = parent;
+    else return false;
+  }
+  return false;
 }
