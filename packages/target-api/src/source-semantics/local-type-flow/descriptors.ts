@@ -303,8 +303,8 @@ export function createSourceTypeDescriptorReader(
   function nominal(selectedType: Type, declaration: Node, arguments_: readonly SourceTypeDescriptor[], queries: SourceFileSemantics,
     component: SourceTypeComponentEvidence, depth: number, bindings: Bindings): SourceTypeDescriptor | undefined {
     const reference = { kind: "declared" as const, declaration, typeArguments: arguments_ };
-    if (recursionCut(declaration, arguments_) || ast.is.IsTypeParameterDeclaration(declaration) ||
-      ast.is.IsEnumDeclaration(declaration)) return reference;
+    if (ast.is.IsTypeParameterDeclaration(declaration) || ast.is.IsEnumDeclaration(declaration)) return reference;
+    if (recursionCut(declaration, arguments_)) return { ...reference, cut: "recursion" };
     active.push({ declaration, arguments: arguments_ });
     const alias = ast.is.IsTypeAliasDeclaration(declaration);
     const body = alias ? ast.typeNode(declaration) : undefined;
@@ -317,7 +317,8 @@ export function createSourceTypeDescriptorReader(
     // form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
     // needs its structure refuses. Project declarations must describe completely.
     const file = ast.getSourceFile(declaration);
-    return file !== undefined && ast.isDeclarationFile(file) && !reads.some(read => read.failure !== undefined) ? reference : undefined;
+    return file !== undefined && ast.isDeclarationFile(file) && !reads.some(read => read.failure !== undefined)
+      ? { ...reference, cut: "unexpressible" } : undefined;
   }
 
   function structure(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,

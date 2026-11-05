@@ -152,8 +152,18 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       } else if (ast.is.IsConditionalExpression(parent) &&
         (ast.as.AsConditionalExpression(parent)?.WhenTrue === occurrence || ast.as.AsConditionalExpression(parent)?.WhenFalse === occurrence)) {
         occurrence = parent;
-      } else if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindQuestionQuestionToken" &&
+      } else if (ast.is.IsBinaryExpression(parent) && (ast.operatorKindName(parent) === "KindQuestionQuestionToken" ||
+        ast.operatorKindName(parent) === "KindBarBarToken") &&
         (ast.as.AsBinaryExpression(parent)?.Left === occurrence || ast.as.AsBinaryExpression(parent)?.Right === occurrence)) {
+        // Either operand of `??` or `||` can be the expression's value, so both reach the slot.
+        occurrence = parent;
+      } else if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindAmpersandAmpersandToken" &&
+        ast.as.AsBinaryExpression(parent)?.Right === occurrence) {
+        // Only the right operand of `&&` is a value that can reach the slot.
+        occurrence = parent;
+      } else if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent)) && ast.isConstAssertion(parent) &&
+        Node_Expression(ast, parent) === occurrence) {
+        // A const assertion narrows its own literal; the slot of `x as const` is x's slot.
         occurrence = parent;
       } else break;
       parent = ast.parent(occurrence);

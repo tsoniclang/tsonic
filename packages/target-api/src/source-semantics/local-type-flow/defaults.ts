@@ -39,11 +39,16 @@ export function sourceTypeFlowTypeDeclaration(
   if (authored !== undefined && (ast.is.IsTypeAliasDeclaration(authored) || ast.is.IsClassDeclaration(authored) ||
     ast.is.IsInterfaceDeclaration(authored) || ast.is.IsEnumDeclaration(authored) || ast.is.IsTypeParameterDeclaration(authored))) return authored;
   const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
+  // A symbol can merge a type parameter with a same-named value (e.g. `function f<T>() { function T() {} }`): a type
+  // parameter declaration names this type only when its declared type is this type.
   return symbol === undefined ? undefined : queries.declarations.symbolDeclarations(symbol).find(declaration =>
     ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
     ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
-    ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration) ||
-    ast.is.IsTypeLiteralNode(declaration));
+    ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
+    ast.is.IsTypeParameterDeclaration(declaration) && (() => {
+      const declared = queries.declarations.declaredType(declaration);
+      return declared !== undefined && queries.types.isIdentical(declared, type);
+    })());
 }
 
 export function sourceTypeFlowTypeParameters(ast: SourceTypeFlowSource["ast"], declaration: Node): readonly Node[] {

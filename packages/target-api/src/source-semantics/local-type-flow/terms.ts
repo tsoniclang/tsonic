@@ -87,7 +87,8 @@ export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTy
       Object.freeze({ ...element, type: freezeSourceTypeDescriptor(element.type) }))) });
     case "declared": return Object.freeze({ kind: "declared", declaration: type.declaration,
       typeArguments: Object.freeze(type.typeArguments.map(freezeSourceTypeDescriptor)),
-      ...(type.definition === undefined ? {} : { definition: freezeSourceTypeDescriptor(type.definition) }) });
+      ...(type.definition === undefined ? {} : { definition: freezeSourceTypeDescriptor(type.definition) }),
+      ...(type.cut === undefined ? {} : { cut: type.cut }) });
     case "shape": return Object.freeze({ ...type, indexes: indexes(type.indexes), calls: signatures(type.calls), constructs: signatures(type.constructs),
       members: Object.freeze(type.members.map(member => Object.freeze({ ...member, origin: freezeSourceTypeDescriptorMemberOrigin(member.origin),
         type: freezeSourceTypeDescriptor(member.type) }))) });

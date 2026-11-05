@@ -327,7 +327,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           ? Object.freeze({ selectedType }) : declaredComponent(node, query);
         const described = ownType === undefined && initializer !== undefined ? context.describe(initializer)
           : component === undefined ? undefined : context.describe(node, component);
-        declaredPattern(name, component, query, described);
+        declaredPattern(name, component, query, described, ownType === undefined ? initializer : undefined);
       }
       return nodes.get(node)?.variable;
     }
@@ -376,7 +376,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function declaredPattern(node: Node, component: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics,
-    described: SourceTypeDescriptor | undefined): void {
+    described: SourceTypeDescriptor | undefined, initializer?: Node): void {
     const arrayPattern = ast.is.IsArrayBindingPattern(node);
     const tuple = component !== undefined && query.types.isTuple(component.selectedType)
       ? query.types.tupleElementInfos(component.selectedType) : undefined;
@@ -405,6 +405,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           if (selection?.kind === "resolved" && structure?.kind === "shape") {
             projected = structure.members.find(member => member.name === selection.name)?.type;
           }
+          // An unannotated never-open pattern over an object literal binds each member to that member's own
+          // initializer value (B3 literal defaults), not to the checker's widened member type.
+          const assignment = selection?.kind === "resolved" && initializer !== undefined && ast.is.IsObjectLiteralExpression(initializer)
+            ? ast.properties(initializer).find(candidate => candidate !== undefined && ast.is.IsPropertyAssignment(candidate) &&
+              query.propertyNames.get(ast.name(candidate)!)?.kind === "resolved" &&
+              (query.propertyNames.get(ast.name(candidate)!) as { readonly name: string }).name === selection.name) : undefined;
+          const memberValue = assignment === undefined ? undefined : ast.as.AsPropertyAssignment(assignment)?.Initializer;
+          const valueDescriptor = memberValue === undefined ? undefined : context.describe(memberValue);
+          if (valueDescriptor !== undefined) projected = valueDescriptor;
           if (property !== undefined) {
             const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
             slot = { type: property.type, ...(declaration === undefined ? {} : { declaration }) };

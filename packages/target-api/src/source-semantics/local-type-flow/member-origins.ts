@@ -50,7 +50,11 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
   property: TypePropertyInfo, receiver: Type): SourceMemberOriginResult | undefined {
   const { ast } = source;
   const mapped = property.mapped;
-  if (mapped !== undefined && mapped.syntheticOrigin === undefined) {
+  // A homomorphic member keeps its original property's identity (C-2290) only when the mapped type keeps the key.
+  // An `as` clause renames keys, so a renamed member is identified by its mapped owner and checked key (C-2296).
+  const renamed = mapped?.declaration !== undefined && ast.is.IsMappedTypeNode(mapped.declaration) &&
+    ast.as.AsMappedTypeNode(mapped.declaration)?.NameType !== undefined;
+  if (mapped !== undefined && (mapped.syntheticOrigin === undefined || renamed)) {
     const owner = mapped.declaration;
     if (owner === undefined || !ast.is.IsMappedTypeNode(owner)) {
       throw new Error("A checked mapped property requires its actual mapped declaration.");

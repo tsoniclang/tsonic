@@ -19,6 +19,12 @@ export type SourceTypeDescriptor =
       readonly declaration: Node;
       readonly typeArguments: readonly SourceTypeDescriptor[];
       readonly definition?: SourceTypeDescriptor;
+      // Present exactly when a class, interface or alias reference has no definition (C-2263, K-2447):
+      // "recursion" = the reference is a recursion cut of a definition already being described;
+      // "unexpressible" = a declaration-file type whose structure the descriptor cannot express (C29 floor).
+      // A consumer that needs the structure of an "unexpressible" reference refuses; it never rebuilds it.
+      // Enum and type-parameter references carry neither definition nor cut.
+      readonly cut?: "recursion" | "unexpressible";
     }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor };
 

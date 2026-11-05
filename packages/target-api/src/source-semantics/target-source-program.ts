@@ -28,6 +28,10 @@ import type { SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantic
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
 ): TargetSourceProgram {
+  // One checked type identity per expression node for this program. The checker builds a new anonymous Type for an
+  // object literal on every getTypeAtLocation call; every consumer that keys or compares checked types by identity
+  // (shape caches, member correspondence, native construction) needs the same Type object for the same node.
+  const expressionTypes = new WeakMap<Node, Type>();
   const sourceFiles = Object.freeze(
     source.sourceFiles.filter(
       (sourceFile): sourceFile is SourceFile => sourceFile !== undefined,
@@ -141,7 +145,13 @@ export function createTargetSourceProgram(
       },
     });
     const types: SourceFinalTypeQueries = Object.freeze({
-      expressionType: queries.checker.getTypeAtLocation,
+      expressionType(node: Node): Type | undefined {
+        const known = expressionTypes.get(node);
+        if (known !== undefined) return known;
+        const selected = queries.checker.getTypeAtLocation(node);
+        if (selected !== undefined) expressionTypes.set(node, selected);
+        return selected;
+      },
       awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType(node: Node) {

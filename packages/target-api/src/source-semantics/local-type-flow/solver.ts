@@ -593,14 +593,31 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       provenance: Object.freeze({ group: declaration, occurrence: node, sourceFile,
         ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
   }
-  // Parameters of type-only callable signatures (interface or type-literal methods, call and construct signatures)
-  // are declared facts in the publication domain (C29): each carries its authored declared type, exactly as a
-  // parameter of a callable with a body does. Targets build interface contracts and forwarding from them.
+  // Property signatures of interfaces and of named type literals are declared facts too (C29): each carries its
+  // authored declared type, so targets declare the member from the Host fact.
+  for (const node of defaults.nodes) {
+    if (outcomes.has(node) || !source.ast.is.IsPropertySignatureDeclaration(node)) continue;
+    const owner = source.ast.parent(node);
+    const alias = owner === undefined ? undefined : source.ast.parent(owner);
+    if (owner === undefined || !(source.ast.is.IsInterfaceDeclaration(owner) ||
+      source.ast.is.IsTypeLiteralNode(owner) && alias !== undefined && source.ast.is.IsTypeAliasDeclaration(alias))) continue;
+    const type = context.describe(node);
+    const sourceFile = source.ast.getSourceFile(node);
+    if (type === undefined || sourceFile === undefined) continue;
+    outcomes.set(node, Object.freeze({ kind: "resolved", type,
+      provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+  }
+  // Parameters of callables without a body (interface or type-literal methods, call and construct signatures, abstract
+  // methods and accessors, overload and ambient declarations) are declared facts in the publication domain (C29):
+  // each carries its authored declared type, exactly as a parameter of a callable with a body does. Targets build
+  // interface contracts, abstract ABIs and forwarding from them.
   for (const node of defaults.nodes) {
     if (outcomes.has(node) || !source.ast.is.IsParameterDeclaration(node)) continue;
     const owner = source.ast.parent(node);
-    if (owner === undefined || !(source.ast.is.IsMethodSignatureDeclaration(owner) || source.ast.is.IsCallSignatureDeclaration(owner) ||
-      source.ast.is.IsConstructSignatureDeclaration(owner))) continue;
+    if (owner === undefined || !isSourceCallableSignatureDeclaration(source.ast, owner) ||
+      source.ast.is.IsFunctionTypeNode(owner) || source.ast.is.IsConstructorTypeNode(owner) ||
+      !(source.ast.is.IsMethodSignatureDeclaration(owner) || source.ast.is.IsCallSignatureDeclaration(owner) ||
+        source.ast.is.IsConstructSignatureDeclaration(owner) || source.ast.body(owner) === undefined)) continue;
     const type = context.describe(node);
     const sourceFile = source.ast.getSourceFile(node);
     if (type === undefined || sourceFile === undefined) continue;
@@ -739,19 +756,25 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         ...(declared === undefined ? {} : { declaration: declared }) };
     });
     if (parameters.some(parameter => parameter === undefined)) continue;
+    // Construct-only signatures (constructor declarations, construct signatures, constructor types) and accessors are
+    // not callable values; call signatures are inventory entries of their owner, not values.
     if (ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node) || ast.is.IsConstructorDeclaration(node) ||
-      ast.is.IsCallSignatureDeclaration(node) || ast.is.IsConstructSignatureDeclaration(node)) continue;
+      ast.is.IsCallSignatureDeclaration(node) || ast.is.IsConstructSignatureDeclaration(node) || ast.is.IsConstructorTypeNode(node)) continue;
     const selectedCall = { declaration: node,
       typeParameters: sourceTypeFlowTypeParameters(ast, node),
       parameters: parameters.filter((parameter): parameter is NonNullable<typeof parameter> => parameter !== undefined),
       result: returned.type };
     const described = contextual?.type ?? context.describe(node);
-    const structure = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
+    // An optional method (`accept?(next: T): T`) is an optional callable member: its inventory is the callable inside.
+    const optional = described?.kind === "optional";
+    const inner = described?.kind === "optional" ? described.value : described;
+    const structure = inner === undefined ? undefined : sourceTypeDescriptorStructure(inner);
     if (structure === undefined || structure.kind !== "callable" && structure.kind !== "shape" || structure.calls.length === 0) {
       throw new Error("A Source callable value requires its complete canonical member and signature inventory.");
     }
-    const type: SourceTypeDescriptor = { ...structure, calls: structure.calls.length === 1 ? [selectedCall]
+    const callable: SourceTypeDescriptor = { ...structure, calls: structure.calls.length === 1 ? [selectedCall]
       : structure.calls.map(signature => signature.declaration === node ? selectedCall : signature) };
+    const type: SourceTypeDescriptor = optional ? { kind: "optional", value: callable } : callable;
     const outcome = Object.freeze({ ...returned, type: freezeSourceTypeDescriptor(type) });
     outcomes.set(node, outcome);
     for (const use of source.navigation.declarationUses(node)) {
