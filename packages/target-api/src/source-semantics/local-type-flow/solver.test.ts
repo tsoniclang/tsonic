@@ -7,6 +7,8 @@ import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember } from "./types.js";
+import type { SourceLiteralMemberCorrespondence } from "./types.js";
+import type { SourceStructuralMemberPair } from "../structural-members.js";
 import { sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
@@ -1000,7 +1002,7 @@ test("literal member correspondence keeps real property, method, accessor and ne
   assert.equal(pairs?.length, 4);
   for (const property of ast.properties(literal)) {
     if (property === undefined) throw new Error("The actual authored member is required.");
-    const pair = pairs?.find(pair => pair.property === property);
+    const pair: SourceLiteralMemberCorrespondence | undefined = pairs?.find(candidate => candidate.property === property);
     assert.equal(pair !== undefined && outcome.type.members.some(member =>
       sourceTypeDescriptorMemberOriginsEqual(member.origin, pair.origin)), true,
       "each correspondence names the same real destination declaration retained by its slot");
@@ -1475,7 +1477,7 @@ test("construction-family union and optional demands use the one immediate C30 k
       const admissions = current.source.effectiveTypes.obligations().filter(obligation =>
         obligation.kind === "literal-admission" && obligation.site === literal);
       assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" &&
-        admissions.length === 1 && admissions[0]?.authority === "declared" && admissions[0].type === outcome.type,
+        admissions.length === 1 && admissions[0]?.kind === "literal-admission" && admissions[0].authority === "declared" && admissions[0].type === outcome.type,
         true, name + ": one declared admission of the identical selected descriptor");
       assert.equal(issues.length, 0, name);
     }
@@ -1626,15 +1628,15 @@ test("descriptor inventories and checked literal pairs share one origin producer
     const properties = queries.types.propertyInfos(destination);
     assert.equal(properties.length, 2, name);
     for (const property of properties) {
-      const pair = correspondence.members.find(pair => pair.kind === "present" && pair.destination.property.symbol === property.symbol);
+      const pair: SourceStructuralMemberPair | undefined = correspondence.members.find(candidate => candidate.kind === "present" && candidate.destination.property.symbol === property.symbol);
       assert.equal(pair !== undefined, true, name + ": same destination inventory symbol");
       if (pair === undefined) continue;
       const origin = sourceTypeDescriptorMemberOrigin(current.source, queries, pair.destination.property, pair.destination.receiverType);
       assert.equal(origin?.kind === "resolved", true, name);
       if (origin?.kind !== "resolved") continue;
-      const matches = descriptor.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+      const matches: readonly SourceTypeDescriptorMember[] = descriptor.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
       assert.equal(matches.length, 1, name + ": one inventory origin");
-      const published = outcome.memberCorrespondence?.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+      const published: readonly SourceLiteralMemberCorrespondence[] | undefined = outcome.memberCorrespondence?.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
       assert.equal(published?.length, 1, name + ": one authored correspondence");
       assert.equal(origin.origin.kind, ["declared", "partial", "readonly"].includes(name) ? "declared" : "mapped", name);
       assert.equal(Object.isFrozen(matches[0]?.origin), true, name);

@@ -220,11 +220,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       else if (term.kind === "tuple" && fill.type.kind === "tuple") {
         const members = fill.component === undefined ? [] : queries.types.tupleElementInfos(fill.component.selectedType);
         term.elements.forEach((element, index) => add(element.variable, fill.type.kind === "tuple" ? fill.type.elements[index]?.type : undefined,
-          members[index] === undefined ? undefined : { selectedType: members[index]!.type })));
+          members[index] === undefined ? undefined : { selectedType: members[index]!.type }));
       } else if (term.kind === "declared" && fill.type.kind === "declared" && term.declaration === fill.type.declaration) {
         const bindings = fill.component === undefined ? [] : queries.types.typeArgumentBindings(fill.component.selectedType) ?? [];
         term.typeArguments.forEach((argument, offset) => add(argument, fill.type.kind === "declared" ? fill.type.typeArguments[offset] : undefined,
-          bindings[offset] === undefined ? undefined : { selectedType: bindings[offset]!.argumentType, declaration: bindings[offset]!.declaration })));
+          bindings[offset] === undefined ? undefined : { selectedType: bindings[offset]!.argumentType, declaration: bindings[offset]!.declaration }));
       } else if (term.kind === "shape" && (fill.type.kind === "shape" || fill.type.kind === "declared")) {
         const properties = fill.component === undefined ? [] : queries.types.propertyInfos(fill.component.selectedType);
         for (const entry of term.members) {

@@ -6,8 +6,7 @@ import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits } from "./defaults.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
-import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
-import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
+import type { SourceTypeDescriptorMember } from "./types.js";
 
 function fixture(text: string, noImplicitAny = true) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -65,9 +64,9 @@ test("ordinary member origins retain fields, methods and read or write accessor 
   const { ast } = current.source;
   for (const [name, kind] of [["field", "KindPropertyDeclaration"], ["method", "KindMethodDeclaration"],
     ["getter", "KindGetAccessor"], ["setter", "KindSetAccessor"], ["paired", "KindGetAccessor"]]) {
-    const member = type.definition.members.find(member => member.name === name);
-    const declaration = ast.members(type.declaration).find(declaration => declaration !== undefined &&
-      ast.kindName(declaration) === kind && ast.text(ast.name(declaration)) === name);
+    const member: SourceTypeDescriptorMember | undefined = type.definition.members.find(candidate => candidate.name === name);
+    const declaration: Node | undefined = ast.members(type.declaration).find(candidate => candidate !== undefined &&
+      ast.kindName(candidate) === kind && ast.text(ast.name(candidate)) === name);
     assert.equal(declaration !== undefined && member?.origin.kind === "declared" && member.origin.declaration === declaration, true, name);
     if (name === "method") {
       assert.equal(member?.type.kind === "callable" && member.type.calls.length === 1 &&
