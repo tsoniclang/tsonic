@@ -392,6 +392,66 @@ test("U15 and C20 updates, literal compounds, derived and open right sides are w
   assert.equal(uses.every(use => use.kind === "write" && use.required !== undefined && use.value !== undefined), true, "each checked write keeps its real operand");
 });
 
+test("D-A fixed plain assignments retain their exact RHS and projected destination without filling", () => {
+  for (const mode of ["node", "term"] as const) for (const [name, program, expression] of [
+    ["local", "declare function take(value: number): void; function run() { let storage: int32 = 1; storage = 0.5; take(storage); }", "storage = 0.5"],
+    ["member", "declare function take(value: number): void; class Box { value: int32 = 1; } function run(storage: Box) { storage.value = 0.5; take(storage.value); }", "storage.value = 0.5"],
+    ["element", "declare function take(value: number): void; function run(storage: int32[]) { storage[0] = 0.5; take(storage[0]); }", "storage[0] = 0.5"],
+  ] as const) {
+    const current = fixture(program);
+    const { ast } = current.source;
+    const assignment = current.find(expression);
+    const binary = ast.as.AsBinaryExpression(assignment);
+    assert.equal(binary?.Left !== undefined && binary.Right !== undefined, true, `${mode}/${name}: real assignment operands`);
+    if (binary?.Left === undefined || binary.Right === undefined) throw new Error("The checked assignment operands are required.");
+    const declaration = current.named("storage");
+    const variable: SourceTypeFlowVariable = Object.freeze({ node: declaration, path: Object.freeze(name === "member"
+      ? [{ kind: "member" as const, name: "value" }] : name === "element" ? [{ kind: "element" as const }] : []) });
+    const kind = mode === "node" ? "fixed" : "read";
+    const term: SourceTypeFlowTerm | undefined = mode === "term"
+      ? Object.freeze({ kind: "fixed", site: binary.Left, type: integer }) : undefined;
+    const storage = current.add(binary.Left, declaration, kind, variable, term);
+    const read = ast.arguments(current.find(`take(${current.text(binary.Left)})`))[0];
+    assert.equal(read !== undefined, true, `${mode}/${name}: an ordinary fixed read is retained`);
+    if (read === undefined) throw new Error("The checked fixed read is required.");
+    current.add(read, declaration, kind, variable, mode === "term"
+      ? Object.freeze({ kind: "fixed", site: read, type: integer }) : undefined);
+    const uses = current.run();
+    assert.equal(uses.length, 1, `${mode}/${name}: only the assignment is a use`);
+    const write = uses[0];
+    assert.equal(write?.kind === "write" && write.site === assignment && write.variable === storage.variable &&
+      write.required === binary.Left && write.value === binary.Right, true,
+      `${mode}/${name}: the existing write-fit path receives the exact destination and RHS`);
+  }
+});
+
+test("D-A a fixed assignment never fills its fixed RHS or reclassifies an ordinary fixed read", () => {
+  for (const mode of ["node", "term"] as const) {
+    const current = fixture("declare function take(value: number): void; function run() { let storage: number = 0; const replacement: int32 = 1; storage = replacement; take(storage); }");
+    const { ast } = current.source;
+    const assignment = current.find("storage = replacement");
+    const binary = ast.as.AsBinaryExpression(assignment);
+    assert.equal(binary?.Left !== undefined && binary.Right !== undefined, true, `${mode}: real assignment operands`);
+    if (binary?.Left === undefined || binary.Right === undefined) throw new Error("The checked assignment operands are required.");
+    const kind = mode === "node" ? "fixed" : "read";
+    const storageVariable: SourceTypeFlowVariable = Object.freeze({ node: current.named("storage"), path: Object.freeze([]) });
+    const storageTerm: SourceTypeFlowTerm | undefined = mode === "term"
+      ? Object.freeze({ kind: "fixed", site: binary.Left, type: double }) : undefined;
+    const storage = current.add(binary.Left, storageVariable.node, kind, storageVariable, storageTerm);
+    current.add(binary.Right, current.named("replacement"), kind, undefined, mode === "term"
+      ? Object.freeze({ kind: "fixed", site: binary.Right, type: integer }) : undefined);
+    const read = ast.arguments(current.find("take(storage)"))[0];
+    assert.equal(read !== undefined, true, `${mode}: ordinary fixed read`);
+    if (read === undefined) throw new Error("The checked fixed read is required.");
+    current.add(read, storageVariable.node, kind, storageVariable, mode === "term"
+      ? Object.freeze({ kind: "fixed", site: read, type: double }) : undefined);
+    const uses = current.run();
+    assert.equal(uses.length, 1, `${mode}: fixed RHS and ordinary reads do not create fills`);
+    assert.equal(uses[0]?.kind === "write" && uses[0].site === assignment && uses[0].variable === storage.variable &&
+      uses[0].value === binary.Right && uses[0].required === binary.Left, true, `${mode}: exact write-only assignment`);
+  }
+});
+
 test("U17 typed right-side reassignment is still a write, not a fill or alias", () => {
   const current = fixture("function run(parameter: number[]) { let xs = [1]; xs = parameter; }");
   current.track("xs");

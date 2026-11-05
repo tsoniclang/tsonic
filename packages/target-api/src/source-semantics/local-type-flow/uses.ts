@@ -192,11 +192,11 @@ export function collectSourceTypeFlowUses(
     const fixed = record.kind === "fixed" || record.term?.kind === "fixed";
     const operator = ast.operatorKindName(parent) ?? "";
     if (!captured && fixed && !constructionAliases.has(record.variable)) {
-      const compound = ast.is.IsBinaryExpression(parent) && ast.as.AsBinaryExpression(parent)?.Left === value &&
-        assignments.has(operator) && operator !== "KindEqualsToken";
+      const assignment = ast.is.IsBinaryExpression(parent) && ast.as.AsBinaryExpression(parent)?.Left === value &&
+        assignments.has(operator);
       const update = (ast.is.IsPrefixUnaryExpression(parent) || ast.is.IsPostfixUnaryExpression(parent)) &&
         (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken");
-      if (!compound && !update) return [];
+      if (!assignment && !update) return [];
     }
     if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) || ast.is.IsSatisfiesExpression(parent)) &&
       Node_Expression(ast, parent) === value && !ast.isConstAssertion(parent)) {
