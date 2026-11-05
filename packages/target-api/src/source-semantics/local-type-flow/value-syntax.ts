@@ -35,8 +35,9 @@ export function sourceTypeFlowValueSyntax(ast: AstReader, node: Node): boolean {
 
 export function sourceTypeFlowDiscardedSelection(source: SourceTypeFlowSource, node: Node): boolean {
   const { ast } = source;
-  return (ast.is.IsConditionalExpression(node) || ast.is.IsBinaryExpression(node) &&
-    effectSelectionOperators.has(ast.operatorKindName(node))) &&
+  const operator = ast.is.IsBinaryExpression(node) ? ast.operatorKindName(node) : undefined;
+  return (ast.is.IsConditionalExpression(node) || operator !== undefined &&
+    effectSelectionOperators.has(operator)) &&
     source.navigation.expressionResultDisposition(node).kind === "discarded";
 }
 

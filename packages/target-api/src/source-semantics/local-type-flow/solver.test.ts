@@ -2511,8 +2511,9 @@ test("C2330 direct callable interfaces publish their exact enclosing bindings an
     const binder = current.nodes.find(node => ast.is.IsTypeParameterDeclaration(node));
     const selected = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
     const outcome = call === undefined ? undefined : current.source.effectiveTypes.get(call);
-    assert.equal(selected !== undefined && selected.receiver.length === 1 && selected.receiver[0]?.declaration === binder &&
-      sourceTypeDescriptorsEqual(selected.receiver[0].type, expected) && selected.method.length === 0, true, annotation);
+    const receiver = selected?.receiver[0];
+    assert.equal(selected !== undefined && selected.receiver.length === 1 && receiver !== undefined && receiver.declaration === binder &&
+      sourceTypeDescriptorsEqual(receiver.type, expected) && selected.method.length === 0, true, annotation);
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(outcome.type, expected) &&
       outcome.provenance.occurrence === call, true, annotation);
     const formal = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.is.IsCallSignatureDeclaration(ast.parent(node)!));
