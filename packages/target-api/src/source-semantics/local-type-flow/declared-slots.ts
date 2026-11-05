@@ -72,31 +72,46 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return false;
   }
 
-  function declaredCallable(node: Node): SourceTypeDescriptorSignature | undefined {
-    if (!(ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)) ||
-      semantics.forNode(node).types.contextualType(node) === undefined) return undefined;
-    const selected = read(node)?.type;
+  function declaredCallable(node: Node, query: SourceFileSemantics): SourceTypeDescriptorSignature | undefined {
+    const method = ast.is.IsMethodDeclaration(node);
+    if (!method && (!(ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)) ||
+      query.types.contextualType(node) === undefined)) return undefined;
+    const selected = method ? contextualMember(node, query) : read(node, query)?.type;
     const type = selected === undefined ? undefined : structural(selected);
     return type?.kind === "callable" && type.calls.length === 1 ? type.calls[0] : undefined;
   }
 
-  function parameter(node: Node): SourceTypeDescriptor | undefined {
+  function contextualMember(node: Node, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
+    const literal = ast.parent(node);
+    if (literal === undefined || !ast.is.IsObjectLiteralExpression(literal)) return undefined;
+    const slot = read(literal, query);
+    if (slot?.authority !== "declared" || slot.type === undefined) return undefined;
+    const selected = structural(slot.type);
+    if (selected.kind !== "shape" && selected.kind !== "declared") return undefined;
+    const name = ast.name(node);
+    const property = name === undefined ? undefined : query.propertyNames.get(name);
+    return property?.kind === "resolved" ? selected.members?.find(member => member.name === property.name)?.type : undefined;
+  }
+
+  function parameter(node: Node, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
     if (!ast.is.IsParameterDeclaration(node) || ast.typeNode(node) !== undefined) return undefined;
     const owner = ast.parent(node);
     if (owner === undefined) return undefined;
-    const signature = declaredCallable(owner);
+    if (ast.is.IsSetAccessorDeclaration(owner)) return contextualMember(owner, query);
+    const signature = declaredCallable(owner, query);
     if (signature === undefined) return undefined;
-    const index = semantics.forNode(node).types.declarationSignatureInfo(owner)?.parameters
+    const index = query.types.declarationSignatureInfo(owner)?.parameters
       .findIndex(parameter => parameter.declaration === node) ?? -1;
     return index < 0 ? undefined : signature.parameters[index]?.type;
   }
 
-  function returned(node: Node): SourceTypeDescriptor | undefined {
-    const signature = declaredCallable(node);
+  function returned(node: Node, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
+    if (ast.is.IsGetAccessorDeclaration(node)) return contextualMember(node, query);
+    if (ast.is.IsSetAccessorDeclaration(node)) return { kind: "intrinsic", intrinsic: "void" };
+    const signature = declaredCallable(node, query);
     if (signature === undefined) return undefined;
     if (!ast.hasModifierKind(node, "async")) return signature.result;
     if (signature.declaration === undefined) return undefined;
-    const query = semantics.forNode(node);
     const selected = awaited(component(signature.declaration, query), query);
     return selected === undefined ? undefined : context.describe(node, selected);
   }
@@ -115,19 +130,18 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       ...(argument === undefined ? {} : { authoredTypeNode: argument }) };
   }
 
-  function read(node: Node): SourceTypeFlowDeclaredSlot | undefined {
+  function read(node: Node, query: SourceFileSemantics): SourceTypeFlowDeclaredSlot | undefined {
     const cached = cache.get(node);
     if (cached !== undefined) return cached ?? undefined;
     if (active.has(node)) return undefined;
     active.add(node);
-    const result = classify(node);
+    const result = classify(node, query);
     active.delete(node);
     cache.set(node, result ?? null);
     return result;
   }
 
-  function classify(node: Node): SourceTypeFlowDeclaredSlot | undefined {
-    const query = semantics.forNode(node);
+  function classify(node: Node, query: SourceFileSemantics): SourceTypeFlowDeclaredSlot | undefined {
     let occurrence = node;
     let parent = ast.parent(occurrence);
     while (parent !== undefined) {
@@ -174,7 +188,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       while (owner !== undefined && !callable(owner)) owner = ast.parent(owner);
       if (owner === undefined) return undefined;
       if (ast.typeNode(owner) === undefined) {
-        const type = returned(owner);
+        const type = returned(owner, query);
         return type === undefined ? undefined : projected(node, type, "declared");
       }
       const declared = component(owner, query);
@@ -194,7 +208,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     }
     if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {
       const literal = ast.parent(parent);
-      const enclosing = literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? read(literal) : undefined;
+      const enclosing = literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? read(literal, query) : undefined;
       if (enclosing === undefined) return undefined;
       const name = ast.name(parent);
       const selected = name === undefined ? undefined : query.propertyNames.get(name);
@@ -208,7 +222,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       return memberType === undefined ? Object.freeze({ authority: enclosing.authority }) : projected(node, memberType, enclosing.authority);
     }
     if (ast.is.IsArrayLiteralExpression(parent)) {
-      const enclosing = read(parent);
+      const enclosing = read(parent, query);
       if (enclosing === undefined) return undefined;
       const position = ast.elements(parent).indexOf(occurrence);
       const described = enclosing.type === undefined ? undefined : structural(enclosing.type);
@@ -219,9 +233,9 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return undefined;
   }
 
-  return Object.freeze({ get: read, callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
+  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
     component?: SourceTypeComponentEvidence): void {
-    if (read(node) !== undefined) return;
+    if (read(node, semantics.forNode(node)) !== undefined) return;
     cache.set(node, Object.freeze({ type, authority: "inferred", ...(component === undefined ? {} : { component }) }));
   } });
 }

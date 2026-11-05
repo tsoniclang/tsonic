@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/ast.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -309,6 +310,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const operands = derived.operands.map(operand => group(operand));
     const types = operands.map(operand => operand.type);
     if (types.some(type => type === undefined)) return undefined;
+    if (derived.operator === "identity") return types[0];
+    if (derived.operator === "sequence") return types[types.length - 1];
+    if (derived.operator === "conditional" || derived.operator === "logical-and" || derived.operator === "logical-or") {
+      return sourceTypeDescriptorUnion(types.filter((type): type is SourceTypeDescriptor => type !== undefined));
+    }
+    if (derived.operator === "coalesce") {
+      const left = types[0];
+      const right = types[1];
+      return right === undefined ? undefined : sourceTypeDescriptorUnion([
+        ...(left === undefined || left.kind === "intrinsic" && left.intrinsic === "absence" ? [] : [left.kind === "optional" ? left.value : left]), right,
+      ]);
+    }
     const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "logical-not"].includes(derived.operator);
     if (comparison) return { kind: "primitive", primitive: "bool" };
     if (derived.operator === "add" && types.some(type => type?.kind === "string")) return { kind: "string" };
@@ -460,7 +473,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const declared = record !== undefined;
     if (selected.refused !== undefined && (!declared || record.declaredType === undefined &&
       record.association?.component === undefined)) { outcomes.set(node, selected.refused); return; }
-    const type = record !== undefined ? declaredDescriptor(record) : selected.inference ? selected.type
+    const type = record !== undefined ? declaredDescriptor(record) : selected.inference || selected.derived.length > 0 ? selected.type
       : context.describe(node, association?.component);
     if (type === undefined) {
       if (!selected.inference) return;
@@ -545,12 +558,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (cached !== undefined) return cached;
     if (activeReturns.has(declaration)) return undefined;
     const ast = source.ast;
-    const callable = ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
-      ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration) ||
-      ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
-      ast.is.IsSetAccessorDeclaration(declaration) || ast.is.IsConstructorDeclaration(declaration) ||
-      ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration);
-    if (!callable) return undefined;
+    if (!isSourceCallableSignatureDeclaration(ast, declaration)) return undefined;
     activeReturns.add(declaration);
     const file = ast.getSourceFile(declaration);
     const queries = callableQueries.get(declaration) ?? (file !== undefined && source.semantics.includes(file)
@@ -561,16 +569,19 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     let type: SourceTypeDescriptor | undefined;
     let failure: SourceTypeFlowRefusal | undefined;
     const annotation = ast.typeNode(declaration);
-    const contextual = annotation === undefined ? defaults.declaredSlots.callable(declaration) : undefined;
+    const contextual = annotation === undefined ? defaults.declaredSlots.callable(declaration, queries) : undefined;
+    const requiredResult = annotation === undefined ? defaults.declaredSlots.returned(declaration, queries) : undefined;
     if (ast.is.IsConstructorDeclaration(declaration)) {
       const owner = ast.parent(declaration);
       const selected = owner === undefined ? undefined : queries.declarations.declaredType(owner);
       if (owner !== undefined && selected !== undefined) type = context.describe(owner, { selectedType: selected, declaration: owner });
-    } else if (contextual !== undefined) {
-      type = contextual.result;
-      const requiredType = defaults.declaredSlots.returned(declaration);
+    } else if (contextual !== undefined || requiredResult !== undefined) {
+      type = contextual?.result ?? requiredResult;
+      const requiredType = requiredResult;
       if (requiredType === undefined) throw new Error("A declared callable return requires its exact Source result descriptor.");
-      for (const returned of sourceTypeFlowCallableReturns(ast, declaration).returned) {
+      const returnedValues = file !== undefined && source.semantics.includes(file)
+        ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
+      for (const returned of returnedValues) {
         const value = outcomes.get(returned);
         if (value === undefined) throw new Error("A declared callable body requires its canonical Source publication.");
         if (value.kind === "refused") { failure = value; break; }
@@ -631,35 +642,29 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return outcome;
   }
   for (const node of defaults.nodes) {
-    if (source.ast.is.IsFunctionDeclaration(node) || source.ast.is.IsFunctionExpression(node) || source.ast.is.IsArrowFunction(node) ||
-      source.ast.is.IsMethodDeclaration(node) || source.ast.is.IsGetAccessorDeclaration(node) ||
-      source.ast.is.IsSetAccessorDeclaration(node) || source.ast.is.IsConstructorDeclaration(node)) callableReturn(node);
+    if (isSourceCallableSignatureDeclaration(source.ast, node)) callableReturn(node);
   }
   for (const node of defaults.nodes) {
     const ast = source.ast;
-    if (!(ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) ||
-      ast.is.IsMethodDeclaration(node))) continue;
+    if (!isSourceCallableSignatureDeclaration(ast, node)) continue;
     const returned = callableReturn(node);
     if (returned === undefined) continue;
     if (returned.kind === "refused") { outcomes.set(node, returned); continue; }
     const queries = source.semantics.forNode(node);
     const signature = queries.types.declarationSignatureInfo(node);
     if (signature === undefined) continue;
-    const contextual = defaults.declaredSlots.callable(node);
+    const contextual = defaults.declaredSlots.callable(node, queries);
     const parameters = signature.parameters.map((parameter, index) => {
       const declared = parameter.declaration;
       const published = declared === undefined ? undefined : outcomes.get(declared);
       if (published?.kind === "refused") return undefined;
-      const type = published?.type ?? (declared === undefined ? undefined : context.describe(declared));
-      if (declared !== undefined && type !== undefined && published === undefined) {
-        const sourceFile = ast.getSourceFile(declared);
-        if (sourceFile !== undefined) outcomes.set(declared, Object.freeze({ kind: "resolved", type,
-          provenance: Object.freeze({ group: declared, occurrence: declared, sourceFile }) }));
-      }
+      const type = published?.type;
       return type === undefined ? undefined : { kind: contextual?.parameters[index]?.kind ?? parameter.parameterKind, type,
         ...(declared === undefined ? {} : { declaration: declared }) };
     });
     if (parameters.some(parameter => parameter === undefined)) continue;
+    if (ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node) || ast.is.IsConstructorDeclaration(node) ||
+      ast.is.IsCallSignatureDeclaration(node) || ast.is.IsConstructSignatureDeclaration(node)) continue;
     const type: SourceTypeDescriptor = { kind: "callable", calls: [{ declaration: node,
       typeParameters: sourceTypeFlowTypeParameters(ast, node),
       parameters: parameters.filter((parameter): parameter is NonNullable<typeof parameter> => parameter !== undefined),

@@ -255,8 +255,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
           ...(declaration === undefined ? {} : { declaration }) };
       }
     }
-    const contextual = component === undefined && (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)) &&
-      ast.typeNode(node) === undefined ? declaredSlots.callable(node) : undefined;
+    const contextual = component === undefined && (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) ||
+      ast.is.IsMethodDeclaration(node)) && ast.typeNode(node) === undefined ? declaredSlots.callable(node, queries) : undefined;
     active.add(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
@@ -280,6 +280,18 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       result = { kind: "primitive", primitive: "int64" };
     }
     const declaration = component?.declaration ?? declarationFor(node);
+    if (result === undefined && component === undefined && ast.is.IsElementAccessExpression(node)) {
+      const access = queries.operations.elementAccess(node);
+      const receiver = access?.receiver.expression;
+      const descriptor = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
+      const index = ast.as.AsElementAccessExpression(node)?.ArgumentExpression;
+      const literal = index === undefined ? undefined : literals.get(index);
+      const position = literal?.integerConstant ?? literal?.integer;
+      if (descriptor?.kind === "array") result = descriptor.element;
+      else if (descriptor?.kind === "tuple" && position !== undefined && position >= 0n && position < BigInt(descriptor.elements.length)) {
+        result = descriptor.elements[Number(position)];
+      }
+    }
     if (result === undefined && component === undefined && ast.is.IsPropertyAccessExpression(node)) {
       const access = queries.operations.propertyAccess(node);
       const receiver = access?.receiver.expression;
@@ -296,7 +308,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return undefined;
     }
     if (result === undefined && declaration !== undefined && ast.is.IsParameterDeclaration(declaration)) {
-      result = declaredSlots.parameter(declaration);
+      result = declaredSlots.parameter(declaration, queries);
     }
     if (result === undefined) result = primitive([...(component === undefined ? [node] : []),
       ...queries.facts.selectedSubjects(undefined, declaration),

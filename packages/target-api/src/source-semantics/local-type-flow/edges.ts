@@ -13,23 +13,13 @@ import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
   SourceTypeFlowBinder, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
   SourceTypeFlowLink, SourceTypeFlowNode, SourceTypeFlowOperator, SourceTypeFlowPathPart,
   SourceTypeFlowRefusal, SourceTypeFlowTerm, SourceTypeFlowVariable,
 } from "./types.js";
-
-const binaryOperators: ReadonlyMap<string, SourceTypeFlowOperator> = new Map([
-  ["KindPlusToken", "add"], ["KindMinusToken", "subtract"], ["KindAsteriskToken", "multiply"],
-  ["KindSlashToken", "divide"], ["KindPercentToken", "remainder"], ["KindAmpersandToken", "bit-and"],
-  ["KindBarToken", "bit-or"], ["KindCaretToken", "bit-xor"], ["KindLessThanLessThanToken", "shift-left"],
-  ["KindGreaterThanGreaterThanToken", "shift-right"], ["KindGreaterThanGreaterThanGreaterThanToken", "shift-right-unsigned"],
-  ["KindLessThanToken", "less"], ["KindLessThanEqualsToken", "less-equal"],
-  ["KindGreaterThanToken", "greater"], ["KindGreaterThanEqualsToken", "greater-equal"],
-  ["KindEqualsEqualsToken", "equal"], ["KindEqualsEqualsEqualsToken", "equal"],
-  ["KindExclamationEqualsToken", "not-equal"], ["KindExclamationEqualsEqualsToken", "not-equal"],
-]);
 
 export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContext): SourceTypeFlowGraph {
   const { ast, navigation, semantics } = context.source;
@@ -47,6 +37,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const building = new Set<Node>();
   const patterns = new Set<Node>();
   const pairs = new Set<Node>();
+  const fixedAliases = new Map<SourceTypeFlowVariable, SourceTypeFlowVariable>();
   const projections = new Map<SourceTypeFlowVariable, Map<SourceTypeFlowPathPart, SourceTypeFlowVariable>>();
   const memberParts = new Map<string, SourceTypeFlowPathPart>();
   const binderParts = new Map<Node, SourceTypeFlowPathPart>();
@@ -85,6 +76,24 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   for (const node of syntax) {
+    if (!ast.is.IsParameterDeclaration(node)) continue;
+    const query = semantics.forNode(node);
+    const projected = declaredSlots.parameter(node, query);
+    const owner = ast.parent(node);
+    if (ast.typeNode(node) === undefined && projected === undefined && Node_Initializer(ast, node) === undefined &&
+      owner !== undefined && (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner)) &&
+      query.types.contextualType(owner) !== undefined) continue;
+    const type = projected ?? context.describe(node);
+    if (type === undefined) continue;
+    const component = declaredComponent(node, query);
+    fixed(node, component, type);
+    const name = ast.name(node);
+    if (name !== undefined && (ast.is.IsObjectBindingPattern(name) || ast.is.IsArrayBindingPattern(name))) {
+      patterns.add(node);
+      declaredPattern(name, component, query, type);
+    }
+  }
+  for (const node of syntax) {
     if (typeOnly.has(node)) continue;
     if (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsPropertyDeclaration(node)) declaration(node);
     if (ast.is.IsForOfStatement(node)) iteration(node);
@@ -95,6 +104,28 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     for (const use of navigation.declarationUses(entry.node)) {
       if (use.kind !== "type-only" && use.kind !== "source-linkage") value(use.reference);
     }
+  }
+  const constructionFamilies = new Map<Node, { readonly source: SourceTypeFlowVariable; readonly target: SourceTypeFlowVariable }[]>();
+  for (const [target, source] of fixedAliases) {
+    const seen = new Set<SourceTypeFlowVariable>();
+    let origin: SourceTypeFlowVariable | undefined = source;
+    while (origin !== undefined && !seen.has(origin)) {
+      seen.add(origin);
+      if (ast.is.IsArrayLiteralExpression(origin.node) || ast.is.IsObjectLiteralExpression(origin.node)) break;
+      origin = fixedAliases.get(origin);
+    }
+    if (origin === undefined || !(ast.is.IsArrayLiteralExpression(origin.node) || ast.is.IsObjectLiteralExpression(origin.node)) ||
+      nodes.get(origin.node)?.term?.kind !== "fixed" || declaredSlots.get(origin.node)?.authority === "declared") continue;
+    let family = constructionFamilies.get(origin.node);
+    if (family === undefined) constructionFamilies.set(origin.node, family = []);
+    family.push({ source, target });
+  }
+  for (const family of constructionFamilies.values()) {
+    if (!family.some(pair => {
+      const slot = declaredSlots.get(pair.target.node);
+      return slot?.authority === "declared" && slot.type !== undefined;
+    })) continue;
+    for (const pair of family) link(pair.source, pair.target, pair.target.node);
   }
   return Object.freeze({
     roots: Object.freeze(roots), nodes: Object.freeze([...nodes.values(), ...positions.values()]),
@@ -297,7 +328,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (sourceNode?.term?.kind !== "fixed") return fixed(node, declaredComponent(node, query));
       const result = record(node, "fixed", Object.freeze({ ...sourceNode.term, site: node }), node, sourceNode.association);
       replace(node, { publish: sourceNode.publish });
-      link(source, result, initializer);
+      if (result !== undefined) fixedAliases.set(result, source);
       return result;
     }
     const kind = derived.has(source.node) ? "derived-local" : openValues.has(source.node) ? "open-local" : "read";
@@ -420,7 +451,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           !semantics.forNode(node).types.isUnion(component.selectedType) &&
           !semantics.forNode(node).types.isNullish(component.selectedType) ? type.value : type;
         const result = fixed(node, component, narrowed);
-        if (narrowed === type) link(source, result, node);
+        if (narrowed === type && result !== undefined) fixedAliases.set(result, source);
         return result;
       }
       const result = record(node, selectedNode?.kind === "fixed" ? "fixed" : "read", undefined, selected);
@@ -472,44 +503,25 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       link(narrowedRead(source, node), result, node);
       return result;
     }
-    if (ast.is.IsConditionalExpression(node) && initializer) {
+    if (ast.is.IsConditionalExpression(node)) {
       const conditional = ast.as.AsConditionalExpression(node);
-      const result = record(node, "value");
-      if (conditional?.WhenTrue !== undefined) link(value(conditional.WhenTrue, true, depth), result, node);
-      if (conditional?.WhenFalse !== undefined) link(value(conditional.WhenFalse, true, depth), result, node);
-      return result;
+      return conditional?.WhenTrue === undefined || conditional.WhenFalse === undefined ? fixed(node)
+        : operationNode(node, "conditional", [conditional.WhenTrue, conditional.WhenFalse], initializer, depth);
     }
     if (ast.is.IsBinaryExpression(node)) {
       const binary = ast.as.AsBinaryExpression(node);
       const operator = ast.operatorKindName(node);
-      if (initializer && (operator === "KindQuestionQuestionToken" || operator === "KindBarBarToken" || operator === "KindAmpersandAmpersandToken")) {
-        const result = record(node, "value");
-        if (binary?.Left !== undefined) link(value(binary.Left, true, depth), result, node);
-        if (binary?.Right !== undefined) link(value(binary.Right, true, depth), result, node);
-        return result;
-      }
-      const operation = operator === undefined ? undefined : binaryOperators.get(operator);
+      const operation = operator === undefined ? undefined : sourceTypeFlowBinaryOperators.get(operator);
       if (operation !== undefined && binary?.Left !== undefined && binary.Right !== undefined) {
         return operationNode(node, operation, [binary.Left, binary.Right], initializer, depth);
       }
       return undefined;
     }
-    if (ast.is.IsPrefixUnaryExpression(node)) {
-      const unary = ast.as.AsPrefixUnaryExpression(node);
-      const operator = ast.operatorKindName(node);
-      const operation = operator === "KindMinusToken" ? "negate" : operator === "KindPlusToken" ? "positive"
-        : operator === "KindTildeToken" ? "bit-not" : operator === "KindExclamationToken" ? "logical-not" : undefined;
-      if (operation !== undefined && unary?.Operand !== undefined) return operationNode(node, operation, [unary.Operand], initializer, depth);
-    }
     if (ast.is.IsPrefixUnaryExpression(node) || ast.is.IsPostfixUnaryExpression(node)) {
       const operator = ast.operatorKindName(node);
       const operand = ast.is.IsPrefixUnaryExpression(node) ? ast.as.AsPrefixUnaryExpression(node)?.Operand : ast.as.AsPostfixUnaryExpression(node)?.Operand;
-      if ((operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") && operand !== undefined) {
-        const source = value(operand, false, depth);
-        const result = record(node, "read");
-        link(source, result, node);
-        return result;
-      }
+      const operation = operator === undefined ? undefined : sourceTypeFlowUnaryOperators.get(operator);
+      if (operation !== undefined && operand !== undefined) return operationNode(node, operation, [operand], initializer, depth);
     }
     return fixed(node);
   }
@@ -728,6 +740,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (selected.some(operand => operand === undefined)) return fixed(node);
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
     if (!inputs.some(operand => active.has(operand.node))) return fixed(node);
+    if (required && ["conditional", "logical-and", "logical-or", "coalesce"].includes(operator) &&
+      inputs.some(operand => openValues.has(operand.node))) {
+      const result = record(node, "value");
+      for (const input of inputs) link(input, result, node);
+      return result;
+    }
     const result = record(node, "value");
     if (result === undefined) return undefined;
     derived.set(node, Object.freeze({ node, result, operator, operands: Object.freeze(inputs), required }));

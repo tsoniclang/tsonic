@@ -35,15 +35,29 @@ export function collectSourceTypeFlowUses(
     }
   }
   const calls = new Map(graph.calls.map(call => [call.node, call]));
+  const aliasLinks = new Map<SourceTypeFlowNode["variable"], SourceTypeFlowNode["variable"][]>();
+  for (const link of graph.links) {
+    for (const [from, to] of [[link.source, link.target], [link.target, link.source]] as const) {
+      let adjacent = aliasLinks.get(from);
+      if (adjacent === undefined) aliasLinks.set(from, adjacent = []);
+      adjacent.push(to);
+    }
+  }
+  const constructionAliases = new Set<SourceTypeFlowNode["variable"]>();
+  const pending = graph.nodes.filter(record => record.term?.kind === "fixed" && aliasLinks.has(record.variable) &&
+    (ast.is.IsArrayLiteralExpression(record.node) || ast.is.IsObjectLiteralExpression(record.node))).map(record => record.variable);
+  while (pending.length > 0) {
+    const selected = pending.pop()!;
+    if (constructionAliases.has(selected)) continue;
+    constructionAliases.add(selected);
+    pending.push(...aliasLinks.get(selected) ?? []);
+  }
   const uses: SourceTypeFlowUse[] = [];
   for (const record of nodes.values()) {
     if (!graph.roots.includes(record.root) || !withinInferenceRoot(ast, record.node, record.root)) {
       throw new Error("Local type uses require an occurrence in its original inference root.");
     }
-    const fixedType = record.term?.kind === "fixed" ? record.term.type : undefined;
-    const aggregate = fixedType?.kind === "array" || fixedType?.kind === "tuple" || fixedType?.kind === "shape" ||
-      fixedType?.kind === "declared";
-    if ((record.kind === "fixed" || record.term?.kind === "fixed") && !aggregate || ast.is.IsArrowFunction(record.node) ||
+    if ((record.kind === "fixed" || record.term?.kind === "fixed") && !constructionAliases.has(record.variable) || ast.is.IsArrowFunction(record.node) ||
       ast.is.IsFunctionExpression(record.node) || ast.is.IsVariableDeclaration(record.node) ||
       ast.is.IsParameterDeclaration(record.node)) continue;
     uses.push(...classify(record));

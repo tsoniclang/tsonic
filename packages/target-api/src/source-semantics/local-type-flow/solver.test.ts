@@ -967,18 +967,140 @@ test("C30 and B2 authority uses the declared slot while every B4 or inferred slo
     declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
     ${cases.map(row => row.program(`[${JSON.stringify(row.name)}, 9007199254740993, -9007199254740993, 1e100]`)).join("\n")}`);
   const { ast } = current.source;
+  const failures: string[] = [];
+  const observed: { name: string; found: boolean; count: number; expected: string; actual: string; sameDescriptor: boolean }[] = [];
   for (const row of cases) {
     const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
       ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]) &&
-      ast.text(ast.elements(node)[0]) === JSON.stringify(row.name));
-    assert.equal(literal !== undefined, true, `${row.name}: actual aggregate construction`);
+      ast.text(ast.elements(node)[0]) === row.name);
     const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
     const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission" &&
       obligation.site === literal);
-    assert.equal(admissions.length, 1, `${row.name}: exactly one canonical aggregate admission`);
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
-      admissions[0].authority === row.authority && admissions[0].type === outcome.type, true,
-    `${row.name}: chosen Source fill authority and identical published descriptor`);
+    const actual = admissions[0]?.kind === "literal-admission" ? admissions[0].authority : "missing";
+    const sameDescriptor = outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.type === outcome.type;
+    observed.push({ name: row.name, found: literal !== undefined, count: admissions.length, expected: row.authority, actual, sameDescriptor });
+    if (literal === undefined) failures.push(`${row.name}: actual aggregate construction`);
+    if (admissions.length !== 1) failures.push(`${row.name}: expected one admission, actual ${admissions.length}`);
+    if (actual !== row.authority) failures.push(`${row.name}: expected ${row.authority}, actual ${actual}`);
+    if (!sameDescriptor) failures.push(`${row.name}: identical published descriptor`);
+  }
+  console.log(`Source authority case map: ${JSON.stringify(observed)}`);
+  assert.equal(failures.length, 0, failures.join("; "));
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C14 every derived form preserves declaration-typed operands across the complete Source kind map", () => {
+  const arithmetic = ["+", "-", "*", "/", "%", "**"];
+  const integral = ["&", "|", "^", "<<", ">>", ">>>"];
+  const comparisons = ["<", "<=", ">", ">=", "==", "!=", "===", "!=="];
+  const logical = ["&&", "||", "??"];
+  const compound = ["+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>=", "&&=", "||=", "??="];
+  const operators = [
+    ...[...arithmetic, ...integral, ...logical, ...compound].map(operator => ({
+      label: operator, expression: `$left ${operator} $right`, expected: "int32",
+    })),
+    ...comparisons.map(operator => ({ label: operator, expression: `$left ${operator} $right`, expected: "bool" })),
+    ...["+", "-", "~", "!"].map(operator => ({ label: `unary ${operator}`, expression: `${operator}$left`,
+      expected: operator === "!" ? "bool" : "int32" })),
+    ...["++", "--"].flatMap(operator => [
+      { label: `prefix ${operator}`, expression: `${operator}$left`, expected: "int32" },
+      { label: `postfix ${operator}`, expression: `$left${operator}`, expected: "int32" },
+    ]),
+    { label: "conditional", expression: "flag ? $left : $right", expected: "int32" },
+    { label: "parenthesized", expression: "($left + $right)", expected: "int32" },
+    { label: "comma", expression: "($left += 0, $right)", expected: "int32" },
+    { label: "template", expression: "`${$left}:${$right}`", expected: "string" },
+    { label: "typeof", expression: "typeof $left", expected: "string" },
+    ...arithmetic.map(operator => ({ label: `fractional ${operator}`, expression: `$left ${operator} 0.5`, expected: "float64" })),
+  ];
+  const sources = [
+    { name: "arrow", left: "left", right: "right", wrap: (body: string) =>
+      `const arrow: (left: int32, right: int32) => void = (left, right) => { ${body} };` },
+    { name: "expression", left: "left", right: "right", wrap: (body: string) =>
+      `const expression: (left: int32, right: int32) => void = function(left, right) { ${body} };` },
+    { name: "method", left: "left", right: "right", wrap: (body: string) =>
+      `const method: { run(left: int32, right: int32): void } = { run(left, right) { ${body} } };` },
+    { name: "setter", left: "left", right: "left", wrap: (body: string) =>
+      `const setter: { value: int32 } = { set value(left) { ${body} }, get value(): int32 { return 1; } };` },
+    { name: "getter", left: "left", right: "right", wrap: (body: string) =>
+      `function getterSource(left: int32, right: int32): void { const getter: { readonly value: int32 } = {
+        get value() { ${body} return left; } }; void getter; }` },
+    { name: "async", left: "left", right: "right", wrap: (body: string) =>
+      `const asynchronous: (left: int32, right: int32) => Promise<void> = async (left, right) => { ${body} };` },
+    { name: "annotated", left: "left", right: "right", wrap: (body: string) =>
+      `function annotated(left: int32, right: int32): void { ${body} }` },
+    { name: "object_binding", left: "left", right: "right", wrap: (body: string) =>
+      `function objectBinding({ left, right }: { left: int32; right: int32 }): void { ${body} }` },
+    { name: "array_binding", left: "left", right: "right", wrap: (body: string) =>
+      `function arrayBinding([left, right]: [int32, int32]): void { ${body} }` },
+    { name: "rest", left: "values[0]", right: "values[1]", wrap: (body: string) =>
+      `function rest(...values: int32[]): void { ${body} }` },
+    { name: "default", left: "left", right: "right", wrap: (body: string) =>
+      `function defaults(left: int32 = 1, right: int32 = 2): void { ${body} }` },
+    { name: "contextual_default", left: "left", right: "right", wrap: (body: string) =>
+      `const contextualDefaults: (left?: int32, right?: int32) => void = (left = 1, right = 2) => { ${body} };` },
+    { name: "local", left: "left", right: "right", wrap: (body: string) =>
+      `function locals(): void { let left: int32 = 1; let right: int32 = 2; ${body} }` },
+    { name: "field", left: "this.left", right: "this.right", wrap: (body: string) =>
+      `class Fields { left: int32 = 1; right: int32 = 2; run(): void { ${body} } }` },
+    { name: "api", left: "input.length", right: "other.length", wrap: (body: string) =>
+      `function api(input: { length: int32 }, other: { length: int32 }): void { ${body} }` },
+  ];
+  const current = fixture(`declare const flag: boolean; ${sources.map(source => source.wrap(operators.map((operator, index) =>
+    `const cell_${source.name}_${index} = ${operator.expression.replaceAll("$left", source.left).replaceAll("$right", source.right)};`
+  ).join("\n"))).join("\n")}`);
+  for (const source of sources) for (const [index, operator] of operators.entries()) {
+    const declaration = current.declaration(`cell_${source.name}_${index}`);
+    const expression = current.source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && (operator.expected === "string"
+      ? outcome.type.kind === "string" : outcome.type.kind === "primitive" && outcome.type.primitive === operator.expected), true,
+    `${source.name}: ${operator.label}`);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === expression, true,
+      `${source.name}: ${operator.label} keeps the exact derived occurrence`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0, "all declaration-typed operand sources remain never-open");
+});
+
+test("C24 every callable declaration kind publishes its actual parameter groups before its body", () => {
+  const current = fixture(`declare function external(value: int32): int32;
+    function overloaded(value: int32): int32; function overloaded(value: int32): int32 { return value; }
+    abstract class Base { abstract run(value: int32): int32; abstract get value(): int32; abstract set value(next: int32); }
+    class Concrete extends Base { constructor(value: int32 = 1) { super(); void value; }
+      run(value: int32): int32 { return value; } get value(): int32 { return 1; } set value(next: int32) { void next; } }
+    interface Invocable { (value: int32): int32; new(value: int32): object; run(value: int32): int32; }
+    type Callable = (value: int32) => int32; type Constructable = new(value: int32) => object;
+    type Generic = <Value>(genericValue: Value) => Value;
+    interface GenericMethod { select<Value>(genericValue: Value): Value; }
+    declare function generic<Value>(genericValue: Value): Value;
+    const arrow: Callable = value => value; const expression: Callable = function(value) { return value; };
+    const asynchronous: (value: int32) => Promise<int32> = async value => value;
+    function patterned({ value }: { value: int32 }, ...rest: int32[]): int32 { return value + rest[0]; }`);
+  const { ast } = current.source;
+  const parameters = current.nodes.filter(node => ast.is.IsParameterDeclaration(node));
+  assert.equal(parameters.length > 15, true, "the fixture spans bodyless, overload, runtime and type-only signatures");
+  for (const parameter of parameters) {
+    const outcome = current.source.effectiveTypes.get(parameter);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === parameter, true,
+      `parameter ${ast.pos(parameter)} is the same checked declaration`);
+    const name = ast.name(parameter);
+    if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "genericValue") {
+      const owner = ast.parent(parameter);
+      const binder = owner === undefined ? undefined : ast.typeParameters(owner)[0];
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+        outcome.type.declaration === binder && outcome.type.typeArguments.length === 0, true,
+      "an actual formal parameter retains its unbound binder identity, never a caller's instantiated value");
+      continue;
+    }
+    if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "rest") {
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
+        outcome.type.element.kind === "primitive" && outcome.type.element.primitive === "int32", true,
+      "the actual rest parameter retains its complete declared array descriptor");
+    }
+    if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) !== "rest") {
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+        outcome.type.primitive === "int32", true, `parameter ${ast.pos(parameter)} retains its declared width`);
+    }
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
