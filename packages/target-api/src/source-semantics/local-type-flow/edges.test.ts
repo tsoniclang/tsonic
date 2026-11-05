@@ -8,6 +8,7 @@ import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { createSourceTypeFlowTerms } from "./terms.js";
+import { sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
 function lastPath(variable: SourceTypeFlowVariable) { return variable.path[variable.path.length - 1]; }
@@ -828,5 +829,24 @@ test("C2337 heterogeneous assignment-pattern RHS reads all checked tuple element
   assert.equal(selected !== undefined && current.source.semantics.forNode(literal).types.isTuple(selected), true);
   const term = current.entry(literal).term;
   assert.equal(term?.kind === "fixed" && term.type.kind === "tuple" && term.type.elements.length === 3, true);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2342 discarded selector wrappers retain their dependencies without a reconstructed result record", () => {
+  const current = fixture(`function run(flag: boolean): void {
+    ((flag ? (() => 1) : undefined)) ?? (() => 2);
+    const retained = (1 + 2); void retained;
+  }`);
+  const { ast } = current.source;
+  const wrappers = current.syntax.filter(node => ast.is.IsParenthesizedExpression(node) &&
+    sourceTypeFlowDiscardedValue(current.source, node));
+  assert.equal(wrappers.length > 0, true);
+  assert.equal(wrappers.every(node => !current.graph.nodes.some(record => record.node === node) &&
+    !current.graph.derived.some(record => record.node === node)), true);
+  const condition = current.syntax.find(node => ast.is.IsConditionalExpression(node));
+  const flag = condition === undefined ? undefined : ast.as.AsConditionalExpression(condition)?.Condition;
+  assert.equal(flag !== undefined && current.graph.nodes.some(record => record.node === flag), true);
+  const retained = current.syntax.find(node => ast.is.IsParenthesizedExpression(node) && current.text(node) === "(1 + 2)");
+  assert.equal(retained !== undefined && current.graph.nodes.some(record => record.node === retained), true);
   assert.equal(current.graph.refusals.length, 0);
 });

@@ -24,7 +24,7 @@ export type SourceTypeDescriptorReadResult =
 
 export function createSourceTypeDescriptorReader(
   source: SourceTypeFlowSource,
-  declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node, excludedDeclaration?: Node) => Node | undefined,
+  declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node, excludedDeclarations?: ReadonlySet<Node>) => Node | undefined,
   parametersFor: (declaration: Node) => readonly Node[],
   declaredValue: (declaration: Node, queries: SourceFileSemantics, bindings: Bindings) => SourceTypeDescriptor | undefined,
   refusedSignature: (declaration: Node) => boolean,
@@ -115,7 +115,7 @@ export function createSourceTypeDescriptorReader(
     }
     if (ast.is.IsIntersectionTypeNode(node)) {
       return type(selectedType, queries, { selectedType, authoredTypeNode: node }, depth, bindings,
-        active[active.length - 1]?.declaration);
+        new Set(active.filter(selected => ast.is.IsTypeAliasDeclaration(selected.declaration)).map(selected => selected.declaration)));
     }
     if (ast.is.IsUnionTypeNode(node)) {
       const types: SourceTypeDescriptor[] = [];
@@ -331,7 +331,8 @@ export function createSourceTypeDescriptorReader(
           })
         : body === undefined ? structure(selectedType, queries, depth, bindings)
           : ast.is.IsMappedTypeNode(body) || ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body)
-            ? type(selectedType, queries, component, depth, bindings, declaration)
+            ? type(selectedType, queries, component, depth, bindings,
+              new Set(active.filter(selected => ast.is.IsTypeAliasDeclaration(selected.declaration)).map(selected => selected.declaration)))
             : syntax(body, queries, depth, bindings);
     } finally { active.pop(); }
     if (definition !== undefined) return { ...reference, definition };
@@ -424,15 +425,15 @@ export function createSourceTypeDescriptorReader(
   }
 
   function type(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-    depth = 0, bindings: Bindings = empty, aliasBody?: Node): SourceTypeDescriptor | undefined {
+    depth = 0, bindings: Bindings = empty, aliasBodies?: ReadonlySet<Node>): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
     return expand(selectedType, component.authoredTypeNode ?? component.declaration, depth,
-      () => readType(selectedType, queries, component, depth, bindings, aliasBody));
+      () => readType(selectedType, queries, component, depth, bindings, aliasBodies));
   }
 
   function readType(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-    depth: number, bindings: Bindings, aliasBody: Node | undefined): SourceTypeDescriptor | undefined {
-    const declaration = declarationFor(selectedType, queries, undefined, aliasBody);
+    depth: number, bindings: Bindings, aliasBodies: ReadonlySet<Node> | undefined): SourceTypeDescriptor | undefined {
+    const declaration = declarationFor(selectedType, queries, undefined, aliasBodies);
     const substituted = declaration === undefined ? undefined : bindings.get(declaration);
     if (substituted !== undefined) return substituted;
     const direct = primitive(queries.facts.typeSubjects(selectedType));
@@ -491,7 +492,7 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
       for (const member of queries.types.unionOrIntersectionTypes(selectedType)) {
-        const selected = type(member, queries, { selectedType: member }, depth + 1, bindings, aliasBody);
+        const selected = type(member, queries, { selectedType: member }, depth + 1, bindings, aliasBodies);
         if (selected === undefined) return undefined;
         types.push(selected);
       }
@@ -520,7 +521,8 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.callSignatures(selectedType).length > 0 || queries.types.constructSignatures(selectedType).length > 0) {
       return structure(selectedType, queries, depth, bindings);
     }
-    const body = aliasBody === undefined ? undefined : ast.typeNode(aliasBody);
+    const body = aliasBodies === undefined ? undefined : [...aliasBodies].map(declaration => ast.typeNode(declaration))
+      .find(body => body !== undefined && ast.is.IsMappedTypeNode(body));
     return structure(selectedType, queries, depth, bindings, body !== undefined && ast.is.IsMappedTypeNode(body) ? body : undefined);
   }
 

@@ -72,6 +72,59 @@ function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: 
 
 const descriptorSnapshots = new WeakMap<SourceTypeDescriptor, SourceTypeDescriptor>();
 
+export function substituteSourceTypeDescriptor(type: SourceTypeDescriptor,
+  bindings: ReadonlyMap<Node, SourceTypeDescriptor>): SourceTypeDescriptor {
+  const substitute = (selected: SourceTypeDescriptor): SourceTypeDescriptor => substituteSourceTypeDescriptor(selected, bindings);
+  const signatures = (values: readonly SourceTypeDescriptorSignature[]): readonly SourceTypeDescriptorSignature[] => values.map(signature => {
+    const parameters = signature.parameters.map(parameter => ({ ...parameter, type: substitute(parameter.type) }));
+    const result = substitute(signature.result);
+    return result === signature.result && parameters.every((parameter, index) => parameter.type === signature.parameters[index]!.type)
+      ? signature : { ...signature, parameters, result };
+  });
+  switch (type.kind) {
+    case "primitive": case "intrinsic": case "string": return type;
+    case "declared": {
+      const argument = bindings.get(type.declaration);
+      if (argument !== undefined && type.typeArguments.length === 0) return argument;
+      const typeArguments = type.typeArguments.map(substitute);
+      const definition = type.definition === undefined ? undefined : substitute(type.definition);
+      return definition === type.definition && typeArguments.every((argument, index) => argument === type.typeArguments[index])
+        ? type : { ...type, typeArguments, ...(definition === undefined ? {} : { definition }) };
+    }
+    case "optional": {
+      const value = substitute(type.value);
+      return value === type.value ? type : { ...type, value };
+    }
+    case "array": {
+      const element = substitute(type.element);
+      return element === type.element ? type : { ...type, element };
+    }
+    case "tuple": {
+      const elements = type.elements.map(element => ({ ...element, type: substitute(element.type) }));
+      return elements.every((element, index) => element.type === type.elements[index]!.type) ? type : { ...type, elements };
+    }
+    case "union": {
+      const types = type.types.map(substitute);
+      if (types.every((selected, index) => selected === type.types[index])) return type;
+      const result = sourceTypeDescriptorUnion(types);
+      if (result === undefined) throw new Error("Substituting an inhabited Source union requires an inhabited result.");
+      return result;
+    }
+    case "callable": case "shape": {
+      const calls = signatures(type.calls);
+      const constructs = signatures(type.constructs);
+      const unchanged = calls.every((signature, index) => signature === type.calls[index]) &&
+        constructs.every((signature, index) => signature === type.constructs[index]);
+      if (type.kind === "callable") return unchanged ? type : { ...type, calls, constructs };
+      const members = type.members.map(member => ({ ...member, type: substitute(member.type) }));
+      const indexes = type.indexes.map(index => ({ ...index, key: substitute(index.key), value: substitute(index.value) }));
+      return unchanged && members.every((member, index) => member.type === type.members[index]!.type) &&
+        indexes.every((selected, index) => selected.key === type.indexes[index]!.key && selected.value === type.indexes[index]!.value)
+        ? type : { ...type, calls, constructs, members, indexes };
+    }
+  }
+}
+
 export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
   const existing = descriptorSnapshots.get(type);
   if (existing !== undefined) return existing;
@@ -400,7 +453,7 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   }
   for (const slot of slots) {
     const selected = root(slot);
-    if (depth(selected) > 4) refuse(selected,
+    if (inference.has(selected) && depth(selected) > 4) refuse(selected,
       createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node));
   }
   const view = (slot: TermSlot): SourceTypeFlowTermGroup => {

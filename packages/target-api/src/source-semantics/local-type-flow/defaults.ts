@@ -5,7 +5,7 @@ import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
-import { sourceTypeFlowDiscardedSelection, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
@@ -29,7 +29,7 @@ export function sourceTypeFlowTypeDeclaration(
   queries: SourceFileSemantics,
   type: Type,
   authoredTypeNode?: Node,
-  excludedDeclaration?: Node,
+  excludedDeclarations?: ReadonlySet<Node>,
 ): Node | undefined {
   const { ast, navigation } = source;
   const reference = authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(authoredTypeNode)
@@ -43,7 +43,7 @@ export function sourceTypeFlowTypeDeclaration(
   // A symbol can merge a type parameter with a same-named value (e.g. `function f<T>() { function T() {} }`): a type
   // parameter declaration names this type only when its declared type is this type.
   return symbols.flatMap(symbol => symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)).find(declaration =>
-    declaration !== excludedDeclaration && (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
+    !excludedDeclarations?.has(declaration) && (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
     ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
     ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
     ast.is.IsTypeParameterDeclaration(declaration) && (() => {
@@ -85,7 +85,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const typeOnly = entry.typeOnly || sourceTypeFlowTypeSyntax(ast, node);
     ordinals.set(node, nodes.length);
     nodes.push(node);
-    if (!typeOnly && sourceTypeFlowValueSyntax(ast, node) && !sourceTypeFlowDiscardedSelection(source, node)) values.push(node);
+    if (!typeOnly && sourceTypeFlowValueSyntax(ast, node) && !sourceTypeFlowDiscardedValue(source, node)) values.push(node);
     const children = ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
@@ -161,8 +161,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   }
 
   function typeDeclaration(type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node,
-    excludedDeclaration?: Node): Node | undefined {
-    return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode, excludedDeclaration);
+    excludedDeclarations?: ReadonlySet<Node>): Node | undefined {
+    return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode, excludedDeclarations);
   }
 
   const descriptor = createSourceTypeDescriptorReader(source, typeDeclaration,

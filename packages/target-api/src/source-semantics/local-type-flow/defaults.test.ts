@@ -112,6 +112,93 @@ test("normalized mapped union bodies do not reopen their own alias on an object 
   }
 });
 
+test("tail conditional applications retain their successive exact Source binder scopes", () => {
+  for (const primitive of ["int32", "float32"] as const) {
+    const current = fixture(`interface Layer<Value> { item: Value; }
+      type Peel<Value> = Value extends Layer<infer Inner> ? Peel<Inner> : Value;
+      declare const first: Peel<Layer<Layer<Layer<${primitive}>>>>;
+      declare const sibling: ${primitive};`);
+    for (const name of ["first", "sibling"]) {
+      const descriptor = current.defaults.context.describe(current.declaration(name));
+      const structure = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
+      assert.equal(structure?.kind === "primitive" && structure.primitive === primitive, true,
+        `${name}: the captured tail application and its exact Source argument describe the same scope`);
+    }
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  }
+});
+
+test("normalized mapped definitions exclude all enclosing alias metadata but retain genuine member recursion", () => {
+  const current = fixture(`type Input = readonly (string | float32)[] | { readonly value: float32 };
+    type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    type First = Locked<Input>; type Second = First; type Third = Second;
+    type Link<Value> = { value: Value; next?: Link<Value> };
+    declare const selected: Third; declare const recursive: Link<float32>;`);
+  const descriptor = current.defaults.context.describe(current.declaration("selected"));
+  const structure = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
+  assert.equal(structure?.kind === "union" && structure.types.length === 2 && structure.types.every(type => {
+    const selected = sourceTypeDescriptorStructure(type);
+    return selected.kind === "array" || selected.kind === "shape";
+  }), true, "normalization does not reenter any alias in its own completed chain");
+  const recursive = current.defaults.context.describe(current.declaration("recursive"));
+  const root = recursive === undefined ? undefined : sourceTypeDescriptorStructure(recursive);
+  const next = root?.kind === "shape" ? root.members.find(member => member.name === "next")?.type : undefined;
+  const target = next?.kind === "optional" ? next.value : next;
+  assert.equal(target?.kind === "declared" && target.cut === "recursion" && target.declaration ===
+    (recursive?.kind === "declared" ? recursive.declaration : undefined), true,
+    "a separate authored recursive member retains its real nominal cut");
+});
+
+test("inferred local-class call results use the solved body and exact call binders before member reads", () => {
+  for (const reversed of [false, true]) {
+    const wrapper = `function wrap<Outer>(first: Outer) {
+      class Local<Inner> { first: Outer; value: Inner;
+        constructor(first: Outer, value: Inner) { this.first = first; this.value = value; } }
+      return new Local<float32>(first, 1);
+    }`;
+    const consumer = `function run(first: int32): void {
+      const result = wrap(first); const value = result.value; void value;
+    }`;
+    const current = fixture((reversed ? [consumer, wrapper] : [wrapper, consumer]).join("\n"));
+    const nodes = current.defaults.nodes;
+    const ast = current.source.ast;
+    const wrap = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "wrap");
+    const call = nodes.find(node => ast.is.IsCallExpression(node) &&
+      ast.text(ast.as.AsCallExpression(node)?.Expression) === "wrap");
+    const body = wrap === undefined ? undefined : current.source.effectiveTypes.callableReturn(wrap);
+    const result = call === undefined ? undefined : current.source.effectiveTypes.get(call);
+    const instantiation = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+    assert.equal(body !== undefined && body.kind !== "refused" && body.type.kind === "declared" &&
+      body.type.typeArguments[0]?.kind === "declared" && body.type.typeArguments[1]?.kind === "primitive" &&
+      body.type.typeArguments[1].primitive === "float32", true, `original body template, reversed=${reversed}`);
+    assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "declared" &&
+      result.type.typeArguments[0]?.kind === "primitive" && result.type.typeArguments[0].primitive === "int32" &&
+      result.type.typeArguments[1]?.kind === "primitive" && result.type.typeArguments[1].primitive === "float32" &&
+      instantiation?.result === result.type, true, `one actual instantiated result, reversed=${reversed}`);
+    const value = current.source.effectiveTypes.get(current.declaration("value"));
+    assert.equal(value !== undefined && value.kind !== "refused" && value.type.kind === "primitive" &&
+      value.type.primitive === "float32", true, "dependent member groups consume the solved result, not a final-outcome overwrite");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  }
+});
+
+test("an inferred call result preserves an unavailable body's original Source refusal", () => {
+  const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
+    declare const local: Local;
+    function read() { return local; }
+    const result = read(); void result;`);
+  const { ast } = current.source;
+  const call = current.defaults.nodes.find(node => ast.is.IsCallExpression(node) &&
+    ast.text(ast.as.AsCallExpression(node)?.Expression) === "read");
+  const returned = current.defaults.nodes.find(node => ast.is.IsReturnStatement(node));
+  const value = returned === undefined ? undefined : ast.as.AsReturnStatement(returned)?.Expression;
+  const outcome = call === undefined ? undefined : current.source.effectiveTypes.get(call);
+  assert.equal(value !== undefined && outcome?.kind === "refused" && outcome.site === value &&
+    outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true,
+    "an unrepresented body never re-enters a checked return-type reconstruction");
+  assert.equal(call !== undefined && current.source.effectiveTypes.callInstantiation(call)?.result === undefined, true);
+});
+
 test("checked conditional aliases preserve distinct parameter and result widths through exact infer binders", () => {
   for (const reverse of [false, true]) {
     const declarations = [

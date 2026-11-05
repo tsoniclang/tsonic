@@ -17,9 +17,10 @@ export function sourceTypeDescriptorConditionalDefinition(
   const results: SourceTypeDescriptor[] = [];
   const retained = new Map<Node, { readonly values: Bindings; readonly types: ReadonlyMap<Node, Type> }>();
   const original = { values: bindings, types: new Map(application.bindings.map(binding => [binding.declaration, binding.argument])) };
-  for (const step of application.conditionalSteps) {
+  for (const [index, step] of application.conditionalSteps.entries()) {
     if (step.branch === "deferred" || step.selectedNode === undefined || step.selectedType === undefined) return undefined;
     const base = retained.get(step.conditional) ?? original;
+    retained.delete(step.conditional);
     const selected = new Map(base.values);
     const checked = new Map(base.types);
     const inferred = new Map<Node, SourceTypeDescriptor>();
@@ -28,9 +29,19 @@ export function sourceTypeDescriptorConditionalDefinition(
     const input = read(conditional.CheckType, selected, checked);
     if (step.branch === "true" && input !== undefined && !project(conditional.ExtendsType, input, inferred)) return undefined;
     for (const binding of step.bindings) {
+      if (step.branch === "false" && binding.declarations.every(declaration => {
+        let selected = ast.parent(declaration);
+        if (selected === undefined || !ast.is.IsInferTypeNode(selected)) return false;
+        while (selected !== undefined && selected !== step.conditional) {
+          if (selected === conditional.ExtendsType) return true;
+          selected = ast.parent(selected);
+        }
+        return false;
+      })) continue;
       const parameter = application.bindings.find(candidate => candidate.parameter === binding.applicationParameter);
-      if (parameter !== undefined && !queries.types.isIdentical(parameter.argument, binding.argument)) return undefined;
-      const argument = parameter === undefined ? undefined : bindings.get(parameter.declaration);
+      const checkedArgument = parameter === undefined ? undefined : base.types.get(parameter.declaration);
+      if (checkedArgument !== undefined && !queries.types.isIdentical(checkedArgument, binding.argument)) return undefined;
+      const argument = parameter === undefined ? undefined : base.values.get(parameter.declaration);
       for (const declaration of binding.declarations) {
         const previous = checked.get(declaration);
         const value = argument ?? inferred.get(declaration) ?? (previous !== undefined &&
@@ -49,6 +60,30 @@ export function sourceTypeDescriptorConditionalDefinition(
     if (ast.is.IsConditionalTypeNode(selectedNode)) {
       retained.set(selectedNode, { values: selected, types: checked });
       continue;
+    }
+    if (ast.is.IsTypeReferenceNode(selectedNode) || ast.is.IsImportTypeNode(selectedNode)) {
+      const reference = ast.is.IsTypeReferenceNode(selectedNode) ? ast.as.AsTypeReferenceNode(selectedNode)?.TypeName
+        : ast.as.AsImportTypeNode(selectedNode)?.Qualifier;
+      const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
+      const body = declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration) ? undefined : ast.typeNode(declaration);
+      const next = application.conditionalSteps[index + 1];
+      if (body !== undefined && ast.is.IsConditionalTypeNode(body) && next?.conditional === body) {
+        const parameters = ast.typeParameters(declaration);
+        const arguments_ = ast.typeArguments(selectedNode);
+        if (parameters.length !== arguments_.length) return undefined;
+        const values = new Map(selected);
+        const types = new Map(checked);
+        for (const [argumentIndex, parameter] of parameters.entries()) {
+          const argument = arguments_[argumentIndex];
+          const value = argument === undefined ? undefined : read(argument, selected, checked);
+          const binding = next.bindings.find(binding => parameter !== undefined && binding.declarations.includes(parameter));
+          if (parameter === undefined || value === undefined || binding === undefined) return undefined;
+          values.set(parameter, value);
+          types.set(parameter, binding.argument);
+        }
+        retained.set(body, { values, types });
+        continue;
+      }
     }
     const result = read(step.selectedNode, selected, checked);
     if (result === undefined) return undefined;

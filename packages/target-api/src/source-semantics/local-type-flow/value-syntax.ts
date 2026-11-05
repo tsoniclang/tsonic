@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import type { SourceTypeFlowSource } from "./types.js";
 
 const effectSelectionOperators: ReadonlySet<string> = new Set([
@@ -39,6 +39,16 @@ export function sourceTypeFlowDiscardedSelection(source: SourceTypeFlowSource, n
   return (ast.is.IsConditionalExpression(node) || operator !== undefined &&
     effectSelectionOperators.has(operator)) &&
     source.navigation.expressionResultDisposition(node).kind === "discarded";
+}
+
+export function sourceTypeFlowDiscardedValue(source: SourceTypeFlowSource, node: Node): boolean {
+  let selected = node;
+  for (;;) {
+    if (sourceTypeFlowDiscardedSelection(source, selected)) return true;
+    const operand = sourceTransparentExpressionOperand(source.ast, selected);
+    if (operand === undefined) return false;
+    selected = operand;
+  }
 }
 
 export function sourceTypeFlowAssignmentPattern(ast: AstReader, node: Node): boolean {

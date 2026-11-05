@@ -1457,8 +1457,11 @@ test("declared destination records cover normalized kinds without reflecting con
   for (const { row, described, record, reads, readRecords, normalized, literal, outcome, matching } of observations) {
     assert.equal(described !== undefined && record?.kind === "fixed" && record.term?.kind === "fixed" &&
       sourceTypeDescriptorsEqual(record.term.type, described), true, row.name + ": declared destination record");
-    assert.equal(reads.length > 0 && readRecords.every(read => read?.kind === "fixed" && read.term?.kind === "fixed" &&
-      described !== undefined && sourceTypeDescriptorsEqual(read.term.type, described)), true, row.name + ": declared reads");
+    assert.equal(reads.length > 0 && readRecords.every((read, index) => {
+      const flow = defaults.context.describe(reads[index]!);
+      return read?.kind === "fixed" && read.term?.kind === "fixed" && flow !== undefined &&
+        sourceTypeDescriptorsEqual(read.term.type, flow);
+    }), true, row.name + ": declared reads");
     const expected = row.kind === "declared" ? row.call === "identity" ? "declared" : "shape"
       : row.call === "freeze" && row.kind === "callable" ? "shape" : row.kind;
     const actual = row.kind === "declared" && row.call === "identity" ? described?.kind : normalized?.kind;
@@ -2612,7 +2615,14 @@ test("C2337 conditional dependencies retain boolean and optional call terms even
       ["condition", "maybe"].includes(current.source.ast.text(expression));
   });
   assert.equal(conditions.length, 5);
-  assert.equal(conditions.every(record => !record.publish && record.term?.kind === "fixed"), true);
+  const booleanConditions = conditions.filter(record =>
+    current.source.ast.text(current.source.ast.as.AsCallExpression(record.node)?.Expression) === "condition");
+  assert.equal(booleanConditions.length === 4 && booleanConditions.every(record => !record.publish && record.term?.kind === "fixed"), true);
+  const optionalCall = conditions.find(record => !booleanConditions.includes(record));
+  const callable = optionalCall?.term?.kind === "fixed" && optionalCall.term.type.kind === "optional"
+    ? sourceTypeDescriptorStructure(optionalCall.term.type.value) : undefined;
+  const result = callable?.kind === "callable" ? callable.calls[0]?.result : undefined;
+  assert.equal(optionalCall?.publish === true && result?.kind === "primitive" && result.primitive === "int32", true);
   const discarded = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
   assert.equal(discarded.length, 4);
   assert.equal(discarded.every(node => current.source.effectiveTypes.get(node) === undefined), true);
@@ -2711,6 +2721,8 @@ test("C2338 multiple fitting literal arms use stable primitive identity priority
       const outcome = current.source.effectiveTypes.get(expression);
       assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
         sourceTypeDescriptorsEqual(outcome.type, destination.type), true, annotation);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.construction?.kind === "primitive" &&
+        outcome.construction.primitive === "float64", true, annotation);
     }
     assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
   }
@@ -2735,6 +2747,8 @@ test("C2338 folded literal union slots reuse the same fit decision without admit
       const outcome = current.source.effectiveTypes.get(expression);
       assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
         sourceTypeDescriptorsEqual(outcome.type, destination.type), true, annotation);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.construction?.kind === "primitive" &&
+        outcome.construction.primitive === primitive, true, annotation);
     }
     assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
   }
@@ -2836,4 +2850,125 @@ test("C2339 all co-fitting numeric pairs use the explicit whole-literal priority
     }
   }
   assert.equal(source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2342 folded scalar construction publishes its solved arm without replacing optional or union storage", () => {
+  const slots = [["direct", "int32"], ["optional", "int32 | undefined"], ["union", "int32 | string"],
+    ["nested", "NestedScalar"], ["optional_union", "NestedScalar | undefined"]] as const;
+  const forms = [["binary", "1 + 2"], ["parenthesized", "(8 / 2 + 1)"], ["signed", "-1"]] as const;
+  const rows = slots.flatMap(([name, annotation]) => forms.map(([form, expression]) => ({
+    name: `${name}_${form}`, annotation, expression,
+  })));
+  const current = fixture(`type NestedScalar = string | (int32 | boolean);
+    ${rows.map(row => `function ${row.name}(slot: ${row.annotation}): ${row.annotation} { return ${row.expression}; }`).join("\n")}
+    function broad(): unknown { return 1 + 2; }`);
+  const { ast } = current.source;
+  for (const row of rows) {
+    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === row.name);
+    const parameter = owner === undefined ? undefined : ast.parameters(owner)[0];
+    const destination = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+    const body = owner === undefined ? undefined : ast.body(owner);
+    const statement = body === undefined ? undefined : ast.statements(body)[0];
+    const expression = statement === undefined ? undefined : ast.as.AsReturnStatement(statement)?.Expression;
+    const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+    assert.equal(destination !== undefined && destination.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+      sourceTypeDescriptorsEqual(outcome.type, destination.type), true, row.name + ": logical declared slot");
+    if (outcome === undefined || outcome.kind === "refused") throw new Error("The actual scalar construction is required.");
+    const physical = outcome.construction ?? outcome.type;
+    assert.equal(physical.kind === "primitive" && physical.primitive === "int32" && Object.isFrozen(physical), true,
+      row.name + ": solved admitted scalar arm");
+    if (ast.is.IsParenthesizedExpression(expression!)) {
+      const child = ast.as.AsParenthesizedExpression(expression!)?.Expression;
+      const inner = child === undefined ? undefined : current.source.effectiveTypes.get(child);
+      assert.equal(inner !== undefined && inner.kind !== "refused" &&
+        sourceTypeDescriptorsEqual(inner.type, outcome.type) && (inner.construction ?? inner.type) === physical, true,
+        row.name + ": wrapper keeps the same completed arm object");
+    }
+  }
+  const broad = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "broad");
+  const body = broad === undefined ? undefined : ast.body(broad);
+  const statement = body === undefined ? undefined : ast.statements(body)[0];
+  const expression = statement === undefined ? undefined : ast.as.AsReturnStatement(statement)?.Expression;
+  const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" &&
+    outcome.type.intrinsic === "unknown" && outcome.construction === undefined, true,
+    "the held scalar broad-storage extension is not published");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2344 a narrowed optional read retains optional declaration storage for coalescing admission", () => {
+  const current = fixture(`declare function effect(): void; function run(): number { let optional: number | undefined = 4;
+    const observed = optional; const direct = optional ?? 0; const sequenced = (effect(), optional) ?? 0;
+    return observed + direct + sequenced; }`);
+  const { ast } = current.source;
+  const declaration = current.declaration("optional");
+  const storage = current.source.effectiveTypes.get(declaration);
+  assert.equal(storage !== undefined && storage.kind !== "refused" && storage.type.kind === "optional", true);
+  const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(declaration) !== node &&
+    current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+  assert.equal(reads.length, 3);
+  assert.equal(reads.every(node => {
+    const outcome = current.source.effectiveTypes.get(node);
+    return outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "float64";
+  }), true, "real checker flow narrowing remains on each read");
+  for (const name of ["direct", "sequenced"]) {
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+      outcome.type.primitive === "float64", true, name);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const fixed = fixture(`function run(): number { const value: number = 4; return value ?? 0; }`);
+  const issues = fixed.source.effectiveTypes.refusals();
+  assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
+    issues[0].reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
+});
+
+test("C2342 discarded closures project captures from the retained owner without joining inference roots", () => {
+  const current = fixture(`function run(flag: boolean): void { const value = flag ? 1 : 2;
+    (flag ? (() => value) : (() => value + 1)) ?? (() => 0);
+    (flag ? function () { return value + 2; } : function () { return value; }) ?? (() => 0);
+  }`);
+  const { ast } = current.source;
+  const declaration = current.declaration("value");
+  const owner = current.source.effectiveTypes.get(declaration);
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const record = graph.nodes.find(record => record.node === declaration);
+  const captured = graph.nodes.filter(read => read.kind === "read" && read.declaration === declaration && read.root !== record?.root);
+  assert.equal(captured.length, 4);
+  assert.equal(captured.every(read => {
+    const outcome = current.source.effectiveTypes.get(read.node);
+    return owner !== undefined && owner.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+      sourceTypeDescriptorsEqual(outcome.type, owner.type) && read.variable !== record?.variable;
+  }), true, "each discarded root consumes the same solved parent type through a distinct read");
+  const roots = new Map(graph.nodes.map(record => [record.variable.node, record.root]));
+  assert.equal(graph.links.every(link => roots.get(link.source.node) === roots.get(link.target.node)), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const retained = fixture(`function run(flag: boolean): void { const value = flag ? 1 : 2;
+    const read = () => value + 1; void read; }`);
+  const issues = retained.source.effectiveTypes.refusals();
+  assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE", true);
+});
+
+test("C2344 discarded comma selection consumes never completion without admitting a normal numeric coalesce", () => {
+  const current = fixture(`declare function fail(): never; declare function ready(): number; declare function effect(): void;
+    function abrupt(): void { (fail(), ready()) ?? effect(); }
+    function normal(): void { (ready(), ready()) ?? effect(); }`);
+  const { ast } = current.source;
+  const selectors = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
+  assert.equal(selectors.length, 2);
+  assert.equal(selectors.every(node => current.source.effectiveTypes.get(node) === undefined), true);
+  const fail = current.nodes.find(node => ast.is.IsCallExpression(node) &&
+    ast.text(ast.as.AsCallExpression(node)?.Expression) === "fail");
+  const never = fail === undefined ? undefined : current.source.effectiveTypes.get(fail);
+  assert.equal(never !== undefined && never.kind !== "refused" && never.type.kind === "intrinsic" && never.type.intrinsic === "never", true);
+  const normal = selectors.find(node => {
+    const left = ast.as.AsBinaryExpression(node)?.Left;
+    const sequence = left === undefined ? undefined : ast.as.AsParenthesizedExpression(left)?.Expression;
+    const effect = sequence === undefined ? undefined : ast.as.AsBinaryExpression(sequence)?.Left;
+    const callee = effect === undefined ? undefined : ast.as.AsCallExpression(effect)?.Expression;
+    return callee !== undefined && ast.is.IsIdentifier(callee) && ast.text(callee) === "ready";
+  });
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(normal !== undefined && issues.length === 1 && issues[0]?.site === normal &&
+    issues[0].reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
 });
