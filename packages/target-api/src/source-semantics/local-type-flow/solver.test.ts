@@ -928,3 +928,40 @@ test("literal admission retains its actual inferred or declared Source authority
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }
+
+for (const body of [
+  `declare function take(value: (string | number)[]): void; function run(): void {
+    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; take(values); }`,
+  `function run(): (string | number)[] {
+    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; return values; }`,
+]) {
+  test(`a retained declared group fill owns aggregate admission authority: ${body}`, () => {
+    const current = fixture(body);
+    const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
+    if (literal === undefined) throw new Error("The actual filled aggregate construction is required.");
+    const outcome = current.source.effectiveTypes.get(literal);
+    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+    assert.equal(admissions.length, 1);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
+      admissions[0].authority === "declared" && sourceTypeDescriptorsEqual(outcome.type, admissions[0].type), true,
+      "B2/C22 retains the chosen declared fill, not the unannotated syntax site's inferred default");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("numeric aggregate elements keep their D2 admissions without admitting unrelated scalar or call sites", () => {
+  const current = fixture("function run(): void { const values = [1, 2]; const scalar = 3; void values; void scalar; }");
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
+  const scalar = ast.as.AsVariableDeclaration(current.declaration("scalar"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual numeric aggregate is required.");
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
+  assert.equal(admissions.filter(row => row.site === literal).length, 1);
+  for (const element of ast.elements(literal)) {
+    const matching = admissions.filter(row => row.site === element);
+    assert.equal(matching.length, 1, "each original numeric element remains a D2 input");
+    assert.equal(matching[0]?.kind === "literal-admission" && matching[0].authority === "inferred", true);
+  }
+  assert.equal(admissions.some(row => row.site === scalar || ast.is.IsCallExpression(row.site)), false);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});

@@ -20,6 +20,7 @@ interface Fill {
   readonly type: SourceTypeDescriptor;
   readonly site: Node;
   readonly fixed: boolean;
+  readonly authority: "inferred" | "declared";
 }
 
 interface Group {
@@ -37,6 +38,7 @@ interface Group {
   refused?: SourceTypeFlowRefusal;
   type?: SourceTypeDescriptor;
   filledBy?: Node;
+  chosenFill?: Fill;
   defaulted: boolean;
   solved: boolean;
 }
@@ -78,7 +80,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const constructions = declared.flatMap(node => {
         const component = node.association?.component;
         const type = node.declaredType ?? (component === undefined ? undefined : context.describe(node.node, component));
-        return type === undefined ? [] : [{ type, site: node.node, fixed: true }];
+        return type === undefined ? [] : [{ type, site: node.node, fixed: true,
+          authority: defaults.declaredSlots.get(node.node)?.authority ?? "declared" }];
       });
       result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
         fills: [], constructions, signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
@@ -162,11 +165,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const selected of groups.values()) {
     for (const fill of selected.constructions) pendingFills.push({ variable: selected.variable, fill });
     for (const term of selected.terms) if (term.kind === "fixed") {
-      pendingFills.push({ variable: selected.variable, fill: { type: term.type, site: term.site, fixed: true } });
+      const slot = defaults.declaredSlots.get(term.site);
+      const literal = source.ast.is.IsArrayLiteralExpression(term.site) || source.ast.is.IsObjectLiteralExpression(term.site) ||
+        context.literal(term.site) !== undefined;
+      pendingFills.push({ variable: selected.variable, fill: { type: term.type, site: term.site, fixed: true,
+        authority: slot?.authority ?? (literal ? "inferred" : "declared") } });
     }
   }
   for (const use of uses) if (use.kind === "fill") {
-    pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false } });
+    pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false, authority: "declared" } });
   }
   for (let index = 0; index < pendingFills.length; index += 1) {
     const { variable, fill } = pendingFills[index]!;
@@ -224,9 +231,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         array?.node ?? fixed[1]!.site, fixed[0]!.site);
       return;
     }
-    for (const fill of selected.fills) if (!sourceTypeDescriptorsEqual(selected.type, fill.type)) {
-      refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT",
-        fill.site, selected.filledBy ?? selected.signatures[0]?.site);
+    for (const fill of selected.fills) {
+      if (!sourceTypeDescriptorsEqual(selected.type, fill.type)) {
+        refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT",
+          fill.site, selected.filledBy ?? selected.signatures[0]?.site);
+      } else if (fill.authority === "declared" && !fill.fixed && selected.chosenFill?.authority !== "declared") {
+        selected.chosenFill = fill;
+      }
     }
   }
   function arrayConstruction(selected: Group): SourceTypeFlowNode | undefined {
@@ -341,10 +352,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       ? constructed(selected) : undefined;
     const anchor = selected.constructions[0] ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
-        : { type: retainedStructure, site: selected.variable.node, fixed: true })
+        : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" as const })
       : declared ? fixed[0] : selected.fills[0]);
     if (anchor !== undefined && (selected.derived.length === 0 || accumulator)) {
-      selected.type = anchor.type; selected.filledBy = anchor.site;
+      selected.type = anchor.type; selected.filledBy = anchor.site; selected.chosenFill = anchor;
     }
     if (selected.type === undefined && (selected.derived.length === 0 || accumulator)) {
       selected.type = constructed(selected);
@@ -672,15 +683,41 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         provenance: Object.freeze({ ...returned.provenance, occurrence: node, sourceFile: file }) }));
     }
   }
+  function authority(node: Node): "inferred" | "declared" {
+    const variable = valueVariables.get(node);
+    const selected = variable === undefined ? undefined : group(variable).chosenFill;
+    return selected?.authority === "declared" ? "declared" : defaults.declaredSlots.get(node)?.authority ?? "inferred";
+  }
   for (const node of defaults.values) {
     const ast = source.ast;
     if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) ||
       sourceTypeFlowAssignmentPattern(ast, node)) continue;
     const outcome = outcomes.get(node);
     if (outcome === undefined || outcome.kind === "refused") continue;
-    const slot = defaults.declaredSlots.get(node);
     obligations.push(Object.freeze({ kind: "literal-admission", site: node, type: outcome.type, required: node,
-      authority: slot === undefined ? "inferred" : slot.authority }));
+      authority: authority(node) }));
+  }
+  for (const node of graph.nodes) {
+    if (node.term?.kind !== "numeric" || node.term.site !== node.node || node.variable.path.length !== 0 ||
+      !group(node.variable).inference || group(node.variable).refused !== undefined) continue;
+    let occurrence = node.node;
+    let parent = source.ast.parent(occurrence);
+    while (parent !== undefined && (source.ast.is.IsParenthesizedExpression(parent) || source.ast.is.IsNonNullExpression(parent) ||
+      source.ast.is.IsAsExpression(parent) || source.ast.is.IsSatisfiesExpression(parent) ||
+      (source.ast.is.IsPrefixUnaryExpression(parent) || source.ast.is.IsBinaryExpression(parent)) && context.literal(parent) !== undefined)) {
+      occurrence = parent;
+      parent = source.ast.parent(occurrence);
+    }
+    if (parent !== undefined && source.ast.is.IsPropertyAssignment(parent) && Node_Initializer(source.ast, parent) === occurrence) {
+      occurrence = parent;
+      parent = source.ast.parent(parent);
+    }
+    if (parent === undefined || !(source.ast.is.IsArrayLiteralExpression(parent) || source.ast.is.IsObjectLiteralExpression(parent)) ||
+      sourceTypeFlowAssignmentPattern(source.ast, parent) || outcomes.get(parent)?.kind === "refused") continue;
+    const outcome = outcomes.get(node.node);
+    if (outcome === undefined || outcome.kind === "refused") continue;
+    obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: outcome.type, required: node.node,
+      authority: authority(parent) }));
   }
   const frozenObligations = Object.freeze(obligations);
   return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),
