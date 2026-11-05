@@ -63,7 +63,8 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     ? selectedSourcePropertyDeclarations(queries, undefined, property.symbol, [receiver])
     : queries.declarations.symbolDeclarations(mapped.syntheticOrigin);
   const role = declarations?.every(declaration => ast.is.IsSetAccessorDeclaration(declaration)) ? "write" : "read";
-  const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, role);
+  const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, role)
+    ?? canonicalMemberDeclaration(ast, declarations);
   if (declaration !== undefined) return Object.freeze({ kind: "resolved",
     origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "declared", declaration }) });
   const parent = property.symbol.Parent;
@@ -71,4 +72,13 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     ? queries.declarations.symbolDeclarations(parent).filter(owner => ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) : [];
   return owners.length !== 1 ? undefined : Object.freeze({ kind: "resolved",
     origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "class-prototype", owner: owners[0]! }) });
+}
+
+// A member with several non-accessor declarations (overloads, or one interface merged across files)
+// is identified by its first declaration in program order: the order in which the checker binds and
+// merges declarations. Accessor pairs keep the read/write selection above.
+function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], declarations: readonly Node[]): Node | undefined {
+  if (declarations.length < 2 || declarations.some(declaration =>
+    ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) return undefined;
+  return declarations[0];
 }
