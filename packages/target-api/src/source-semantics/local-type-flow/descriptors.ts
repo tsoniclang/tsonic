@@ -209,7 +209,12 @@ export function createSourceTypeDescriptorReader(
         for (const read of reads) read.failure ??= failure;
         return undefined;
       }
-      if (selectedOrigin === undefined) throw new Error(`Source member '${property.name}' has no approved checked origin (flags ${property.symbol.Flags}).`);
+      if (selectedOrigin === undefined) {
+        // A synthetic member of several distinct root symbols has no single declared identity, so this structure
+        // is not describable (the value is refused by totality, R1). Any other missing origin is an invariant failure.
+        if (property.rootSymbols.length > 1) return undefined;
+        throw new Error(`Source member '${property.name}' has no approved checked origin (flags ${property.symbol.Flags}).`);
+      }
       const origin = selectedOrigin.origin;
       if (origin.kind !== "declared") {
         const value = type(property.type, queries, { selectedType: property.type }, depth + 1, inherited);
@@ -406,6 +411,36 @@ export function createSourceTypeDescriptorReader(
     if (substituted !== undefined) return substituted;
     const direct = primitive(queries.facts.typeSubjects(selectedType));
     if (direct !== undefined) return direct;
+    // A named declared type (class, interface, alias, ...) with its described type arguments.
+    function declared(declaration: Node): SourceTypeDescriptor | undefined {
+      const arguments_: SourceTypeDescriptor[] = [];
+      // An alias instantiation carries its arguments on the checked alias application.
+      const application = ast.is.IsTypeAliasDeclaration(declaration) ? queries.types.aliasApplication(selectedType) : undefined;
+      const declaredBindings = application?.kind === "direct" && application.declaration === declaration
+        ? application.bindings.map(binding => ({ declaration: binding.declaration, argumentType: binding.argument }))
+        : queries.types.typeArgumentBindings(selectedType);
+      const instantiated = new Map(bindings);
+      for (const binding of declaredBindings ?? []) {
+        const selected = bindings.get(binding.declaration) ?? type(binding.argumentType, queries, {
+          selectedType: binding.argumentType,
+        }, depth + 1, bindings);
+        if (selected === undefined) return undefined;
+        arguments_.push(selected);
+        instantiated.set(binding.declaration, selected);
+      }
+      if (declaredBindings === undefined) for (const argument of queries.types.typeArguments(selectedType)) {
+        const selected = type(argument, queries, { selectedType: argument }, depth + 1, bindings);
+        if (selected === undefined) return undefined;
+        arguments_.push(selected);
+      }
+      // Inside its own body, a generic class or interface's this-type carries no checker type arguments: it is the
+      // declaration instantiated with its own type parameters.
+      if (declaredBindings === undefined && arguments_.length === 0 && (ast.is.IsClassDeclaration(declaration) ||
+        ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration))) {
+        for (const parameter of parametersFor(declaration)) arguments_.push({ kind: "declared", declaration: parameter, typeArguments: [] });
+      }
+      return nominal(selectedType, declaration, arguments_, queries, component, depth, instantiated);
+    }
     if (declaration !== undefined && ast.is.IsEnumDeclaration(declaration)) {
       return nominal(selectedType, declaration, [], queries, component, depth, bindings);
     }
@@ -422,6 +457,11 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.isSymbolLike(selectedType)) return { kind: "intrinsic", intrinsic: "symbol" };
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)) &&
       queries.types.constructSignatures(selectedType).length > 0) return structure(selectedType, queries, depth, bindings);
+    // A union named by a type alias is published as that alias (declared + definition, C-2263), exactly as an
+    // authored alias reference is through syntax(); the declared branch below supplies its arguments and the
+    // nominal recursion cut. Only an anonymous union, or an alias's own body, expands its members here.
+    const unionAlias = declaration !== undefined && !aliasBody && ast.is.IsTypeAliasDeclaration(declaration);
+    if (queries.types.isUnion(selectedType) && unionAlias) return declared(declaration);
     if (queries.types.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
       for (const member of queries.types.unionOrIntersectionTypes(selectedType)) {
@@ -451,25 +491,7 @@ export function createSourceTypeDescriptorReader(
       return element === undefined ? undefined : { kind: "array", readonly: queries.types.indexInfos(selectedType).some(index => index.readonly), element };
     }
     if (declaration !== undefined && !ast.is.IsTypeLiteralNode(declaration) &&
-      !(aliasBody && ast.is.IsTypeAliasDeclaration(declaration))) {
-      const arguments_: SourceTypeDescriptor[] = [];
-      const declaredBindings = queries.types.typeArgumentBindings(selectedType);
-      const instantiated = new Map(bindings);
-      for (const binding of declaredBindings ?? []) {
-        const selected = bindings.get(binding.declaration) ?? type(binding.argumentType, queries, {
-          selectedType: binding.argumentType,
-        }, depth + 1, bindings);
-        if (selected === undefined) return undefined;
-        arguments_.push(selected);
-        instantiated.set(binding.declaration, selected);
-      }
-      if (declaredBindings === undefined) for (const argument of queries.types.typeArguments(selectedType)) {
-        const selected = type(argument, queries, { selectedType: argument }, depth + 1, bindings);
-        if (selected === undefined) return undefined;
-        arguments_.push(selected);
-      }
-      return nominal(selectedType, declaration, arguments_, queries, component, depth, instantiated);
-    }
+      !(aliasBody && ast.is.IsTypeAliasDeclaration(declaration))) return declared(declaration);
     if (queries.types.callSignatures(selectedType).length > 0 || queries.types.constructSignatures(selectedType).length > 0) {
       return structure(selectedType, queries, depth, bindings);
     }

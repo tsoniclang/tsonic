@@ -266,6 +266,7 @@ for (const selected of [{ annotation: "number", primitive: "float64" }, { annota
     const current = fixture(`function run(): void { for (let index: ${selected.annotation} = 0; index < 3; index++) { const value = index; } }`);
     const declaration = current.declaration("index");
     const reads = current.defaults.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
+      node !== current.source.ast.name(declaration) &&
       current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
     assert.equal(reads.length >= 3, true, "the exact checked counter reads are retained");
     for (const node of [declaration, ...reads]) {
@@ -524,4 +525,25 @@ test("nominal definitions retain all structure once and cut recursive references
   assert.equal(empty?.kind === "declared" && empty.definition?.kind === "shape" &&
     empty.definition.members.length === 0 && empty.definition.indexes.length === 0, true,
     "an empty definition remains distinguishable from a recursive reference");
+});
+
+test("K-2446 an overloaded member merged across declarations is identified by its symbol's first declaration", () => {
+  const current = fixture(`interface Merged { run(value: int32): int32; run(value: string): string; }
+    interface Merged { run(value: boolean): boolean; }
+    declare const merged: Merged;`);
+  const { ast } = current.source;
+  const type = current.defaults.context.describe(current.declaration("merged"));
+  const structure = type?.kind === "declared" ? type.definition : type;
+  assert.equal(structure?.kind === "shape", true);
+  if (structure?.kind !== "shape") return;
+  const member = structure.members.find(candidate => candidate.name === "run");
+  const first = current.defaults.nodes.find(node => ast.is.IsMethodSignatureDeclaration(node) && ast.text(ast.name(node)) === "run");
+  assert.equal(member?.origin.kind === "declared" && member.origin.declaration === first, true,
+    "one checked logical member keeps the first entry of its own checker declaration vector");
+});
+
+test("K-2446 an intersection of distinct same-named members has no single declared origin and is not described", () => {
+  const current = fixture(`declare const both: { a: int32 } & { a: string };`);
+  assert.equal(current.defaults.context.describe(current.declaration("both")), undefined,
+    "several root symbols are not one logical member; no root is chosen");
 });

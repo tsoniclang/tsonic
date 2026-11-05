@@ -64,7 +64,7 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     : queries.declarations.symbolDeclarations(mapped.syntheticOrigin);
   const role = declarations?.every(declaration => ast.is.IsSetAccessorDeclaration(declaration)) ? "write" : "read";
   const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, role)
-    ?? canonicalMemberDeclaration(ast, declarations);
+    ?? canonicalMemberDeclaration(ast, queries, property);
   if (declaration !== undefined) return Object.freeze({ kind: "resolved",
     origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "declared", declaration }) });
   const parent = property.symbol.Parent;
@@ -74,10 +74,15 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "class-prototype", owner: owners[0]! }) });
 }
 
-// A member with several non-accessor declarations (overloads, or one interface merged across files)
-// is identified by its first declaration in program order: the order in which the checker binds and
-// merges declarations. Accessor pairs keep the read/write selection above.
-function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], declarations: readonly Node[]): Node | undefined {
+// A member with several non-accessor declarations (overloads, or one interface merged across files) is
+// identified by the first entry of its ONE checked logical symbol's own Declarations vector: the checker's
+// binder appends a symbol's declarations in bind order and mergeSymbol appends merged declarations in program
+// file order. A synthetic member with several root symbols (e.g. an intersection of distinct members) is not one
+// logical member and has no declared origin here.
+function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], queries: SourceFileSemantics,
+  property: TypePropertyInfo): Node | undefined {
+  if (property.rootSymbols.length > 1) return undefined;
+  const declarations = queries.declarations.symbolDeclarations(property.rootSymbols[0] ?? property.symbol);
   if (declarations.length < 2 || declarations.some(declaration =>
     ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) return undefined;
   return declarations[0];

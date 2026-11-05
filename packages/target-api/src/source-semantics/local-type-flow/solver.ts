@@ -447,7 +447,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     if (selected.type !== undefined) {
       selected.type = freezeSourceTypeDescriptor(selected.type);
-      if (sourceTypeDescriptorDepth(selected.type) > 4) refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
+      // B6 depth applies to an open (inferred) group only; declared structure has full depth (C34, C-2269).
+      if (selected.inference && sourceTypeDescriptorDepth(selected.type) > 4) refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
       validate(selected);
     }
     selected.solved = true;
@@ -524,6 +525,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     obligation(use, selected);
   }
   function publish(node: Node, selected: Group, association?: SourceTypeFlowAssociation): void {
+    // C30/C-2228: an aggregate whose own declared slot is refused publishes that refusal, never the slot's type.
+    const slotRefusal = records.get(node)?.declaredSlotRefusal;
+    if (slotRefusal !== undefined && selected.refused === slotRefusal) { outcomes.set(node, slotRefusal); return; }
     const record = declaredRecord(node);
     const declared = record !== undefined;
     if (selected.refused !== undefined && (!declared || record.declaredType === undefined &&
@@ -588,6 +592,20 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     outcomes.set(node, Object.freeze({ kind: literalDefault ? "default" : "resolved", type,
       provenance: Object.freeze({ group: declaration, occurrence: node, sourceFile,
         ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
+  }
+  // Parameters of type-only callable signatures (interface or type-literal methods, call and construct signatures)
+  // are declared facts in the publication domain (C29): each carries its authored declared type, exactly as a
+  // parameter of a callable with a body does. Targets build interface contracts and forwarding from them.
+  for (const node of defaults.nodes) {
+    if (outcomes.has(node) || !source.ast.is.IsParameterDeclaration(node)) continue;
+    const owner = source.ast.parent(node);
+    if (owner === undefined || !(source.ast.is.IsMethodSignatureDeclaration(owner) || source.ast.is.IsCallSignatureDeclaration(owner) ||
+      source.ast.is.IsConstructSignatureDeclaration(owner))) continue;
+    const type = context.describe(node);
+    const sourceFile = source.ast.getSourceFile(node);
+    if (type === undefined || sourceFile === undefined) continue;
+    outcomes.set(node, Object.freeze({ kind: "resolved", type,
+      provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
   }
   for (const node of defaults.nodes) {
     if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node))) continue;
@@ -763,6 +781,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const variable = valueVariables.get(node);
     return variable === undefined ? undefined : group(variable).chosenFill?.component;
   }, node => defaults.descriptorRefusals.get(node));
+  // R1 totality (C-2309, K-2443): every value node of the domain has exactly one outcome. A value no publication
+  // pass described (an inexpressible declared or derived type, an unavailable callable result) receives one
+  // precise refusal at that node; nothing is left for a target to type itself.
+  const totalityRefusals: SourceTypeFlowRefusal[] = [];
+  for (const node of defaults.values) {
+    if (outcomes.has(node)) continue;
+    const refusal = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+    outcomes.set(node, refusal);
+    totalityRefusals.push(refusal);
+  }
   function authority(node: Node): "inferred" | "declared" {
     const variable = valueVariables.get(node);
     const selected = variable === undefined ? undefined : group(variable).chosenFill;
@@ -800,6 +828,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       authority: authority(parent) }));
   }
   const frozenIssues = Object.freeze([...new Set([...defaults.signatureRefusals.values(), ...defaults.descriptorRefusals.values(),
+    ...totalityRefusals,
     ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])])]
     .sort((left, right) => compare(left.site, right.site)));
   const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site)));

@@ -415,7 +415,7 @@ test("inline callback construction positions are internal while their parameter 
     assert.equal(callback !== undefined, true);
     const construction = current.graph.nodes.find(entry => entry.node === callback && entry.variable.path.length === 0);
     assert.equal(construction !== undefined, true);
-    assert.equal(construction?.publish, false, "the construction position has no callable descriptor to publish");
+    assert.equal(construction?.publish, true, "the callback construction position publishes its callable value (option A, C-2226)");
     assert.equal(construction?.term === undefined, true);
     for (const parameter of current.source.ast.parameters(callback!)) {
       assert.equal(parameter !== undefined && current.graph.nodes.some(entry => entry.node === parameter && entry.publish), true);
@@ -490,8 +490,8 @@ test("declared source element widths survive ordinary fixed reads without generi
 test("ordinary fixed array metadata is not published as an inferred group member", () => {
   const current = fixture(`function run() { const values = [1]; return values.length; }`);
   const access = current.node("values.length", node => current.source.ast.is.IsPropertyAccessExpression(node));
-  assert.equal(current.graph.nodes.some(entry => entry.node === access && entry.publish), false,
-    "a raw checker length type cannot replace an independently selected API result");
+  assert.equal(current.graph.nodes.some(entry => entry.node === access && entry.publish), true,
+    "the fixed length read is in the publication domain with its declared metadata type (option A, C-2226)");
 });
 
 test("aliases of ordinary fixed metadata remain outside the effective publication domain", () => {
@@ -500,7 +500,7 @@ test("aliases of ordinary fixed metadata remain outside the effective publicatio
     const declaration = current.declaration(name);
     const entry = current.graph.nodes.find(candidate => candidate.node === declaration);
     assert.equal(entry?.kind, "fixed");
-    assert.equal(entry?.publish, false, name);
+    assert.equal(entry?.publish, true, name);
   }
   assert.equal(current.graph.refusals.length, 0);
 });

@@ -526,8 +526,9 @@ test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation
     const selected = current.type("values");
     assert.equal(selected.kind === "array" && selected.element.kind === "primitive" &&
       selected.element.primitive === "int32", true, elements);
-    const original = current.nodes.find(node => (current.source.ast.is.IsNumericLiteral(node) || current.source.ast.is.IsPrefixUnaryExpression(node)) &&
-      current.source.ast.text(node) === elements.split(", ").find(part => part !== "signed"));
+    const array = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+    const original = array === undefined ? undefined : current.source.ast.elements(array).find(node => node !== undefined &&
+      (current.source.ast.is.IsNumericLiteral(node) || current.source.ast.is.IsPrefixUnaryExpression(node)));
     assert.equal(original !== undefined && current.source.effectiveTypes.obligations().some(obligation =>
       obligation.kind === "literal-admission" && obligation.site === original &&
       obligation.type.kind === "primitive" && obligation.type.primitive === "int32"), true,
@@ -1770,4 +1771,81 @@ test("C30 and B2 authority uses the declared slot while every B4 or inferred slo
   console.log(`Source authority case map: ${JSON.stringify(observed)}`);
   assert.equal(failures.length, 0, failures.join("; "));
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("R1 totality: every domain value has exactly one outcome and an inexpressible declared value is one precise refusal", () => {
+  const current = fixture(`interface Local { read<T>(value: T): Awaited<T>; }
+    declare const local: Local;
+    export function run(): void { const alias = local; void alias; const count: int32 = 1; void count; }`);
+  const { ast } = current.source;
+  const values = createSourceTypeFlowAnalysisContext(current.source).values;
+  assert.equal(values.every(node => current.source.effectiveTypes.get(node) !== undefined), true,
+    "no value node of the domain is left without a Host outcome");
+  const read = values.find(node => ast.is.IsIdentifier(node) && ast.text(node) === "local");
+  const outcome = read === undefined ? undefined : current.source.effectiveTypes.get(read);
+  assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" && outcome.site === read, true,
+    "the inexpressible project interface is one refusal at its own value node");
+  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === read).length, 1);
+  assert.equal(current.type("count").kind === "primitive", true, "an expressible sibling still publishes");
+});
+
+for (const [name, program] of [
+  ["object", `type C = { a: { b: { c: { d: { e: { f: int32 } } } } } }; export function run(): int32 { const value: C = { a: { b: { c: { d: { e: { f: 1 } } } } } }; return value.a.b.c.d.e.f; }`],
+  ["array", `export function run(): int32 { const value: int32[][][][][][] = [[[[[[1]]]]]]; return value[0]![0]![0]![0]![0]![0]!; }`],
+] as const) test(`R3 a declared ${name} literal deeper than four levels publishes its full declared structure`, () => {
+  const current = fixture(program);
+  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), false,
+    "declared structure is bounded only by the shared expansion budget, never by the open-literal depth four");
+  const value = current.source.effectiveTypes.get(current.declaration("value"));
+  assert.equal(value !== undefined && value.kind !== "refused", true);
+});
+
+test("R3 an open literal deeper than four levels still refuses (B6)", () => {
+  const current = fixture("export function run(): void { const value = [[[[[[1]]]]]]; void value; }");
+  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
+});
+
+test("C-2263 a recursive aliased union publishes its alias at every level with the recursion cut as a reference", () => {
+  const current = fixture(`export type Tree = int32 | readonly Tree[] | undefined;
+    export function sum(tree: Tree): int32 { if (tree === undefined) return 0; if (typeof tree === "number") return tree;
+      let result: int32 = 0; for (const child of tree) { const visited = child; result += sum(visited); } return result; }`);
+  const { ast } = current.source;
+  const alias = current.nodes.find(node => ast.is.IsTypeAliasDeclaration(node));
+  const visited = current.source.effectiveTypes.get(current.declaration("visited"));
+  assert.equal(visited !== undefined && visited.kind !== "refused", true, "the checked recursive element is published, not exhausted");
+  if (visited === undefined || visited.kind === "refused") return;
+  let selected = visited.type;
+  while (selected.kind === "optional") selected = selected.value;
+  assert.equal(selected.kind === "declared" && selected.declaration === alias && selected.definition !== undefined, true,
+    "the checked aliased union is the alias with its definition, as an authored alias reference is");
+  let definition = selected.kind === "declared" ? selected.definition : undefined;
+  while (definition?.kind === "optional") definition = definition.value;
+  const arms = definition?.kind === "union" ? definition.types : [];
+  const array = arms.find(arm => arm.kind === "array");
+  assert.equal(array?.kind === "array" && array.element.kind === "declared" && array.element.declaration === alias &&
+    array.element.definition === undefined, true, "the recursive occurrence is the cut: a reference without definition");
+});
+
+test("C-2263 an aliased union of arrays stays its alias, never an array of the union of elements", () => {
+  const current = fixture(`type Values = string[] | int32[]; declare function make(): Values; export function run(): void { const value = make(); void value; }`);
+  let selected = current.type("value");
+  while (selected.kind === "optional") selected = selected.value;
+  assert.equal(selected.kind === "declared" && selected.definition?.kind === "union" && selected.definition.types.length === 2 &&
+    selected.definition.types.every(arm => arm.kind === "array"), true);
+});
+
+test("C-2297 a literal published as its own shape corresponds each authored member to its own origin", () => {
+  const current = fixture(`interface Box { value: int32; }
+    function create() { const value: int32 = 7; return { value, extra: true }; }
+    function change(factory: () => Box): int32 { return factory().value; }
+    export function run(): int32 { return change(create); }`);
+  const { ast } = current.source;
+  const literal = current.nodes.find(node => ast.is.IsObjectLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
+  if (outcome === undefined || outcome.kind === "refused" || literal === undefined) return;
+  const properties = ast.properties(literal).filter(property => property !== undefined);
+  assert.equal(outcome.memberCorrespondence?.length, properties.length);
+  assert.equal(outcome.memberCorrespondence?.every(entry => entry.origin.kind === "declared" && entry.origin.declaration === entry.property), true,
+    "the destination of an own-shape publication is the literal's own member, not a separately selected type");
 });

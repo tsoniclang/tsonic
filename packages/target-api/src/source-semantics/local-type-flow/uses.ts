@@ -312,7 +312,10 @@ function requiredUse(
   } else if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   const readOnly = type.kind === "array" && type.readonly || type.kind === "tuple" && type.readonly;
   const assertion = context.source.ast.is.IsAsExpression(site) || context.source.ast.is.IsTypeAssertion(site);
-  if (check || constructions.length === 0 && readOnly && association.parameter !== undefined || assertion &&
+  // A read-only parameter is a view of an existing group: it checks the group and never fills its width. Only a
+  // construction placed directly in that parameter takes the declared slot through the C30 selection above.
+  const direct = constructions.some(construction => construction.node === record.node);
+  if (check || !direct && readOnly && association.parameter !== undefined || assertion &&
     type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
     return Object.freeze({ kind: "check", site, variable: record.variable, check: readOnly ? "read-only" : "interface",
       type, required: component.declaration ?? component.authoredTypeNode ?? site, association });

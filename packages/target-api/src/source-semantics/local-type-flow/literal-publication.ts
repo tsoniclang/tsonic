@@ -21,6 +21,13 @@ export function sourceLiteralMemberCorrespondence(context: SourceTypeFlowAnalysi
   if (sourceType === undefined) throw new Error("A Source literal correspondence requires its actual checked construction type.");
   for (const property of ast.properties(node)) {
     if (property === undefined || ast.is.IsSpreadAssignment(property)) continue;
+    // When the published descriptor is the literal's own shape, the authored member is its own destination.
+    // Its origin is that property, so no separately selected destination type takes part (it is not the published type).
+    const own = selectedType.members.filter(member => member.origin.kind === "declared" && member.origin.declaration === property);
+    if (own.length === 1) {
+      result.push(Object.freeze({ property, origin: own[0]!.origin }));
+      continue;
+    }
     const element = queries.operations.objectLiteralElement(property);
     const destination = component === undefined
       ? element?.objectLiteral === node && element.element === property ? element.contextualType : undefined : component.selectedType;

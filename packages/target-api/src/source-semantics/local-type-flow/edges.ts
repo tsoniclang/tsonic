@@ -285,7 +285,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         declaredWidth(signature.result) || signature.parameters.some(parameter => declaredWidth(parameter.type)))
       : type.kind === "array" ? declaredWidth(type.element)
       : type.kind === "optional" ? declaredWidth(type.value)
-      : type.kind === "declared" ? type.typeArguments.some(declaredWidth)
+      // An aliased union is published as its alias (C-2263); its width is its union arms'.
+      : type.kind === "declared" ? type.typeArguments.some(declaredWidth) ||
+        ast.is.IsTypeAliasDeclaration(type.declaration) && (type.definition?.kind === "union" || type.definition?.kind === "optional") &&
+          declaredWidth(type.definition)
       : type.kind === "tuple" ? type.elements.some(element => declaredWidth(element.type))
       : type.kind === "shape" && type.members.some(member => declaredWidth(member.type));
   }
@@ -437,7 +440,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const previous = nodes.get(node);
     if (previous !== undefined) return previous.variable;
     if (!rootOf.has(node) || typeOnly.has(node)) return undefined;
-    if (depth > 4) { refuse("TSONIC_LOCAL_TYPE_LIMIT", node); return undefined; }
+    // B6: an open (unannotated) literal deeper than four levels is refused. A declared slot's structure has full
+    // depth (C34); only the shared C-2269 expansion budget bounds it.
+    if (depth > 4 && !((ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) &&
+      declaredSlots.get(node)?.authority === "declared")) { refuse("TSONIC_LOCAL_TYPE_LIMIT", node); return undefined; }
     if (building.has(node)) { refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node); return undefined; }
     if (ast.is.IsIdentifier(node)) {
       const selected = navigation.sourceReferenceFor(node)?.declaration;
