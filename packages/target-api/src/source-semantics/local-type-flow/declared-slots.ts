@@ -27,15 +27,20 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
   }
 
   function projected(node: Node, type: SourceTypeDescriptor): SourceTypeFlowDeclaredSlot {
-    if (type.kind === "optional" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node))) {
-      return projected(node, type.value);
-    }
-    if (type.kind === "declared" && type.definition !== undefined &&
-      (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node))) return projected(node, type.definition);
-    if (type.kind !== "union" || !(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node))) return Object.freeze({ type });
-    const candidates = type.types.filter(type => descriptorMatches(node, type));
+    if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node))) return Object.freeze({ type });
+    const selected = structural(type);
+    if (selected.kind !== "union") return Object.freeze({ type });
+    const candidates = selected.types.filter(type => descriptorMatches(node, type));
     return candidates.length === 1 ? Object.freeze({ type: candidates[0]! })
       : Object.freeze({ refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNION", node) });
+  }
+
+  function structural(type: SourceTypeDescriptor): SourceTypeDescriptor {
+    let selected = type;
+    while (selected.kind === "optional" || selected.kind === "declared" && selected.definition !== undefined) {
+      selected = selected.kind === "optional" ? selected.value : selected.definition!;
+    }
+    return selected;
   }
 
   function select(node: Node, selected: SourceTypeComponentEvidence | undefined): SourceTypeFlowDeclaredSlot {
@@ -150,7 +155,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       const name = ast.name(parent);
       const selected = name === undefined ? undefined : query.propertyNames.get(name);
       if (selected?.kind !== "resolved") return Object.freeze({});
-      const shape = enclosing.type?.kind === "shape" || enclosing.type?.kind === "declared" ? enclosing.type : undefined;
+      const described = enclosing.type === undefined ? undefined : structural(enclosing.type);
+      const shape = described?.kind === "shape" || described?.kind === "declared" ? described : undefined;
       const numeric = selected.constant.kind === "numeric";
       const index = shape?.indexes.find(index => numeric && index.key.kind === "primitive" && index.key.primitive === "float64") ??
         shape?.indexes.find(index => index.key.kind === "string");
@@ -161,8 +167,9 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       const enclosing = read(parent);
       if (enclosing === undefined) return undefined;
       const position = ast.elements(parent).indexOf(occurrence);
-      const elementType = enclosing.type?.kind === "array" ? enclosing.type.element
-        : enclosing.type?.kind === "tuple" ? enclosing.type.elements[position] : undefined;
+      const described = enclosing.type === undefined ? undefined : structural(enclosing.type);
+      const elementType = described?.kind === "array" ? described.element
+        : described?.kind === "tuple" ? described.elements[position] : undefined;
       return elementType === undefined ? Object.freeze({}) : projected(node, elementType);
     }
     return undefined;
