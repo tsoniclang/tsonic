@@ -6,7 +6,7 @@ import {
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
-import { collectSourceTypeFlowEdges } from "./edges.js";
+import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { createSourceTypeFlowTerms } from "./terms.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
@@ -673,4 +673,70 @@ test("a new local container still supplies the open seed when its elements are d
   assert.equal(current.same(current.variable(literal), current.variable(declaration)), true);
   assert.equal(current.graph.links.some(link => link.source.node === parameter || link.target.node === parameter), false);
   assert.equal(current.graph.refusals.length, 0);
+});
+
+test("LM literal data stay linked while methods and both accessor forms retain fixed declared members", () => {
+  const current = fixture(`function run() {
+    const value = { count: 1, read(input: word): word { return this.count + input; },
+      get current(): word { return this.count; }, set current(next: word) { this.count = next; },
+      set writeOnly(next: word) { this.count = next; } };
+    return value;
+  }`);
+  const { ast } = current.source;
+  const literal = current.syntax.find(node => ast.is.IsObjectLiteralExpression(node));
+  assert.equal(literal !== undefined, true);
+  if (literal === undefined) throw new Error("The actual literal is required.");
+  const shape = current.entry(literal).term;
+  assert.equal(shape?.kind === "shape", true);
+  if (shape?.kind !== "shape") throw new Error("The literal retains a linked shape, not one fixed checker type.");
+  assert.equal(shape.members.length, 4);
+  const data = shape.members.find(member => member.name === "count");
+  const numeric = current.syntax.find(node => ast.is.IsNumericLiteral(node));
+  assert.equal(data !== undefined && numeric !== undefined && current.same(data.variable, current.variable(numeric)), true);
+  for (const member of shape.members.filter(member => member !== data)) {
+    const retained = current.graph.nodes.find(record => record.variable === member.variable)?.term;
+    assert.equal(retained?.kind === "fixed", true, `${member.name}: one fixed member signature`);
+    if (retained?.kind !== "fixed") throw new Error("The declared member term is required.");
+    if (member.name === "read") {
+      assert.equal(retained.type.kind === "callable" && retained.type.calls[0]?.declaration === member.declaration, true);
+    } else {
+      assert.equal(retained.type.kind === "primitive" && retained.type.primitive === "int32", true, member.name);
+    }
+  }
+  const getter = ast.properties(literal).find(node => node !== undefined && ast.is.IsGetAccessorDeclaration(node));
+  assert.equal(shape.members.find(member => member.name === "current")?.declaration === getter, true);
+  const receivers = current.syntax.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+  assert.equal(receivers.length, 4);
+  for (const receiver of receivers) {
+    const record = current.entry(receiver);
+    assert.equal(record.kind === "read" && record.term === undefined, true);
+    assert.equal(record.root !== current.entry(literal).root, true);
+    assert.equal(current.same(record.variable, current.variable(literal)), false);
+  }
+  for (const link of current.graph.links) {
+    const first = current.graph.nodes.find(record => record.node === link.source.node);
+    const second = current.graph.nodes.find(record => record.node === link.target.node);
+    assert.equal(first !== undefined && second !== undefined && first.root === second.root, true,
+      "LM never links a method or accessor root to its literal root");
+  }
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("LM lexical arrows keep the literal receiver while ordinary functions and class methods keep their own this", () => {
+  const current = fixture(`function run() { const value = { count: 1, read(): word {
+    const capture = () => this.count;
+    function separate(this: { count: number }): number { return this.count; }
+    class Other { count = 2; read(): number { return this.count; } }
+    void separate; void Other; return capture();
+  } }; return value; }`);
+  const { ast } = current.source;
+  const literal = current.syntax.find(node => ast.is.IsObjectLiteralExpression(node));
+  const receivers = current.syntax.filter(node => ast.kindName(node) === "KindThisKeyword");
+  assert.equal(receivers.length, 3);
+  const captured = receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+  assert.equal(captured.length, 1);
+  const root = captured[0] === undefined ? undefined : current.entry(captured[0]).root;
+  assert.equal(root !== undefined && ast.is.IsArrowFunction(root), true);
+  assert.equal(receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === undefined).length, 2);
+  assert.equal(current.graph.refusals.some(issue => issue.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE"), false);
 });

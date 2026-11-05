@@ -1,7 +1,7 @@
 import type { AstReader, Node, Type } from "@tsonic/tsts";
 import {
   BindingElement_IsRest, BindingElement_PropertyName, Node_Expression, Node_Initializer,
-  ObjectLiteralProperty_SourceName, ObjectLiteralProperty_Value, SpreadAssignment_Expression,
+  ObjectLiteralProperty_Value, SpreadAssignment_Expression,
 } from "../../source-navigation/ast.js";
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
@@ -36,6 +36,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const calls = new Map<Node, SourceTypeFlowCall>();
   const refusals: SourceTypeFlowRefusal[] = [];
   const active = new Set<Node>();
+  const literalReceiverValues = new Set<SourceTypeFlowVariable>();
   const openValues = new Set<Node>();
   const building = new Set<Node>();
   const patterns = new Set<Node>();
@@ -202,9 +203,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (result === undefined) {
       result = Object.freeze({ node: variable.node, path: Object.freeze([...variable.path, canonical]) });
       positions.set(canonical, result);
+      if (literalReceiverValues.has(variable)) literalReceiverValues.add(result);
       const parentTerm = terms.get(variable);
       const parentType = parentTerm?.kind === "fixed" ? parentTerm.type : undefined;
-      const childType = parentType === undefined ? undefined : descriptorPart(context, variable.node, parentType, canonical);
+      const childType = parentType === undefined ? undefined : sourceTypeFlowDescriptorPart(context, variable.node, parentType, canonical);
       if (childType !== undefined) putTerm(result, Object.freeze({ kind: "fixed", site: variable.node, type: childType }));
     }
     return result;
@@ -258,6 +260,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       return;
     }
     links.push(Object.freeze({ source, target, site }));
+    if (literalReceiverValues.has(source) || literalReceiverValues.has(target)) {
+      literalReceiverValues.add(source);
+      literalReceiverValues.add(target);
+    }
     shareStructure(source, target);
     shareStructure(target, source);
     if (active.has(source.node) || active.has(target.node)) { active.add(source.node); active.add(target.node); }
@@ -456,6 +462,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const previous = nodes.get(node);
     if (previous !== undefined) return previous.variable;
     if (!rootOf.has(node) || typeOnly.has(node)) return undefined;
+    if (sourceTypeFlowObjectLiteralReceiver(ast, node) !== undefined) {
+      const result = record(node, "read");
+      if (result !== undefined) literalReceiverValues.add(result);
+      active.add(node);
+      return result;
+    }
     // B6: an open (unannotated) literal deeper than four levels is refused. A declared slot's structure has full
     // depth (C34); only the shared C-2269 expansion budget bounds it.
     if (depth > 4 && !((ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) &&
@@ -463,7 +475,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (building.has(node)) { refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node); return undefined; }
     if (ast.is.IsIdentifier(node)) {
       const selected = navigation.sourceReferenceFor(node)?.declaration;
-      if (selected === undefined || selected === node || ast.name(selected) === node) return undefined;
+      if (selected === undefined) return fixed(node);
+      if (selected === node || ast.name(selected) === node) return undefined;
       if (isCallable(ast, selected)) return fixed(node);
       const source = declaration(selected);
       if (rootOf.get(selected) !== rootOf.get(node)) {
@@ -502,7 +515,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       return operand === undefined ? undefined : value(operand, initializer, depth);
     }
     const literal = context.literal(node);
-    if (literal !== undefined && (literal.form === "numeric" || literal.numeric !== undefined ||
+    if (!ast.is.IsParenthesizedExpression(node) && literal !== undefined && (literal.form === "numeric" || literal.numeric !== undefined ||
       literal.integerConstant !== undefined) && numericLeaves(ast, node)) {
       const token = sourceLiteralToken(ast, node);
       const text = token.kind === "authored" ? token.text : ast.text(node);
@@ -511,7 +524,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         form: fractional ? "fractional" : "integer", literal }));
       active.add(node);
       openValues.add(node);
-      return variable;
+      if (!ast.is.IsPrefixUnaryExpression(node) && !ast.is.IsBinaryExpression(node)) return variable;
     }
     if (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) {
       if (sourceTypeFlowAssignmentPattern(ast, node)) return undefined;
@@ -641,13 +654,19 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   function object(node: Node, depth: number): SourceTypeFlowVariable | undefined {
     const properties = ast.properties(node);
     if (properties.some(property => property === undefined || !(ast.is.IsPropertyAssignment(property) ||
-      ast.is.IsShorthandPropertyAssignment(property) || ast.is.IsSpreadAssignment(property)) ||
-      ast.name(property) !== undefined && ast.is.IsComputedPropertyName(ast.name(property)))) return fixed(node);
+      ast.is.IsShorthandPropertyAssignment(property) || ast.is.IsSpreadAssignment(property) ||
+      ast.is.IsMethodDeclaration(property) || ast.is.IsGetAccessorDeclaration(property) ||
+      ast.is.IsSetAccessorDeclaration(property)))) return fixed(node);
+    const query = semantics.forNode(node);
+    const selectedType = query.types.expressionType(node);
+    if (selectedType === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
+    const selectedMembers = query.types.propertyInfos(selectedType);
     const result = record(node, "value");
     if (result === undefined) return undefined;
     active.add(node);
     if (!declaredConstruction(node)) openValues.add(node);
-    const members = new Map<string, { source: SourceTypeFlowVariable; site: Node; declaration?: Node }>();
+    const members = new Map<string, { readonly source?: SourceTypeFlowVariable; readonly type?: SourceTypeDescriptor;
+      readonly site: Node; readonly declaration?: Node; readonly readonly?: boolean }>();
     for (const property of properties) {
       if (property === undefined) continue;
       const spread = SpreadAssignment_Expression(ast, property);
@@ -663,26 +682,47 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         for (const name of names) members.set(name, { source: project(source, { kind: "member", name }), site: property });
         continue;
       }
-      const name = ObjectLiteralProperty_SourceName(ast, property);
+      const element = query.operations.objectLiteralElement(property);
+      const selected = element?.objectLiteral === node && element.element === property && element.sourceElementSymbol !== undefined
+        ? selectedMembers.find(member => member.symbol === element.sourceElementSymbol ||
+          member.rootSymbols.includes(element.sourceElementSymbol!)) : undefined;
+      if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
+      if (ast.is.IsMethodDeclaration(property) || ast.is.IsGetAccessorDeclaration(property) || ast.is.IsSetAccessorDeclaration(property)) {
+        const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [selectedType]);
+        const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, "read")
+          ?? selectSourcePropertyDeclaration(ast, declarations, "write");
+        let type: SourceTypeDescriptor | undefined;
+        if (declaration !== undefined && ast.is.IsMethodDeclaration(declaration)) type = context.describe(declaration);
+        else if (declaration !== undefined && ast.is.IsGetAccessorDeclaration(declaration)) {
+          const signature = query.types.declarationSignatureInfo(declaration);
+          const authoredTypeNode = ast.typeNode(declaration);
+          type = declaredSlots.returned(declaration, query) ?? (signature?.returnType === undefined ? undefined
+            : context.describe(declaration, { selectedType: signature.returnType, declaration,
+              ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }) }));
+        } else if (declaration !== undefined && ast.is.IsSetAccessorDeclaration(declaration)) {
+          const parameter = ast.parameters(declaration)[0];
+          type = parameter === undefined ? undefined : declaredSlots.parameter(parameter, query) ?? context.describe(parameter);
+        }
+        if (declaration === undefined || type === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
+        members.set(selected.name, { type, site: property, declaration, ...(selected.readonly ? { readonly: true } : {}) });
+        continue;
+      }
       const initializer = ObjectLiteralProperty_Value(ast, property);
       const source = initializer === undefined ? undefined : value(initializer, true, depth + 1);
-      if (name.kind !== "resolved" || source === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
-      members.set(name.name, { source, site: property, declaration: property });
+      if (source === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
+      members.set(selected.name, { source, site: property, declaration: property });
     }
-    const query = semantics.forNode(node);
-    const selectedType = query.types.expressionType(node);
-    if (selectedType === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
-    const selectedMembers = query.types.propertyInfos(selectedType);
     const shape = [];
     for (const [name, member] of members) {
       const selected = selectedMembers.find(candidate => candidate.name === name);
       if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
       const variable = project(result, { kind: "member", name });
-      link(member.source, variable, member.site);
+      if (member.type === undefined) link(member.source, variable, member.site);
+      else putTerm(variable, Object.freeze({ kind: "fixed", site: member.site, type: member.type }));
       const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [selectedType]);
       const declaration = member.declaration ?? (declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, "read"));
       shape.push(Object.freeze({ name, variable, optional: selected.optional,
-        ...(declaration === undefined ? {} : { declaration }) }));
+        ...(declaration === undefined ? {} : { declaration }), ...(member.readonly === undefined ? {} : { readonly: member.readonly }) }));
     }
     replace(node, { term: Object.freeze({ kind: "shape", site: node, members: Object.freeze(shape) }) });
     return result;
@@ -693,7 +733,16 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const source = receiver === undefined ? undefined : value(receiver, false, depth);
     if (source === undefined || !active.has(source.node)) return fixed(node);
     let part: SourceTypeFlowPathPart | undefined;
-    if (ast.is.IsPropertyAccessExpression(node)) {
+    const receiverType = !literalReceiverValues.has(source) || receiver === undefined ? undefined
+      : semantics.forNode(node).types.expressionType(receiver);
+    const selection = receiverType === undefined ? undefined : ast.is.IsPropertyAccessExpression(node)
+      ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
+    const selectedMember = receiverType === undefined || semantics.forNode(node).types.isArrayLike(receiverType) ||
+      semantics.forNode(node).types.isStringLike(receiverType) || selection?.selectedSymbol === undefined ? undefined
+      : semantics.forNode(node).types.propertyInfos(receiverType).find(member => member.symbol === selection.selectedSymbol ||
+        member.rootSymbols.includes(selection.selectedSymbol!));
+    if (selectedMember !== undefined) part = { kind: "member", name: selectedMember.name };
+    else if (ast.is.IsPropertyAccessExpression(node)) {
       const name = ast.name(node);
       const term = nodes.get(source.node)?.term;
       const descriptor = receiver === undefined ? undefined : context.describe(receiver);
@@ -788,17 +837,17 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   function operationNode(node: Node, operator: SourceTypeFlowOperator, operands: readonly Node[], required: boolean,
     depth: number): SourceTypeFlowVariable | undefined {
     const selected = operands.map(operand => value(operand, false, depth));
-    if (selected.some(operand => operand === undefined)) return fixed(node);
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
-    if (!inputs.some(operand => active.has(operand.node))) return fixed(node, undefined,
-      operator === "sequence" && operands[0] !== undefined ? context.describe(operands[0]) : undefined);
+    if (inputs.length !== selected.length) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
     if (operator === "sequence" && inputs.length === 1 && openValues.has(inputs[0]!.node) && !derived.has(inputs[0]!.node)) {
       const result = record(node, "read");
       link(inputs[0], result, node);
       return result;
     }
-    if (required && ["conditional", "logical-and", "logical-or", "coalesce"].includes(operator) &&
-      inputs.some(operand => openValues.has(operand.node))) {
+    const aggregates = inputs.map(input => terms.get(input));
+    if (required && operator === "conditional" && inputs.some(operand => openValues.has(operand.node)) &&
+      aggregates.length === 2 && aggregates.every(term => term?.kind === aggregates[0]?.kind &&
+        (term?.kind === "array" || term?.kind === "shape" || term?.kind === "tuple"))) {
       const result = record(node, "value");
       for (const input of inputs) link(input, result, node);
       return result;
@@ -1285,7 +1334,7 @@ function numericLeaves(ast: AstReader, root: Node): boolean {
   return true;
 }
 
-function descriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
+export function sourceTypeFlowDescriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
   const structure = sourceTypeDescriptorStructure(type);
   if (part.kind === "element") return structure.kind === "array" ? structure.element : undefined;
   if (part.kind === "optional-value") return type.kind === "optional" ? type.value : undefined;
@@ -1300,7 +1349,21 @@ function descriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type
   return index < 0 ? undefined : type.typeArguments[index];
 }
 
-function isWriteTarget(ast: AstReader, node: Node): boolean {
+export function sourceTypeFlowObjectLiteralReceiver(ast: AstReader, node: Node): Node | undefined {
+  if (ast.kindName(node) !== "KindThisKeyword") return undefined;
+  for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
+    if (ast.is.IsArrowFunction(owner)) continue;
+    if (isCallable(ast, owner)) {
+      const literal = ast.parent(owner);
+      return (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner)) &&
+        literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? literal : undefined;
+    }
+    if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsSourceFile(owner)) return undefined;
+  }
+  return undefined;
+}
+
+export function isWriteTarget(ast: AstReader, node: Node): boolean {
   const parent = ast.parent(node);
   if (parent === undefined) return false;
   if (ast.is.IsPrefixUnaryExpression(parent) || ast.is.IsPostfixUnaryExpression(parent)) {
