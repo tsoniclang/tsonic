@@ -9,6 +9,31 @@ import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor } from "./types.js";
 import { sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+import { withSourceTypeFlowTrace, type SourceTypeFlowTraceFacts } from "./trace.js";
+
+function traceGenericFillSteps(read: () => void): void {
+  const names = ["freeze_array_direct_declared", "freeze_object_direct_declared"];
+  const steps = ["edges.genericAggregate", "edges.join", "edges.mentionedBinders", "descriptors.inheritedBindings",
+    "solver.binderFill", "solver.aggregateFill", "solver.authority"];
+  const rows = new Map<string, SourceTypeFlowTraceFacts[]>();
+  try {
+    withSourceTypeFlowTrace((source, node, step, facts) => {
+      let owner: Node | undefined = node;
+      while (owner !== undefined && !source.ast.is.IsFunctionDeclaration(owner)) owner = source.ast.parent(owner);
+      const name = owner === undefined ? undefined : source.ast.text(source.ast.name(owner));
+      if (name === undefined || !names.includes(name)) return;
+      const key = name + ":" + step;
+      const selected = rows.get(key);
+      if (selected === undefined) rows.set(key, [facts]); else selected.push(facts);
+    }, read);
+  } finally {
+    for (const name of names) for (const step of steps) {
+      const selected = rows.get(name + ":" + step) ?? [];
+      console.log("C2304.path " + JSON.stringify({ name, step, called: selected.length > 0,
+        count: selected.length, observations: selected }));
+    }
+  }
+}
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -965,7 +990,7 @@ test("comma value selection keeps only the right operand while retaining left ef
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => {
+test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => traceGenericFillSteps(() => {
   const cases = ["identity", "freeze"].flatMap(call => ["array", "object"].flatMap(form =>
     [false, true].flatMap(alias => ["declared", "inferred"].map(authority => ({
       call, form, alias, authority, name: `${call}_${form}_${alias ? "alias" : "direct"}_${authority}`,
@@ -1004,7 +1029,7 @@ test("generic binder fills retain declared authority for direct and aliased fixe
       matching[0].type === outcome.type, true, row.name);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
+}));
 
 test("one homomorphic inversion covers every normalized input and each authored or checked caller source", () => {
   const forms = [

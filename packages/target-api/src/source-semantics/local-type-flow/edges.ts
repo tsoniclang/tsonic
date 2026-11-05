@@ -11,6 +11,7 @@ import { sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./d
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+import { traceSourceTypeFlow } from "./trace.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
@@ -789,11 +790,22 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const genericConstruction = ast.is.IsNewExpression(node) && (source.sourceSelectedMethodTypeArguments?.length ?? 0) > 0;
     const genericAggregate = source.sourceArgumentBindings.some(binding => {
       const argument = arguments_[binding.sourceArgumentIndex];
+      traceSourceTypeFlow(context.source, node, "edges.genericAggregate", () => ({
+        argument: binding.sourceArgumentIndex, present: argument !== undefined,
+        fixedOrigin: argument !== undefined && fixedAggregateOrigin(argument) !== undefined,
+      }));
       if (argument === undefined || fixedAggregateOrigin(argument) === undefined) return false;
       const parameter = source.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
       const component = parameter?.parameterDeclaration === undefined ? undefined : declaredComponent(parameter.parameterDeclaration, query);
       if (component === undefined) return false;
-      const formal = sourceTypeFlowHomomorphicInput(context.source, query, component.selectedType, component.authoredTypeNode) ?? component.selectedType;
+      const inverted = sourceTypeFlowHomomorphicInput(context.source, query, component.selectedType, component.authoredTypeNode);
+      traceSourceTypeFlow(context.source, node, "edges.genericAggregate", () => ({
+        source: component.authoredTypeNode === undefined ? "checked-application" : "authored-reference",
+        authoredKind: component.authoredTypeNode === undefined ? "absent" : ast.kindName(component.authoredTypeNode),
+        inverted: inverted !== undefined,
+        checkedAlias: query.types.aliasApplication(component.selectedType)?.kind ?? "absent",
+      }));
+      const formal = inverted ?? component.selectedType;
       const declaration = sourceTypeFlowTypeDeclaration(context.source, query, formal);
       return declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration) &&
         (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
@@ -1021,6 +1033,14 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (level > 4) { refuse("TSONIC_LOCAL_TYPE_LIMIT", occurrence); return; }
       const formalQuery = query;
       const homomorphic = sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
+      traceSourceTypeFlow(context.source, node, "edges.join", () => {
+        const declaration = sourceTypeFlowTypeDeclaration(context.source, formalQuery, homomorphic ?? formal);
+        return { role, source: component.authoredTypeNode === undefined ? "checked-application" : "authored-reference",
+          authoredKind: component.authoredTypeNode === undefined ? "absent" : ast.kindName(component.authoredTypeNode),
+          inverted: homomorphic !== undefined, checkedAlias: formalQuery.types.aliasApplication(formal)?.kind ?? "absent",
+          binderKind: declaration === undefined ? "absent" : ast.kindName(declaration),
+          binderPosition: declaration === undefined ? -1 : ast.pos(declaration), level };
+      });
       if (homomorphic !== undefined) {
         const { authoredTypeNode, ...inputComponent } = component;
         join(homomorphic, variable, occurrence, Object.freeze({ ...inputComponent, selectedType: homomorphic }), level + 1, role);
@@ -1145,6 +1165,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (level > 4 || seen.has(type)) return new Set();
       seen.add(type);
       const homomorphic = sourceTypeFlowHomomorphicInput(context.source, query, type, authoredTypeNode);
+      traceSourceTypeFlow(context.source, node, "edges.mentionedBinders", () => ({
+        source: authoredTypeNode === undefined ? "checked-application" : "authored-reference",
+        authoredKind: authoredTypeNode === undefined ? "absent" : ast.kindName(authoredTypeNode),
+        inverted: homomorphic !== undefined, checkedAlias: query.types.aliasApplication(type)?.kind ?? "absent", level,
+      }));
       if (homomorphic !== undefined) return mentionedBinders(homomorphic, types, level + 1, seen);
       const declaration = sourceTypeFlowTypeDeclaration(context.source, query, type);
       if (declaration !== undefined && binders.has(declaration)) return new Set([declaration]);

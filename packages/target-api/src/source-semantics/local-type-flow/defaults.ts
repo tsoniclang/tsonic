@@ -6,6 +6,7 @@ import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.
 import { createSourceTypeDescriptorReader } from "./descriptors.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
+import { withSourceTypeFlowTraceSubject } from "./trace.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowSource,
@@ -365,7 +366,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   const context: SourceTypeFlowAnalysisContext = Object.freeze({ source,
     describe: (node: Node, component?: SourceTypeComponentEvidence, arguments_?: readonly SourceEffectiveTypeArgument[]) =>
-      describe(node, component, 0, undefined, arguments_),
+      withSourceTypeFlowTraceSubject(node, () => describe(node, component, 0, undefined, arguments_)),
     literal: (node: Node) => literals.get(node),
     order: (node: Node) => {
       const range = ast.authoredRange(node);

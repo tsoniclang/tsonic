@@ -3,6 +3,7 @@ import { sourceArrayElementType } from "../array-types.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+import { traceSourceTypeFlow } from "./trace.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeFlowSource } from "./types.js";
 
@@ -163,8 +164,15 @@ export function createSourceTypeDescriptorReader(
   function inheritedBindings(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings): Bindings {
     const result = new Map(bindings);
     const application = queries.types.aliasApplication(selectedType);
+    const homomorphic = application?.kind === "direct" && application.bindings.length === 1
+      ? sourceTypeFlowHomomorphicInput(source, queries, selectedType) : undefined;
+    traceSourceTypeFlow(source, undefined, "descriptors.inheritedBindings", () => ({
+      source: "checked-application", checkedAlias: application?.kind ?? "absent", inverted: homomorphic !== undefined,
+      bindingCount: application?.bindings.length ?? 0,
+      checkedKind: queries.types.isTuple(selectedType) ? "tuple" : queries.types.isArrayLike(selectedType) ? "array" : "object",
+    }));
     if (application?.kind === "direct" && application.bindings.length === 1 &&
-      sourceTypeFlowHomomorphicInput(source, queries, selectedType) !== undefined) {
+      homomorphic !== undefined) {
       const input = bindings.get(application.bindings[0]!.declaration);
       const parameters = input?.kind === "declared" && input.source !== undefined
         ? queries.types.typeArgumentBindings(input.source.selectedType)?.map(binding => binding.declaration) : undefined;

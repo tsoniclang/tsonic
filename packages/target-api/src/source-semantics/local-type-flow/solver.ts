@@ -4,6 +4,7 @@ import { isSourceCallableSignatureDeclaration } from "../../source-navigation/ca
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { traceSourceTypeFlow } from "./trace.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
@@ -183,6 +184,19 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   for (let index = 0; index < pendingFills.length; index += 1) {
     const { variable, fill } = pendingFills[index]!;
+    traceSourceTypeFlow(source, variable.node, "solver.binderFill", () => {
+      const binder = variable.path.find(part => part.kind === "binder");
+      return { binderPosition: binder?.kind === "binder" ? source.ast.pos(binder.declaration) : -1,
+        binderKind: binder?.kind === "binder" ? source.ast.kindName(binder.declaration) : "absent",
+        binderName: binder?.kind === "binder" ? source.ast.text(source.ast.name(binder.declaration)) : "absent",
+        fillKind: fill.type.kind, fixed: fill.fixed, authority: fill.authority, siteKind: source.ast.kindName(fill.site),
+        sitePosition: source.ast.pos(fill.site),
+        fillElement: fill.type.kind === "array" ? fill.type.element.kind === "primitive"
+          ? fill.type.element.primitive : fill.type.element.kind : "absent",
+        fillDeclaration: fill.type.kind === "declared" ? source.ast.pos(fill.type.declaration) : -1,
+        source: fill.component?.authoredTypeNode === undefined ? "checked" : "authored",
+        authoredKind: fill.component?.authoredTypeNode === undefined ? "absent" : source.ast.kindName(fill.component.authoredTypeNode) };
+    });
     const selected = group(variable);
     if (selected.fills.some(prior => prior.site === fill.site && prior.fixed === fill.fixed &&
       sourceTypeDescriptorsEqual(prior.type, fill.type))) continue;
@@ -373,6 +387,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       !source.ast.is.IsArrayLiteralExpression(term.site) && !source.ast.is.IsObjectLiteralExpression(term.site))
       ? constructed(selected) : undefined;
     const construction = selected.constructions[0];
+    traceSourceTypeFlow(source, selected.variable.node, "solver.aggregateFill", () => ({
+      inference: selected.inference, found: aggregateFill !== undefined, fillKind: aggregateFill?.type.kind ?? "absent",
+      authority: aggregateFill?.authority ?? "absent", fillCount: selected.fills.length,
+      declaredNonFixed: selected.fills.filter(fill => !fill.fixed && fill.authority === "declared").length,
+      fillKinds: selected.fills.map(fill => fill.type.kind + ":" + fill.authority + ":" + (fill.fixed ? "fixed" : "use")).join(","),
+      constructionAuthority: construction?.authority ?? "absent",
+    }));
     const anchor = (construction?.authority === "declared" ? construction : aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
         : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" as const })
@@ -701,7 +722,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function authority(node: Node): "inferred" | "declared" {
     const variable = valueVariables.get(node);
     const selected = variable === undefined ? undefined : group(variable).chosenFill;
-    return selected?.authority === "declared" ? "declared" : defaults.declaredSlots.get(node)?.authority ?? "inferred";
+    const result = selected?.authority === "declared" ? "declared" : defaults.declaredSlots.get(node)?.authority ?? "inferred";
+    traceSourceTypeFlow(source, node, "solver.authority", () => ({
+      authority: result, chosenFill: selected?.type.kind ?? "absent", chosenAuthority: selected?.authority ?? "absent",
+      chosenFixed: selected?.fixed, slotAuthority: defaults.declaredSlots.get(node)?.authority ?? "absent",
+    }));
+    return result;
   }
   for (const node of defaults.values) {
     const ast = source.ast;
