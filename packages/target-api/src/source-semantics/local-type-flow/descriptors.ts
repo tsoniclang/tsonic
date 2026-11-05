@@ -482,7 +482,7 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
       for (const member of queries.types.unionOrIntersectionTypes(selectedType)) {
-        const selected = type(member, queries, { selectedType: member }, depth + 1, bindings);
+        const selected = type(member, queries, { selectedType: member }, depth + 1, bindings, aliasBody);
         if (selected === undefined) return undefined;
         types.push(selected);
       }

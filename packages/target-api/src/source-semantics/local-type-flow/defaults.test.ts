@@ -62,6 +62,31 @@ test("a closed foreign conditional alias publishes its exact primitive result in
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
+  for (const alias of [false, true]) {
+    const current = fixture(`type Input = readonly (string | float32)[] | { readonly marker: string; readonly value: float32 };
+      type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+      type Result = Locked<Input>;
+      declare const selected: ${alias ? "Result" : "Locked<Input>"};`);
+    const descriptor = current.defaults.context.describe(current.declaration("selected"));
+    const normalized = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
+    assert.equal(normalized?.kind === "union" && normalized.types.length === 2, true,
+      `the exact normalized union has two complete alternatives, alias=${alias}`);
+    if (normalized?.kind !== "union") throw new Error("The normalized mapped union is required.");
+    const alternatives = normalized.types.map(sourceTypeDescriptorStructure);
+    const object = alternatives.find(type => type.kind === "shape");
+    const array = alternatives.find(type => type.kind === "array");
+    const member = object?.kind === "shape" ? object.members.find(property => property.name === "value") : undefined;
+    const value = member === undefined ? undefined : sourceTypeDescriptorStructure(member.type);
+    assert.equal(array?.kind === "array" && array.readonly && object?.kind === "shape" &&
+      member?.readonly === true && member.origin.kind === "declared" &&
+      value?.kind === "primitive" && value.primitive === "float32", true,
+      `array and object alternatives retain their exact published kind, width and origin, alias=${alias}`);
+    assert.equal(alternatives.some(type => type.kind === "declared" && type.cut !== undefined), false,
+      "a normalized constituent is not a recursive application of the enclosing mapped alias");
+  }
+});
+
 test("checked conditional aliases preserve distinct parameter and result widths through exact infer binders", () => {
   for (const reverse of [false, true]) {
     const declarations = [
