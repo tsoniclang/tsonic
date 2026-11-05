@@ -93,7 +93,7 @@ export function collectSourceTypeFlowUses(
     if (!graph.roots.includes(record.root) || !withinInferenceRoot(ast, record.node, record.root)) {
       throw new Error("Local type uses require an occurrence in its original inference root.");
     }
-    if ((record.kind === "fixed" || record.term?.kind === "fixed") && !constructionAliases.has(record.variable) || ast.is.IsArrowFunction(record.node) ||
+    if (ast.is.IsArrowFunction(record.node) ||
       ast.is.IsFunctionExpression(record.node) || ast.is.IsVariableDeclaration(record.node) ||
       ast.is.IsParameterDeclaration(record.node)) continue;
     uses.push(...classify(record).filter(use => use.kind !== "fill" || !isDerivedValue(record.node)));
@@ -189,6 +189,15 @@ export function collectSourceTypeFlowUses(
       parent = ast.parent(value);
     }
     if (parent === undefined) return [];
+    const fixed = record.kind === "fixed" || record.term?.kind === "fixed";
+    const operator = ast.operatorKindName(parent) ?? "";
+    if (!captured && fixed && !constructionAliases.has(record.variable)) {
+      const compound = ast.is.IsBinaryExpression(parent) && ast.as.AsBinaryExpression(parent)?.Left === value &&
+        assignments.has(operator) && operator !== "KindEqualsToken";
+      const update = (ast.is.IsPrefixUnaryExpression(parent) || ast.is.IsPostfixUnaryExpression(parent)) &&
+        (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken");
+      if (!compound && !update) return [];
+    }
     if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) || ast.is.IsSatisfiesExpression(parent)) &&
       Node_Expression(ast, parent) === value && !ast.isConstAssertion(parent)) {
       const queries = context.source.semantics.forNode(record.node);
@@ -220,14 +229,13 @@ export function collectSourceTypeFlowUses(
     }
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
-      const operator = ast.operatorKindName(parent) ?? "";
       if (shifts.has(operator) && binary?.Right === value) {
         return [Object.freeze({ kind: "fill", site: parent, variable: record.variable,
           type: Object.freeze({ kind: "primitive", primitive: "int32" }), association: sourceAssociation(context, record.node) })];
       }
       if (assignments.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
         if (binary.Left === value) {
-          if (shifts.has(operator)) return [write(record, parent, parent, value)];
+          if (shifts.has(operator) || fixed && operator !== "KindEqualsToken") return [write(record, parent, parent, value)];
           if (!captured && operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
             const component = declaredValueComponent(context, binary.Right);
             if (component !== undefined) return [required(record, parent, component)];
