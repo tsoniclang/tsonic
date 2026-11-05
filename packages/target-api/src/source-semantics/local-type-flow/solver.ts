@@ -194,8 +194,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         fillElement: fill.type.kind === "array" ? fill.type.element.kind === "primitive"
           ? fill.type.element.primitive : fill.type.element.kind : "absent",
         fillDeclaration: fill.type.kind === "declared" ? source.ast.pos(fill.type.declaration) : -1,
-        source: fill.component?.authoredTypeNode === undefined ? "checked" : "authored",
-        authoredKind: fill.component?.authoredTypeNode === undefined ? "absent" : source.ast.kindName(fill.component.authoredTypeNode) };
+        source: "not-retained", authoredKind: "not-retained" };
     });
     const selected = group(variable);
     if (selected.fills.some(prior => prior.site === fill.site && prior.fixed === fill.fixed &&
