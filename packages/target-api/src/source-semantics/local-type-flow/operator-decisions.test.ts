@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, type AstReader, type Node } from "@tsonic/tsts";
+import { analyzeSourceLiteralValues } from "../literal-values.js";
 import { parseSourceNumericLiteral } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
+import { createTargetSourceProgram } from "../target-source-program.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,
   sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorIsIntegral,
@@ -187,6 +190,150 @@ test("D-A floating literal adaptation uses original authored magnitude and check
   assert.equal(sourcePrimitiveOperatorLiteralFits({ form: "string", text: "xx" }, "char"), false);
   assert.equal(sourcePrimitiveOperatorLiteralFits({ form: "array", elements: [] }, "int32"), false);
 });
+
+test("D-A binary and parenthesized whole receipts fit floating kinds without inventing numeric provenance", () => {
+  const cases = [false, true].flatMap(parenthesized => ([
+    ["8 / 2 + 1", 5n], ["-8 + 3", -5n], ["8 - 8", 0n],
+  ] as const).map(([expression, constant]) => ({
+    expression: parenthesized ? `(${expression})` : expression, constant,
+    form: parenthesized ? "parenthesized" : "binary",
+  })));
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    assert.equal(literal.form, row.form, row.expression);
+    assert.equal(literal.integerConstant, row.constant, row.expression);
+    assert.equal(literal.integer === undefined && literal.number === undefined && literal.numeric === undefined, true, row.expression);
+    for (const primitive of ["float16", "float32", "float64", "decimal"] as const) {
+      assert.equal(sourcePrimitiveOperatorLiteralFits(literal, primitive), true, `${row.expression}: ${primitive}`);
+    }
+    assert.equal(literal.integerConstant, row.constant, "fit checks retain the same exact receipt");
+  }
+});
+
+test("D-A folded floating overflow compares exact signed bigint magnitude at each finite boundary", () => {
+  const cases = ([
+    ["float16", 65520n], ["float32", (1n << 128n) - (1n << 103n)], ["decimal", 1n << 96n],
+  ] as const).flatMap(([primitive, firstRefused]) => [-1n, 0n, 1n].flatMap(offset =>
+    [-1n, 1n].flatMap(sign => [false, true].map(parenthesized => {
+      const constant = sign * (firstRefused + offset);
+      const expression = `${constant} + 0`;
+      return { primitive, constant, admitted: offset < 0n, expression: parenthesized ? `(${expression})` : expression };
+    }))));
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    assert.equal(literal.integerConstant, row.constant, row.expression);
+    assert.equal(literal.numeric === undefined && literal.number === undefined, true, row.expression);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, row.primitive), row.admitted, `${row.primitive}: ${row.expression}`);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "float64"), true, row.expression);
+  }
+});
+
+test("D-A large folded integers keep every source digit while an explicit float64 may round finitely", () => {
+  const cases = [9007199254740993n, -9007199254740993n, (1n << 131n) + 1n, -((1n << 131n) + 1n)]
+    .flatMap(constant => [false, true].map(parenthesized => {
+      const expression = `${constant} + 0`;
+      return { constant, expression: parenthesized ? `(${expression})` : expression };
+    }));
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    assert.equal(literal.integerConstant, row.constant, row.expression);
+    assert.equal(literal.integer === undefined && literal.number === undefined && literal.numeric === undefined, true, row.expression);
+    assert.equal(Object.isFrozen(literal), true, row.expression);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "float64"), true, row.expression);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "int128"), row.constant > -(1n << 127n) && row.constant < (1n << 127n), row.expression);
+    assert.equal(literal.integerConstant, row.constant, row.expression);
+  }
+});
+
+test("D-A float64 native rounding never admits an infinite authored value or fabricates an oversized folded receipt", () => {
+  const midpoint = (1n << 1024n) - (1n << 970n);
+  const cases = [-1n, 0n, 1n].flatMap(offset => [-1n, 1n].flatMap(sign =>
+    [false, true].map(parenthesized => {
+      const expression = String(sign * (midpoint + offset));
+      return { admitted: offset < 0n, expression: parenthesized ? `(${expression})` : expression };
+    })));
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    assert.equal(literal.numeric?.kind, "authored", row.expression);
+    assert.equal(literal.integerConstant === undefined, true, "the existing bounded integer reader does not invent a receipt");
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "float64"), row.admitted, row.expression);
+  }
+});
+
+test("D-A parenthesized checked values do not gain authored float32 or decimal authority from an integer constant", () => {
+  const expressions = ["(1)", "(0)", "(-0)", "(1.5)"];
+  const authored = operatorLiteralFacts(expressions);
+  const checked = operatorLiteralFacts(expressions, "checked");
+  for (const [index, expression] of expressions.entries()) {
+    assert.equal(authored[index]!.numeric?.kind, "authored", expression);
+    assert.equal(checked[index]!.numeric?.kind, "checked-float64", expression);
+    if (index < 3) assert.equal(checked[index]!.integerConstant, index === 0 ? 1n : 0n, expression);
+    for (const primitive of ["float32", "decimal"] as const) {
+      assert.equal(sourcePrimitiveOperatorLiteralFits(authored[index]!, primitive), true, `${expression}: ${primitive}`);
+      assert.equal(sourcePrimitiveOperatorLiteralFits(checked[index]!, primitive), false, `${expression}: ${primitive}`);
+    }
+    for (const primitive of ["float16", "float64"] as const) {
+      assert.equal(sourcePrimitiveOperatorLiteralFits(checked[index]!, primitive), true, `${expression}: ${primitive}`);
+    }
+  }
+  assert.equal(Object.is(authored[2]!.number, -0), true);
+  assert.equal(Object.is(checked[2]!.number, -0), true);
+});
+
+test("D-A folded floating fit leaves integer bounds, fixed operand widths and shift counts unchanged", () => {
+  const cases = [-2147483649n, -2147483648n, 3n, 2147483647n, 2147483648n].flatMap(constant =>
+    [false, true].map(parenthesized => {
+      const expression = `${constant} + 0`;
+      return { constant, expression: parenthesized ? `(${expression})` : expression };
+    }));
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    const operand: SourcePrimitiveOperatorOperand = { kind: "unbound-literal", primitive: "float64", literal };
+    const fits = row.constant >= -2147483648n && row.constant <= 2147483647n;
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "int32"), fits, row.expression);
+    const shifted = decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), operand, "int64");
+    assert.equal(shifted.kind === "resolved", fits, row.expression);
+    if (shifted.kind === "resolved") {
+      assert.equal(shifted.result === "int64" && shifted.left === "int64" && shifted.right === "int32", true, row.expression);
+    }
+    const fixedWidth = decideSourcePrimitiveBinaryOperator("add", fixed("float64"), operand, "int32");
+    assert.equal(fixedWidth.kind === "resolved" && fixedWidth.left === "float64" && fixedWidth.result === "float64", true, row.expression);
+  }
+  for (const primitive of ["uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
+    assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed(primitive), "int32").kind, "refused", primitive);
+  }
+});
+
+function operatorLiteralFacts(expressions: readonly string[], provenance: "authored" | "checked" = "authored"): readonly SourceLiteralValue[] {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": expressions.map((expression, index) => `export const value${index} = ${expression};`).join("\n"),
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The checked literal program requires its source file.");
+  const ast: AstReader = provenance === "checked"
+    ? { ...source.ast, authoredRange: () => ({ kind: "synthetic" }) } : source.ast;
+  const values = analyzeSourceLiteralValues(ast, [file]);
+  const literals: SourceLiteralValue[] = [];
+  const visit = (node: Node): void => {
+    const initializer = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)?.Initializer : undefined;
+    if (initializer !== undefined) {
+      const literal = values.literalValue.get(initializer);
+      if (literal === undefined) throw new Error(`The original Source literal receipt ${literals.length} is required.`);
+      literals.push(literal);
+    }
+    ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(literals.length, expressions.length);
+  return literals;
+}
 
 function numericLiteral(text: string): SourceLiteralValue {
   const parsed = parseSourceNumericLiteral(text);

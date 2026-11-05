@@ -165,6 +165,15 @@ export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, 
   if (primitive === "bool") return literal.form === "true" || literal.form === "false";
   if (primitive === "char") return (literal.form === "string" || literal.form === "template") && literal.text.length === 1;
   if (bounds !== undefined) return literal.integer !== undefined && literal.integer >= bounds[0] && literal.integer <= bounds[1];
+  if (constant !== undefined && literal.numeric === undefined) {
+    const magnitude = { coefficient: constant < 0n ? -constant : constant, exponent: 0n };
+    if (primitive === "float64") return compareSourceNumericLiteralMagnitude(magnitude, (1n << 1024n) - (1n << 970n)) < 0;
+    if (primitive === "float16") return compareSourceNumericLiteralMagnitude(magnitude, 65520n) < 0;
+    return primitive === "float32" ? compareSourceNumericLiteralMagnitude(magnitude, float32OverflowThreshold) < 0
+      : primitive === "decimal" && compareSourceNumericLiteralMagnitude(
+        { coefficient: magnitude.coefficient * 2n, exponent: 0n }, decimalOverflowThresholdTwice,
+      ) < 0;
+  }
   if (primitive === "float64") return literal.number !== undefined && Number.isFinite(literal.number);
   const numeric = literal.numeric;
   if (primitive === "float16") {
