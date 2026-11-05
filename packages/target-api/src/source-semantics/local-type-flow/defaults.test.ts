@@ -60,6 +60,17 @@ test("optional member presence is independent of an absence-capable member value
   }
 });
 
+test("declared undefined and null are absence while a callable void result remains void", () => {
+  const current = fixture("declare const empty: undefined; declare const nil: null; declare const callback: () => void;");
+  for (const name of ["empty", "nil"]) {
+    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "intrinsic", intrinsic: "absence" });
+  }
+  const callback = current.defaults.context.describe(current.declaration("callback"));
+  assert.equal(callback?.kind === "callable", true);
+  if (callback?.kind !== "callable") throw new Error("The actual declared callback is required.");
+  assertSameValue(callback.calls[0]?.result, { kind: "intrinsic", intrinsic: "void" });
+});
+
 test("a required component overrides the occurrence's literal default", () => {
   const current = fixture("declare const required: number[]; export const literal = [1];");
   const declaration = current.declaration("required");

@@ -293,8 +293,8 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.isUnknown(selectedType)) return { kind: "intrinsic", intrinsic: "unknown" };
     if (queries.types.isNonPrimitive(selectedType)) return { kind: "intrinsic", intrinsic: "object" };
     if (queries.types.isNever(selectedType)) return { kind: "intrinsic", intrinsic: "never" };
-    if (queries.types.isVoidLike(selectedType)) return { kind: "intrinsic", intrinsic: "void" };
     if (queries.types.isNullish(selectedType)) return { kind: "intrinsic", intrinsic: "absence" };
+    if (queries.types.isVoidLike(selectedType)) return { kind: "intrinsic", intrinsic: "void" };
     if (queries.types.isBooleanLike(selectedType)) return { kind: "primitive", primitive: "bool" };
     if (queries.types.isNumberLike(selectedType)) return { kind: "primitive", primitive: "float64" };
     if (queries.types.isStringLike(selectedType)) return { kind: "string" };
