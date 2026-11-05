@@ -25,6 +25,8 @@ const assignments = new Set([
 const shifts = new Set([
   "KindLessThanLessThanToken", "KindGreaterThanGreaterThanToken",
   "KindGreaterThanGreaterThanGreaterThanToken",
+  "KindLessThanLessThanEqualsToken", "KindGreaterThanGreaterThanEqualsToken",
+  "KindGreaterThanGreaterThanGreaterThanEqualsToken",
 ]);
 
 export function collectSourceTypeFlowUses(
@@ -219,8 +221,13 @@ export function collectSourceTypeFlowUses(
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
       const operator = ast.operatorKindName(parent) ?? "";
+      if (shifts.has(operator) && binary?.Right === value) {
+        return [Object.freeze({ kind: "fill", site: parent, variable: record.variable,
+          type: Object.freeze({ kind: "primitive", primitive: "int32" }), association: sourceAssociation(context, record.node) })];
+      }
       if (assignments.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
         if (binary.Left === value) {
+          if (shifts.has(operator)) return [write(record, parent, parent, value)];
           if (!captured && operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
             const component = declaredValueComponent(context, binary.Right);
             if (component !== undefined) return [required(record, parent, component)];
@@ -234,10 +241,6 @@ export function collectSourceTypeFlowUses(
           return component === undefined ? [] : [required(record, parent, component)];
         }
         return [];
-      }
-      if (shifts.has(operator) && binary?.Right === value) {
-        return [Object.freeze({ kind: "fill", site: parent, variable: record.variable,
-          type: Object.freeze({ kind: "primitive", primitive: "int32" }), association: sourceAssociation(context, record.node) })];
       }
       return [];
     }
