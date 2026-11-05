@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Expression, ObjectLiteralProperty_Value } from "../../source-navigation/ast.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
+import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceTypeComponentEvidence } from "../types.js";
 import type {
@@ -144,6 +145,14 @@ export function publishSourceLiteralMetadata(
     if (!(ast.is.IsObjectLiteralExpression(node) || ast.is.IsArrayLiteralExpression(node)) ||
       sourceTypeFlowAssignmentPattern(ast, node)) return outcome;
     const type = outcome.type;
+    // Maintainer Q4 (C-2323, 28j'): an empty object literal whose slot is `unknown` has no member inventory to
+    // construct and no target type; it is refused. Non-empty literals under object/unknown still construct (C-2246).
+    if (ast.is.IsObjectLiteralExpression(node) && type.kind === "intrinsic" && type.intrinsic === "unknown" &&
+      ast.properties(node).length === 0) {
+      const refusal = createSourceTypeFlowRefusal("TSONIC_UNTYPED_OBJECT_LITERAL", node);
+      outcomes.set(node, refusal);
+      return refusal;
+    }
     const broad = type.kind === "intrinsic" && (type.intrinsic === "object" || type.intrinsic === "unknown");
     const construction = !broad ? undefined : ast.is.IsObjectLiteralExpression(node) ? object(node) : array(node);
     if (construction?.kind === "refused") { outcomes.set(node, construction); return construction; }

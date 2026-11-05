@@ -6,7 +6,7 @@ import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
-import { sourceTypeDescriptorsEqual } from "./terms.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
@@ -77,6 +77,13 @@ export function collectSourceTypeFlowUses(
     const slot = declaredSlots.get(record.node);
     if (slot?.authority !== "declared" || slot.type === undefined || slot.refusal !== undefined) return undefined;
     if (slot.type.kind === "intrinsic" && ["unknown", "any", "object", "void"].includes(slot.type.intrinsic)) return undefined;
+    // The one view rule applies to declared slots too (K-2449): a read-only parameter checks an aliased group and never
+    // fills its width; only a construction placed directly in that parameter takes the declared slot.
+    const direct = constructionFamilies.get(record.variable)?.some(construction => construction.node === record.node) ?? false;
+    if (readOnlyParameterView(slot.type, association, direct)) {
+      return Object.freeze({ kind: "check", site, variable: record.variable, check: "read-only", type: slot.type,
+        required: association.component?.declaration ?? association.component?.authoredTypeNode ?? site, association });
+    }
     return Object.freeze({ kind: "fill", site, variable: record.variable, type: slot.type, authority: "declared", association });
   }
   const uses: SourceTypeFlowUse[] = [];
@@ -343,12 +350,10 @@ function requiredUse(
     if (chosen === undefined) throw new Error("A construction family requires its declared slot selection.");
     type = chosen;
   } else if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
-  const readOnly = type.kind === "array" && type.readonly || type.kind === "tuple" && type.readonly;
+  const readOnly = readOnlyDescriptor(type);
   const assertion = context.source.ast.is.IsAsExpression(site) || context.source.ast.is.IsTypeAssertion(site);
-  // A read-only parameter is a view of an existing group: it checks the group and never fills its width. Only a
-  // construction placed directly in that parameter takes the declared slot through the C30 selection above.
   const direct = constructions.some(construction => construction.node === record.node);
-  if (check || !direct && readOnly && association.parameter !== undefined || assertion &&
+  if (check || readOnlyParameterView(type, association, direct) || assertion &&
     type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
     return Object.freeze({ kind: "check", site, variable: record.variable, check: readOnly ? "read-only" : "interface",
       type, required: component.declaration ?? component.authoredTypeNode ?? site, association });
@@ -593,4 +598,16 @@ function containingCallable(ast: AstReader, node: Node): Node | undefined {
     if (isSourceCallableBodyBoundary(ast, current)) return current;
   }
   return undefined;
+}
+
+// A read-only array or tuple, read through declared aliases (C-2263 keeps alias identity; the view is in its definition).
+function readOnlyDescriptor(type: SourceTypeDescriptor): boolean {
+  const structure = sourceTypeDescriptorStructure(type);
+  return structure.kind === "array" && structure.readonly || structure.kind === "tuple" && structure.readonly;
+}
+
+// The one view rule (K-2449): a read-only parameter is a view of an existing group. It checks the group and never fills
+// its width. Only a construction placed directly in that parameter takes the declared slot (C30 selection).
+function readOnlyParameterView(type: SourceTypeDescriptor, association: SourceTypeFlowAssociation, direct: boolean): boolean {
+  return !direct && association.parameter !== undefined && readOnlyDescriptor(type);
 }

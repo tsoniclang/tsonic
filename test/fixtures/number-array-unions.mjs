@@ -4,7 +4,7 @@ export function copy(values: Uint8Array | readonly number[]): number[] {
   return Array.from(values);
 }
 export function read(values: Uint8Array | readonly number[], index: number): number {
-  return values[index] ?? 0;
+  return index >= 0 && index < values.length ? values[index]! : 0;
 }
 export function length(values: Uint8Array | readonly number[]): number {
   return values.length;
@@ -12,7 +12,7 @@ export function length(values: Uint8Array | readonly number[]): number {
 let fallbackCalls = 0;
 function fallback(): number { fallbackCalls += 1; return 17; }
 export function lazy(values: Uint8Array | readonly number[], index: number): number {
-  return values[index] ?? fallback();
+  return index >= 0 && index < values.length ? values[index]! : fallback();
 }
 export function fallbackCount(): number { return fallbackCalls; }
 export function wide(values: Int16Array | readonly number[]): number[] {

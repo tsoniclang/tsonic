@@ -340,6 +340,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (selectedDeclaration !== undefined && descriptor?.kind === "shape") {
         result = descriptor.members.find(member => member.origin.kind === "declared" && member.origin.declaration === selectedDeclaration)?.type;
       }
+      // A property read with no declared member reads the string index signature (e.g. a Record<string, T> receiver).
+      if (result === undefined && descriptor?.kind === "shape" && descriptor.indexes.length > 0 &&
+        !descriptor.members.some(member => member.name === ast.text(ast.name(node)))) {
+        result = sourceTypeDescriptorIndexValue(descriptor, "string");
+      }
     }
     if (result === undefined && component === undefined && ast.is.IsElementAccessExpression(node)) {
       const access = queries.operations.elementAccess(node);
@@ -352,6 +357,12 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (descriptor?.kind === "array") result = descriptor.element;
       else if (descriptor?.kind === "tuple" && position !== undefined && position >= 0n && position <= BigInt(Number.MAX_SAFE_INTEGER)) {
         result = sourceTypeDescriptorTupleValue(descriptor, Number(position));
+      }
+      else if (descriptor?.kind === "shape" && descriptor.indexes.length > 0 && index !== undefined) {
+        const keyType = queries.types.expressionType(index);
+        const key = keyType === undefined ? undefined : queries.types.isNumberLike(keyType) ? "number" as const
+          : queries.types.isStringLike(keyType) ? "string" as const : queries.types.isSymbolLike(keyType) ? "symbol" as const : undefined;
+        if (key !== undefined) result = sourceTypeDescriptorIndexValue(descriptor, key);
       }
     }
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
@@ -463,4 +474,16 @@ export function sourceTypeFlowIntegerFits(value: bigint, kind: SourcePrimitiveKi
     case "decimal": return value >= -79228162514264337593543950335n && value <= 79228162514264337593543950335n;
     default: return false;
   }
+}
+
+// An index read takes the value of the one index signature whose key kind accepts the key: a number key reads a
+// numeric index, or else the string index (number keys are converted to strings); a string key reads the string index;
+// a symbol key reads the symbol index. Zero or several candidate indexes give no value.
+function sourceTypeDescriptorIndexValue(descriptor: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>,
+  key: "number" | "string" | "symbol"): SourceTypeDescriptor | undefined {
+  const kindOf = (selected: SourceTypeDescriptor): "number" | "string" | "symbol" | undefined => selected.kind === "string" ? "string"
+    : selected.kind === "primitive" ? "number" : selected.kind === "intrinsic" && selected.intrinsic === "symbol" ? "symbol" : undefined;
+  let selected = descriptor.indexes.filter(index => kindOf(index.key) === key);
+  if (selected.length === 0 && key === "number") selected = descriptor.indexes.filter(index => kindOf(index.key) === "string");
+  return selected.length === 1 ? selected[0]!.value : undefined;
 }

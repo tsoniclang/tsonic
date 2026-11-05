@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import { sourceArrayElementType } from "../array-types.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
@@ -13,6 +13,7 @@ import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
+import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
 import type {
   SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor, SourceLiteralMemberCorrespondence,
   SourceTypeFlowAssociation, SourceTypeFlowDerived, SourceTypeFlowGraph, SourceTypeFlowNode,
@@ -63,6 +64,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const terms = createSourceTypeFlowTerms(source.ast, graph);
   const signatures = collectSourceTypeFlowSignatures(context, graph, terms.isInference);
   const groups = new Map<SourceTypeFlowVariable, Group>();
+  const structuredGroups = new Set<Group>();
   const outcomes = new WeakMap<Node, SourceEffectiveTypeOutcome>();
   const calls = new WeakMap<Node, SourceEffectiveCallInstantiation>();
   const callableReturns = new WeakMap<Node, SourceEffectiveTypeOutcome>();
@@ -359,14 +361,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (derived.operator === "identity") return types[0];
     if (derived.operator === "sequence") return types[types.length - 1];
     if (derived.operator === "conditional" || derived.operator === "logical-and" || derived.operator === "logical-or") {
-      return sourceTypeDescriptorUnion(types.filter((type): type is SourceTypeDescriptor => type !== undefined));
+      return sourceTypeDescriptorUnion(partneredArms(derived.operands, types.filter((type): type is SourceTypeDescriptor => type !== undefined)));
     }
     if (derived.operator === "coalesce") {
       const left = types[0];
       const right = types[1];
-      return right === undefined ? undefined : sourceTypeDescriptorUnion([
-        ...(left === undefined || left.kind === "intrinsic" && left.intrinsic === "absence" ? [] : [left.kind === "optional" ? left.value : left]), right,
-      ]);
+      if (right === undefined) return undefined;
+      const present = left === undefined || left.kind === "intrinsic" && left.intrinsic === "absence" ? undefined : left.kind === "optional" ? left.value : left;
+      return present === undefined ? right : sourceTypeDescriptorUnion(partneredArms(derived.operands, [present, right]));
     }
     const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "logical-not"].includes(derived.operator);
     if (comparison) return { kind: "primitive", primitive: "bool" };
@@ -399,6 +401,31 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return undefined;
   }
 
+  // C14 for value-selecting operators (?:, &&, ||, ??): an open integer-literal arm takes the kind of its one
+  // non-literal numeric partner arm when it fits that kind, as in arithmetic (`maybe ?? 0` over number is float64).
+  function partneredArms(operands: readonly SourceTypeFlowVariable[], arms: readonly SourceTypeDescriptor[]): readonly SourceTypeDescriptor[] {
+    if (arms.length !== operands.length) return arms;
+    const supported = new Set(["int32", "uint32", "int64", "uint64", "float32", "float64", "decimal"]);
+    const leaves = operands.map(operand => {
+      const selected = group(operand);
+      return selected.terms.find((term): term is Extract<SourceTypeFlowTerm, { kind: "numeric" }> =>
+        term.kind === "numeric" && selected.filledBy === undefined);
+    });
+    const partners = [...new Set(arms.flatMap((arm, index) => leaves[index] === undefined && arm.kind === "primitive" &&
+      supported.has(arm.primitive) ? [arm.primitive] : []))];
+    if (partners.length !== 1) return arms;
+    const partner = partners[0]!;
+    return arms.map((arm, index) => {
+      const leaf = leaves[index];
+      if (leaf === undefined || arm.kind !== "primitive") return arm;
+      const floating = leaf.form === "fractional" || sourceTypeFlowNumericLiteralKind(leaf.literal) === "float64";
+      if (floating) return ["float32", "float64", "decimal"].includes(partner) ? { kind: "primitive", primitive: partner } as const : arm;
+      const value = leaf.literal.integerConstant ?? leaf.literal.integer;
+      return leaf.form === "integer" && value !== undefined && sourceTypeFlowIntegerFits(value, partner as never)
+        ? { kind: "primitive", primitive: partner } as const : arm;
+    });
+  }
+
   function solve(selected: Group, accumulator = false): void {
     for (const node of selected.nodes) {
       const refusal = defaults.descriptorRefusals.get(node.node);
@@ -422,6 +449,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const retainedStructure = !selected.inference && selected.terms.some(term => term.kind !== "fixed" && term.kind !== "numeric" &&
       !source.ast.is.IsArrayLiteralExpression(term.site) && !source.ast.is.IsObjectLiteralExpression(term.site))
       ? constructed(selected) : undefined;
+    if (retainedStructure !== undefined) structuredGroups.add(selected);
     const construction = selected.constructions[0];
     const anchor = (construction?.authority === "declared" ? construction : aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
@@ -532,7 +560,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const declared = record !== undefined;
     if (selected.refused !== undefined && (!declared || record.declaredType === undefined &&
       record.association?.component === undefined)) { outcomes.set(node, selected.refused); return; }
-    const type = record !== undefined ? declaredDescriptor(record) : selected.inference || selected.derived.length > 0 ? selected.type
+    // A group solved from a retained structure (e.g. a generic result array whose element is a solved binder, N1) publishes
+    // that solved structure; only an unstructured fixed group is described from its checked type.
+    const type = record !== undefined ? declaredDescriptor(record)
+      : selected.inference || selected.derived.length > 0 || structuredGroups.has(selected) ? selected.type
       : context.describe(node, association?.component);
     if (type === undefined) {
       if (!selected.inference) return;
@@ -579,6 +610,28 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         association: Object.freeze({ occurrence: call.node, sourceFile: source.ast.getSourceFile(call.node)!,
           call: call.source, component: binder.constraint }) }));
     }
+  }
+  // Every resolved call with method type arguments publishes its instantiation, also when none of its values joins the
+  // local graph (e.g. a statement call `receiver.member<Word>()` on an ambient or provider declaration). The method
+  // binders take the descriptor of the selected type argument, from its authored syntax when it is explicit.
+  for (const node of defaults.nodes) {
+    if (calls.has(node) || !(source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node))) continue;
+    const queries = source.semantics.forNode(node);
+    const call = queries.operations.call(node);
+    const selected = call?.sourceSelectedMethodTypeArguments ?? [];
+    if (call === undefined || call.sourceSelectedSignatureKind !== "resolved" || selected.length === 0) continue;
+    const method: { readonly declaration: Node; readonly type: SourceTypeDescriptor }[] = [];
+    for (const argument of selected) {
+      const symbol = queries.declarations.typeSymbol(argument.typeParameter);
+      const declarations = symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)
+        .filter(declaration => source.ast.is.IsTypeParameterDeclaration(declaration));
+      const type = declarations.length !== 1 ? undefined : context.describe(node, { selectedType: argument.selectedType,
+        ...(argument.explicitTypeNode === undefined ? {} : { authoredTypeNode: argument.explicitTypeNode }) });
+      if (declarations.length !== 1 || type === undefined) break;
+      method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(type) }));
+    }
+    if (method.length !== selected.length) continue;
+    calls.set(node, Object.freeze({ call, receiver: Object.freeze([]), method: Object.freeze(method) }));
   }
   for (const node of [...graph.nodes.filter(record => record.declaration === record.node).map(record => record.node), ...defaults.values]) {
     if (outcomes.has(node)) continue;
@@ -815,6 +868,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         provenance: Object.freeze({ ...returned.provenance, occurrence: node, sourceFile: file }) }));
     }
   }
+  // An await's published value is the awaited payload of its operand's final outcome (the operand may be a call whose
+  // inferred async result is only complete now).
+  for (const node of defaults.nodes) {
+    if (!source.ast.is.IsAwaitExpression(node)) continue;
+    const operand = Node_Expression(source.ast, node);
+    const operandOutcome = operand === undefined ? undefined : outcomes.get(operand);
+    const current = outcomes.get(node);
+    if (operand === undefined || operandOutcome === undefined || operandOutcome.kind === "refused" ||
+      current === undefined || current.kind === "refused") continue;
+    const payload = sourceTypeFlowAwaitedPayload(source.semantics.forNode(operand), operand, operandOutcome.type);
+    if (payload !== undefined) outcomes.set(node, Object.freeze({ ...current, type: freezeSourceTypeDescriptor(payload) }));
+  }
   for (const [node, refusal] of defaults.descriptorRefusals) outcomes.set(node, refusal);
   publishSourceLiteralMetadata(context, defaults.nodes, outcomes, callableReturn, node => {
     const variable = valueVariables.get(node);
@@ -866,8 +931,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: outcome.type, required: node.node,
       authority: authority(parent) }));
   }
+  // Refusals that literal publication sets on an aggregate literal itself are reported like every other Host refusal.
+  const literalRefusals = defaults.values.flatMap(node => {
+    if (!(source.ast.is.IsObjectLiteralExpression(node) || source.ast.is.IsArrayLiteralExpression(node))) return [];
+    const outcome = outcomes.get(node);
+    return outcome?.kind === "refused" && outcome.site === node ? [outcome] : [];
+  });
   const frozenIssues = Object.freeze([...new Set([...defaults.signatureRefusals.values(), ...defaults.descriptorRefusals.values(),
-    ...totalityRefusals,
+    ...totalityRefusals, ...literalRefusals,
     ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])])]
     .sort((left, right) => compare(left.site, right.site)));
   const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site)));

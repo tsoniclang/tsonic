@@ -1882,3 +1882,57 @@ test("C30 authority follows the destination's authored type through authored typ
       `${path.name}: authority is the destination slot's own authored type`);
   }
 });
+
+test("E4 index reads take the matching index signature value of the receiver's published structure", () => {
+  const current = fixture(`declare const record: Record<number, int32>; declare const words: Record<string, int32>;
+    function run(): boolean { const byNumber = record[1.5]; const byName = words.alpha; const byKey = words["beta"];
+      return byNumber === 7 && byName === 1 && byKey === 2; }`);
+  for (const name of ["byNumber", "byName", "byKey"]) assertSameValue(current.type(name), { kind: "primitive", primitive: "int32" });
+});
+
+test("E4 every resolved call with method type arguments publishes its instantiation outside the local graph", () => {
+  const current = fixture(`declare const receiver: { member<T>(): void; pair<A, B>(): void };
+    function run(): void { receiver.member<int32>(); receiver.pair<float32, string>(); }`);
+  const { ast } = current.source;
+  const calls = current.nodes.filter(node => ast.is.IsCallExpression(node));
+  assert.equal(calls.length, 2);
+  const [member, pair] = calls.map(call => current.source.effectiveTypes.callInstantiation(call));
+  assert.equal(member !== undefined && member.method.length === 1, true, "member<int32> publishes one method binder");
+  assertSameValue(member!.method[0]!.type, { kind: "primitive", primitive: "int32" });
+  assert.equal(pair !== undefined && pair.method.length === 2, true, "pair<float32, string> publishes both binders in order");
+  assertSameValue(pair!.method[0]!.type, { kind: "primitive", primitive: "float32" });
+  assertSameValue(pair!.method[1]!.type, { kind: "string" });
+});
+
+test("K-2449 a read-only parameter view never fills an aliased group's width on any generic or alias route", () => {
+  const cases = [
+    ["explicit_array", "function inspect<T>(value: readonly T[]): void { void value; }", "inspect<number>(values)"],
+    ["explicit_tuple", "function inspect<T>(value: readonly [T]): void { void value; }", "inspect<number>(values)"],
+    ["alias_view", "type View = readonly number[]; function inspect(value: View): void { void value; }", "inspect(values)"],
+    ["generic_alias_view", "type View<T> = readonly T[]; function inspect<T>(value: View<T>): void { void value; }", "inspect<number>(values)"],
+    ["inferred_array", "function inspect<T>(value: readonly T[]): void { void value; }", "inspect(values)"],
+  ] as const;
+  for (const [name, declarations, call] of cases) {
+    const initializer = name === "explicit_tuple" ? "[1] as [int32]" : "[1]";
+    const current = fixture(`${declarations} function run(): void { const values = ${initializer}; ${call}; }`);
+    const type = current.type("values");
+    // The view never fills or retypes the aliased group: a mutable local stays mutable (no readonly copied from the view).
+    assert.equal((type.kind === "array" || type.kind === "tuple") && type.readonly === false, true,
+      `${name}: the read-only view checks the group and never fills it`);
+    // Without an explicit type argument, the group keeps its own B3 width.
+    if (!call.includes("<number>")) {
+      const element = type.kind === "array" ? type.element : type.kind === "tuple" ? type.elements[0]?.type : undefined;
+      assert.equal(element?.kind === "primitive" && element.primitive === "int32", true, `${name}: the group keeps its int32 width`);
+    }
+  }
+});
+
+test("K-2449 a construction placed directly in a read-only parameter still takes its declared slot", () => {
+  const current = fixture(`function inspect<T>(value: readonly T[]): void { void value; }
+    function run(): void { inspect<number>([1]); }`);
+  const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
+    outcome.type.element.kind === "primitive" && outcome.type.element.primitive === "float64", true,
+    "the direct construction takes the instantiated declared slot (C30)");
+});

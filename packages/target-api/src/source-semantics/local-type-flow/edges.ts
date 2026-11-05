@@ -16,6 +16,7 @@ import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
+import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
   SourceTypeFlowBinder, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
@@ -526,7 +527,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       return result;
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) return read(node, depth);
-    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsAwaitExpression(node) ||
+    // An await's value is the awaited payload, not its operand's task: it is not a transparent wrapper. The operand
+    // keeps its own records; the await node is fixed by its checked awaited type.
+    if (ast.is.IsAwaitExpression(node)) {
+      const operand = Node_Expression(ast, node);
+      if (operand !== undefined) value(operand, false, depth);
+      return fixed(node, undefined, operand === undefined ? undefined
+        : sourceTypeFlowAwaitedPayload(semantics.forNode(operand), operand, context.describe(operand)));
+    }
+    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) ||
       ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) || ast.is.IsTypeAssertion(node)) {
       const operand = Node_Expression(ast, node);
       const source = operand === undefined ? undefined : value(operand, initializer, depth);
@@ -1165,6 +1174,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       }
       if (declaration !== undefined && ast.is.IsTypeLiteralNode(declaration)) {
         const properties = formalQuery.types.propertyInfos(formal);
+        // A result whose formal is a type literal is structured by its members, like the array, tuple and declared forms.
+        if (role === "result" && terms.get(variable) === undefined) putTerm(variable, Object.freeze({ kind: "shape", site: occurrence,
+          members: Object.freeze(properties.map(property => {
+            const member = formalQuery.declarations.primarySymbolDeclaration(property.symbol);
+            return Object.freeze({ name: property.name, optional: property.optional, variable: project(variable, { kind: "member", name: property.name }),
+              ...(member === undefined ? {} : { declaration: member }), ...(property.readonly ? { readonly: true } : {}) });
+          })) }));
         for (const property of properties) {
           const member = formalQuery.declarations.primarySymbolDeclaration(property.symbol);
           join(property.type, project(variable, { kind: "member", name: property.name }), occurrence,
