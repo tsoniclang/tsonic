@@ -297,6 +297,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (sourceNode?.term?.kind !== "fixed") return fixed(node, declaredComponent(node, query));
       const result = record(node, "fixed", Object.freeze({ ...sourceNode.term, site: node }), node, sourceNode.association);
       replace(node, { publish: sourceNode.publish });
+      link(source, result, initializer);
       return result;
     }
     const kind = derived.has(source.node) ? "derived-local" : openValues.has(source.node) ? "open-local" : "read";
@@ -418,7 +419,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const narrowed = type.kind === "optional" && component !== undefined &&
           !semantics.forNode(node).types.isUnion(component.selectedType) &&
           !semantics.forNode(node).types.isNullish(component.selectedType) ? type.value : type;
-        return fixed(node, component, narrowed);
+        const result = fixed(node, component, narrowed);
+        if (narrowed === type) link(source, result, node);
+        return result;
       }
       const result = record(node, selectedNode?.kind === "fixed" ? "fixed" : "read", undefined, selected);
       link(source === undefined ? undefined : narrowedRead(source, node), result, node);

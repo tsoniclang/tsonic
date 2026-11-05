@@ -40,7 +40,10 @@ export function collectSourceTypeFlowUses(
     if (!graph.roots.includes(record.root) || !withinInferenceRoot(ast, record.node, record.root)) {
       throw new Error("Local type uses require an occurrence in its original inference root.");
     }
-    if (record.kind === "fixed" || record.term?.kind === "fixed" || ast.is.IsArrowFunction(record.node) ||
+    const fixedType = record.term?.kind === "fixed" ? record.term.type : undefined;
+    const aggregate = fixedType?.kind === "array" || fixedType?.kind === "tuple" || fixedType?.kind === "shape" ||
+      fixedType?.kind === "declared";
+    if ((record.kind === "fixed" || record.term?.kind === "fixed") && !aggregate || ast.is.IsArrowFunction(record.node) ||
       ast.is.IsFunctionExpression(record.node) || ast.is.IsVariableDeclaration(record.node) ||
       ast.is.IsParameterDeclaration(record.node)) continue;
     uses.push(...classify(record));

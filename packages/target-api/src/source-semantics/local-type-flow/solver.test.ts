@@ -928,6 +928,61 @@ test("literal admission retains its actual inferred or declared Source authority
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C30 and B2 authority uses the declared slot while every B4 or inferred slot stays inferred", () => {
+  const cases: readonly { readonly name: string; readonly authority: "declared" | "inferred";
+    readonly program: (literal: string) => string }[] = [
+    { name: "typed_parameter", authority: "declared", program: literal => `function typed(): void { take(${literal}); }` },
+    { name: "later_parameter", authority: "declared", program: literal => `function later(): void { const values = ${literal}; take(values); }` },
+    { name: "annotated_variable", authority: "declared", program: literal => `function variable(): void { const values: Values = ${literal}; void values; }` },
+    { name: "annotated_field", authority: "declared", program: literal => `class AnnotatedField { value: Values = ${literal}; }` },
+    { name: "annotated_property", authority: "declared", program: literal => `const property: { value: Values } = { value: ${literal} };` },
+    { name: "declared_return", authority: "declared", program: literal => `function returned(): Values { return ${literal}; }` },
+    { name: "later_return", authority: "declared", program: literal => `function laterReturn(): Values { const values = ${literal}; return values; }` },
+    { name: "concise", authority: "declared", program: literal => `const concise = (): Values => ${literal};` },
+    { name: "contextual_concise", authority: "declared", program: literal => `const context: () => Values = () => ${literal};` },
+    { name: "conditional_true", authority: "declared", program: literal => `function trueBranch(flag: boolean): Values { return flag ? ${literal} : []; }` },
+    { name: "conditional_false", authority: "declared", program: literal => `function falseBranch(flag: boolean): Values { return flag ? [] : ${literal}; }` },
+    { name: "nullish", authority: "declared", program: literal => `function nullish(input: Values | undefined): Values { return input ?? ${literal}; }` },
+    { name: "async_return", authority: "declared", program: literal => `async function asynchronous(): Promise<Values> { return ${literal}; }` },
+    { name: "as", authority: "declared", program: literal => `function assertion(): void { const values = ${literal} as Values; void values; }` },
+    { name: "satisfies", authority: "declared", program: literal => `function satisfaction(): void { const values = ${literal} satisfies Values; void values; }` },
+    { name: "api_argument", authority: "declared", program: literal => `function apiArgument(): void { api.take(${literal}); }` },
+    { name: "declared_element", authority: "declared", program: literal => `const nested: Values[] = [${literal}];` },
+    { name: "default_declared", authority: "declared", program: literal => `function declaredDefault(values: Values = ${literal}): void { void values; }` },
+    { name: "generic_identity", authority: "declared", program: literal => `function genericIdentity(): void { const values: Values = identity(${literal}); void values; }` },
+    { name: "generic_readonly", authority: "declared", program: literal => `function genericReadonly(): void { const values: readonly (string | number)[] = freeze(${literal}); void values; }` },
+    { name: "b4_return", authority: "inferred", program: literal => `function inferredReturn() { const values = ${literal}; return values; }` },
+    { name: "b4_concise", authority: "inferred", program: literal => `const inferredConcise = () => ${literal};` },
+    { name: "b4_yield", authority: "inferred", program: literal => `function* inferredYield() { yield ${literal}; }` },
+    { name: "export", authority: "inferred", program: literal => `export const exported = ${literal};` },
+    { name: "field", authority: "inferred", program: literal => `class InferredField { value = ${literal}; }` },
+    { name: "default", authority: "inferred", program: literal => `function inferredDefault(values = ${literal}): void { void values; }` },
+    { name: "open_local", authority: "inferred", program: literal => `function local(): void { const values = ${literal}; void values; }` },
+    { name: "derived", authority: "inferred", program: literal => `function derived(flag: boolean): void { const values = ${literal}; const selected = flag ? values : values; void selected; }` },
+    { name: "read_alias", authority: "inferred", program: literal => `function aliases(): void { const values = ${literal}; const alias = values; void alias; }` },
+    { name: "assignment_pattern", authority: "inferred", program: literal => `function pattern(): void { let first: string | number; [first] = ${literal}; void first; }` },
+  ];
+  const current = fixture(`type Values = (string | number)[]; type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    declare function take(value: Values): void; declare const api: { take(value: Values): void };
+    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
+    ${cases.map(row => row.program(`[${JSON.stringify(row.name)}, 9007199254740993, -9007199254740993, 1e100]`)).join("\n")}`);
+  const { ast } = current.source;
+  for (const row of cases) {
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
+      ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]) &&
+      ast.text(ast.elements(node)[0]) === JSON.stringify(row.name));
+    assert.equal(literal !== undefined, true, `${row.name}: actual aggregate construction`);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission" &&
+      obligation.site === literal);
+    assert.equal(admissions.length, 1, `${row.name}: exactly one canonical aggregate admission`);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
+      admissions[0].authority === row.authority && admissions[0].type === outcome.type, true,
+    `${row.name}: chosen Source fill authority and identical published descriptor`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }

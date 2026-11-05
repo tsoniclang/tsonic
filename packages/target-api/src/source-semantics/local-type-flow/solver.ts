@@ -81,7 +81,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         const component = node.association?.component;
         const type = node.declaredType ?? (component === undefined ? undefined : context.describe(node.node, component));
         return type === undefined ? [] : [{ type, site: node.node, fixed: true,
-          authority: defaults.declaredSlots.get(node.node)?.authority ?? "declared" }];
+          authority: defaults.declaredSlots.get(node.node)?.authority ?? (component?.authoredTypeNode !== undefined ||
+            component?.declaration !== undefined && source.ast.typeNode(component.declaration) !== undefined ? "declared" : "inferred") }];
       });
       result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
         fills: [], constructions, signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
@@ -166,14 +167,18 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     for (const fill of selected.constructions) pendingFills.push({ variable: selected.variable, fill });
     for (const term of selected.terms) if (term.kind === "fixed") {
       const slot = defaults.declaredSlots.get(term.site);
-      const literal = source.ast.is.IsArrayLiteralExpression(term.site) || source.ast.is.IsObjectLiteralExpression(term.site) ||
-        context.literal(term.site) !== undefined;
+      const component = records.get(term.site)?.association?.component;
+      const declaration = records.get(term.site)?.declaration ?? source.navigation.sourceReferenceFor(term.site)?.declaration ?? term.site;
       pendingFills.push({ variable: selected.variable, fill: { type: term.type, site: term.site, fixed: true,
-        authority: slot?.authority ?? (literal ? "inferred" : "declared") } });
+        authority: slot?.authority ?? (component?.authoredTypeNode !== undefined || source.ast.typeNode(declaration) !== undefined
+          ? "declared" : "inferred") } });
     }
   }
   for (const use of uses) if (use.kind === "fill") {
-    pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false, authority: "declared" } });
+    const component = use.association?.component;
+    pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false,
+      authority: component?.authoredTypeNode !== undefined || component?.declaration !== undefined &&
+        source.ast.typeNode(component.declaration) !== undefined ? "declared" : "inferred" } });
   }
   for (let index = 0; index < pendingFills.length; index += 1) {
     const { variable, fill } = pendingFills[index]!;
