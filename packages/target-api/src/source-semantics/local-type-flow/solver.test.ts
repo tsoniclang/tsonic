@@ -1105,6 +1105,37 @@ test("C24 every callable declaration kind publishes its actual parameter groups 
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("contextual methods and accessors take their declared descriptors from checked member identity for every key form", () => {
+  const current = fixture(`declare const token: unique symbol; const computed = "read" as const;
+    const selected: { read(value: int32): int32; 1(value: int32): int32; "quoted key"(value: int32): int32;
+      [token](value: int32): int32; readonly getter: int32; setter: int32 } = {
+      [computed](value) { return value + value; }, 1(value) { return value + value; },
+      "quoted key"(value) { return value + value; }, [token](value) { return value + value; },
+      get getter() { return 1; }, get setter(): int32 { return 1; }, set setter(value) { void (value + value); }
+    };`);
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual checked literal is required.");
+  const members = ast.properties(literal).filter((node): node is Node => node !== undefined &&
+    (ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node)));
+  assert.equal(members.length, 7);
+  for (const member of members) {
+    const returned = current.source.effectiveTypes.callableReturn(member);
+    assert.equal(returned !== undefined && returned.kind !== "refused" && returned.provenance.occurrence === member &&
+      returned.type.kind === (ast.is.IsSetAccessorDeclaration(member) ? "intrinsic" : "primitive") &&
+      (returned.type.kind === "intrinsic" ? returned.type.intrinsic === "void"
+        : returned.type.kind === "primitive" && returned.type.primitive === "int32"), true,
+    `member ${ast.pos(member)}: exact declared return`);
+    for (const parameter of ast.parameters(member)) {
+      const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+        outcome.type.primitive === "int32" && outcome.provenance.occurrence === parameter, true,
+      `member ${ast.pos(member)}: exact declared parameter`);
+    }
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }

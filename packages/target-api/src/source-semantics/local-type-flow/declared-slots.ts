@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourceObjectLiteralDestinationMember } from "../object-literal-correspondence.js";
 import { sourceTypeDescriptorHasTypeVariables } from "./terms.js";
 import type { SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal } from "./types.js";
 
@@ -88,9 +89,12 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (slot?.authority !== "declared" || slot.type === undefined) return undefined;
     const selected = structural(slot.type);
     if (selected.kind !== "shape" && selected.kind !== "declared") return undefined;
-    const name = ast.name(node);
-    const property = name === undefined ? undefined : query.propertyNames.get(name);
-    return property?.kind === "resolved" ? selected.members?.find(member => member.name === property.name)?.type : undefined;
+    const element = query.operations.objectLiteralElement(node);
+    if (element === undefined || element.element !== node || element.objectLiteral !== literal || element.contextualType === undefined) return undefined;
+    const destination = sourceObjectLiteralDestinationMember(element, element.contextualType, query);
+    if (destination === undefined) return undefined;
+    const matches = selected.members?.filter(member => member.declaration !== undefined && destination.declarations.includes(member.declaration));
+    return matches?.length === 1 ? matches[0]!.type : undefined;
   }
 
   function parameter(node: Node, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
