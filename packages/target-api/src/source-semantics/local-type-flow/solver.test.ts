@@ -431,8 +431,11 @@ for (const [name, body] of [
         assertSameValue(value.type, { kind: "primitive", primitive });
       }
     }
-    assert.equal(current.source.effectiveTypes.obligations().some(obligation => obligation.kind === "literal-admission" &&
-      obligation.site === literal && isDeepStrictEqual(obligation.type, outcome.type)), false);
+    const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission" &&
+      obligation.site === literal);
+    assert.equal(admissions.length, 1, `${name}: the declared construction carries one canonical D2 obligation`);
+    assert.equal(admissions[0]?.kind === "literal-admission" && admissions[0].authority === "declared", true, name);
+    assert.equal(admissions[0]?.type === outcome.type, true, `${name}: admission retains the exact published descriptor`);
   });
 }
 
@@ -518,8 +521,8 @@ test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation
     const selected = current.type("values");
     assert.equal(selected.kind === "array" && selected.element.kind === "primitive" &&
       selected.element.primitive === "int32", true, elements);
-    const original = current.nodes.find(node => current.source.ast.text(node) === elements.split(", ").find(part => part !== "signed") &&
-      (current.source.ast.is.IsNumericLiteral(node) || current.source.ast.is.IsPrefixUnaryExpression(node)));
+    const original = current.nodes.find(node => (current.source.ast.is.IsNumericLiteral(node) || current.source.ast.is.IsPrefixUnaryExpression(node)) &&
+      current.source.ast.text(node) === elements.split(", ").find(part => part !== "signed"));
     assert.equal(original !== undefined && current.source.effectiveTypes.obligations().some(obligation =>
       obligation.kind === "literal-admission" && obligation.site === original &&
       obligation.type.kind === "primitive" && obligation.type.primitive === "int32"), true,
