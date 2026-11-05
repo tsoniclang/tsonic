@@ -295,7 +295,7 @@ test("integer folding keeps the actual literal receipt and excludes bigint leave
   const term = current.entry(expression).term;
   assert.equal(term?.kind, "numeric");
   assert.equal(term?.kind === "numeric" && term.literal.integerConstant === 5n, true);
-  assert.equal(current.graph.derived.some(operation => operation.node === expression), false);
+  assert.equal(current.graph.derived.some(operation => operation.node === expression), true);
   const bigint = current.node("2n", node => current.source.ast.is.IsBigIntLiteral(node));
   assert.equal(current.graph.nodes.some(entry => entry.node === bigint && entry.kind === "open-local"), false);
 });
@@ -739,4 +739,78 @@ test("LM lexical arrows keep the literal receiver while ordinary functions and c
   assert.equal(root !== undefined && ast.is.IsArrowFunction(root), true);
   assert.equal(receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === undefined).length, 2);
   assert.equal(current.graph.refusals.some(issue => issue.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE"), false);
+});
+
+test("C2330 object members resolve only against their retained element tuple inventory", () => {
+  const current = fixture(`function run() { const value = { count: 1, read(next: word): word { return this.count + next; },
+    get current(): word { return this.count; }, set current(next: word) { this.count = next; },
+    set writeOnly(next: word) { this.count = next; } }; return value; }`);
+  const { ast } = current.source;
+  const literal = current.syntax.find(node => ast.is.IsObjectLiteralExpression(node));
+  if (literal === undefined) throw new Error("The actual literal is required.");
+  const shape = current.entry(literal).term;
+  if (shape?.kind !== "shape") throw new Error("The linked literal shape is required.");
+  for (const property of ast.properties(literal)) {
+    if (property === undefined) throw new Error("The original member is required.");
+    const query = current.source.semantics.forNode(property);
+    const element = query.operations.objectLiteralElement(property);
+    assert.equal(element?.objectLiteral === literal && element.element === property && element.sourceElementSymbol !== undefined, true);
+    if (element === undefined) throw new Error("The checked member tuple is required.");
+    const selected = query.types.propertyInfos(element.objectLiteralType).find(member => member.symbol === element.sourceElementSymbol);
+    assert.equal(selected !== undefined && shape.members.some(member => member.name === selected.name), true,
+      `member ${ast.pos(property)} belongs to the same checked tuple inventory`);
+  }
+  assert.equal(shape.members.length, 4);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2330 a missing operation operand publishes one graph refusal without a partial term or derived record", () => {
+  const current = fixture("function run() { const outer = 1; const saved = () => outer + 1; return saved; }");
+  const expression = current.node("outer + 1", node => current.source.ast.is.IsBinaryExpression(node));
+  assert.equal(current.graph.refusals.filter(issue => issue.site === expression && issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED").length, 1);
+  assert.equal(current.graph.nodes.some(record => record.node === expression), false);
+  assert.equal(current.graph.derived.some(operation => operation.node === expression), false);
+});
+
+test("C2332 discarded selections retain operand effects without creating a result graph record", () => {
+  const current = fixture(`declare function effect(): word;
+    function run(flag: boolean, optional: (() => word) | undefined): void {
+      flag && effect(); flag || effect(); optional ?? effect(); flag ? effect() : effect();
+    }`);
+  const { ast } = current.source;
+  const selections = current.syntax.filter(node => ast.is.IsConditionalExpression(node) || ast.is.IsBinaryExpression(node));
+  assert.equal(selections.length, 4);
+  for (const node of selections) {
+    assert.equal(current.graph.nodes.some(record => record.node === node), false);
+    assert.equal(current.graph.derived.some(derived => derived.node === node), false);
+  }
+  const effects = current.syntax.filter(node => ast.is.IsCallExpression(node));
+  assert.equal(effects.length, 5);
+  assert.equal(effects.every(node => current.graph.nodes.some(record => record.node === node)), true);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2330 direct nominal callables retain the enclosing binder from the actual callee", () => {
+  const current = fixture(`interface Transform<Value> { (value: Value): Value; }
+    function run(callback: Transform<word>, value: word): word { return callback(value); }`);
+  const call = current.graph.calls.find(call => current.text(call.node) === "callback(value)");
+  assert.equal(call !== undefined && call.receiver.length === 1 && call.method.length === 0, true);
+  const receiver = call?.receiver[0];
+  const parameter = current.syntax.find(node => current.source.ast.is.IsTypeParameterDeclaration(node));
+  assert.equal(receiver?.declaration === parameter, true);
+  assert.equal(receiver !== undefined && current.graph.nodes.some(node => current.same(node.variable, receiver.variable) &&
+    node.term?.kind === "fixed" && node.term.type.kind === "primitive" && node.term.type.primitive === "int32"), true);
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2330 a generic recursive alias joins matching declared arguments without choosing a union arm", () => {
+  const current = fixture(`type Tree<Value> = Value | readonly Tree<Value>[];
+    function keep<Value>(tree: Tree<Value>): Tree<Value> { return tree; }
+    function run(tree: Tree<word>): Tree<word> { return keep<word>(tree); }`);
+  const call = current.graph.calls.find(call => current.text(call.node) === "keep<word>(tree)");
+  assert.equal(call !== undefined && call.method.length === 1, true);
+  const alias = current.syntax.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
+  const result = call === undefined ? undefined : current.graph.nodes.find(node => node.node === call.node);
+  assert.equal(result?.term?.kind === "declared" && result.term.declaration === alias && result.term.typeArguments.length === 1, true);
+  assert.equal(current.graph.refusals.length, 0);
 });

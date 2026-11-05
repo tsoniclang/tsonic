@@ -7,11 +7,11 @@ import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.j
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceTypeComponentEvidence } from "../types.js";
-import { sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { sourceTypeDescriptorIndexValue, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { sourceTypeFlowAssignmentPattern, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
@@ -35,6 +35,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const derived = new Map<Node, SourceTypeFlowDerived>();
   const calls = new Map<Node, SourceTypeFlowCall>();
   const refusals: SourceTypeFlowRefusal[] = [];
+  const refusedOperations = new WeakSet<Node>();
   const active = new Set<Node>();
   const literalReceiverValues = new Set<SourceTypeFlowVariable>();
   const openValues = new Set<Node>();
@@ -350,6 +351,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     building.add(node);
     const source = value(initializer, true);
     building.delete(node);
+    if (source === undefined && refusedOperations.has(initializer)) {
+      const result = record(node, "derived-local", undefined, node);
+      replace(node, { initializer });
+      return result;
+    }
     if (source === undefined) return fixed(node, declaredComponent(node, query));
     const sourceNode = nodes.get(source.node);
     if (!active.has(source.node) && !derived.has(source.node)) {
@@ -442,7 +448,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
             ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
         }
       }
-      if (projected?.kind === "optional" && selected !== undefined && !query.types.isUnion(selected.selectedType) &&
+      if (projected?.kind === "optional" && Node_Initializer(ast, element) !== undefined && selected !== undefined && !query.types.isUnion(selected.selectedType) &&
         !query.types.isNullish(selected.selectedType)) projected = projected.value;
       fixed(element, selected, projected);
       if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
@@ -462,6 +468,16 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const previous = nodes.get(node);
     if (previous !== undefined) return previous.variable;
     if (!rootOf.has(node) || typeOnly.has(node)) return undefined;
+    if (refusedOperations.has(node)) return undefined;
+    if (sourceTypeFlowDiscardedSelection(context.source, node)) {
+      const conditional = ast.as.AsConditionalExpression(node);
+      const binary = ast.as.AsBinaryExpression(node);
+      for (const operand of conditional === undefined ? [binary?.Left, binary?.Right]
+        : [conditional.Condition, conditional.WhenTrue, conditional.WhenFalse]) {
+        if (operand !== undefined) value(operand, false, depth);
+      }
+      return undefined;
+    }
     if (sourceTypeFlowObjectLiteralReceiver(ast, node) !== undefined) {
       const result = record(node, "read");
       if (result !== undefined) literalReceiverValues.add(result);
@@ -485,6 +501,17 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           if (root !== undefined && (ast.is.IsArrowFunction(root) || ast.is.IsFunctionExpression(root)) &&
             navigation.expressionResultDisposition(root).kind !== "discarded") {
             refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node, selected);
+          }
+          if (source !== undefined && root !== undefined && ast.is.IsFunctionDeclaration(root)) {
+            const result = record(node, "read", undefined, selected);
+            if (result !== undefined) {
+              const term = terms.get(source);
+              if (literalReceiverValues.has(source) || term?.kind === "shape" || term?.kind === "array" || term?.kind === "tuple") {
+                literalReceiverValues.add(result);
+              }
+              active.add(node);
+            }
+            return result;
           }
           return undefined;
         }
@@ -514,17 +541,20 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const operand = Node_Expression(ast, node);
       return operand === undefined ? undefined : value(operand, initializer, depth);
     }
+    let numericTerm: Extract<SourceTypeFlowTerm, { kind: "numeric" }> | undefined;
     const literal = context.literal(node);
     if (!ast.is.IsParenthesizedExpression(node) && literal !== undefined && (literal.form === "numeric" || literal.numeric !== undefined ||
       literal.integerConstant !== undefined) && numericLeaves(ast, node)) {
       const token = sourceLiteralToken(ast, node);
       const text = token.kind === "authored" ? token.text : ast.text(node);
       const fractional = literal.integerConstant === undefined && !/^[-+]?0[xob]/iu.test(text) && /[.eE]/u.test(text);
-      const variable = record(node, "value", Object.freeze({ kind: "numeric", site: node,
-        form: fractional ? "fractional" : "integer", literal }));
-      active.add(node);
-      openValues.add(node);
-      if (!ast.is.IsPrefixUnaryExpression(node) && !ast.is.IsBinaryExpression(node)) return variable;
+      numericTerm = Object.freeze({ kind: "numeric", site: node, form: fractional ? "fractional" : "integer", literal });
+      if (!ast.is.IsPrefixUnaryExpression(node) && !ast.is.IsBinaryExpression(node)) {
+        const variable = record(node, "value", numericTerm);
+        active.add(node);
+        openValues.add(node);
+        return variable;
+      }
     }
     if (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) {
       if (sourceTypeFlowAssignmentPattern(ast, node)) return undefined;
@@ -552,6 +582,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) || ast.is.IsTypeAssertion(node)) {
       const operand = Node_Expression(ast, node);
       const source = operand === undefined ? undefined : value(operand, initializer, depth);
+      if (operand !== undefined && source === undefined && refusedOperations.has(operand)) {
+        refusedOperations.add(node);
+        return undefined;
+      }
       if (source === undefined || !active.has(source.node)) return fixed(node,
         ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)
           ? declaredComponent(node, semantics.forNode(node)) : undefined);
@@ -567,13 +601,25 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (ast.is.IsBinaryExpression(node)) {
       const binary = ast.as.AsBinaryExpression(node);
       const operator = ast.operatorKindName(node);
+      if (binary?.Left !== undefined && binary.Right !== undefined) {
+        if (operator === "KindEqualsToken") {
+          value(binary.Left, false, depth);
+          return operationNode(node, "identity", [binary.Right], initializer, depth);
+        }
+        if (operator === "KindInKeyword" || operator === "KindInstanceOfKeyword") {
+          value(binary.Left, false, depth);
+          value(binary.Right, false, depth);
+          return record(node, "value", Object.freeze({ kind: "fixed", site: node,
+            type: Object.freeze({ kind: "primitive", primitive: "bool" }) }));
+        }
+      }
       const operation = operator === undefined ? undefined : sourceTypeFlowBinaryOperators.get(operator);
       if (operation !== undefined && binary?.Left !== undefined && binary.Right !== undefined) {
         if (operation === "sequence") {
           value(binary.Left, false, depth);
           return operationNode(node, operation, [binary.Right], initializer, depth);
         }
-        return operationNode(node, operation, [binary.Left, binary.Right], initializer, depth);
+        return operationNode(node, operation, [binary.Left, binary.Right], initializer, depth, numericTerm);
       }
       return undefined;
     }
@@ -581,7 +627,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const operator = ast.operatorKindName(node);
       const operand = ast.is.IsPrefixUnaryExpression(node) ? ast.as.AsPrefixUnaryExpression(node)?.Operand : ast.as.AsPostfixUnaryExpression(node)?.Operand;
       const operation = operator === undefined ? undefined : sourceTypeFlowUnaryOperators.get(operator);
-      if (operation !== undefined && operand !== undefined) return operationNode(node, operation, [operand], initializer, depth);
+      if (operation !== undefined && operand !== undefined) return operationNode(node, operation, [operand], initializer, depth, numericTerm);
     }
     return fixed(node);
   }
@@ -658,15 +704,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       ast.is.IsMethodDeclaration(property) || ast.is.IsGetAccessorDeclaration(property) ||
       ast.is.IsSetAccessorDeclaration(property)))) return fixed(node);
     const query = semantics.forNode(node);
-    const selectedType = query.types.expressionType(node);
-    if (selectedType === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
-    const selectedMembers = query.types.propertyInfos(selectedType);
     const result = record(node, "value");
     if (result === undefined) return undefined;
     active.add(node);
     if (!declaredConstruction(node)) openValues.add(node);
     const members = new Map<string, { readonly source?: SourceTypeFlowVariable; readonly type?: SourceTypeDescriptor;
-      readonly site: Node; readonly declaration?: Node; readonly readonly?: boolean }>();
+      readonly site: Node; readonly declaration?: Node; readonly optional: boolean; readonly readonly?: boolean }>();
     for (const property of properties) {
       if (property === undefined) continue;
       const spread = SpreadAssignment_Expression(ast, property);
@@ -676,19 +719,22 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const term = nodes.get(source.node)?.term;
         const descriptor = context.describe(spread);
         const described = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
-        const names = term?.kind === "shape" ? term.members.map(member => member.name)
-          : described?.kind === "shape" ? described.members.map(member => member.name) : undefined;
-        if (names === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
-        for (const name of names) members.set(name, { source: project(source, { kind: "member", name }), site: property });
+        const selected = term?.kind === "shape" ? term.members : described?.kind === "shape" ? described.members : undefined;
+        if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
+        for (const member of selected) {
+          const declaration = "origin" in member ? member.origin.kind === "declared" ? member.origin.declaration : undefined : member.declaration;
+          members.set(member.name, { source: project(source, { kind: "member", name: member.name }), site: property,
+            optional: member.optional, ...(declaration === undefined ? {} : { declaration }),
+            ...(member.readonly === undefined ? {} : { readonly: member.readonly }) });
+        }
         continue;
       }
       const element = query.operations.objectLiteralElement(property);
       const selected = element?.objectLiteral === node && element.element === property && element.sourceElementSymbol !== undefined
-        ? selectedMembers.find(member => member.symbol === element.sourceElementSymbol ||
-          member.rootSymbols.includes(element.sourceElementSymbol!)) : undefined;
-      if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
+        ? query.types.propertyInfos(element.objectLiteralType).find(member => member.symbol === element.sourceElementSymbol) : undefined;
+      if (element === undefined || selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
       if (ast.is.IsMethodDeclaration(property) || ast.is.IsGetAccessorDeclaration(property) || ast.is.IsSetAccessorDeclaration(property)) {
-        const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [selectedType]);
+        const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [element.objectLiteralType]);
         const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, "read")
           ?? selectSourcePropertyDeclaration(ast, declarations, "write");
         let type: SourceTypeDescriptor | undefined;
@@ -704,25 +750,24 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           type = parameter === undefined ? undefined : declaredSlots.parameter(parameter, query) ?? context.describe(parameter);
         }
         if (declaration === undefined || type === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
-        members.set(selected.name, { type, site: property, declaration, ...(selected.readonly ? { readonly: true } : {}) });
+        members.set(selected.name, { type, site: property, declaration, optional: selected.optional,
+          ...(selected.readonly ? { readonly: true } : {}) });
         continue;
       }
       const initializer = ObjectLiteralProperty_Value(ast, property);
       const source = initializer === undefined ? undefined : value(initializer, true, depth + 1);
       if (source === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
-      members.set(selected.name, { source, site: property, declaration: property });
+      members.set(selected.name, { source, site: property, declaration: property, optional: selected.optional,
+        ...(selected.readonly ? { readonly: true } : {}) });
     }
     const shape = [];
     for (const [name, member] of members) {
-      const selected = selectedMembers.find(candidate => candidate.name === name);
-      if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
       const variable = project(result, { kind: "member", name });
       if (member.type === undefined) link(member.source, variable, member.site);
       else putTerm(variable, Object.freeze({ kind: "fixed", site: member.site, type: member.type }));
-      const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [selectedType]);
-      const declaration = member.declaration ?? (declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, "read"));
-      shape.push(Object.freeze({ name, variable, optional: selected.optional,
-        ...(declaration === undefined ? {} : { declaration }), ...(member.readonly === undefined ? {} : { readonly: member.readonly }) }));
+      shape.push(Object.freeze({ name, variable, optional: member.optional,
+        ...(member.declaration === undefined ? {} : { declaration: member.declaration }),
+        ...(member.readonly === undefined ? {} : { readonly: member.readonly }) }));
     }
     replace(node, { term: Object.freeze({ kind: "shape", site: node, members: Object.freeze(shape) }) });
     return result;
@@ -732,11 +777,23 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const receiver = Node_Expression(ast, node);
     const source = receiver === undefined ? undefined : value(receiver, false, depth);
     if (source === undefined || !active.has(source.node)) return fixed(node);
+    const sourceTerm = terms.get(source);
+    const structure = sourceTerm?.kind === "fixed" ? sourceTypeDescriptorStructure(sourceTerm.type) : undefined;
+    if (structure?.kind === "shape" && structure.indexes.length > 0) {
+      const query = semantics.forNode(node);
+      const property = ast.is.IsPropertyAccessExpression(node) ? query.operations.propertyAccess(node) : undefined;
+      const access = ast.is.IsElementAccessExpression(node) ? query.operations.elementAccess(node) : undefined;
+      const key = ast.is.IsPropertyAccessExpression(node) ? "string" : access === undefined ? undefined
+        : query.types.isNumberLike(access.argument.type) ? "number" : query.types.isStringLike(access.argument.type) ? "string"
+          : query.types.isSymbolLike(access.argument.type) ? "symbol" : undefined;
+      const selected = key === undefined || (property ?? access)?.selectedSymbol !== undefined ? undefined
+        : sourceTypeDescriptorIndexValue(structure, key);
+      if (selected !== undefined) return fixed(node, undefined, selected);
+    }
     let part: SourceTypeFlowPathPart | undefined;
-    const receiverType = !literalReceiverValues.has(source) || receiver === undefined ? undefined
-      : semantics.forNode(node).types.expressionType(receiver);
-    const selection = receiverType === undefined ? undefined : ast.is.IsPropertyAccessExpression(node)
+    const selection = !literalReceiverValues.has(source) || receiver === undefined ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
+    const receiverType = selection?.receiver.type;
     const selectedMember = receiverType === undefined || semantics.forNode(node).types.isArrayLike(receiverType) ||
       semantics.forNode(node).types.isStringLike(receiverType) || selection?.selectedSymbol === undefined ? undefined
       : semantics.forNode(node).types.propertyInfos(receiverType).find(member => member.symbol === selection.selectedSymbol ||
@@ -835,28 +892,32 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function operationNode(node: Node, operator: SourceTypeFlowOperator, operands: readonly Node[], required: boolean,
-    depth: number): SourceTypeFlowVariable | undefined {
+    depth: number, numericTerm?: Extract<SourceTypeFlowTerm, { kind: "numeric" }>): SourceTypeFlowVariable | undefined {
     const selected = operands.map(operand => value(operand, false, depth));
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
-    if (inputs.length !== selected.length) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+    if (inputs.length !== selected.length) {
+      refusedOperations.add(node);
+      refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+      return undefined;
+    }
     if (operator === "sequence" && inputs.length === 1 && openValues.has(inputs[0]!.node) && !derived.has(inputs[0]!.node)) {
       const result = record(node, "read");
       link(inputs[0], result, node);
       return result;
     }
     const aggregates = inputs.map(input => terms.get(input));
-    if (required && operator === "conditional" && inputs.some(operand => openValues.has(operand.node)) &&
+    if (required && (operator === "conditional" || operator === "coalesce") && inputs.some(operand => openValues.has(operand.node)) &&
       aggregates.length === 2 && aggregates.every(term => term?.kind === aggregates[0]?.kind &&
         (term?.kind === "array" || term?.kind === "shape" || term?.kind === "tuple"))) {
       const result = record(node, "value");
       for (const input of inputs) link(input, result, node);
       return result;
     }
-    const result = record(node, "value");
+    const result = record(node, "value", numericTerm);
     if (result === undefined) return undefined;
     derived.set(node, Object.freeze({ node, result, operator, operands: Object.freeze(inputs), required }));
     active.add(node);
-    if (inputs.some(operand => openValues.has(operand.node))) openValues.add(node);
+    if (numericTerm !== undefined || inputs.some(operand => openValues.has(operand.node))) openValues.add(node);
     return result;
   }
 
@@ -866,8 +927,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (source === undefined || source.sourceSelectedSignatureKind !== "resolved") return fixed(node);
     preparePairs(source, query);
     const arguments_ = source.sourceArguments.map(argument => value(argument.expression, false, depth));
-    const receiver = source.sourceReceiver === undefined ? undefined : value(source.sourceReceiver.expression, false, depth);
-    const receiverType = source.sourceReceiver === undefined ? undefined : context.describe(source.sourceReceiver.expression);
+    const directCallee = source.sourceReceiver === undefined ? nominalCallee(source, query) : undefined;
+    const receiverEvidence = source.sourceReceiver ?? directCallee;
+    const receiver = receiverEvidence === undefined ? undefined : value(receiverEvidence.expression, false, depth);
+    const receiverType = receiverEvidence === undefined ? undefined : context.describe(receiverEvidence.expression);
     if (receiver !== undefined && receiverType !== undefined && declaredWidth(receiverType)) active.add(receiver.node);
     for (const argument of arguments_) {
       const type = argument === undefined ? undefined : context.describe(argument.node);
@@ -886,7 +949,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
           sourceTypeFlowTypeDeclaration(context.source, query, argument.typeParameter) === declaration);
     });
-    if (!genericConstruction && !genericAggregate && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
+    if (!genericConstruction && !genericAggregate && directCallee === undefined && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
       (receiver === undefined || !active.has(receiver.node))) {
       const result = query.operations.callResult(source);
       const declaration = query.declarations.signatureDeclaration(source.selectedSignature);
@@ -894,7 +957,18 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         ...(declaration === undefined ? {} : { declaration }),
         ...(result.authoredTypeNode === undefined ? {} : { authoredTypeNode: result.authoredTypeNode }) }));
     }
-    return genericInvocation(node, source, arguments_, receiver, query, depth);
+    return genericInvocation(node, source, arguments_, receiver, receiverEvidence, query, depth);
+  }
+
+  function nominalCallee(call: ResolvedSourceCallInfo, query: SourceFileSemantics): ResolvedSourceCallInfo["sourceCallee"] | undefined {
+    if (!ast.is.IsCallExpression(call.call)) return undefined;
+    const declaration = query.declarations.signatureDeclaration(call.selectedSignature);
+    let owner = declaration === undefined ? undefined : ast.parent(declaration);
+    while (owner !== undefined && !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner) && !ast.is.IsInterfaceDeclaration(owner)) {
+      if (ast.is.IsSourceFile(owner)) return undefined;
+      owner = ast.parent(owner);
+    }
+    return owner !== undefined && (query.types.typeArgumentBindings(call.sourceCallee.type)?.length ?? 0) > 0 ? call.sourceCallee : undefined;
   }
 
   function preparePairs(source: ResolvedSourceCallInfo, caller: SourceFileSemantics): void {
@@ -922,6 +996,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   function genericInvocation(node: Node, source: ResolvedSourceCallInfo,
     arguments_: readonly (SourceTypeFlowVariable | undefined)[], receiver: SourceTypeFlowVariable | undefined,
+    receiverEvidence: ResolvedSourceCallInfo["sourceCallee"] | undefined,
     query: SourceFileSemantics, depth: number): SourceTypeFlowVariable | undefined {
     const result = record(node, "value");
     if (result === undefined) return undefined;
@@ -990,7 +1065,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (component === undefined) continue;
       argumentPlace = inlineCallable(ast, selected.expression) === undefined ? { binding, parameter } : undefined;
       const mentioned = mentionedBinders(component.selectedType, query.types, 0);
-      receiverOnly = source.sourceReceiver !== undefined && mentioned.size > 0 &&
+      receiverOnly = receiverEvidence !== undefined && mentioned.size > 0 &&
         [...mentioned].every(declaration => receiverBinders.some(binder => binder.declaration === declaration));
       const input = binding.sourceForm === "spread-sequence" ? project(argument, { kind: "element" })
         : binding.sourceForm === "spread-element" && binding.spreadElementIndex !== undefined
@@ -1027,7 +1102,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     return result;
 
     function receiverParameters(call: ResolvedSourceCallInfo): readonly Node[] {
-      if (call.sourceReceiver === undefined) return [];
+      if (receiverEvidence === undefined) return [];
       const selected = call.sourceCalleeAccess?.selectedDeclaration ?? query.declarations.signatureDeclaration(call.selectedSignature);
       let owner = selected === undefined ? undefined : ast.parent(selected);
       while (owner !== undefined && !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner) && !ast.is.IsInterfaceDeclaration(owner)) {
@@ -1035,7 +1110,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         owner = ast.parent(owner);
       }
       if (owner === undefined) return [];
-      const symbol = query.declarations.typeSymbol(call.sourceReceiver.type);
+      const symbol = query.declarations.typeSymbol(receiverEvidence.type);
       const receiverDeclarations = symbol === undefined ? [] : query.declarations.symbolDeclarations(symbol);
       const receiverOwner = receiverDeclarations.includes(owner) ? owner : receiverDeclarations.find(declaration =>
         ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration));
@@ -1076,7 +1151,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const ownerType = query.declarations.declaredType(owner);
       const parameters = ownerType === undefined ? sourceTypeFlowTypeParameters(ast, owner) :
         query.types.typeArgumentBindings(ownerType)?.map(binding => binding.declaration) ?? sourceTypeFlowTypeParameters(ast, owner);
-      const arguments_ = query.types.typeArguments(call.sourceReceiver.type);
+      const arguments_ = query.types.typeArguments(receiverEvidence.type);
       if (receiverOwner === owner && arguments_.length < parameters.length) { refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner); return []; }
       const declarations: Node[] = [];
       for (const parameter of parameters) {
@@ -1125,6 +1200,23 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           derived.set(operation.node, Object.freeze({ ...operation, accumulator: binder, required: true }));
         }
         return;
+      }
+      if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)) {
+        const application = formalQuery.types.aliasApplication(formal);
+        const arguments_ = application?.declaration === declaration ? application.bindings.map(binding =>
+          ({ declaration: binding.declaration, argumentType: binding.argument })) : formalQuery.types.typeArgumentBindings(formal);
+        const term = terms.get(variable);
+        const actual = role === "result" ? undefined : term?.kind === "fixed" ? term.type : context.describe(variable.node);
+        if (arguments_ !== undefined && arguments_.length > 0 && (role === "result" || actual?.kind === "declared" &&
+          actual.declaration === declaration && actual.typeArguments.length === arguments_.length)) {
+          const variables = arguments_.map(argument => project(variable, { kind: "binder", declaration: argument.declaration }));
+          if (role === "result" && terms.get(variable) === undefined) putTerm(variable, Object.freeze({ kind: "declared", site: occurrence,
+            declaration, typeArguments: Object.freeze(variables), source: component }));
+          for (const [index, argument] of arguments_.entries()) join(argument.argumentType, variables[index]!, occurrence,
+            Object.freeze({ selectedType: argument.argumentType,
+              ...(component.declaration === undefined ? {} : { declaration: component.declaration }) }), level + 1, role);
+          return;
+        }
       }
       if (formalQuery.types.isUnion(formal) || formalQuery.types.isIntersection(formal)) {
         const members = formalQuery.types.unionOrIntersectionTypes(formal);
