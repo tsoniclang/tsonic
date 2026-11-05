@@ -280,8 +280,11 @@ export function createSourceTypeDescriptorReader(
       const parameter = ast.is.IsIndexSignatureDeclaration(declaration) ? ast.parameters(declaration)[0] : undefined;
       const keyNode = parameter === undefined ? undefined : ast.typeNode(parameter);
       const valueNode = ast.is.IsMappedTypeNode(declaration) ? ast.as.AsMappedTypeNode(declaration)?.Type : ast.typeNode(declaration);
-      const key = keyNode === undefined ? type(index.keyType, queries, { selectedType: index.keyType }, depth + 1, bindings)
-        : syntax(keyNode, queries, depth + 1, bindings);
+      // An authored key that is a union of key kinds (e.g. PropertyKey) yields one checker index per kind;
+      // each index then takes its key from the checker's per-kind key type.
+      const authoredKey = keyNode === undefined ? undefined : syntax(keyNode, queries, depth + 1, bindings);
+      const key = authoredKey === undefined || authoredKey.kind === "union"
+        ? type(index.keyType, queries, { selectedType: index.keyType }, depth + 1, bindings) : authoredKey;
       const value = valueNode === undefined ? type(index.valueType, queries, { selectedType: index.valueType }, depth + 1, bindings)
         : syntax(valueNode, queries, depth + 1, bindings);
       if (key === undefined || value === undefined || key.kind !== "string" &&
@@ -304,7 +307,12 @@ export function createSourceTypeDescriptorReader(
       : ast.is.IsMappedTypeNode(body) || ast.is.IsConditionalTypeNode(body) ? type(selectedType, queries, component, depth, bindings, true)
         : syntax(body, queries, depth, bindings);
     active.pop();
-    return definition === undefined ? undefined : { ...reference, definition };
+    if (definition !== undefined) return { ...reference, definition };
+    // C29 floor: a nominal type declared in a declaration file (lib or ambient package) whose structure contains a
+    // form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
+    // needs its structure refuses. Project declarations must describe completely.
+    const file = ast.getSourceFile(declaration);
+    return file !== undefined && ast.isDeclarationFile(file) && !reads.some(read => read.failure !== undefined) ? reference : undefined;
   }
 
   function structure(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
@@ -424,7 +432,15 @@ export function createSourceTypeDescriptorReader(
       return sourceTypeDescriptorUnion(types);
     }
     if (queries.types.isIntersection(selectedType)) {
-      return declaration === undefined ? undefined : nominal(selectedType, declaration, [], queries, component, depth, bindings);
+      if (declaration !== undefined) return nominal(selectedType, declaration, [], queries, component, depth, bindings);
+      // An anonymous intersection of object types is the checker's merged structure: its members and signatures.
+      // A marker such as ThisType<T> contributes none. An intersection with a primitive part has no descriptor.
+      const parts = queries.types.unionOrIntersectionTypes(selectedType);
+      return parts.some(part => queries.types.isStringLike(part) || queries.types.isNumberLike(part) ||
+        queries.types.isBooleanLike(part) || queries.types.isBigIntLike(part) || queries.types.isSymbolLike(part) ||
+        queries.types.isNullish(part) || queries.types.isVoidLike(part) || queries.types.isNever(part) ||
+        queries.types.isAny(part) || queries.types.isUnknown(part))
+        ? undefined : structure(selectedType, queries, depth, bindings);
     }
     if (queries.types.isTuple(selectedType)) {
       return tuple(selectedType, queries, depth, bindings);
