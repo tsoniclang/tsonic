@@ -99,6 +99,51 @@ test("descriptor freezing owns vectors but never freezes checked source nodes", 
   assert.equal(Object.isFrozen(source), false);
 });
 
+test("descriptor publication freezes each exact object once across every descriptor kind", () => {
+  const current = fixture();
+  const integer: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
+  const signature = { typeParameters: [], parameters: [{ kind: "required" as const, type: integer }], result: integer };
+  const descriptors: SourceTypeDescriptor[] = [
+    integer, { kind: "string" }, { kind: "intrinsic", intrinsic: "absence" },
+    { kind: "union", types: [integer, { kind: "string" }] },
+    { kind: "callable", calls: [signature], constructs: [] },
+    { kind: "array", readonly: false, element: integer },
+    { kind: "optional", value: integer },
+    { kind: "tuple", readonly: true, elements: [{ kind: "required", type: integer }] },
+    { kind: "declared", declaration: current.nodes[3]!, typeArguments: [integer], definition: integer },
+    { kind: "shape", members: [{ name: "value", optional: false, type: integer,
+      origin: { kind: "declared", declaration: current.ast.members(current.nodes[3]!)[0]! } }],
+    indexes: [], calls: [signature], constructs: [] },
+  ];
+  for (const descriptor of descriptors) {
+    const frozen = freezeSourceTypeDescriptor(descriptor);
+    assert.equal(freezeSourceTypeDescriptor(descriptor) === frozen, true, `${descriptor.kind}: repeated input identity`);
+    assert.equal(freezeSourceTypeDescriptor(frozen) === frozen, true, `${descriptor.kind}: repeated publication identity`);
+    assert.equal(Object.isFrozen(frozen), true, `${descriptor.kind}: immutable publication`);
+    assert.equal(Object.isFrozen(descriptor), false, `${descriptor.kind}: caller's input remains separate`);
+  }
+});
+
+test("shared declared definitions retain identity without merging distinct bodies or recursion cuts", () => {
+  const current = fixture();
+  const definition: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
+  const first: SourceTypeDescriptor = { kind: "declared", declaration: current.nodes[3]!,
+    typeArguments: [{ kind: "string" }], definition };
+  const second: SourceTypeDescriptor = { ...first, definition: { kind: "primitive", primitive: "int64" } };
+  const frozen = freezeSourceTypeDescriptor(first);
+  const shared = freezeSourceTypeDescriptor({ ...first });
+  const distinct = freezeSourceTypeDescriptor(second);
+  const cut = freezeSourceTypeDescriptor({ kind: "declared", declaration: current.nodes[3]!,
+    typeArguments: first.typeArguments, cut: "recursion" });
+  assert.equal(frozen.kind === "declared" && shared.kind === "declared" &&
+    frozen.definition === shared.definition && frozen.definition === freezeSourceTypeDescriptor(definition), true);
+  assert.equal(frozen.kind === "declared" && distinct.kind === "declared" &&
+    frozen.definition !== distinct.definition && distinct.definition?.kind === "primitive" &&
+    distinct.definition.primitive === "int64", true, "represented arguments cannot merge different published bodies");
+  assert.equal(cut.kind === "declared" && cut.definition === undefined && cut.cut === "recursion", true,
+    "freezing an identity-only cut never borrows another definition");
+});
+
 test("member presence survives freezing and is not inferred from its optional value type", () => {
   const current = fixture();
   const declaration = current.ast.members(current.nodes[3]!)[0]!;

@@ -39,8 +39,14 @@ export function sourceTypeDescriptorConditionalDefinition(
         checked.set(declaration, binding.argument);
       }
     }
-    if (ast.is.IsConditionalTypeNode(step.selectedNode)) {
-      retained.set(step.selectedNode, { values: selected, types: checked });
+    let selectedNode = step.selectedNode;
+    while (ast.is.IsParenthesizedTypeNode(selectedNode)) {
+      const inner = ast.as.AsParenthesizedTypeNode(selectedNode)?.Type;
+      if (inner === undefined) return undefined;
+      selectedNode = inner;
+    }
+    if (ast.is.IsConditionalTypeNode(selectedNode)) {
+      retained.set(selectedNode, { values: selected, types: checked });
       continue;
     }
     const result = read(step.selectedNode, selected);

@@ -194,9 +194,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const bindings = new Map<Node, SourceTypeDescriptor>();
     const call = component?.contextualCall ?? ((ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))
       ? queries.operations.call(node) : undefined);
-    const receiver = call?.sourceReceiver ?? (ast.is.IsPropertyAccessExpression(node)
+    const receiver = call === undefined ? ast.is.IsPropertyAccessExpression(node)
       ? queries.operations.propertyAccess(node)?.receiver : ast.is.IsElementAccessExpression(node)
-        ? queries.operations.elementAccess(node)?.receiver : undefined);
+        ? queries.operations.elementAccess(node)?.receiver : undefined : call.sourceReceiver ?? call.sourceCallee;
     if (receiver !== undefined && receiver.expression !== node) {
       const descriptor = describe(receiver.expression);
       const arguments_ = descriptor?.kind === "declared" ? descriptor.typeArguments
@@ -253,9 +253,6 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     if (ast.is.IsObjectLiteralExpression(node)) {
       const queries = semantics.forNode(node);
-      const selectedType = queries.types.expressionType(node);
-      if (selectedType === undefined) return undefined;
-      const selectedMembers = queries.types.propertyInfos(selectedType);
       const members: SourceTypeDescriptorMember[] = [];
       for (const property of ast.properties(node)) {
         if (property === undefined) return undefined;
@@ -266,8 +263,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         const value = initializer === undefined ? undefined : describe(initializer, undefined, depth + 1);
         if (value === undefined) return undefined;
         const name = queries.propertyNames.get(nameNode);
-        const symbol = queries.operations.objectLiteralElement(property)?.sourceElementSymbol;
-        const selected = name?.kind !== "resolved" || symbol === undefined ? undefined : selectedMembers.find(member => member.symbol === symbol);
+        const element = queries.operations.objectLiteralElement(property);
+        const selected = name?.kind !== "resolved" || element?.objectLiteral !== node || element.element !== property ||
+          element.sourceElementSymbol === undefined ? undefined : queries.types.propertyInfos(element.objectLiteralType)
+            .find(member => member.symbol === element.sourceElementSymbol);
         if (selected === undefined) return undefined;
         members.push({ name: selected.name, optional: selected.optional, type: value, origin: { kind: "declared", declaration: property } });
       }

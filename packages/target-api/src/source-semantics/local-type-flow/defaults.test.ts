@@ -70,12 +70,6 @@ test("nested checked conditional steps retain an outer infer binding by its exac
   const current = fixture(`interface Box<Value> { value: Value; }
     type Inner<Value> = Value extends Box<infer Element> ? (Element extends int32 ? Element : never) : never;
     declare const selected: Inner<Box<int32>>;`);
-  const descriptor = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(descriptor !== undefined, true, "the nested conditional has its exact complete descriptor");
-  if (descriptor === undefined) throw new Error("The nested conditional descriptor is required.");
-  const type = sourceTypeDescriptorStructure(descriptor);
-  assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
-    "the outer infer binding survives into the checker's selected inner branch");
   const { ast } = current.source;
   const declaration = current.defaults.nodes.find(node => ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === "Inner");
   const inferred = current.defaults.nodes.find(node => ast.is.IsTypeParameterDeclaration(node) && ast.text(ast.name(node)) === "Element");
@@ -89,7 +83,60 @@ test("nested checked conditional steps retain an outer infer binding by its exac
   const nestedCarriesOuter = application?.conditionalSteps.slice(1).some(step =>
     step.bindings.some(binding => inferred !== undefined && binding.declarations.includes(inferred))) ?? false;
   console.info("C2329_NESTED_INFER", JSON.stringify({ steps: application?.conditionalSteps.length ?? 0, nestedCarriesOuter }));
+  const descriptor = current.defaults.context.describe(current.declaration("selected"));
+  assert.equal(descriptor !== undefined, true, "the nested conditional has its exact complete descriptor");
+  if (descriptor === undefined) throw new Error("The nested conditional descriptor is required.");
+  const type = sourceTypeDescriptorStructure(descriptor);
+  assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
+    "the outer infer binding survives into the checker's selected inner branch");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("direct callable values retain their instantiated owner bindings without a property receiver", () => {
+  for (const primitive of ["float32", "int32"] as const) {
+    const current = fixture(`interface Transform<Value> { (value: Value): Value; }
+      function apply(callback: Transform<${primitive}>, value: ${primitive}): ${primitive} {
+        const selected = callback(value); return selected;
+      }`);
+    const descriptor = current.defaults.context.describe(current.declaration("selected"));
+    assert.equal(descriptor?.kind === "primitive" && descriptor.primitive === primitive, true,
+      `${primitive}: the callable's authored argument owns its formal result`);
+    const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
+    if (initializer === undefined) throw new Error("The original checked call is required.");
+    const call = current.source.semantics.forNode(initializer).operations.call(initializer);
+    assert.equal(call !== undefined && call.sourceReceiver === undefined, true,
+      "this is the direct callable binding path, not a property receiver");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  }
+});
+
+test("literal defaults select checked member symbols only from their own retained element tuple", () => {
+  const current = fixture(`function run() {
+    const selected = { value: 1, "quoted-value": true, 7: { width: 2 } }; return selected;
+  }`);
+  const descriptor = current.defaults.context.describe(current.declaration("selected"));
+  assert.equal(descriptor?.kind === "shape" && descriptor.members.length === 3, true);
+  if (descriptor?.kind !== "shape") throw new Error("The complete literal shape is required.");
+  const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
+  if (literal === undefined) throw new Error("The original object literal is required.");
+  const properties = current.source.ast.properties(literal);
+  const queries = current.source.semantics.forNode(literal);
+  for (const [index, member] of descriptor.members.entries()) {
+    const property = properties[index];
+    if (property === undefined) throw new Error("The original member declaration is required.");
+    const element = queries.operations.objectLiteralElement(property);
+    const checked = element === undefined ? undefined : queries.types.propertyInfos(element.objectLiteralType)
+      .find(selected => selected.symbol === element.sourceElementSymbol);
+    assert.equal(checked !== undefined && checked.name === member.name && member.origin.kind === "declared" &&
+      member.origin.declaration === property, true, `member ${index}: one checked tuple and original declaration`);
+  }
+  const integer = descriptor.members[0]?.type;
+  const boolean = descriptor.members[1]?.type;
+  const nested = descriptor.members[2]?.type;
+  assert.equal(integer?.kind === "primitive" && integer.primitive === "int32", true);
+  assert.equal(boolean?.kind === "primitive" && boolean.primitive === "bool", true);
+  assert.equal(nested?.kind === "shape" && nested.members[0]?.type.kind === "primitive" &&
+    nested.members[0].type.primitive === "int32", true);
 });
 
 test("normalised intersection aliases preserve the underlying nominal declaration instead of a false self-recursion cut", () => {

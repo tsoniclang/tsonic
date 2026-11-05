@@ -70,7 +70,18 @@ function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: 
   });
 }
 
+const descriptorSnapshots = new WeakMap<SourceTypeDescriptor, SourceTypeDescriptor>();
+
 export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
+  const existing = descriptorSnapshots.get(type);
+  if (existing !== undefined) return existing;
+  const frozen = snapshotSourceTypeDescriptor(type);
+  descriptorSnapshots.set(type, frozen);
+  descriptorSnapshots.set(frozen, frozen);
+  return frozen;
+}
+
+function snapshotSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
   const indexes = (values: readonly SourceTypeDescriptorIndex[]) => Object.freeze(values.map(index =>
     Object.freeze({ ...index, key: freezeSourceTypeDescriptor(index.key), value: freezeSourceTypeDescriptor(index.value) })));
   const signatures = (values: readonly SourceTypeDescriptorSignature[]) => Object.freeze(values.map(signature =>
