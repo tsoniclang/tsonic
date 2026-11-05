@@ -1,7 +1,7 @@
 import type { AstReader, Node, Type } from "@tsonic/tsts";
 import {
   BindingElement_IsRest, BindingElement_PropertyName, Node_Expression, Node_Initializer,
-  ObjectLiteralProperty_Value, SpreadAssignment_Expression,
+  ObjectLiteralProperty_Value, SpreadAssignment_Expression, sourceTransparentExpressionOperand,
 } from "../../source-navigation/ast.js";
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";

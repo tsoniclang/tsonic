@@ -2928,7 +2928,6 @@ test("C2342 discarded closures project captures from the retained owner without 
     (flag ? (() => value) : (() => value + 1)) ?? (() => 0);
     (flag ? function () { return value + 2; } : function () { return value; }) ?? (() => 0);
   }`);
-  const { ast } = current.source;
   const declaration = current.declaration("value");
   const owner = current.source.effectiveTypes.get(declaration);
   const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
