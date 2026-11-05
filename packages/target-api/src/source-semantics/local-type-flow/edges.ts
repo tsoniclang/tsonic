@@ -904,7 +904,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
     if (inputs.length !== selected.length) {
       const refusal = operands.map(operand => refusedOperations.get(operand)).find(issue => issue !== undefined);
-      if (refusal === undefined) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+      if (refusal === undefined) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node,
+        operands[selected.findIndex(operand => operand === undefined)]);
       else refusedOperations.set(node, refusal);
       return undefined;
     }

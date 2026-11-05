@@ -533,6 +533,35 @@ test("C2224 an array construction owns the mixed-fixed refusal through an assert
     "the construction, not an alias or later scalar demand, owns the C19 cause");
 });
 
+test("C2349 dependent Set reads keep the original mixed-element owner in all four literal positions", () => {
+  const forms = ["signed, unsigned", "signed, unsigned, 1", "signed, 1, unsigned", "1, signed, unsigned"];
+  const current = fixture(forms.map((elements, index) => `function run${index}(signed: int32, unsigned: uint32): boolean {
+    const values = [${elements}]; const keys = new Set(values);
+    return keys.has(values[1]) && keys.size === 1;
+  }`).join("\n"));
+  const { ast } = current.source;
+  const root = (node: Node): Node | undefined => {
+    for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) {
+      if (ast.is.IsFunctionDeclaration(current)) return current;
+    }
+    return undefined;
+  };
+  const arrays = current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node));
+  const issues = current.source.effectiveTypes.refusals();
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  assert.equal(arrays.length, forms.length);
+  assert.equal(issues.length, forms.length);
+  for (const literal of arrays) {
+    const refusal = issues.find(issue => issue.site === literal);
+    const comparisons = current.nodes.filter(node => ast.operatorKindName(node) === "KindEqualsEqualsEqualsToken" &&
+      root(node) === root(literal));
+    assert.equal(refusal?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && comparisons.length === 1, true);
+    const comparison = comparisons[0];
+    assert.equal(refusal !== undefined && comparison !== undefined && current.source.effectiveTypes.get(comparison) === refusal, true);
+    assert.equal(graph.derived.some(record => record.node === comparison) || graph.nodes.some(record => record.node === comparison), false);
+  }
+});
+
 test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation", () => {
   for (const elements of ["signed, 9007199254740993", "9007199254740993, signed", "signed, -9007199254740993"]) {
     const current = fixture(`function run(signed: int32): void { const values = [${elements}]; void values; }`);
@@ -2497,8 +2526,14 @@ test("C2330 declared optional pattern slots retain absence unless their own bind
       ? outcome.type.kind === "optional" && outcome.type.value.kind === "primitive" && outcome.type.value.primitive === "float64"
       : outcome.type.kind === "primitive" && outcome.type.primitive === "float64"), true, name);
   }
-  assertSameValue(current.type("selected"), { kind: "primitive", primitive: "float64" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const coalesce = current.nodes.find(node => ast.operatorKindName(node) === "KindQuestionQuestionToken");
+  const issues = current.source.effectiveTypes.refusals();
+  const refusal = issues[0];
+  assert.equal(coalesce !== undefined && issues.length === 1 && refusal !== undefined && refusal.site === coalesce &&
+    refusal.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
+    refusal.reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
+  assert.equal(refusal !== undefined && current.source.effectiveTypes.get(current.declaration("selected")) === refusal &&
+    coalesce !== undefined && current.source.effectiveTypes.get(coalesce) === refusal, true);
 });
 
 test("C2330 numeric and string index reads use the canonical receiver index descriptor before operators", () => {
@@ -2603,10 +2638,10 @@ test("C2337 assignment-pattern RHS retains every heterogeneous checked tuple ele
 });
 
 test("C2337 conditional dependencies retain boolean and optional call terms even when the call has no public graph value", () => {
-  const current = fixture(`declare function condition(): boolean; declare function maybe(): (() => int32) | undefined;
+  const current = fixture(`declare function condition(value: int32): boolean; declare function maybe(): (() => int32) | undefined;
     declare function effect(): int32;
-    function run(): void { const selected = condition() ? 1 : 2;
-      condition() ? effect() : effect(); condition() && effect(); condition() || effect(); maybe() ?? effect(); void selected; }`);
+    function run(): void { const selected = condition(1) ? 1 : 2;
+      condition(1) ? effect() : effect(); condition(1) && effect(); condition(1) || effect(); maybe() ?? effect(); void selected; }`);
   assertSameValue(current.type("selected"), { kind: "primitive", primitive: "int32" });
   const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
   const conditions = graph.nodes.filter(record => {
@@ -2691,7 +2726,18 @@ test("C2337 nested discarded coalescing validates only retained branch dependenc
   const selectors = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
   assert.equal(selectors.length, 8);
   assert.equal(selectors.every(node => current.source.effectiveTypes.get(node) === undefined), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const absent = current.nodes.filter(node => current.source.ast.is.IsIdentifier(node) && current.source.ast.text(node) === "undefined");
+  assert.equal(absent.length === 2 && absent.every(node => {
+    const outcome = current.source.effectiveTypes.get(node);
+    return outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" && outcome.type.intrinsic === "absence";
+  }), true, "the two retained absence leaves have their own canonical value, not a selector result");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0, JSON.stringify(current.source.effectiveTypes.refusals().map(issue => {
+    const range = current.source.ast.authoredRange(issue.site);
+    const file = current.source.ast.getSourceFile(issue.site);
+    return { code: issue.code, kind: current.source.ast.kindName(issue.site), reason: issue.reason.slice(0, 160),
+      site: range?.kind === "authored" && file !== undefined
+        ? current.source.ast.getSourceText(file).slice(range.start, Math.min(range.end, range.start + 100)) : "unavailable" };
+  })).slice(0, 2048));
 });
 
 test("C2337 nested discarded primitive selection does not bypass a coalescing refusal", () => {
@@ -2896,7 +2942,7 @@ test("C2342 folded scalar construction publishes its solved arm without replacin
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("C2344 a narrowed optional read retains optional declaration storage for coalescing admission", () => {
+test("C2344 a narrowed optional read does not widen the coalescing admission of its produced primitive", () => {
   const current = fixture(`declare function effect(): void; function run(): number { let optional: number | undefined = 4;
     const observed = optional; const direct = optional ?? 0; const sequenced = (effect(), optional) ?? 0;
     return observed + direct + sequenced; }`);
@@ -2913,10 +2959,10 @@ test("C2344 a narrowed optional read retains optional declaration storage for co
   }), true, "real checker flow narrowing remains on each read");
   for (const name of ["direct", "sequenced"]) {
     const outcome = current.source.effectiveTypes.get(current.declaration(name));
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
-      outcome.type.primitive === "float64", true, name);
+    assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
+      ast.operatorKindName(outcome.site) === "KindQuestionQuestionToken", true, name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.effectiveTypes.refusals().length, 2);
   const fixed = fixture(`function run(): number { const value: number = 4; return value ?? 0; }`);
   const issues = fixed.source.effectiveTypes.refusals();
   assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
@@ -2925,8 +2971,8 @@ test("C2344 a narrowed optional read retains optional declaration storage for co
 
 test("C2342 discarded closures project captures from the retained owner without joining inference roots", () => {
   const current = fixture(`function run(flag: boolean): void { const value = flag ? 1 : 2;
-    (flag ? (() => value) : (() => value + 1)) ?? (() => 0);
-    (flag ? function () { return value + 2; } : function () { return value; }) ?? (() => 0);
+    (flag ? (() => value) : (() => value + 1));
+    (flag ? function () { return value + 2; } : function () { return value; });
   }`);
   const declaration = current.declaration("value");
   const owner = current.source.effectiveTypes.get(declaration);

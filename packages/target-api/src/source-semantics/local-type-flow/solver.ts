@@ -1,6 +1,7 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import { sourceConstructValueInputs, sourceExpressionValueInputs } from "../../source-navigation/expression-use.js";
 import { sourceArrayElementType } from "../array-types.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
@@ -132,25 +133,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       return group(record.variable).constructions.find(fill => fill.site === record.node)?.type;
     }
     return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
-  }
-  function coalescingStorage(node: Node): Group | undefined {
-    let expression = node;
-    for (;;) {
-      const parenthesized = source.ast.is.IsParenthesizedExpression(expression) ? Node_Expression(source.ast, expression) : undefined;
-      const right = source.ast.operatorKindName(expression) === "KindCommaToken"
-        ? source.ast.as.AsBinaryExpression(expression)?.Right : undefined;
-      const operand = parenthesized ?? right;
-      if (operand === undefined) break;
-      expression = operand;
-    }
-    if (!source.ast.is.IsIdentifier(expression) && !source.ast.is.IsPropertyAccessExpression(expression) &&
-      !source.ast.is.IsElementAccessExpression(expression)) return undefined;
-    const declaration = source.navigation.sourceReferenceFor(expression)?.declaration;
-    const variable = declaration === undefined ? undefined : retainedVariables.get(declaration);
-    return variable === undefined ? undefined : group(variable);
-  }
-  function coalescingBoundary(node: Node, type: SourceTypeDescriptor): SourceTypeDescriptor {
-    return sourceTypeDescriptorStructure(coalescingStorage(node)?.type ?? type);
   }
   for (const selected of terms.groups()) group(selected.variable);
   const bodyCallResults = new Map<Group, { readonly declaration: Node; readonly call: SourceTypeFlowGraph["calls"][number];
@@ -354,9 +336,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     for (const term of selected.terms) for (const child of children(term)) selected.dependencies.add(group(child));
     for (const derived of selected.derived) {
       for (const operand of derived.operands) selected.dependencies.add(group(operand));
-      const left = derived.operator === "coalesce" ? source.ast.as.AsBinaryExpression(derived.node)?.Left : undefined;
-      const storage = left === undefined ? undefined : coalescingStorage(left);
-      if (storage !== undefined) selected.dependencies.add(storage);
       const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
       const variable = condition === undefined ? undefined : retainedVariables.get(condition);
       if (variable !== undefined) selected.dependencies.add(group(variable));
@@ -502,9 +481,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const left = types[0] === undefined ? undefined : sourceTypeDescriptorStructure(types[0]);
       const right = types[1];
       if (right === undefined) return undefined;
-      const expression = source.ast.as.AsBinaryExpression(derived.node)?.Left;
-      const boundary = expression === undefined || types[0] === undefined ? undefined : coalescingBoundary(expression, types[0]);
-      if (left === undefined || boundary === undefined || boundary.kind === "primitive") {
+      if (left === undefined || left.kind === "primitive") {
         return operatorRefusal(derived, "A coalescing operator requires a nullable or runtime-union left operand.");
       }
       const present = left.kind === "optional" ? left.value : left.kind === "intrinsic" && left.intrinsic === "absence" ? undefined : types[0];
@@ -831,8 +808,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const pending = [node];
     while (pending.length > 0) {
       const current = pending.pop()!;
-      const variable = retainedVariables.get(current);
-      const type = variable === undefined ? undefined : group(variable).type;
+      const outcome = outcomes.get(current);
+      const type = outcome?.kind === "refused" ? undefined : outcome?.type;
       const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
       if (structure?.kind === "intrinsic" && structure.intrinsic === "never") return type;
       const operand = sourceTransparentExpressionOperand(source.ast, current);
@@ -879,13 +856,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
       const outcome = outcomes.get(current.node);
       if (outcome?.kind === "refused") return { kind: "refused", refusal: outcome };
-      const variable = retainedVariables.get(current.node);
-      const selected = variable === undefined ? undefined : group(variable);
-      if (selected?.refused !== undefined) return { kind: "refused", refusal: selected.refused };
-      let type = selected?.type;
+      let type = outcome?.type;
       if (type === undefined) return { kind: "refused",
         refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", current.node) };
-      type = coalescingBoundary(current.node, type);
       if (current.present) {
         const structure = sourceTypeDescriptorStructure(type);
         if (structure.kind === "intrinsic" && structure.intrinsic === "absence") continue;
@@ -901,13 +874,16 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         (!source.ast.is.IsConditionalExpression(node) || derivedNodes.has(node))) continue;
       const conditional = source.ast.as.AsConditionalExpression(node);
       const condition = conditional?.Condition ?? source.ast.as.AsBinaryExpression(node)?.Left;
-      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
-      const selected = variable === undefined ? undefined : group(variable);
-      if (selected?.refused !== undefined) continue;
+      const outcome = condition === undefined ? undefined : outcomes.get(condition);
+      if (outcome?.kind === "refused") continue;
       const nullish = source.ast.operatorKindName(node) === "KindQuestionQuestionToken";
       const leaves = nullish && condition !== undefined ? selectionLeafTypes(condition) : undefined;
       if (leaves?.kind === "refused") { conditionRefusals.push(leaves.refusal); continue; }
-      const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(leaves.types) : selected?.type;
+      if (!nullish && condition !== undefined && outcome === undefined) {
+        conditionRefusals.push(createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", condition));
+        continue;
+      }
+      const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(leaves.types) : outcome?.type;
       const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
       const admitted = nullish ? structure !== undefined && structure.kind !== "primitive"
         : structure?.kind === "primitive" && structure.primitive === "bool";
@@ -946,14 +922,49 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     selected.refused = pending;
     propagateRefusal(selected);
   }
+  const graphRefusalCauses = new Map<SourceTypeFlowRefusal, SourceTypeFlowRefusal>();
+  function dependencyRefusal(node: Node, excluded: SourceTypeFlowRefusal): SourceTypeFlowRefusal | undefined {
+    const pending = [node];
+    const visited = new Set<Node>();
+    const visitedGroups = new Set<Group>();
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const selected = [...(owners.get(current) ?? [])];
+      while (selected.length > 0) {
+        const owner = selected.pop()!;
+        if (visitedGroups.has(owner)) continue;
+        visitedGroups.add(owner);
+        const refusal = owner.refused;
+        if (refusal !== undefined && refusal !== excluded &&
+          (refusal.code !== excluded.code || refusal.reason !== excluded.reason)) return refusal;
+        selected.push(...owner.dependencies);
+      }
+      const declaration = source.navigation.sourceReferenceFor(current)?.declaration;
+      if (declaration !== undefined) pending.push(declaration);
+      const inputs = sourceExpressionValueInputs(source.ast, current) ?? sourceConstructValueInputs(source.ast, current);
+      pending.push(...inputs.map(input => input.expression));
+      const call = graph.calls.find(call => call.node === current);
+      if (call !== undefined) pending.push(...call.source.sourceArguments.map(argument => argument.expression));
+    }
+    return undefined;
+  }
   for (const issue of graph.refusals) {
-    const refusal = graphRefusalOwners.get(issue)?.refused ?? issue;
+    if (issue.code !== "TSONIC_LOCAL_TYPE_UNSUPPORTED" || issue.related === undefined) continue;
+    const cause = dependencyRefusal(issue.related, issue);
+    if (cause !== undefined) graphRefusalCauses.set(issue, cause);
+  }
+  for (const selected of groups.values()) {
+    if (selected.refused !== undefined) selected.refused = graphRefusalCauses.get(selected.refused) ?? selected.refused;
+  }
+  for (const issue of graph.refusals) {
+    const refusal = graphRefusalCauses.get(issue) ?? graphRefusalOwners.get(issue)?.refused ?? issue;
     for (let node: Node | undefined = issue.site; node !== undefined && !graph.roots.includes(node); node = source.ast.parent(node)) {
-      if (domainValues.has(node) && !retainedVariables.has(node) && !outcomes.has(node)) outcomes.set(node, refusal);
+      if (domainValues.has(node) && !retainedVariables.has(node) &&
+        (!outcomes.has(node) || outcomes.get(node) === issue)) outcomes.set(node, refusal);
     }
   }
-  validateSelectionConditions();
-
   function obligation(use: SourceTypeFlowUse, selected: Group): void {
     if (selected.type === undefined || selected.refused !== undefined) return;
     if (use.kind === "check") {
@@ -1323,13 +1334,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (payload !== undefined) outcomes.set(node, Object.freeze({ ...current, type: freezeSourceTypeDescriptor(payload) }));
   }
   for (const [node, refusal] of defaults.descriptorRefusals) outcomes.set(node, refusal);
-  for (const refusal of conditionRefusals) {
-    if (!sourceTypeFlowDiscardedValue(source, refusal.site)) outcomes.set(refusal.site, refusal);
-  }
   publishSourceLiteralMetadata(context, defaults.nodes, outcomes, callableReturn, node => {
     const variable = valueVariables.get(node);
     return variable === undefined ? undefined : group(variable).chosenFill?.component;
   }, node => defaults.descriptorRefusals.get(node));
+  validateSelectionConditions();
+  for (const refusal of conditionRefusals) {
+    if (!sourceTypeFlowDiscardedValue(source, refusal.site)) outcomes.set(refusal.site, refusal);
+  }
   // R1 totality (C-2309, K-2443): every value node of the domain has exactly one outcome. A value no publication
   // pass described (an inexpressible declared or derived type, an unavailable callable result) receives one
   // precise refusal at that node; nothing is left for a target to type itself.
@@ -1411,7 +1423,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   });
   const frozenIssues = Object.freeze([...new Set([...defaults.signatureRefusals.values(), ...defaults.descriptorRefusals.values(),
     ...totalityRefusals, ...literalRefusals, ...directGraphRefusals, ...conditionRefusals,
-    ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])])]
+    ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])]
+    .map(issue => graphRefusalCauses.get(issue) ?? issue))]
     .sort((left, right) => compare(left.site, right.site)));
   const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site)));
   return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),

@@ -45,6 +45,27 @@ test("an unresolved foreign conditional alias is not an identity-only nominal cu
     "an expressible sibling is independent of the unresolved alias");
 });
 
+test("a present object construction retains canonical member correspondence into nullable storage", () => {
+  const current = fixture(`interface Row { user: int32; system?: int32; }
+    function run(other: Row): void { let value: Row | null | undefined = { user: 1 }; value = other; void value; }`);
+  const { ast } = current.source;
+  const literal = current.defaults.nodes.find(node => ast.is.IsObjectLiteralExpression(node));
+  const property = literal === undefined ? undefined : ast.properties(literal)[0];
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  const storage = current.source.effectiveTypes.get(current.declaration("value"));
+  assert.equal(storage !== undefined && storage.kind !== "refused" && storage.type.kind === "optional", true,
+    "the declaration retains its exact absence-capable storage");
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+    outcome.memberCorrespondence?.length === 1 && outcome.memberCorrespondence[0]?.property === property, true,
+    "the present literal selects its one actual authored property");
+  if (outcome === undefined || outcome.kind === "refused") throw new Error("The present literal publication is required.");
+  const structure = sourceTypeDescriptorStructure(outcome.type);
+  const user = structure.kind === "shape" ? structure.members.find(member => member.name === "user") : undefined;
+  assert.equal(user !== undefined && outcome.memberCorrespondence?.[0]?.origin === user.origin, true,
+    "the correspondence retains the identical member origin of the published present contract");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("a closed foreign conditional alias publishes its exact primitive result inside a project interface", () => {
   const current = fixture(`interface Local { read(value: int32): Awaited<Promise<int32>>; }
     declare const local: Local;

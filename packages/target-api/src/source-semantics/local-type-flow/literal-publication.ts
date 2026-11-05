@@ -32,8 +32,9 @@ export function sourceLiteralMemberCorrespondence(context: SourceTypeFlowAnalysi
     const element = queries.operations.objectLiteralElement(property);
     const destination = component === undefined
       ? element?.objectLiteral === node && element.element === property ? element.contextualType : undefined : component.selectedType;
-    if (destination === undefined) continue;
-    const correspondence = queries.types.structuralMembers(sourceType, destination, "correspondence");
+    const presentDestination = destination === undefined ? undefined : queries.types.nonNullableType(destination);
+    if (presentDestination === undefined) continue;
+    const correspondence = queries.types.structuralMembers(sourceType, presentDestination, "correspondence");
     if (correspondence.kind !== "available") continue;
     const pairs = correspondence.members.filter(pair => pair.kind === "present" &&
       (pair.source.declarations.includes(property) || element?.sourceElementSymbol !== undefined &&
