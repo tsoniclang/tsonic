@@ -7,6 +7,7 @@ import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits } from "
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
+import { sourceTypeDescriptorStructure } from "./terms.js";
 
 function fixture(text: string, noImplicitAny = true) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -26,6 +27,70 @@ function fixture(text: string, noImplicitAny = true) {
   };
   return { source, defaults, declaration };
 }
+
+test("checked conditional aliases preserve distinct parameter and result widths through exact infer binders", () => {
+  for (const reverse of [false, true]) {
+    const declarations = [
+      "type Callback = (value: float32, optional?: int32) => int32;",
+      "type Arguments = Parameters<Callback>;",
+      "type Result = ReturnType<Callback>;",
+      "type Capture<Value> = Value extends (...arguments_: infer Parameters) => infer Result ? { arguments_: Parameters; result: Result } : never;",
+    ];
+    const current = fixture(`${(reverse ? declarations.reverse() : declarations).join("\n")}
+      declare const arguments_: Arguments; declare const result: Result; declare const captured: Capture<Callback>;`);
+    const argumentsType = current.defaults.context.describe(current.declaration("arguments_"));
+    const resultType = current.defaults.context.describe(current.declaration("result"));
+    const capturedType = current.defaults.context.describe(current.declaration("captured"));
+    assert.equal(argumentsType !== undefined && resultType !== undefined && capturedType !== undefined, true,
+      `all exact alias publications exist, reverse=${reverse}`);
+    if (argumentsType === undefined || resultType === undefined || capturedType === undefined) throw new Error("The checked alias descriptors are required.");
+    const tuple = sourceTypeDescriptorStructure(argumentsType);
+    const result = sourceTypeDescriptorStructure(resultType);
+    const captured = sourceTypeDescriptorStructure(capturedType);
+    assert.equal(tuple.kind === "tuple" && tuple.elements.length === 2, true);
+    if (tuple.kind !== "tuple") throw new Error("The original parameter tuple is required.");
+    assert.equal(tuple.elements[0]?.type.kind === "primitive" && tuple.elements[0].type.primitive === "float32", true);
+    assert.equal(tuple.elements[1]?.kind === "optional" && tuple.elements[1].type.kind === "optional" &&
+      tuple.elements[1].type.value.kind === "primitive" && tuple.elements[1].type.value.primitive === "int32", true);
+    assert.equal(tuple.elements.every(element => element.declaration !== undefined &&
+      current.source.ast.is.IsParameterDeclaration(element.declaration)), true, "the exact authored formal nodes survive inference");
+    assert.equal(result.kind === "primitive" && result.primitive === "int32", true,
+      "a result cannot choose the parameter's checker-identical float32 width");
+    assert.equal(captured.kind === "shape", true);
+    if (captured.kind !== "shape") throw new Error("The checked conditional capture is required.");
+    const parameters = captured.members.find(member => member.name === "arguments_")?.type;
+    const returned = captured.members.find(member => member.name === "result")?.type;
+    assert.equal(parameters !== undefined && sourceTypeDescriptorStructure(parameters).kind === "tuple", true);
+    assert.equal(returned?.kind === "primitive" && returned.primitive === "int32", true);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  }
+});
+
+test("normalised intersection aliases preserve the underlying nominal declaration instead of a false self-recursion cut", () => {
+  const current = fixture(`class Failure { readonly code: int32 = 1; }
+    type Maybe = Failure | null | undefined;
+    type Present = NonNullable<Maybe>;
+    declare const selected: Present;`);
+  const failure = current.defaults.nodes.find(node => current.source.ast.is.IsClassDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Failure");
+  let selected = current.defaults.context.describe(current.declaration("selected"));
+  assert.equal(failure !== undefined && selected !== undefined, true);
+  const visited = new Set<Node>();
+  while (selected?.kind === "declared" && selected.declaration !== failure) {
+    assert.equal(!visited.has(selected.declaration) && selected.definition !== undefined, true,
+      "every non-recursive alias owns one complete checked definition");
+    if (visited.has(selected.declaration)) throw new Error("An alias must not manufacture a self cut.");
+    visited.add(selected.declaration);
+    selected = selected.definition;
+  }
+  assert.equal(selected?.kind === "declared" && selected.declaration === failure && selected.cut === undefined &&
+    selected.definition?.kind === "shape", true, "the actual Failure identity and structure are retained");
+  if (selected?.kind !== "declared" || selected.definition?.kind !== "shape") throw new Error("The checked nominal Failure is required.");
+  const code = selected.definition.members.find(member => member.name === "code");
+  assert.equal(code?.readonly && code.type.kind === "primitive" && code.type.primitive === "int32" &&
+    code.origin.kind === "declared", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
 
 test("declared tuples retain every finite position, named origin and optional or rest kind", () => {
   const current = fixture(`declare const one: readonly [int32]; declare const three: [int32, float32, number];

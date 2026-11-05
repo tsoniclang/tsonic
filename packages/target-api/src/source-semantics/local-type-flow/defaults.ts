@@ -29,6 +29,7 @@ export function sourceTypeFlowTypeDeclaration(
   queries: SourceFileSemantics,
   type: Type,
   authoredTypeNode?: Node,
+  excludedDeclaration?: Node,
 ): Node | undefined {
   const { ast, navigation } = source;
   const reference = authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(authoredTypeNode)
@@ -38,17 +39,17 @@ export function sourceTypeFlowTypeDeclaration(
   const authored = reference === undefined ? undefined : navigation.sourceReferenceFor(reference)?.declaration;
   if (authored !== undefined && (ast.is.IsTypeAliasDeclaration(authored) || ast.is.IsClassDeclaration(authored) ||
     ast.is.IsInterfaceDeclaration(authored) || ast.is.IsEnumDeclaration(authored) || ast.is.IsTypeParameterDeclaration(authored))) return authored;
-  const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
+  const symbols = [...new Set([queries.declarations.typeAliasSymbol(type), queries.declarations.typeSymbol(type)])];
   // A symbol can merge a type parameter with a same-named value (e.g. `function f<T>() { function T() {} }`): a type
   // parameter declaration names this type only when its declared type is this type.
-  return symbol === undefined ? undefined : queries.declarations.symbolDeclarations(symbol).find(declaration =>
-    ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
+  return symbols.flatMap(symbol => symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)).find(declaration =>
+    declaration !== excludedDeclaration && (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
     ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
     ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
     ast.is.IsTypeParameterDeclaration(declaration) && (() => {
       const declared = queries.declarations.declaredType(declaration);
       return declared !== undefined && queries.types.isIdentical(declared, type);
-    })());
+    })()));
 }
 
 export function sourceTypeFlowTypeParameters(ast: SourceTypeFlowSource["ast"], declaration: Node): readonly Node[] {
@@ -159,8 +160,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return undefined;
   }
 
-  function typeDeclaration(type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node): Node | undefined {
-    return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode);
+  function typeDeclaration(type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node,
+    excludedDeclaration?: Node): Node | undefined {
+    return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode, excludedDeclaration);
   }
 
   const descriptor = createSourceTypeDescriptorReader(source, typeDeclaration,

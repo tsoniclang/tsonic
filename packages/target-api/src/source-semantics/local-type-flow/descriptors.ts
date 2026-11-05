@@ -1,8 +1,9 @@
-import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type } from "@tsonic/tsts";
+import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type, type TypeAliasApplicationInfo } from "@tsonic/tsts";
 import { sourceArrayElementType } from "../array-types.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descriptors.js";
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
@@ -23,7 +24,7 @@ export type SourceTypeDescriptorReadResult =
 
 export function createSourceTypeDescriptorReader(
   source: SourceTypeFlowSource,
-  declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node) => Node | undefined,
+  declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node, excludedDeclaration?: Node) => Node | undefined,
   parametersFor: (declaration: Node) => readonly Node[],
   declaredValue: (declaration: Node, queries: SourceFileSemantics, bindings: Bindings) => SourceTypeDescriptor | undefined,
   refusedSignature: (declaration: Node) => boolean,
@@ -111,6 +112,10 @@ export function createSourceTypeDescriptorReader(
     if (ast.is.IsTupleTypeNode(node)) {
       return tuple(selectedType, queries, depth, bindings, node);
     }
+    if (ast.is.IsIntersectionTypeNode(node)) {
+      return type(selectedType, queries, { selectedType, authoredTypeNode: node }, depth, bindings,
+        active[active.length - 1]?.declaration);
+    }
     if (ast.is.IsUnionTypeNode(node)) {
       const types: SourceTypeDescriptor[] = [];
       for (const child of ast.children(node)) {
@@ -148,6 +153,7 @@ export function createSourceTypeDescriptorReader(
           if (argument !== undefined) instantiated.set(parameter, argument);
         });
         let declaredBindings: readonly { readonly declaration: Node; readonly argumentType: Type }[] | undefined;
+        let application: TypeAliasApplicationInfo | undefined;
         if (ast.is.IsTypeAliasDeclaration(declaration)) {
           const checkedArguments: Type[] = [];
           for (const argument of argumentNodes) {
@@ -155,8 +161,8 @@ export function createSourceTypeDescriptorReader(
             if (checked === undefined) return undefined;
             checkedArguments.push(checked);
           }
-          const application = queries.types.instantiateAlias(declaration, checkedArguments);
-          if (application?.kind !== "direct" || application.declaration !== declaration) return undefined;
+          application = queries.types.instantiateAlias(declaration, checkedArguments);
+          if (application === undefined || application.declaration !== declaration) return undefined;
           declaredBindings = application.bindings.map(binding => ({ declaration: binding.declaration, argumentType: binding.argument }));
         } else declaredBindings = queries.types.typeArgumentBindings(selectedType);
         if (declaredBindings !== undefined) {
@@ -172,11 +178,11 @@ export function createSourceTypeDescriptorReader(
         }
         const body = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
         const referenceOnly = body !== undefined && (ast.is.IsUnionTypeNode(body) || ast.is.IsMappedTypeNode(body) ||
-          ast.is.IsConditionalTypeNode(body) || ast.is.IsTypeLiteralNode(body) &&
+          ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body) || ast.is.IsTypeLiteralNode(body) &&
             ast.members(body).some(member => member !== undefined && ast.is.IsIndexSignatureDeclaration(member)));
         if (referenceOnly) return nominal(selectedType, declaration, arguments_, queries, {
           selectedType, declaration, authoredTypeNode: node,
-        }, depth, instantiated);
+        }, depth, instantiated, application);
         if (ast.is.IsTypeAliasDeclaration(declaration) && !expanding(declaration, arguments_)) {
           if (body !== undefined) {
             active.push({ declaration, arguments: arguments_ });
@@ -301,17 +307,24 @@ export function createSourceTypeDescriptorReader(
   }
 
   function nominal(selectedType: Type, declaration: Node, arguments_: readonly SourceTypeDescriptor[], queries: SourceFileSemantics,
-    component: SourceTypeComponentEvidence, depth: number, bindings: Bindings): SourceTypeDescriptor | undefined {
+    component: SourceTypeComponentEvidence, depth: number, bindings: Bindings,
+    application?: TypeAliasApplicationInfo): SourceTypeDescriptor | undefined {
     const reference = { kind: "declared" as const, declaration, typeArguments: arguments_ };
     if (ast.is.IsTypeParameterDeclaration(declaration) || ast.is.IsEnumDeclaration(declaration)) return reference;
     if (recursionCut(declaration, arguments_)) return { ...reference, cut: "recursion" };
     active.push({ declaration, arguments: arguments_ });
     const alias = ast.is.IsTypeAliasDeclaration(declaration);
     const body = alias ? ast.typeNode(declaration) : undefined;
-    const definition = body === undefined ? structure(selectedType, queries, depth, bindings)
-      : ast.is.IsMappedTypeNode(body) || ast.is.IsConditionalTypeNode(body) ? type(selectedType, queries, component, depth, bindings, true)
-        : syntax(body, queries, depth, bindings);
-    active.pop();
+    let definition: SourceTypeDescriptor | undefined;
+    try {
+      definition = application?.kind === "conditional"
+        ? sourceTypeDescriptorConditionalDefinition(source, queries, application, bindings,
+          (node, selected) => syntax(node, queries, depth + 1, selected))
+        : body === undefined ? structure(selectedType, queries, depth, bindings)
+          : ast.is.IsMappedTypeNode(body) || ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body)
+            ? type(selectedType, queries, component, depth, bindings, declaration)
+            : syntax(body, queries, depth, bindings);
+    } finally { active.pop(); }
     if (definition !== undefined) return { ...reference, definition };
     // C29 floor: a nominal type declared in a declaration file (lib or ambient package) whose structure contains a
     // form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
@@ -354,7 +367,8 @@ export function createSourceTypeDescriptorReader(
     for (const [index, element] of queries.types.tupleElementInfos(selectedType).entries()) {
       const member = authoredElements[index] ?? element.declaration;
       let annotation = member === undefined ? undefined : ast.is.IsNamedTupleMember(member)
-        ? ast.as.AsNamedTupleMember(member)?.Type : member;
+        ? ast.as.AsNamedTupleMember(member)?.Type
+        : ast.is.IsParameterDeclaration(member) ? ast.typeNode(member) : member;
       if (annotation !== undefined && ast.is.IsOptionalTypeNode(annotation)) annotation = ast.as.AsOptionalTypeNode(annotation)?.Type;
       if (annotation !== undefined && ast.is.IsRestTypeNode(annotation)) annotation = ast.as.AsRestTypeNode(annotation)?.Type;
       let value = annotation === undefined ? type(element.type, queries, { selectedType: element.type }, depth + 1, bindings)
@@ -399,15 +413,15 @@ export function createSourceTypeDescriptorReader(
   }
 
   function type(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-    depth = 0, bindings: Bindings = empty, aliasBody = false): SourceTypeDescriptor | undefined {
+    depth = 0, bindings: Bindings = empty, aliasBody?: Node): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
     return expand(selectedType, component.authoredTypeNode ?? component.declaration, depth,
       () => readType(selectedType, queries, component, depth, bindings, aliasBody));
   }
 
   function readType(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-    depth: number, bindings: Bindings, aliasBody: boolean): SourceTypeDescriptor | undefined {
-    const declaration = declarationFor(selectedType, queries);
+    depth: number, bindings: Bindings, aliasBody: Node | undefined): SourceTypeDescriptor | undefined {
+    const declaration = declarationFor(selectedType, queries, undefined, aliasBody);
     const substituted = declaration === undefined ? undefined : bindings.get(declaration);
     if (substituted !== undefined) return substituted;
     const direct = primitive(queries.facts.typeSubjects(selectedType));
@@ -417,7 +431,7 @@ export function createSourceTypeDescriptorReader(
       const arguments_: SourceTypeDescriptor[] = [];
       // An alias instantiation carries its arguments on the checked alias application.
       const application = ast.is.IsTypeAliasDeclaration(declaration) ? queries.types.aliasApplication(selectedType) : undefined;
-      const declaredBindings = application?.kind === "direct" && application.declaration === declaration
+      const declaredBindings = application !== undefined && application.declaration === declaration
         ? application.bindings.map(binding => ({ declaration: binding.declaration, argumentType: binding.argument }))
         : queries.types.typeArgumentBindings(selectedType);
       const instantiated = new Map(bindings);
@@ -440,7 +454,7 @@ export function createSourceTypeDescriptorReader(
         ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration))) {
         for (const parameter of parametersFor(declaration)) arguments_.push({ kind: "declared", declaration: parameter, typeArguments: [] });
       }
-      return nominal(selectedType, declaration, arguments_, queries, component, depth, instantiated);
+      return nominal(selectedType, declaration, arguments_, queries, component, depth, instantiated, application);
     }
     if (declaration !== undefined && ast.is.IsEnumDeclaration(declaration)) {
       return nominal(selectedType, declaration, [], queries, component, depth, bindings);
@@ -461,7 +475,7 @@ export function createSourceTypeDescriptorReader(
     // A union named by a type alias is published as that alias (declared + definition, C-2263), exactly as an
     // authored alias reference is through syntax(); the declared branch below supplies its arguments and the
     // nominal recursion cut. Only an anonymous union, or an alias's own body, expands its members here.
-    const unionAlias = declaration !== undefined && !aliasBody && ast.is.IsTypeAliasDeclaration(declaration);
+    const unionAlias = declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration);
     if (queries.types.isUnion(selectedType) && unionAlias) return declared(declaration);
     if (queries.types.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
@@ -491,12 +505,11 @@ export function createSourceTypeDescriptorReader(
       const element = type(elementType, queries, { selectedType: elementType }, depth + 1, bindings);
       return element === undefined ? undefined : { kind: "array", readonly: queries.types.indexInfos(selectedType).some(index => index.readonly), element };
     }
-    if (declaration !== undefined && !ast.is.IsTypeLiteralNode(declaration) &&
-      !(aliasBody && ast.is.IsTypeAliasDeclaration(declaration))) return declared(declaration);
+    if (declaration !== undefined && !ast.is.IsTypeLiteralNode(declaration)) return declared(declaration);
     if (queries.types.callSignatures(selectedType).length > 0 || queries.types.constructSignatures(selectedType).length > 0) {
       return structure(selectedType, queries, depth, bindings);
     }
-    const body = aliasBody && declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+    const body = aliasBody === undefined ? undefined : ast.typeNode(aliasBody);
     return structure(selectedType, queries, depth, bindings, body !== undefined && ast.is.IsMappedTypeNode(body) ? body : undefined);
   }
 
