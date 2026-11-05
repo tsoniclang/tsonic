@@ -62,6 +62,31 @@ test("a closed foreign conditional alias publishes its exact primitive result in
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("conditional structural infer patterns retain exact member callback widths and recursive applications", () => {
+  for (const primitive of ["int32", "float32"] as const) {
+    const current = fixture(`interface Thenable<Value> { then(callback: (value: Value) => void): void; }
+      type Payload<Value> = Value extends object & { then(callback: infer Callback): void }
+        ? Callback extends (value: infer Result) => void ? Result : never : never;
+      declare const selected: Payload<Thenable<${primitive}>>;
+      declare const recursive: Awaited<Promise<Promise<${primitive}>>>;
+      declare const unrelated: Payload<{ other: ${primitive} }>;
+      declare const optionalCallback: Awaited<{ then(callback?: ((value: ${primitive}) => void) | undefined): void }>;
+      declare const keyed: { key: ${primitive} };`);
+    for (const name of ["selected", "recursive", "optionalCallback"]) {
+      const descriptor = current.defaults.context.describe(current.declaration(name));
+      const result = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
+      assert.equal(result?.kind === "primitive" && result.primitive === primitive, true,
+        `${name}: structural inference and recursive alias applications preserve ${primitive}`);
+    }
+    const unrelated = current.defaults.context.describe(current.declaration("unrelated"));
+    const result = unrelated === undefined ? undefined : sourceTypeDescriptorStructure(unrelated);
+    assert.equal(result?.kind === "intrinsic" && result.intrinsic === "never", true,
+      "a false structural branch never borrows an unrelated member");
+    const keyed = current.defaults.context.describe(current.declaration("keyed"));
+    assert.equal(keyed !== undefined, true, "the preceding conditional binding scope never contaminates a sibling read");
+  }
+});
+
 test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
   for (const alias of [false, true]) {
     const current = fixture(`type Input = readonly (string | float32)[] | { readonly marker: string; readonly value: float32 };

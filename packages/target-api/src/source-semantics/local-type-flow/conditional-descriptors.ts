@@ -1,6 +1,7 @@
 import type { Node, Type, TypeAliasApplicationInfo } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "../types.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
+import { sourceTypeDescriptorMemberKey, sourceTypeDescriptorMemberKeysEqual } from "./member-origins.js";
 import type { SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
@@ -10,7 +11,7 @@ export function sourceTypeDescriptorConditionalDefinition(
   queries: SourceFileSemantics,
   application: TypeAliasApplicationInfo,
   bindings: Bindings,
-  read: (node: Node, bindings: Bindings) => SourceTypeDescriptor | undefined,
+  read: (node: Node, bindings: Bindings, checked: ReadonlyMap<Node, Type>) => SourceTypeDescriptor | undefined,
 ): SourceTypeDescriptor | undefined {
   const { ast } = source;
   const results: SourceTypeDescriptor[] = [];
@@ -24,8 +25,8 @@ export function sourceTypeDescriptorConditionalDefinition(
     const inferred = new Map<Node, SourceTypeDescriptor>();
     const conditional = ast.as.AsConditionalTypeNode(step.conditional);
     if (conditional?.CheckType === undefined || conditional.ExtendsType === undefined) return undefined;
-    const input = read(conditional.CheckType, selected);
-    if (input !== undefined && !project(conditional.ExtendsType, input, inferred)) return undefined;
+    const input = read(conditional.CheckType, selected, checked);
+    if (step.branch === "true" && input !== undefined && !project(conditional.ExtendsType, input, inferred)) return undefined;
     for (const binding of step.bindings) {
       const parameter = application.bindings.find(candidate => candidate.parameter === binding.applicationParameter);
       if (parameter !== undefined && !queries.types.isIdentical(parameter.argument, binding.argument)) return undefined;
@@ -49,11 +50,15 @@ export function sourceTypeDescriptorConditionalDefinition(
       retained.set(selectedNode, { values: selected, types: checked });
       continue;
     }
-    const result = read(step.selectedNode, selected);
+    const result = read(step.selectedNode, selected, checked);
     if (result === undefined) return undefined;
     results.push(result);
   }
-  return results.length === 0 ? undefined : sourceTypeDescriptorUnion(results);
+  const inhabited = results.filter(result => {
+    const structure = sourceTypeDescriptorStructure(result);
+    return structure.kind !== "intrinsic" || structure.intrinsic !== "never";
+  });
+  return results.length === 0 ? undefined : sourceTypeDescriptorUnion(inhabited.length === 0 ? results : inhabited);
 
   function project(pattern: Node, actual: SourceTypeDescriptor, inferred: Map<Node, SourceTypeDescriptor>): boolean {
     if (ast.is.IsInferTypeNode(pattern)) {
@@ -68,10 +73,37 @@ export function sourceTypeDescriptorConditionalDefinition(
       const inner = ast.as.AsParenthesizedTypeNode(pattern)?.Type;
       return inner !== undefined && project(inner, actual, inferred);
     }
-    const structure = sourceTypeDescriptorStructure(actual);
-    if (ast.is.IsFunctionTypeNode(pattern) || ast.is.IsConstructorTypeNode(pattern)) {
-      if (structure.kind !== "callable" && structure.kind !== "shape") return true;
-      const signatures = ast.is.IsFunctionTypeNode(pattern) ? structure.calls : structure.constructs;
+    if (ast.is.IsIntersectionTypeNode(pattern)) {
+      return ast.children(pattern).every(part => part !== undefined && project(part, actual, inferred));
+    }
+    let structure = sourceTypeDescriptorStructure(actual);
+    if (ast.is.IsTypeLiteralNode(pattern)) {
+      if (structure.kind !== "shape") return false;
+      for (const property of ast.members(pattern)) {
+        if (property === undefined) return false;
+        const nameNode = ast.name(property);
+        const name = nameNode === undefined ? undefined : queries.operations.propertyName(nameNode);
+        const key = name === undefined ? undefined : sourceTypeDescriptorMemberKey(name.type, queries);
+        if (key === undefined) return false;
+        const matching = structure.members.filter(member => {
+          const origin = member.origin;
+          const selectedNode = origin.kind === "declared" ? ast.name(origin.declaration) : undefined;
+          const selectedName = selectedNode === undefined ? undefined : queries.operations.propertyName(selectedNode);
+          const selectedKey = origin.kind === "mapped" ? origin.key
+            : selectedName === undefined ? undefined : sourceTypeDescriptorMemberKey(selectedName.type, queries);
+          return selectedKey !== undefined && sourceTypeDescriptorMemberKeysEqual(key, selectedKey);
+        });
+        if (matching.length !== 1) return false;
+        const member = matching[0]!;
+        const annotation = ast.is.IsMethodSignatureDeclaration(property) ? property : ast.typeNode(property);
+        if (annotation === undefined || !project(annotation, member.type, inferred)) return false;
+      }
+      return true;
+    }
+    if (ast.is.IsFunctionTypeNode(pattern) || ast.is.IsConstructorTypeNode(pattern) || ast.is.IsMethodSignatureDeclaration(pattern)) {
+      while (structure.kind === "optional") structure = sourceTypeDescriptorStructure(structure.value);
+      if (structure.kind !== "callable" && structure.kind !== "shape") return false;
+      const signatures = ast.is.IsConstructorTypeNode(pattern) ? structure.constructs : structure.calls;
       if (signatures.length !== 1) return false;
       const signature = signatures[0]!;
       for (const [index, parameter] of ast.parameters(pattern).entries()) {

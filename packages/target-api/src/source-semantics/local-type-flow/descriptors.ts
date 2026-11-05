@@ -37,6 +37,7 @@ export function createSourceTypeDescriptorReader(
   let expansionDepth = 0;
   let expansionSite: Node | undefined;
   const reads: { failure?: SourceTypeDescriptorReadFailure }[] = [];
+  let conditionalBindings: ReadonlyMap<Node, Type> = new Map();
 
   function capture(read: () => SourceTypeDescriptor | undefined): SourceTypeDescriptorReadResult {
     const frame: { failure?: SourceTypeDescriptorReadFailure } = {};
@@ -157,7 +158,10 @@ export function createSourceTypeDescriptorReader(
         if (ast.is.IsTypeAliasDeclaration(declaration)) {
           const checkedArguments: Type[] = [];
           for (const argument of argumentNodes) {
-            const checked = argument === undefined ? undefined : queries.types.authoredType(argument);
+            const authored = argument === undefined ? undefined : queries.types.authoredType(argument);
+            const parameter = authored === undefined ? undefined : declarationFor(authored, queries, argument);
+            const checked = parameter !== undefined && conditionalBindings.has(parameter)
+              ? conditionalBindings.get(parameter) : authored;
             if (checked === undefined) return undefined;
             checkedArguments.push(checked);
           }
@@ -319,7 +323,12 @@ export function createSourceTypeDescriptorReader(
     try {
       definition = application?.kind === "conditional"
         ? sourceTypeDescriptorConditionalDefinition(source, queries, application, bindings,
-          (node, selected) => syntax(node, queries, depth + 1, selected))
+          (node, selected, checked) => {
+            const previous = conditionalBindings;
+            conditionalBindings = new Map([...previous, ...checked]);
+            try { return syntax(node, queries, depth + 1, selected); }
+            finally { conditionalBindings = previous; }
+          })
         : body === undefined ? structure(selectedType, queries, depth, bindings)
           : ast.is.IsMappedTypeNode(body) || ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body)
             ? type(selectedType, queries, component, depth, bindings, declaration)

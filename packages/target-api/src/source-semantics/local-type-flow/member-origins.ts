@@ -10,11 +10,11 @@ export function sourceTypeDescriptorMemberOriginsEqual(left: Origin, right: Orig
   switch (left.kind) {
     case "declared": return right.kind === "declared" && left.declaration === right.declaration;
     case "class-prototype": return right.kind === "class-prototype" && left.owner === right.owner;
-    case "mapped": return right.kind === "mapped" && left.owner === right.owner && keysEqual(left.key, right.key);
+    case "mapped": return right.kind === "mapped" && left.owner === right.owner && sourceTypeDescriptorMemberKeysEqual(left.key, right.key);
   }
 }
 
-function keysEqual(left: SourceMemberKey, right: SourceMemberKey): boolean {
+export function sourceTypeDescriptorMemberKeysEqual(left: SourceMemberKey, right: SourceMemberKey): boolean {
   if (left.kind !== right.kind) return false;
   switch (left.kind) {
     case "string": return right.kind === "string" && left.value === right.value;
@@ -28,7 +28,7 @@ export function freezeSourceTypeDescriptorMemberOrigin(origin: Origin): Origin {
     : Object.freeze({ ...origin });
 }
 
-function memberKey(type: Type, queries: SourceFileSemantics): SourceMemberKey | undefined {
+export function sourceTypeDescriptorMemberKey(type: Type, queries: SourceFileSemantics): SourceMemberKey | undefined {
   if (queries.types.isUnion(type) || queries.types.isIntersection(type)) return undefined;
   const string = queries.types.stringLiteralValue(type);
   if (string !== undefined) return Object.freeze({ kind: "string", value: string });
@@ -59,7 +59,7 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     if (owner === undefined || !ast.is.IsMappedTypeNode(owner)) {
       throw new Error("A checked mapped property requires its actual mapped declaration.");
     }
-    const key = mapped.keyType === undefined ? undefined : memberKey(mapped.keyType, queries);
+    const key = mapped.keyType === undefined ? undefined : sourceTypeDescriptorMemberKey(mapped.keyType, queries);
     return key === undefined ? Object.freeze({ kind: "refused", owner, name: property.name })
       : Object.freeze({ kind: "resolved", origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "mapped", owner, key }) });
   }
