@@ -928,6 +928,42 @@ test("literal admission retains its actual inferred or declared Source authority
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("comma value selection keeps only the right operand while retaining left effects and closed derived kinds", () => {
+  const cases = [
+    ["integer", "int32", "primitive", "int32"], ["single", "float32", "primitive", "float32"],
+    ["boolean", "boolean", "primitive", "bool"], ["text", "string", "string", ""],
+    ["optional", "int32 | undefined", "optional", ""], ["array", "int32[]", "array", ""],
+    ["tuple", "readonly [int32, float32]", "tuple", ""], ["nominal", "Data", "declared", ""],
+  ] as const;
+  const current = fixture(`class Data { value: int32 = 1; }
+    ${cases.map(([name, type]) => `function comma_${name}(left: float32, right: ${type}): void {
+      const selected_${name} = (left++, (left++, right)); void selected_${name}; }`).join("\n")}
+    export function written(): number { let value = 0; return (value++, value + 1); }
+    declare function take(values: number[]): void;
+    function unbound(left: float32): void { const selected_unbound = (left++, []); take(selected_unbound); }
+    function declared(left: float32): number[] { return (left++, []); }`);
+  for (const [name, , kind, primitive] of cases) {
+    const type = current.type(`selected_${name}`);
+    assert.equal(type.kind === kind && (type.kind !== "primitive" || type.primitive === primitive), true, name);
+  }
+  const { ast } = current.source;
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  for (const derived of graph.derived.filter(derived => derived.operator === "sequence")) {
+    const binary = ast.as.AsBinaryExpression(derived.node);
+    assert.equal(derived.operands.length === 1 && derived.operands[0]?.node === binary?.Right, true,
+      "a comma has exactly its actual right operand as a value-type dependency, never its left effect");
+  }
+  const written = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "written");
+  const body = written === undefined ? undefined : ast.body(written);
+  const returned = body === undefined ? undefined : ast.children(body).find(node => node !== undefined && ast.is.IsReturnStatement(node));
+  const expression = returned === undefined ? undefined : ast.as.AsReturnStatement(returned)?.Expression;
+  const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int32", true,
+    "the exact written return keeps the right derived kind; declared number conversion remains target admission");
+  assertSameValue(current.type("selected_unbound"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => {
   const cases = ["identity", "freeze"].flatMap(call => ["array", "object"].flatMap(form =>
     [false, true].flatMap(alias => ["declared", "inferred"].map(authority => ({

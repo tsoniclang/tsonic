@@ -520,6 +520,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const operator = ast.operatorKindName(node);
       const operation = operator === undefined ? undefined : sourceTypeFlowBinaryOperators.get(operator);
       if (operation !== undefined && binary?.Left !== undefined && binary.Right !== undefined) {
+        if (operation === "sequence") {
+          value(binary.Left, false, depth);
+          return operationNode(node, operation, [binary.Right], initializer, depth);
+        }
         return operationNode(node, operation, [binary.Left, binary.Right], initializer, depth);
       }
       return undefined;
@@ -746,7 +750,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const selected = operands.map(operand => value(operand, false, depth));
     if (selected.some(operand => operand === undefined)) return fixed(node);
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
-    if (!inputs.some(operand => active.has(operand.node))) return fixed(node);
+    if (!inputs.some(operand => active.has(operand.node))) return fixed(node, undefined,
+      operator === "sequence" && operands[0] !== undefined ? context.describe(operands[0]) : undefined);
+    if (operator === "sequence" && inputs.length === 1 && openValues.has(inputs[0]!.node) && !derived.has(inputs[0]!.node)) {
+      const result = record(node, "read");
+      link(inputs[0], result, node);
+      return result;
+    }
     if (required && ["conditional", "logical-and", "logical-or", "coalesce"].includes(operator) &&
       inputs.some(operand => openValues.has(operand.node))) {
       const result = record(node, "value");

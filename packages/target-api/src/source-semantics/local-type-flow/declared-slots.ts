@@ -151,6 +151,9 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     while (parent !== undefined) {
       if (ast.is.IsParenthesizedExpression(parent) && Node_Expression(ast, parent) === occurrence) {
         occurrence = parent;
+      } else if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindCommaToken" &&
+        ast.as.AsBinaryExpression(parent)?.Right === occurrence) {
+        occurrence = parent;
       } else if (ast.is.IsPrefixUnaryExpression(parent) && ast.as.AsPrefixUnaryExpression(parent)?.Operand === occurrence &&
         (ast.operatorKindName(parent) === "KindPlusToken" || ast.operatorKindName(parent) === "KindMinusToken") &&
         context.literal(parent)?.numeric?.kind === "authored") {

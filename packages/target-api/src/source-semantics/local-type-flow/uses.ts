@@ -35,6 +35,16 @@ export function collectSourceTypeFlowUses(
     }
   }
   const calls = new Map(graph.calls.map(call => [call.node, call]));
+  const derivedValues = new Set(graph.derived.map(derived => derived.node));
+  function isDerivedValue(node: Node): boolean {
+    let value = node;
+    while (ast.is.IsParenthesizedExpression(value) || ast.is.IsNonNullExpression(value)) {
+      const operand = Node_Expression(ast, value);
+      if (operand === undefined) return false;
+      value = operand;
+    }
+    return derivedValues.has(value);
+  }
   const aliasLinks = new Map<SourceTypeFlowNode["variable"], SourceTypeFlowNode["variable"][]>();
   for (const link of graph.links) {
     for (const [from, to] of [[link.source, link.target], [link.target, link.source]] as const) {
@@ -60,7 +70,7 @@ export function collectSourceTypeFlowUses(
     if ((record.kind === "fixed" || record.term?.kind === "fixed") && !constructionAliases.has(record.variable) || ast.is.IsArrowFunction(record.node) ||
       ast.is.IsFunctionExpression(record.node) || ast.is.IsVariableDeclaration(record.node) ||
       ast.is.IsParameterDeclaration(record.node)) continue;
-    uses.push(...classify(record));
+    uses.push(...classify(record).filter(use => use.kind !== "fill" || !isDerivedValue(record.node)));
   }
   for (const call of graph.calls) {
     assertRetainedCall(context, call.node, call.source);
