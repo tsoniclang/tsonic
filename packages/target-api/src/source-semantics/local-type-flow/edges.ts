@@ -114,11 +114,27 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (family === undefined) constructionFamilies.set(origin.node, family = []);
     family.push({ source, target });
   }
+  const fillLinks = new Map<SourceTypeFlowVariable, SourceTypeFlowVariable[]>();
+  for (const { source, target } of links) {
+    for (const [from, to] of [[source, target], [target, source]] as const) {
+      let adjacent = fillLinks.get(from);
+      if (adjacent === undefined) fillLinks.set(from, adjacent = []);
+      adjacent.push(to);
+    }
+  }
+  const declaredFills = new Set<SourceTypeFlowVariable>();
+  const pendingFills = [...nodes.values()].filter(record => {
+    const slot = declaredSlots.get(record.node);
+    return slot?.authority === "declared" && slot.type !== undefined;
+  }).map(record => record.variable);
+  while (pendingFills.length > 0) {
+    const variable = pendingFills.pop()!;
+    if (declaredFills.has(variable)) continue;
+    declaredFills.add(variable);
+    pendingFills.push(...fillLinks.get(variable) ?? []);
+  }
   for (const family of constructionFamilies.values()) {
-    if (!family.some(pair => {
-      const slot = declaredSlots.get(pair.target.node);
-      return slot?.authority === "declared" && slot.type !== undefined;
-    })) continue;
+    if (!family.some(pair => declaredFills.has(pair.target))) continue;
     for (const pair of family) link(pair.source, pair.target, pair.target.node);
   }
   return Object.freeze({

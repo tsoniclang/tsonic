@@ -983,12 +983,21 @@ test("generic binder fills retain declared authority for direct and aliased fixe
     }).join("\n")}`);
   const { ast } = current.source;
   const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
-  for (const row of cases) {
+  const observations = cases.map(row => {
     const token = current.nodes.find(node => ast.is.IsStringLiteral(node) && ast.text(node) === row.name);
     let literal = token === undefined ? undefined : ast.parent(token);
     while (literal !== undefined && !(ast.is.IsArrayLiteralExpression(literal) || ast.is.IsObjectLiteralExpression(literal))) literal = ast.parent(literal);
     const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
     const matching = admissions.filter(admission => admission.site === literal);
+    return { row, literal, outcome, matching };
+  });
+  for (const { row, literal, outcome, matching } of observations) {
+    console.log("C2288.generic-fill " + JSON.stringify({ name: row.name, expected: row.authority,
+      found: literal !== undefined, outcome: outcome?.kind ?? "absent", count: matching.length,
+      actual: matching[0]?.authority ?? "absent",
+      sameDescriptor: outcome !== undefined && outcome.kind !== "refused" && matching[0]?.type === outcome.type }));
+  }
+  for (const { row, literal, outcome, matching } of observations) {
     assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching[0]?.authority === row.authority &&
       matching[0].type === outcome.type, true, row.name);
