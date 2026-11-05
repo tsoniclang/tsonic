@@ -1,5 +1,6 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
+import { sourceTypeExpansionBudget } from "./type-expansion-budget.js";
 import type { Node, ProviderSignatureDeclaration, ProviderTypeParameterDeclaration, ProviderTypeExpression, ReadonlySourceFactResolver } from "@tsonic/tsts";
 
 export type SourceProviderSignatureSelection =
@@ -56,8 +57,8 @@ export function selectSourceProviderSignature(
   };
   const visitType = (type: ProviderTypeExpression | undefined, depth: number, scope: ParameterScope): void => {
     if (type === undefined || seen.has(type)) return;
-    if (depth > 128) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "depth", 128, declaration);
-    if (++visits > 131_072) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "types", 131_072, declaration);
+    if (depth > sourceTypeExpansionBudget.depth) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "depth", sourceTypeExpansionBudget.depth, declaration);
+    if (++visits > sourceTypeExpansionBudget.types) failTargetCompilerResourceLimit("tsonic", `Provider signature ${identity.signatureId}`, "types", sourceTypeExpansionBudget.types, declaration);
     seen.add(type);
     switch (type.kind) {
       case "function":

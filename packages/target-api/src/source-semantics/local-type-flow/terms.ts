@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { freezeSourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import type {
   SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
   SourceTypeFlowRefusal, SourceTypeFlowTerm, SourceTypeFlowVariable,
@@ -20,13 +21,13 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
     case "array": return right.kind === "array" && left.readonly === right.readonly &&
       sourceTypeDescriptorsEqual(left.element, right.element);
     case "tuple": return right.kind === "tuple" && left.readonly === right.readonly &&
-      left.elements.every((element, index) => sourceTypeDescriptorsEqual(element, right.elements[index]!));
+      left.elements.length === right.elements.length && left.elements.every((element, index) =>
+        element.kind === right.elements[index]?.kind && sourceTypeDescriptorsEqual(element.type, right.elements[index]!.type));
     case "declared": return right.kind === "declared" && left.declaration === right.declaration &&
       left.typeArguments.length === right.typeArguments.length &&
-      left.typeArguments.every((argument, index) => sourceTypeDescriptorsEqual(argument, right.typeArguments[index]!)) &&
-      indexesEqual(left.indexes, right.indexes);
+      left.typeArguments.every((argument, index) => sourceTypeDescriptorsEqual(argument, right.typeArguments[index]!));
     case "shape": return right.kind === "shape" && left.members.length === right.members.length &&
-      indexesEqual(left.indexes, right.indexes) &&
+      indexesEqual(left.indexes, right.indexes) && signaturesEqual(left.calls, right.calls) && signaturesEqual(left.constructs, right.constructs) &&
       left.members.every(member => {
         const selected = right.members.find(candidate => candidate.name === member.name);
         return selected !== undefined && member.optional === selected.optional && !!member.readonly === !!selected.readonly &&
@@ -72,29 +73,24 @@ function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: 
 export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
   const indexes = (values: readonly SourceTypeDescriptorIndex[]) => Object.freeze(values.map(index =>
     Object.freeze({ ...index, key: freezeSourceTypeDescriptor(index.key), value: freezeSourceTypeDescriptor(index.value) })));
+  const signatures = (values: readonly SourceTypeDescriptorSignature[]) => Object.freeze(values.map(signature =>
+    Object.freeze({ ...signature, typeParameters: Object.freeze([...signature.typeParameters]),
+      parameters: Object.freeze(signature.parameters.map(parameter => Object.freeze({ ...parameter,
+        type: freezeSourceTypeDescriptor(parameter.type) }))), result: freezeSourceTypeDescriptor(signature.result) })));
   switch (type.kind) {
     case "primitive": case "string": case "intrinsic": return Object.freeze({ ...type });
     case "union": return Object.freeze({ ...type, types: Object.freeze(type.types.map(freezeSourceTypeDescriptor)) });
-    case "callable": {
-      const signatures = (values: readonly SourceTypeDescriptorSignature[]) => Object.freeze(values.map(signature =>
-        Object.freeze({ ...signature, typeParameters: Object.freeze([...signature.typeParameters]),
-          parameters: Object.freeze(signature.parameters.map(parameter => Object.freeze({ ...parameter,
-            type: freezeSourceTypeDescriptor(parameter.type) }))), result: freezeSourceTypeDescriptor(signature.result) })));
-      return Object.freeze({ ...type, calls: signatures(type.calls), constructs: signatures(type.constructs) });
-    }
+    case "callable": return Object.freeze({ ...type, calls: signatures(type.calls), constructs: signatures(type.constructs) });
     case "array": return Object.freeze({ ...type, element: freezeSourceTypeDescriptor(type.element) });
     case "optional": return Object.freeze({ ...type, value: freezeSourceTypeDescriptor(type.value) });
-    case "tuple": return Object.freeze({ ...type, elements: Object.freeze([
-      freezeSourceTypeDescriptor(type.elements[0]), freezeSourceTypeDescriptor(type.elements[1]),
-    ] as const) });
-    case "declared": return Object.freeze({ ...type,
+    case "tuple": return Object.freeze({ ...type, elements: Object.freeze(type.elements.map(element =>
+      Object.freeze({ ...element, type: freezeSourceTypeDescriptor(element.type) }))) });
+    case "declared": return Object.freeze({ kind: "declared", declaration: type.declaration,
       typeArguments: Object.freeze(type.typeArguments.map(freezeSourceTypeDescriptor)),
-      indexes: indexes(type.indexes),
-      ...(type.definition === undefined ? {} : { definition: freezeSourceTypeDescriptor(type.definition) }),
-      ...(type.members === undefined ? {} : { members: Object.freeze(type.members.map(member =>
-        Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) }) });
-    case "shape": return Object.freeze({ ...type, indexes: indexes(type.indexes), members: Object.freeze(type.members.map(member =>
-      Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) });
+      ...(type.definition === undefined ? {} : { definition: freezeSourceTypeDescriptor(type.definition) }) });
+    case "shape": return Object.freeze({ ...type, indexes: indexes(type.indexes), calls: signatures(type.calls), constructs: signatures(type.constructs),
+      members: Object.freeze(type.members.map(member => Object.freeze({ ...member, origin: freezeSourceTypeDescriptorMemberOrigin(member.origin),
+        type: freezeSourceTypeDescriptor(member.type) }))) });
   }
 }
 
@@ -102,8 +98,9 @@ export function sourceTypeDescriptorDepth(type: SourceTypeDescriptor): number {
   const children = type.kind === "array" ? [type.element] : type.kind === "optional" ? [type.value]
     : type.kind === "union" ? type.types : type.kind === "callable" ? [...type.calls, ...type.constructs]
       .flatMap(signature => [...signature.parameters.map(parameter => parameter.type), signature.result])
-    : type.kind === "tuple" ? type.elements : type.kind === "declared" ? type.typeArguments
-    : type.kind === "shape" ? [...type.members.map(member => member.type), ...type.indexes.flatMap(index => [index.key, index.value])] : [];
+    : type.kind === "tuple" ? type.elements.map(element => element.type) : type.kind === "declared" ? type.typeArguments
+    : type.kind === "shape" ? [...type.members.map(member => member.type), ...type.indexes.flatMap(index => [index.key, index.value]),
+      ...[...type.calls, ...type.constructs].flatMap(signature => [...signature.parameters.map(parameter => parameter.type), signature.result])] : [];
   let depth = -1;
   for (const child of children) depth = Math.max(depth, sourceTypeDescriptorDepth(child));
   return depth + 1;
@@ -114,20 +111,35 @@ export function sourceTypeDescriptorHasTypeVariables(ast: AstReader, type: Sourc
   const visit = (selected: SourceTypeDescriptor): boolean => sourceTypeDescriptorHasTypeVariables(ast, selected, bound);
   if (type.kind === "declared") {
     if (ast.is.IsTypeParameterDeclaration(type.declaration) && !bound.has(type.declaration)) return true;
-    return type.typeArguments.some(visit);
+    return type.typeArguments.some(visit) || type.definition !== undefined && visit(type.definition);
   }
   if (type.kind === "array") return visit(type.element);
-  if (type.kind === "tuple") return type.elements.some(visit);
+  if (type.kind === "tuple") return type.elements.some(element => visit(element.type));
   if (type.kind === "optional") return visit(type.value);
   if (type.kind === "union") return type.types.some(visit);
-  if (type.kind === "shape") return type.members.some(member => visit(member.type)) ||
-    type.indexes.some(index => visit(index.key) || visit(index.value));
-  if (type.kind === "callable") return [...type.calls, ...type.constructs].some(signature => {
+  if (type.kind === "shape" && (type.members.some(member => visit(member.type)) ||
+    type.indexes.some(index => visit(index.key) || visit(index.value)))) return true;
+  if (type.kind === "callable" || type.kind === "shape") return [...type.calls, ...type.constructs].some(signature => {
     const scope = new Set([...bound, ...signature.typeParameters]);
     return signature.parameters.some(parameter => sourceTypeDescriptorHasTypeVariables(ast, parameter.type, scope)) ||
       sourceTypeDescriptorHasTypeVariables(ast, signature.result, scope);
   });
   return false;
+}
+
+export function sourceTypeDescriptorTupleValue(type: Extract<SourceTypeDescriptor, { readonly kind: "tuple" }>,
+  index: number): SourceTypeDescriptor | undefined {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error("A Source tuple position must be a nonnegative safe integer.");
+  const element = type.elements[index];
+  if (element !== undefined) return element.type;
+  const last = type.elements[type.elements.length - 1];
+  return last?.kind === "rest" ? last.type : undefined;
+}
+
+export function sourceTypeDescriptorStructure(type: SourceTypeDescriptor): SourceTypeDescriptor {
+  let selected = type;
+  while (selected.kind === "declared" && selected.definition !== undefined) selected = selected.definition;
+  return selected;
 }
 
 export interface SourceTypeFlowTermGroup {
@@ -179,6 +191,9 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
       index = existing;
     }
     for (const part of variable.path) {
+      if (part.kind === "tuple" && (!Number.isSafeInteger(part.index) || part.index < 0)) {
+        throw new Error("A Source tuple path requires a nonnegative safe integer position.");
+      }
       const selected: PathIndex | undefined = part.kind === "binder" ? index.binders.get(part.declaration)
         : index.parts.get(pathKey(part));
       if (selected !== undefined) {
@@ -210,7 +225,7 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   function children(slot: TermSlot): readonly TermSlot[] {
     return slot.structures.flatMap(term => term.kind === "array" ? [intern(term.element)]
       : term.kind === "optional" ? [intern(term.value)]
-      : term.kind === "tuple" ? term.elements.map(intern)
+      : term.kind === "tuple" ? term.elements.map(element => intern(element.variable))
       : term.kind === "shape" ? term.members.map(member => intern(member.variable))
       : term.kind === "declared" ? term.typeArguments.map(intern) : []);
   }
@@ -252,7 +267,12 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
           if (one.kind === "array" && other.kind === "array") pending.push([intern(one.element), intern(other.element)]);
           if (one.kind === "optional" && other.kind === "optional") pending.push([intern(one.value), intern(other.value)]);
           if (one.kind === "tuple" && other.kind === "tuple") {
-            pending.push([intern(one.elements[0]), intern(other.elements[0])], [intern(one.elements[1]), intern(other.elements[1])]);
+            if (one.elements.length !== other.elements.length) { clash = true; continue; }
+            one.elements.forEach((element, index) => {
+              const selected = other.elements[index]!;
+              if (element.kind !== selected.kind) clash = true;
+              else pending.push([intern(element.variable), intern(selected.variable)]);
+            });
           }
           if (one.kind === "shape" && other.kind === "shape") {
             if (one.members.length !== other.members.length) { clash = true; continue; }

@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeFlowRefusal, SourceTypeFlowRefusalCode } from "./types.js";
 
 const reasons: Readonly<Record<SourceTypeFlowRefusalCode, string>> = Object.freeze({
+  TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE: "A mapped member requires one checked string literal, number literal or unique symbol key.",
   TSONIC_LOCAL_TYPE_CONFLICT: "Linked values have different concrete source types. Annotate the declaration with one exact type.",
   TSONIC_LOCAL_TYPE_MIXED_ELEMENTS: "This array literal mixes different fixed source types. Annotate the array and convert its elements explicitly.",
   TSONIC_LOCAL_TYPE_SIGNATURE: "This value reaches an inferred signature and cannot take its type from a use. Annotate the value or the signature.",

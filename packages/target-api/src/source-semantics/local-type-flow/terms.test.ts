@@ -6,7 +6,7 @@ import type { SourceTypeDescriptor, SourceTypeFlowGraph, SourceTypeFlowNode, Sou
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-    "/src/index.ts": "function run() { const first = 1; const second = 2; const third = 3; } class Left {} class Right {}",
+    "/src/index.ts": "function run() { const first = 1; const second = 2; const third = 3; } class Left { value = 1; } class Right {}",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
   const file = checked.getSourceFile("/src/index.ts");
@@ -73,7 +73,8 @@ test("two tuple positions never collapse to a single array element", () => {
   const left: SourceTypeFlowVariable = { node: first.node, path: [{ kind: "tuple", index: 0 }] };
   const right: SourceTypeFlowVariable = { node: first.node, path: [{ kind: "tuple", index: 1 }] };
   const terms = createSourceTypeFlowTerms(current.ast, current.graph([
-    current.entry(first, { kind: "tuple", site: first.node, readonly: true, elements: [left, right] }),
+    current.entry(first, { kind: "tuple", site: first.node, readonly: true,
+      elements: [{ kind: "required", variable: left }, { kind: "required", variable: right }] }),
   ]));
   assert.equal(terms.group(left).variable === terms.group(right).variable, false);
 });
@@ -82,7 +83,7 @@ test("nominal identity includes the original declaration and ordered arguments",
   const current = fixture();
   const integer: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
   const floating: SourceTypeDescriptor = { kind: "primitive", primitive: "float64" };
-  const first: SourceTypeDescriptor = { kind: "declared", declaration: current.nodes[3]!, typeArguments: [integer, floating], indexes: [] };
+  const first: SourceTypeDescriptor = { kind: "declared", declaration: current.nodes[3]!, typeArguments: [integer, floating] };
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, declaration: current.nodes[4]! }), false);
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, typeArguments: [floating, integer] }), false);
   assert.equal(sourceTypeDescriptorsEqual(first, { ...first, typeArguments: [integer, floating] }), true);
@@ -90,7 +91,7 @@ test("nominal identity includes the original declaration and ordered arguments",
 
 test("descriptor freezing owns vectors but never freezes checked source nodes", () => {
   const current = fixture(); const declaration = current.nodes[3]!;
-  const source: SourceTypeDescriptor = { kind: "declared", declaration, typeArguments: [{ kind: "primitive", primitive: "int32" }], indexes: [] };
+  const source: SourceTypeDescriptor = { kind: "declared", declaration, typeArguments: [{ kind: "primitive", primitive: "int32" }] };
   const frozen = freezeSourceTypeDescriptor(source);
   assert.equal(Object.isFrozen(frozen), true);
   assert.equal(frozen.kind === "declared" && Object.isFrozen(frozen.typeArguments), true);
@@ -99,9 +100,13 @@ test("descriptor freezing owns vectors but never freezes checked source nodes", 
 });
 
 test("member presence survives freezing and is not inferred from its optional value type", () => {
+  const current = fixture();
+  const declaration = current.ast.members(current.nodes[3]!)[0]!;
   const value: SourceTypeDescriptor = { kind: "optional", value: { kind: "primitive", primitive: "int32" } };
-  const required: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: false, type: value }], indexes: [] };
-  const optional: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: true, type: value }], indexes: [] };
+  const required: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: false, type: value,
+    origin: { kind: "declared", declaration } }], indexes: [], calls: [], constructs: [] };
+  const optional: SourceTypeDescriptor = { kind: "shape", members: [{ name: "value", optional: true, type: value,
+    origin: { kind: "declared", declaration } }], indexes: [], calls: [], constructs: [] };
   assert.equal(sourceTypeDescriptorsEqual(required, optional), false);
   const frozen = freezeSourceTypeDescriptor(required);
   assert.equal(sourceTypeDescriptorsEqual(required, frozen), true);

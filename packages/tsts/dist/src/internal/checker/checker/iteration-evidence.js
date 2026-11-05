@@ -5,8 +5,15 @@ export const sourceIterationEvidenceLimits = Object.freeze({
 });
 export function freezeExtensionCheckedIterationSelection(selection) {
     switch (selection.iterationKind) {
+        case undefined:
+            return Object.freeze({
+                subject: Object.freeze({ ...selection.subject }),
+                sourceIterableType: selection.sourceIterableType,
+                sourceElementType: selection.sourceElementType,
+            });
         case "for-in":
             return Object.freeze({
+                subject: Object.freeze({ ...selection.subject }),
                 iterationKind: selection.iterationKind,
                 sourceIterableType: selection.sourceIterableType,
                 sourceElementType: selection.sourceElementType,
@@ -14,6 +21,7 @@ export function freezeExtensionCheckedIterationSelection(selection) {
             });
         case "for-of":
             return Object.freeze({
+                subject: Object.freeze({ ...selection.subject }),
                 iterationKind: selection.iterationKind,
                 sourceIterableType: selection.sourceIterableType,
                 sourceElementType: selection.sourceElementType,
@@ -21,12 +29,14 @@ export function freezeExtensionCheckedIterationSelection(selection) {
             });
         case "for-await-of":
             return Object.freeze({
+                subject: Object.freeze({ ...selection.subject }),
                 iterationKind: selection.iterationKind,
                 sourceIterableType: selection.sourceIterableType,
                 sourceElementType: selection.sourceElementType,
                 mechanism: freezeForAwaitOfIterationMechanism(selection.mechanism),
             });
     }
+    throw new Error("A checked iteration selection requires a supported subject and loop kind.");
 }
 export function freezeExtensionCheckedYieldStarResult(result, asynchronous) {
     return Object.freeze({
@@ -278,8 +288,9 @@ export function createExtensionIterationProtocolSelectionCapture() {
         mechanism: undefined,
     };
 }
-export function createExtensionForInIterationSelection(sourceIterableType, sourceElementType) {
+export function createExtensionForInIterationSelection(statement, sourceIterableType, sourceElementType) {
     return Object.freeze({
+        subject: Object.freeze({ kind: "for-in", node: statement }),
         iterationKind: "for-in",
         sourceIterableType,
         sourceElementType,

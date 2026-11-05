@@ -22,7 +22,7 @@ interface SignatureVariable {
 interface SignatureVariablePath {
   readonly members: Map<string, SignatureVariablePath>;
   readonly binders: Map<Node, SignatureVariablePath>;
-  readonly tuples: Map<0 | 1, SignatureVariablePath>;
+  readonly tuples: Map<number, SignatureVariablePath>;
   element?: SignatureVariablePath;
   optionalValue?: SignatureVariablePath;
   value?: SignatureVariable;
@@ -103,7 +103,7 @@ export function collectSourceTypeFlowSignatures(
     if (node.term?.kind === "array") selected.dependencies.add(entry(node.term.element));
     if (node.term?.kind === "optional") selected.dependencies.add(entry(node.term.value));
     if (node.term?.kind === "tuple") {
-      for (const element of node.term.elements) selected.dependencies.add(entry(element));
+      for (const element of node.term.elements) selected.dependencies.add(entry(element.variable));
     }
     if (node.term?.kind === "declared") {
       for (const argument of node.term.typeArguments) selected.dependencies.add(entry(argument));

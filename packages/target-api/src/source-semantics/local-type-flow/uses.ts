@@ -5,6 +5,9 @@ import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
+import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
+import { sourceTypeDescriptorsEqual } from "./terms.js";
+import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
   SourceTypeFlowArgumentPlace, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowRefusalCode, SourceTypeFlowUse,
@@ -50,6 +53,16 @@ export function collectSourceTypeFlowUses(
   const constructionAliases = sourceTypeFlowReachableVariables(graph.nodes.filter(record =>
     record.term?.kind === "fixed" && aliasLinks.has(record.variable) &&
     (ast.is.IsArrayLiteralExpression(record.node) || ast.is.IsObjectLiteralExpression(record.node))).map(record => record.variable), aliasLinks);
+  const constructionRecords = graph.nodes.filter(record => record.publish &&
+    (ast.is.IsArrayLiteralExpression(record.node) || ast.is.IsObjectLiteralExpression(record.node)) &&
+    !sourceTypeFlowAssignmentPattern(ast, record.node));
+  const constructionFamilies = new Map<SourceTypeFlowNode["variable"], readonly SourceTypeFlowNode[]>();
+  for (const construction of constructionRecords) {
+    if (constructionFamilies.has(construction.variable)) continue;
+    const reached = sourceTypeFlowReachableVariables([construction.variable], aliasLinks);
+    const family = Object.freeze(constructionRecords.filter(record => reached.has(record.variable)));
+    for (const variable of reached) constructionFamilies.set(variable, family);
+  }
   const uses: SourceTypeFlowUse[] = [];
   for (const record of nodes.values()) {
     if (!graph.roots.includes(record.root) || !withinInferenceRoot(ast, record.node, record.root)) {
@@ -137,6 +150,11 @@ export function collectSourceTypeFlowUses(
   });
   return Object.freeze(uses);
 
+  function required(record: SourceTypeFlowNode, site: Node, component: SourceTypeComponentEvidence | undefined,
+    check = false, retained?: SourceTypeFlowAssociation): SourceTypeFlowUse {
+    return requiredUse(context, record, site, component, check, retained, constructionFamilies.get(record.variable) ?? []);
+  }
+
   function classify(record: SourceTypeFlowNode, captured = false): readonly SourceTypeFlowUse[] {
     let value = record.node;
     let parent = ast.parent(value);
@@ -149,14 +167,14 @@ export function collectSourceTypeFlowUses(
     if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) || ast.is.IsSatisfiesExpression(parent)) &&
       Node_Expression(ast, parent) === value && !ast.isConstAssertion(parent)) {
       const queries = context.source.semantics.forNode(record.node);
-      return [requiredUse(context, record, parent, authoredComponent(context, parent, queries), ast.is.IsSatisfiesExpression(parent))];
+      return [required(record, parent, authoredComponent(context, parent, queries), ast.is.IsSatisfiesExpression(parent))];
     }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) || ast.is.IsParameterDeclaration(parent)) &&
       Node_Initializer(ast, parent) === value) {
       if (ast.typeNode(parent) === undefined) return captured
         ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
       const queries = context.source.semantics.forNode(record.node);
-      return [requiredUse(context, record, parent, authoredComponent(context, parent, queries))];
+      return [required(record, parent, authoredComponent(context, parent, queries))];
     }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent) && ast.body(parent) === value) {
       const owner = ast.is.IsArrowFunction(parent) ? parent : containingCallable(ast, parent);
@@ -167,7 +185,7 @@ export function collectSourceTypeFlowUses(
       if (component !== undefined && ast.hasModifierKind(owner, "async")) {
         component = awaitedReturnComponent(context, component, queries);
       }
-      return [requiredUse(context, record, parent, component)];
+      return [required(record, parent, component)];
     }
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
@@ -176,7 +194,7 @@ export function collectSourceTypeFlowUses(
         if (binary.Left === value) {
           if (!captured && operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
             const component = declaredValueComponent(context, binary.Right);
-            if (component !== undefined) return [requiredUse(context, record, parent, component)];
+            if (component !== undefined) return [required(record, parent, component)];
           }
           return [write(record, parent, binary.Right, value)];
         }
@@ -184,7 +202,7 @@ export function collectSourceTypeFlowUses(
           const destination = nodes.get(binary.Left);
           if (destination !== undefined && destination.kind !== "fixed") return [];
           const component = declaredStorageComponent(context, binary.Left);
-          return component === undefined ? [] : [requiredUse(context, record, parent, component)];
+          return component === undefined ? [] : [required(record, parent, component)];
         }
         return [];
       }
@@ -233,7 +251,7 @@ export function collectSourceTypeFlowUses(
         return refusal(record, argument, "TSONIC_LOCAL_TYPE_GENERIC", association);
       }
       if (ambiguousNumericOverload(context, call, binding)) return refusal(record, argument, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
-      return requiredUse(context, record, argument, component, false, association);
+      return required(record, argument, component, false, association);
     });
   }
 }
@@ -255,6 +273,7 @@ function requiredUse(
   component: SourceTypeComponentEvidence | undefined,
   check = false,
   retained?: SourceTypeFlowAssociation,
+  constructions: readonly SourceTypeFlowNode[] = [],
 ): SourceTypeFlowUse {
   if (component === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", retained);
   const queries = context.source.semantics.forNode(record.node);
@@ -268,15 +287,32 @@ function requiredUse(
       : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
   }
   if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
-  if (queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
+  if (constructions.length === 0 && queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
     return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   }
-  const type = context.describe(record.node, component);
+  let type = context.describe(record.node, component);
   if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
-  if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
+  if (constructions.length > 0) {
+    let chosen: SourceTypeDescriptor | undefined;
+    for (const construction of constructions) {
+      const selected = construction.declaredSlotRefusal === undefined
+        ? sourceTypeFlowConstructionSlot(context.source.ast, construction.node, type, "declared")
+        : { refusal: construction.declaredSlotRefusal };
+      if (selected.refusal !== undefined) return Object.freeze({ kind: "refused", site: construction.node,
+        variable: record.variable, association, refusal: selected.refusal });
+      const candidate = "type" in selected ? selected.type : undefined;
+      if (candidate === undefined) throw new Error("A selected construction slot requires its descriptor.");
+      if (chosen !== undefined && !sourceTypeDescriptorsEqual(chosen, candidate)) {
+        return refusal(record, construction.node, "TSONIC_LOCAL_TYPE_CONFLICT", association);
+      }
+      chosen = candidate;
+    }
+    if (chosen === undefined) throw new Error("A construction family requires its declared slot selection.");
+    type = chosen;
+  } else if (type.kind === "optional") return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   const readOnly = type.kind === "array" && type.readonly || type.kind === "tuple" && type.readonly;
   const assertion = context.source.ast.is.IsAsExpression(site) || context.source.ast.is.IsTypeAssertion(site);
-  if (check || readOnly && association.parameter !== undefined || assertion &&
+  if (check || constructions.length === 0 && readOnly && association.parameter !== undefined || assertion &&
     type.kind === "declared" && context.source.ast.is.IsInterfaceDeclaration(type.declaration)) {
     return Object.freeze({ kind: "check", site, variable: record.variable, check: readOnly ? "read-only" : "interface",
       type, required: component.declaration ?? component.authoredTypeNode ?? site, association });
@@ -480,7 +516,7 @@ function numericWidths(type: SourceTypeDescriptor, path = ""): ReadonlyMap<strin
   const visit = (value: SourceTypeDescriptor, key: string): void => {
     if (value.kind === "primitive" && value.primitive !== "bool" && value.primitive !== "char") widths.set(key, value.primitive);
     else if (value.kind === "array") visit(value.element, `${key}[]`);
-    else if (value.kind === "tuple") value.elements.forEach((element, index) => visit(element, `${key}[${index}]`));
+    else if (value.kind === "tuple") value.elements.forEach((element, index) => visit(element.type, `${key}[${index}]`));
     else if (value.kind === "shape") for (const member of value.members) visit(member.type, `${key}.${member.name}`);
     else if (value.kind === "declared") value.typeArguments.forEach((argument, index) => visit(argument, `${key}<${index}>`));
     else if (value.kind === "optional") visit(value.value, `${key}?`);

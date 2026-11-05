@@ -645,12 +645,13 @@ export function Checker_checkIteratedTypeOrElementType(receiver, use, inputType,
     }
     return receiver.anyType;
 }
-export function Checker_checkForOfIterationWithExtensionSelection(receiver, iterationKind, inputType, sentType, errorNode) {
+export function Checker_checkForOfIterationWithExtensionSelection(receiver, statement, iterationKind, inputType, sentType, errorNode) {
     const use = iterationKind === "for-await-of" ? IterationUseForAwaitOf : IterationUseForOf;
     if (IsTypeAny(inputType)) {
         const sourceType = inputType;
         const selection = iterationKind === "for-await-of"
             ? {
+                subject: { kind: "for-of", node: statement },
                 iterationKind: "for-await-of",
                 sourceIterableType: sourceType,
                 sourceElementType: sourceType,
@@ -660,6 +661,7 @@ export function Checker_checkForOfIterationWithExtensionSelection(receiver, iter
                 },
             }
             : {
+                subject: { kind: "for-of", node: statement },
                 iterationKind: "for-of",
                 sourceIterableType: sourceType,
                 sourceElementType: sourceType,
@@ -684,6 +686,7 @@ export function Checker_checkForOfIterationWithExtensionSelection(receiver, iter
         return {
             elementType,
             selection: {
+                subject: { kind: "for-of", node: statement },
                 iterationKind,
                 sourceIterableType: inputType,
                 sourceElementType: selectedElementType,
@@ -697,6 +700,7 @@ export function Checker_checkForOfIterationWithExtensionSelection(receiver, iter
     return {
         elementType,
         selection: {
+            subject: { kind: "for-of", node: statement },
             iterationKind,
             sourceIterableType: inputType,
             sourceElementType: selectedElementType,

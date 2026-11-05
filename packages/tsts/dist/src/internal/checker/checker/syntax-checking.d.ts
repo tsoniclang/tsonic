@@ -1273,6 +1273,7 @@ export declare function Checker_checkPrefixUnaryExpression(receiver: GoPtr<Check
 export declare function Checker_checkPostfixUnaryExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSpreadExpression","kind":"method","status":"implemented","sigHash":"ea28f33c4c792dc8dc6ee3b45dc136c7ec32e335a19f40f31ea1a6e8637cd34a","bodyHash":"935a89ed85ee2fbfbe72eaedd4ac99375f1814c02818ead10b1c7ba5ce928969"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"One worker retains the exact TS-Go spread computation; the existing iteration query observes its actual iterable and element types without changing checking, caching or the ordinary signature."}
  *
  * Go source:
  * func (c *Checker) checkSpreadExpression(node *ast.Node, checkMode CheckMode) *Type {

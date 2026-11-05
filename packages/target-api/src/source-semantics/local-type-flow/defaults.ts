@@ -2,20 +2,23 @@ import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Sour
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.js";
-import { createSourceTypeDescriptorReader } from "./descriptors.js";
+import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
+import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
-import { withSourceTypeFlowTraceSubject } from "./trace.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
-  SourceTypeFlowFixedRule, SourceTypeFlowSource,
+  SourceTypeFlowFixedRule, SourceTypeFlowRefusal, SourceTypeFlowSource,
 } from "./types.js";
 
 export interface SourceTypeFlowDefaults {
   readonly context: SourceTypeFlowAnalysisContext;
   readonly nodes: readonly Node[];
   readonly values: readonly Node[];
+  readonly signatureRefusals: ReadonlyMap<Node, SourceTypeFlowRefusal>;
+  readonly descriptorRefusals: ReadonlyMap<Node, SourceTypeFlowRefusal>;
   readonly declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
   fixedRule(node: Node): SourceTypeFlowFixedRule | undefined;
   hasDeclaredSourceType(node: Node): boolean;
@@ -79,6 +82,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
   }
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
+  const signatureRefusals = sourceTypeFlowRecursiveSignatures(source, nodes);
+  const descriptorRefusals = new Map<Node, SourceTypeFlowRefusal>();
+  const describing: Node[] = [];
   const active = new Set<Node>();
   let declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
   const declarationQueries = new WeakMap<Node, SourceFileSemantics>();
@@ -147,9 +153,29 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode);
   }
 
-  const { syntax: describeSyntax, type: describeType } = createSourceTypeDescriptorReader(source, typeDeclaration,
+  const descriptor = createSourceTypeDescriptorReader(source, typeDeclaration,
     declaration => sourceTypeFlowTypeParameters(ast, declaration), (declaration, queries, bindings) =>
-      describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))));
+      describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))),
+    declaration => signatureRefusals.has(declaration));
+
+  function descriptorValue(result: SourceTypeDescriptorReadResult): SourceTypeDescriptor | undefined {
+    if (result.kind === "resolved") return result.type;
+    const node = describing[describing.length - 1];
+    if (node === undefined) throw new Error("A refused Source descriptor requires its original value occurrence.");
+    if (!descriptorRefusals.has(node)) descriptorRefusals.set(node, Object.freeze({
+      ...createSourceTypeFlowRefusal(result.code, node, result.owner),
+      reason: `Mapped property ${JSON.stringify(result.name)} requires one checked string literal, number literal or unique symbol key.`,
+    }));
+    return undefined;
+  }
+
+  function describeSyntax(...arguments_: Parameters<typeof descriptor.syntax>): SourceTypeDescriptor | undefined {
+    return descriptorValue(descriptor.syntax(...arguments_));
+  }
+
+  function describeType(...arguments_: Parameters<typeof descriptor.type>): SourceTypeDescriptor | undefined {
+    return descriptorValue(descriptor.type(...arguments_));
+  }
 
   function occurrenceBindings(node: Node, queries: SourceFileSemantics,
     component?: SourceTypeComponentEvidence): ReadonlyMap<Node, SourceTypeDescriptor> {
@@ -228,18 +254,22 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         const value = initializer === undefined ? undefined : describe(initializer, undefined, depth + 1);
         if (value === undefined) return undefined;
         const name = queries.propertyNames.get(nameNode);
-        const selected = name?.kind !== "resolved" ? undefined : selectedMembers.find(member => member.name === name.name);
+        const symbol = queries.operations.objectLiteralElement(property)?.sourceElementSymbol;
+        const selected = name?.kind !== "resolved" || symbol === undefined ? undefined : selectedMembers.find(member => member.symbol === symbol);
         if (selected === undefined) return undefined;
-        members.push({ name: selected.name, optional: selected.optional, type: value, declaration: property });
+        members.push({ name: selected.name, optional: selected.optional, type: value, origin: { kind: "declared", declaration: property } });
       }
-      return members.length === 0 ? undefined : { kind: "shape", members, indexes: [] };
+      return members.length === 0 ? undefined : { kind: "shape", members, indexes: [], calls: [], constructs: [] };
     }
     return undefined;
   }
 
   function describe(node: Node, component?: SourceTypeComponentEvidence, depth = 0,
     consumer?: SourceFileSemantics, arguments_: readonly SourceEffectiveTypeArgument[] = []): SourceTypeDescriptor | undefined {
-    if (depth > 4 || active.has(node)) return undefined;
+    if (active.has(node) || descriptorRefusals.has(node)) return undefined;
+    const owner = navigation.sourceReferenceFor(node)?.declaration ?? node;
+    const initializer = initializerOf(owner);
+    if (signatureRefusals.has(owner) || initializer !== undefined && signatureRefusals.has(initializer)) return undefined;
     if (component === undefined && arguments_.length === 0) {
       const cached = cache.get(node);
       if (cached !== undefined) return cached;
@@ -259,6 +289,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const contextual = component === undefined && (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) ||
       ast.is.IsMethodDeclaration(node)) && ast.typeNode(node) === undefined ? declaredSlots.callable(node, queries) : undefined;
     active.add(node);
+    describing.push(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
     let result: SourceTypeDescriptor | undefined;
@@ -267,13 +298,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const parameters = signature?.parameters.map((parameter, index) => {
         const declaration = parameter.declaration;
         const type = declaration === undefined ? undefined : describe(declaration, undefined, depth, queries, arguments_);
-        return type === undefined ? undefined : { kind: contextual.parameters[index]?.kind ?? parameter.parameterKind,
+        return type === undefined ? undefined : { kind: contextual.signature.parameters[index]?.kind ?? parameter.parameterKind,
           type, ...(declaration === undefined ? {} : { declaration }) };
       });
       if (parameters !== undefined && parameters.every(parameter => parameter !== undefined)) {
-        result = { kind: "callable", calls: [{ declaration: node, typeParameters: sourceTypeFlowTypeParameters(ast, node),
+        result = { ...contextual.type, calls: [{ declaration: node, typeParameters: sourceTypeFlowTypeParameters(ast, node),
           parameters: parameters.filter((parameter): parameter is NonNullable<typeof parameter> => parameter !== undefined),
-          result: contextual.result }], constructs: [] };
+          result: contextual.signature.result }] };
       }
     }
     const rule = file !== undefined && semantics.includes(file) ? fixedRule(node) : undefined;
@@ -281,31 +312,43 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       result = { kind: "primitive", primitive: "int64" };
     }
     const declaration = component?.declaration ?? declarationFor(node);
-    if (result === undefined && component === undefined && ast.is.IsElementAccessExpression(node)) {
-      const access = queries.operations.elementAccess(node);
-      const receiver = access?.receiver.expression;
-      const descriptor = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
-      const index = ast.as.AsElementAccessExpression(node)?.ArgumentExpression;
-      const literal = index === undefined ? undefined : literals.get(index);
-      const position = literal?.integerConstant ?? literal?.integer;
-      if (descriptor?.kind === "array") result = descriptor.element;
-      else if (descriptor?.kind === "tuple" && position !== undefined && position >= 0n && position < BigInt(descriptor.elements.length)) {
-        result = descriptor.elements[Number(position)];
-      }
+    if (result === undefined && component === undefined && (ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) ||
+      ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node))) {
+      const selectedType = queries.types.expressionType(node) ?? queries.declarations.declaredValueType(node);
+      if (selectedType !== undefined) result = describeType(selectedType, queries, { selectedType, declaration: node }, depth, bindings);
+    }
+    if (result === undefined && component === undefined && (ast.is.IsFunctionTypeNode(node) || ast.is.IsConstructorTypeNode(node))) {
+      const selectedType = queries.types.authoredType(node);
+      if (selectedType !== undefined) result = describeType(selectedType, queries, { selectedType, declaration: node }, depth, bindings);
     }
     if (result === undefined && component === undefined && ast.is.IsPropertyAccessExpression(node)) {
       const access = queries.operations.propertyAccess(node);
       const receiver = access?.receiver.expression;
-      const descriptor = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
+      const receiverType = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
+      const descriptor = receiverType === undefined ? undefined : sourceTypeDescriptorStructure(receiverType);
       const selectedDeclaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
-      if (selectedDeclaration !== undefined && (descriptor?.kind === "shape" || descriptor?.kind === "declared")) {
-        result = descriptor.members?.find(member => member.declaration === selectedDeclaration)?.type;
+      if (selectedDeclaration !== undefined && descriptor?.kind === "shape") {
+        result = descriptor.members.find(member => member.origin.kind === "declared" && member.origin.declaration === selectedDeclaration)?.type;
+      }
+    }
+    if (result === undefined && component === undefined && ast.is.IsElementAccessExpression(node)) {
+      const access = queries.operations.elementAccess(node);
+      const receiver = access?.receiver.expression;
+      const receiverType = receiver === undefined ? undefined : describe(receiver, undefined, depth, queries);
+      const descriptor = receiverType === undefined ? undefined : sourceTypeDescriptorStructure(receiverType);
+      const index = ast.as.AsElementAccessExpression(node)?.ArgumentExpression;
+      const literal = index === undefined ? undefined : literals.get(index);
+      const position = literal?.integerConstant ?? literal?.integer;
+      if (descriptor?.kind === "array") result = descriptor.element;
+      else if (descriptor?.kind === "tuple" && position !== undefined && position >= 0n && position <= BigInt(Number.MAX_SAFE_INTEGER)) {
+        result = sourceTypeDescriptorTupleValue(descriptor, Number(position));
       }
     }
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
     if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth, bindings);
     if (result === undefined && annotation !== undefined) {
       active.delete(node);
+      describing.pop();
       return undefined;
     }
     if (result === undefined && declaration !== undefined && ast.is.IsParameterDeclaration(declaration)) {
@@ -350,6 +393,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (selected !== undefined && !queries.types.isUnion(selected) && !queries.types.isNullish(selected)) result = result.value;
     }
     active.delete(node);
+    describing.pop();
+    if (descriptorRefusals.has(node)) return undefined;
     if (result === undefined) return undefined;
     const frozen = freezeSourceTypeDescriptor(result);
     if (component === undefined && arguments_.length === 0) cache.set(node, frozen);
@@ -366,14 +411,14 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
   const context: SourceTypeFlowAnalysisContext = Object.freeze({ source,
     describe: (node: Node, component?: SourceTypeComponentEvidence, arguments_?: readonly SourceEffectiveTypeArgument[]) =>
-      withSourceTypeFlowTraceSubject(node, () => describe(node, component, 0, undefined, arguments_)),
+      describe(node, component, 0, undefined, arguments_),
     literal: (node: Node) => literals.get(node),
     order: (node: Node) => {
       const range = ast.authoredRange(node);
       return { start: range.kind === "authored" ? range.start : ast.pos(node), preorder: ordinals.get(node) ?? nodes.length };
     } });
   declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
-  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), declaredSlots,
+  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots,
     fixedRule, hasDeclaredSourceType });
 }
 

@@ -323,7 +323,8 @@ test("B7 pair paths and nominal argument dependencies remain distinct", () => {
   const left = variable(literal, [{ kind: "binder", declaration: leftBinder }]);
   const right = variable(literal, [{ kind: "binder", declaration: rightBinder }]);
   const result = collectEligibleMetadata(checked.context, graph([owner], [
-    valueNode(literal, owner, { term: { kind: "tuple", site: literal, elements: [first, second], readonly: true } }),
+    valueNode(literal, owner, { term: { kind: "tuple", site: literal,
+      elements: [{ kind: "required", variable: first }, { kind: "required", variable: second }], readonly: true } }),
     valueNode(left.node, owner, { kind: "binder", variable: left, term: { kind: "declared", site: literal,
       declaration: checked.find("KindClassDeclaration", "Pair"), typeArguments: [right] } }),
   ], [{ source: first, target: left, site: literal }]));

@@ -19,6 +19,11 @@ export interface TypeReferenceArgumentInfo {
     readonly argument: Type;
     readonly scope: "outer" | "local";
 }
+export interface TypeMappedPropertyInfo {
+    readonly keyType: GoPtr<Type>;
+    readonly syntheticOrigin: GoPtr<Symbol>;
+    readonly declaration: GoPtr<Node>;
+}
 export interface TypePropertyInfo {
     readonly symbol: Symbol;
     readonly rootSymbols: readonly Symbol[];
@@ -26,6 +31,7 @@ export interface TypePropertyInfo {
     readonly type: Type;
     readonly optional: boolean;
     readonly readonly: boolean;
+    readonly mapped?: TypeMappedPropertyInfo;
 }
 export interface TypeTupleElementInfo {
     readonly type: Type;

@@ -10,16 +10,14 @@ export type SourceTypeDescriptor =
   | { readonly kind: "intrinsic"; readonly intrinsic: "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol" }
   | { readonly kind: "union"; readonly types: readonly SourceTypeDescriptor[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceTypeDescriptor }
-  | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly [SourceTypeDescriptor, SourceTypeDescriptor] }
-  | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[]; readonly indexes: readonly SourceTypeDescriptorIndex[] }
+  | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly SourceTypeDescriptorTupleElement[] }
+  | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[]; readonly indexes: readonly SourceTypeDescriptorIndex[];
+      readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | { readonly kind: "callable"; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | {
       readonly kind: "declared";
       readonly declaration: Node;
       readonly typeArguments: readonly SourceTypeDescriptor[];
-      readonly source?: SourceTypeComponentEvidence;
-      readonly members?: readonly SourceTypeDescriptorMember[];
-      readonly indexes: readonly SourceTypeDescriptorIndex[];
       readonly definition?: SourceTypeDescriptor;
     }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor };
@@ -35,11 +33,30 @@ export interface SourceTypeDescriptorSignature {
   readonly result: SourceTypeDescriptor;
 }
 
+export interface SourceTypeDescriptorTupleElement {
+  readonly kind: "required" | "optional" | "rest";
+  readonly type: SourceTypeDescriptor;
+  readonly declaration?: Node;
+}
+
+export interface SourceLiteralMemberCorrespondence {
+  readonly property: Node;
+  readonly origin: SourceTypeDescriptorMember["origin"];
+}
+
+export type SourceMemberKey =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "unique-symbol"; readonly declaration: Node };
+
 export interface SourceTypeDescriptorMember {
   readonly name: string;
   readonly optional: boolean;
   readonly type: SourceTypeDescriptor;
-  readonly declaration?: Node;
+  readonly origin:
+    | { readonly kind: "declared"; readonly declaration: Node }
+    | { readonly kind: "class-prototype"; readonly owner: Node }
+    | { readonly kind: "mapped"; readonly owner: Node; readonly key: SourceMemberKey };
   readonly readonly?: boolean;
 }
 
@@ -51,6 +68,7 @@ export interface SourceTypeDescriptorIndex {
 }
 
 export type SourceTypeFlowRefusalCode =
+  | "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE"
   | "TSONIC_LOCAL_TYPE_CONFLICT"
   | "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS"
   | "TSONIC_LOCAL_TYPE_SIGNATURE"
@@ -78,7 +96,10 @@ export interface SourceEffectiveTypeProvenance {
   readonly occurrence: Node;
   readonly sourceFile: SourceFile;
   readonly filledBy?: Node;
-  readonly component?: SourceTypeComponentEvidence;
+  readonly component?: {
+    readonly declaration?: Node;
+    readonly authoredTypeNode?: Node;
+  };
   readonly fixedRule?: SourceTypeFlowFixedRule;
 }
 
@@ -91,6 +112,8 @@ export type SourceEffectiveTypeOutcome =
   | {
       readonly kind: "resolved" | "default";
       readonly type: SourceTypeDescriptor;
+      readonly construction?: SourceTypeDescriptor;
+      readonly memberCorrespondence?: readonly SourceLiteralMemberCorrespondence[];
       readonly provenance: SourceEffectiveTypeProvenance;
     }
   | SourceTypeFlowRefusal;
@@ -172,7 +195,7 @@ export type SourceTypeFlowPathPart =
   | { readonly kind: "element" }
   | { readonly kind: "optional-value" }
   | { readonly kind: "member"; readonly name: string }
-  | { readonly kind: "tuple"; readonly index: 0 | 1 }
+  | { readonly kind: "tuple"; readonly index: number }
   | { readonly kind: "binder"; readonly declaration: Node };
 
 export interface SourceTypeFlowVariable {
@@ -185,7 +208,11 @@ export type SourceTypeFlowTerm =
   | { readonly kind: "fixed"; readonly site: Node; readonly type: SourceTypeDescriptor }
   | { readonly kind: "array"; readonly site: Node; readonly element: SourceTypeFlowVariable; readonly readonly: boolean }
   | { readonly kind: "optional"; readonly site: Node; readonly value: SourceTypeFlowVariable; readonly source: SourceTypeComponentEvidence }
-  | { readonly kind: "tuple"; readonly site: Node; readonly elements: readonly [SourceTypeFlowVariable, SourceTypeFlowVariable]; readonly readonly: boolean }
+  | { readonly kind: "tuple"; readonly site: Node; readonly elements: readonly {
+      readonly kind: "required" | "optional" | "rest";
+      readonly variable: SourceTypeFlowVariable;
+      readonly declaration?: Node;
+    }[]; readonly readonly: boolean }
   | {
       readonly kind: "declared";
       readonly site: Node;

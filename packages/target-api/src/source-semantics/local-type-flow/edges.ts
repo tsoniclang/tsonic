@@ -11,10 +11,10 @@ import { sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./d
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { traceSourceTypeFlow } from "./trace.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
@@ -45,9 +45,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const binderParts = new Map<Node, SourceTypeFlowPathPart>();
   const elementPart: SourceTypeFlowPathPart = Object.freeze({ kind: "element" });
   const optionalValuePart: SourceTypeFlowPathPart = Object.freeze({ kind: "optional-value" });
-  const tupleParts: readonly SourceTypeFlowPathPart[] = Object.freeze([
-    Object.freeze({ kind: "tuple", index: 0 }), Object.freeze({ kind: "tuple", index: 1 }),
-  ]);
+  const tupleParts = new Map<number, SourceTypeFlowPathPart>();
   const terms = new Map<SourceTypeFlowVariable, SourceTypeFlowTerm>();
   const positions = new Map<SourceTypeFlowVariable, SourceTypeFlowNode>();
   const declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
@@ -183,12 +181,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   function project(variable: SourceTypeFlowVariable, part: SourceTypeFlowPathPart): SourceTypeFlowVariable {
     let canonical = part.kind === "element" ? elementPart : part.kind === "optional-value" ? optionalValuePart
-      : part.kind === "tuple" ? tupleParts[part.index]
+      : part.kind === "tuple" ? tupleParts.get(part.index)
       : part.kind === "member" ? memberParts.get(part.name) : binderParts.get(part.declaration);
     if (canonical === undefined) {
       canonical = Object.freeze(part);
       if (part.kind === "member") memberParts.set(part.name, canonical);
       if (part.kind === "binder") binderParts.set(part.declaration, canonical);
+      if (part.kind === "tuple") tupleParts.set(part.index, canonical);
     }
     let positions = projections.get(variable);
     if (positions === undefined) { positions = new Map(); projections.set(variable, positions); }
@@ -220,7 +219,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (term.kind === "fixed") putTerm(target, term);
     else if (term.kind === "array") putTerm(target, Object.freeze({ ...term, element: project(target, { kind: "element" }) }));
     else if (term.kind === "tuple") putTerm(target, Object.freeze({ ...term,
-      elements: Object.freeze([project(target, { kind: "tuple", index: 0 }), project(target, { kind: "tuple", index: 1 })] as const) }));
+      elements: Object.freeze(term.elements.map((element, index) => Object.freeze({ ...element,
+        variable: project(target, { kind: "tuple", index }) }))) }));
     else if (term.kind === "shape") putTerm(target, Object.freeze({ ...term, members: Object.freeze(term.members.map(member =>
       Object.freeze({ ...member, variable: project(target, { kind: "member", name: member.name }) }))) }));
     else if (term.kind === "declared") putTerm(target, Object.freeze({ ...term,
@@ -233,8 +233,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (term.kind === "array" && copied?.kind === "array") shareStructure(term.element, copied.element, depth + 1);
     if (term.kind === "optional" && copied?.kind === "optional") shareStructure(term.value, copied.value, depth + 1);
     if (term.kind === "tuple" && copied?.kind === "tuple") {
-      shareStructure(term.elements[0], copied.elements[0], depth + 1);
-      shareStructure(term.elements[1], copied.elements[1], depth + 1);
+      term.elements.forEach((element, index) => {
+        const selected = copied.elements[index];
+        if (selected !== undefined) shareStructure(element.variable, selected.variable, depth + 1);
+      });
     }
     if (term.kind === "shape" && copied?.kind === "shape") for (const [index, member] of term.members.entries()) {
       const selected = copied.members[index];
@@ -284,7 +286,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       : type.kind === "array" ? declaredWidth(type.element)
       : type.kind === "optional" ? declaredWidth(type.value)
       : type.kind === "declared" ? type.typeArguments.some(declaredWidth)
-      : type.kind === "tuple" ? type.elements.some(declaredWidth)
+      : type.kind === "tuple" ? type.elements.some(element => declaredWidth(element.type))
       : type.kind === "shape" && type.members.some(member => declaredWidth(member.type));
   }
 
@@ -383,7 +385,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       let selected = declaredComponent(element, query);
       let projected: SourceTypeDescriptor | undefined;
       if (arrayPattern && described?.kind === "array") projected = BindingElement_IsRest(ast, element) ? described : described.element;
-      else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = described.elements[index];
+      else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = sourceTypeDescriptorTupleValue(described, index);
       if (component !== undefined && !BindingElement_IsRest(ast, element)) {
         let slot: { readonly type: Type; readonly declaration?: Node } | undefined;
         if (arrayPattern) slot = tuple?.[index];
@@ -396,8 +398,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           }
           const property = selection?.kind === "resolved"
             ? query.types.propertyInfos(component.selectedType).find(property => property.name === selection.name) : undefined;
-          if (selection?.kind === "resolved" && (described?.kind === "shape" || described?.kind === "declared")) {
-            projected = described.members?.find(member => member.name === selection.name)?.type;
+          const structure = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
+          if (selection?.kind === "resolved" && structure?.kind === "shape") {
+            projected = structure.members.find(member => member.name === selection.name)?.type;
           }
           if (property !== undefined) {
             const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
@@ -551,7 +554,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (pairs.has(node) && elements.length === 2 && elements[0] !== undefined && elements[1] !== undefined) {
       const first = project(result, { kind: "tuple", index: 0 });
       const second = project(result, { kind: "tuple", index: 1 });
-      replace(node, { term: Object.freeze({ kind: "tuple", site: node, elements: Object.freeze([first, second] as const), readonly: true }) });
+      replace(node, { term: Object.freeze({ kind: "tuple", site: node, elements: Object.freeze([
+        Object.freeze({ kind: "required" as const, variable: first }),
+        Object.freeze({ kind: "required" as const, variable: second }),
+      ]), readonly: true }) });
       link(value(elements[0], true, depth + 1), first, elements[0]);
       link(value(elements[1], true, depth + 1), second, elements[1]);
       return result;
@@ -576,7 +582,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const descriptor = operand === undefined ? undefined : context.describe(operand);
       const contributions = !spread ? descriptor === undefined ? [] : [descriptor]
         : descriptor?.kind === "array" ? [descriptor.element]
-          : descriptor?.kind === "tuple" ? descriptor.elements : [];
+          : descriptor?.kind === "tuple" ? descriptor.elements.map(element => element.type) : [];
       return contributions.length > 0 && contributions.every(type => type.kind === "primitive" &&
         type.primitive !== "bool" && type.primitive !== "char");
     })) return false;
@@ -619,7 +625,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const source = value(spread, true, depth + 1);
         if (source === undefined) continue;
         const term = nodes.get(source.node)?.term;
-        const described = context.describe(spread);
+        const descriptor = context.describe(spread);
+        const described = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
         const names = term?.kind === "shape" ? term.members.map(member => member.name)
           : described?.kind === "shape" ? described.members.map(member => member.name) : undefined;
         if (names === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", property); continue; }
@@ -669,8 +676,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const name = index === undefined ? undefined : context.literal(index);
       const term = nodes.get(source.node)?.term;
       if (term?.kind === "shape" && name?.text !== undefined) part = { kind: "member", name: name.text };
-      else if (term?.kind === "tuple" && name?.integer !== undefined && (name.integer === 0n || name.integer === 1n)) {
-        part = { kind: "tuple", index: name.integer === 0n ? 0 : 1 };
+      else if (term?.kind === "tuple" && name?.integer !== undefined && name.integer >= 0n && name.integer < BigInt(term.elements.length)) {
+        part = { kind: "tuple", index: Number(name.integer) };
       } else part = { kind: "element" };
     }
     if (part === undefined) return fixed(node);
@@ -709,7 +716,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const term = nodes.get(source.node)?.term;
       let part: SourceTypeFlowPathPart;
       if (arrayPattern) {
-        part = term?.kind === "tuple" && index < 2 ? { kind: "tuple", index: index === 0 ? 0 : 1 } : { kind: "element" };
+        part = term?.kind === "tuple" && index < term.elements.length ? { kind: "tuple", index } : { kind: "element" };
       } else {
         const selection = semantics.forNode(element).propertyNames.get(property);
         if (selection?.kind !== "resolved") { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element); continue; }
@@ -790,22 +797,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const genericConstruction = ast.is.IsNewExpression(node) && (source.sourceSelectedMethodTypeArguments?.length ?? 0) > 0;
     const genericAggregate = source.sourceArgumentBindings.some(binding => {
       const argument = arguments_[binding.sourceArgumentIndex];
-      traceSourceTypeFlow(context.source, node, "edges.genericAggregate", () => ({
-        argument: binding.sourceArgumentIndex, present: argument !== undefined,
-        fixedOrigin: argument !== undefined && fixedAggregateOrigin(argument) !== undefined,
-      }));
       if (argument === undefined || fixedAggregateOrigin(argument) === undefined) return false;
       const parameter = source.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
       const component = parameter?.parameterDeclaration === undefined ? undefined : declaredComponent(parameter.parameterDeclaration, query);
       if (component === undefined) return false;
-      const inverted = sourceTypeFlowHomomorphicInput(context.source, query, component.selectedType, component.authoredTypeNode);
-      traceSourceTypeFlow(context.source, node, "edges.genericAggregate", () => ({
-        source: component.authoredTypeNode === undefined ? "checked-application" : "authored-reference",
-        authoredKind: component.authoredTypeNode === undefined ? "absent" : ast.kindName(component.authoredTypeNode),
-        inverted: inverted !== undefined,
-        checkedAlias: query.types.aliasApplication(component.selectedType)?.kind ?? "absent",
-      }));
-      const formal = inverted ?? component.selectedType;
+      const formal = sourceTypeFlowHomomorphicInput(context.source, query, component.selectedType, component.authoredTypeNode) ?? component.selectedType;
       const declaration = sourceTypeFlowTypeDeclaration(context.source, query, formal);
       return declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration) &&
         (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
@@ -918,7 +914,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       receiverOnly = source.sourceReceiver !== undefined && mentioned.size > 0 &&
         [...mentioned].every(declaration => receiverBinders.some(binder => binder.declaration === declaration));
       const input = binding.sourceForm === "spread-sequence" ? project(argument, { kind: "element" })
-        : binding.sourceForm === "spread-element" && (binding.spreadElementIndex === 0 || binding.spreadElementIndex === 1)
+        : binding.sourceForm === "spread-element" && binding.spreadElementIndex !== undefined
           ? project(argument, { kind: "tuple", index: binding.spreadElementIndex }) : argument;
       const formal = binding.sourceParameterForm === "rest-element" || binding.sourceParameterForm === "rest-sequence"
         ? query.types.typeArguments(component.selectedType)[0] ?? component.selectedType
@@ -1033,14 +1029,6 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (level > 4) { refuse("TSONIC_LOCAL_TYPE_LIMIT", occurrence); return; }
       const formalQuery = query;
       const homomorphic = sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
-      traceSourceTypeFlow(context.source, node, "edges.join", () => {
-        const declaration = sourceTypeFlowTypeDeclaration(context.source, formalQuery, homomorphic ?? formal);
-        return { role, source: component.authoredTypeNode === undefined ? "checked-application" : "authored-reference",
-          authoredKind: component.authoredTypeNode === undefined ? "absent" : ast.kindName(component.authoredTypeNode),
-          inverted: homomorphic !== undefined, checkedAlias: formalQuery.types.aliasApplication(formal)?.kind ?? "absent",
-          binderKind: declaration === undefined ? "absent" : ast.kindName(declaration),
-          binderPosition: declaration === undefined ? -1 : ast.pos(declaration), level };
-      });
       if (homomorphic !== undefined) {
         const { authoredTypeNode, ...inputComponent } = component;
         join(homomorphic, variable, occurrence, Object.freeze({ ...inputComponent, selectedType: homomorphic }), level + 1, role);
@@ -1085,9 +1073,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       }
       if (formalQuery.types.isTuple(formal)) {
         const elements = formalQuery.types.tupleElementInfos(formal);
-        if (elements.length !== 2) { refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence); return; }
+        if (role === "result" && terms.get(variable) === undefined) putTerm(variable, Object.freeze({ kind: "tuple",
+          site: occurrence, readonly: formalQuery.types.indexInfos(formal).some(index => index.readonly),
+          elements: Object.freeze(elements.map((element, index) => Object.freeze({
+            kind: element.elementKind === "variadic" ? "rest" as const : element.elementKind,
+            variable: project(variable, { kind: "tuple", index }),
+            ...(element.declaration === undefined ? {} : { declaration: element.declaration }),
+          }))) }));
         for (const [index, element] of elements.entries()) {
-          join(element.type, project(variable, { kind: "tuple", index: index === 0 ? 0 : 1 }), occurrence,
+          join(element.type, project(variable, { kind: "tuple", index }), occurrence,
             Object.freeze({ selectedType: element.type, ...(element.declaration === undefined ? {} : { declaration: element.declaration }) }), level + 1, role);
         }
         return;
@@ -1165,11 +1159,6 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (level > 4 || seen.has(type)) return new Set();
       seen.add(type);
       const homomorphic = sourceTypeFlowHomomorphicInput(context.source, query, type, authoredTypeNode);
-      traceSourceTypeFlow(context.source, node, "edges.mentionedBinders", () => ({
-        source: authoredTypeNode === undefined ? "checked-application" : "authored-reference",
-        authoredKind: authoredTypeNode === undefined ? "absent" : ast.kindName(authoredTypeNode),
-        inverted: homomorphic !== undefined, checkedAlias: query.types.aliasApplication(type)?.kind ?? "absent", level,
-      }));
       if (homomorphic !== undefined) return mentionedBinders(homomorphic, types, level + 1, seen);
       const declaration = sourceTypeFlowTypeDeclaration(context.source, query, type);
       if (declaration !== undefined && binders.has(declaration)) return new Set([declaration]);
@@ -1257,14 +1246,16 @@ function numericLeaves(ast: AstReader, root: Node): boolean {
 }
 
 function descriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
-  if (part.kind === "element") return type.kind === "array" ? type.element : undefined;
+  const structure = sourceTypeDescriptorStructure(type);
+  if (part.kind === "element") return structure.kind === "array" ? structure.element : undefined;
   if (part.kind === "optional-value") return type.kind === "optional" ? type.value : undefined;
-  if (part.kind === "tuple") return type.kind === "tuple" ? type.elements[part.index] : undefined;
-  if (part.kind === "member") return type.kind === "shape" || type.kind === "declared"
-    ? type.members?.find(member => member.name === part.name)?.type ?? type.indexes.find(index => index.key.kind === "string")?.value : undefined;
+  if (part.kind === "tuple") return structure.kind === "tuple" ? sourceTypeDescriptorTupleValue(structure, part.index) : undefined;
+  if (part.kind === "member") return structure.kind === "shape"
+    ? structure.members.find(member => member.name === part.name)?.type ?? structure.indexes.find(index => index.key.kind === "string")?.value : undefined;
   if (type.kind !== "declared") return undefined;
-  const parameters = type.source === undefined ? undefined : context.source.semantics.forNode(site).types
-    .typeArgumentBindings(type.source.selectedType)?.map(binding => binding.declaration);
+  const queries = context.source.semantics.forNode(site);
+  const declared = queries.declarations.declaredType(type.declaration);
+  const parameters = declared === undefined ? undefined : queries.types.typeArgumentBindings(declared)?.map(binding => binding.declaration);
   const index = (parameters ?? sourceTypeFlowTypeParameters(context.source.ast, type.declaration)).indexOf(part.declaration);
   return index < 0 ? undefined : type.typeArguments[index];
 }

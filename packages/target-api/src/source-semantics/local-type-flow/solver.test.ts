@@ -1,39 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
+import { SymbolFlagsPrototype, createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
-import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor } from "./types.js";
+import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember } from "./types.js";
 import { sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { withSourceTypeFlowTrace, type SourceTypeFlowTraceFacts } from "./trace.js";
-
-function traceGenericFillSteps(read: () => void): void {
-  const names = ["freeze_array_direct_declared", "freeze_object_direct_declared"];
-  const steps = ["edges.genericAggregate", "edges.join", "edges.mentionedBinders", "descriptors.inheritedBindings",
-    "solver.binderFill", "solver.aggregateFill", "solver.authority"];
-  const rows = new Map<string, SourceTypeFlowTraceFacts[]>();
-  try {
-    withSourceTypeFlowTrace((source, node, step, facts) => {
-      let owner: Node | undefined = node;
-      while (owner !== undefined && !source.ast.is.IsFunctionDeclaration(owner)) owner = source.ast.parent(owner);
-      const name = owner === undefined ? undefined : source.ast.text(source.ast.name(owner));
-      if (name === undefined || !names.includes(name)) return;
-      const key = name + ":" + step;
-      const selected = rows.get(key);
-      if (selected === undefined) rows.set(key, [facts]); else selected.push(facts);
-    }, read);
-  } finally {
-    for (const name of names) for (const step of steps) {
-      const selected = rows.get(name + ":" + step) ?? [];
-      console.log("C2304.path " + JSON.stringify({ name, step, called: selected.length > 0,
-        count: selected.length, observations: selected }));
-    }
-  }
-}
+import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
+import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -585,7 +562,8 @@ test("C30 uses the unique kind-matching declared parameter arm and retains its m
   const arrayType = array === undefined ? undefined : current.source.effectiveTypes.get(array);
   assert.equal(objectType !== undefined && objectType.kind !== "refused" && objectType.type.kind === "shape", true);
   if (objectType === undefined || objectType.kind === "refused" || objectType.type.kind !== "shape") throw new Error("The chosen object arm is required.");
-  assert.equal(member !== undefined && objectType.type.members[0]?.declaration === member, true);
+  assert.equal(member !== undefined && objectType.type.members[0]?.origin.kind === "declared" &&
+    objectType.type.members[0].origin.declaration === member, true);
   assertSameValue(objectType.type.members[0]?.type, { kind: "primitive", primitive: "int32" });
   assert.equal(arrayType !== undefined && arrayType.kind !== "refused", true);
   if (arrayType === undefined || arrayType.kind === "refused") throw new Error("The chosen array arm is required.");
@@ -830,9 +808,9 @@ test("project class and interface declarations publish their own member identiti
     assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "declared" && result.type.declaration === node &&
       result.provenance.occurrence === node, true, "the exact declaration has its instance descriptor, not a constructor-value or an absent outcome");
     if (result === undefined || result.kind === "refused" || result.type.kind !== "declared") throw new Error("The project declaration descriptor is required.");
-    const members = result.type.members;
+    const members = result.type.definition?.kind === "shape" ? result.type.definition.members : undefined;
     assert.equal(members !== undefined && members.length === 2, true);
-    for (const member of members ?? []) assert.equal(member.declaration !== undefined && ast.parent(member.declaration) === node, true,
+    for (const member of members ?? []) assert.equal(member.origin.kind === "declared" && ast.parent(member.origin.declaration) === node, true,
       "each published member keeps its actual owning source declaration");
     if (ast.is.IsInterfaceDeclaration(node)) assert.equal(members?.find(member => member.name === "accept")?.optional, true);
   }
@@ -842,7 +820,7 @@ test("class-expression values retain their constructor contract independently of
   const current = fixture("const Make = class { value = 1; }; const item = new Make();");
   const expression = current.nodes.find(node => current.source.ast.is.IsClassExpression(node));
   const chosen = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
-  assert.equal(chosen !== undefined && chosen.kind !== "refused" && chosen.type.kind === "callable" &&
+  assert.equal(chosen !== undefined && chosen.kind !== "refused" && chosen.type.kind === "shape" &&
     chosen.type.constructs.length === 1, true, "a runtime class expression keeps its real constructor value descriptor");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
@@ -867,6 +845,40 @@ test("unused real signature parameters publish the same chosen descriptor as the
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("published descriptors and provenance carry identities without checked Type payloads", () => {
+  const current = fixture(`interface View<T> { value: T; }
+    function run(input: View<int32>): void { const selected: View<int32> = input; }
+  `);
+  const visit = (type: SourceTypeDescriptor): void => {
+    assert.equal("source" in type, false, "a published descriptor never transports internal checked evidence");
+    if (type.kind === "declared") {
+      for (const argument of type.typeArguments) visit(argument);
+      if (type.definition !== undefined) visit(type.definition);
+    } else if (type.kind === "shape") {
+      for (const member of type.members) visit(member.type);
+      for (const index of type.indexes) { visit(index.key); visit(index.value); }
+      for (const signature of [...type.calls, ...type.constructs]) {
+        for (const parameter of signature.parameters) visit(parameter.type);
+        visit(signature.result);
+      }
+    } else if (type.kind === "array") visit(type.element);
+    else if (type.kind === "optional") visit(type.value);
+    else if (type.kind === "tuple") for (const element of type.elements) visit(element.type);
+    else if (type.kind === "union") for (const member of type.types) visit(member);
+    else if (type.kind === "callable") for (const signature of [...type.calls, ...type.constructs]) {
+      for (const parameter of signature.parameters) visit(parameter.type);
+      visit(signature.result);
+    }
+  };
+  for (const node of current.nodes) {
+    const outcome = current.source.effectiveTypes.get(node);
+    if (outcome === undefined || outcome.kind === "refused") continue;
+    visit(outcome.type);
+    const component = outcome.provenance.component;
+    assert.equal(component === undefined || !("selectedType" in component) && !("contextualCall" in component), true,
+      "provenance retains only original source identities");
+  }
+});
 
 for (const initializer of ["value => value", "function(value) { const copied = value; return copied; }"]) {
   test(`a declared callable slot owns its actual parameters and return before body solving: ${initializer}`, () => {
@@ -939,6 +951,96 @@ test("fixed heterogeneous parents retain inferred admission authority without ad
   assert.equal(admissions.every(row => ast.is.IsArrayLiteralExpression(row.site)), true);
 });
 
+test("broad aggregate slots retain their final authored construction descriptors on the same outcomes", () => {
+  const current = fixture(`const broad: object = { count: 1, label: "x", read(): int32 { return 1; }, get total(): int32 { return 2; } };
+    const list: unknown = [1, 2]; const exact: { count: number } = { count: 1 };`);
+  const { ast } = current.source;
+  const initializer = (name: string): Node => {
+    const node = ast.as.AsVariableDeclaration(current.declaration(name))?.Initializer;
+    if (node === undefined) throw new Error("The actual aggregate initializer is required.");
+    return node;
+  };
+  const broad = initializer("broad");
+  const outcome = current.source.effectiveTypes.get(broad);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" &&
+    outcome.type.intrinsic === "object" && outcome.construction?.kind === "shape", true);
+  if (outcome === undefined || outcome.kind === "refused" || outcome.construction?.kind !== "shape") throw new Error("The final object construction is required.");
+  const members = outcome.construction.members;
+  assert.equal(members.length, 4);
+  assert.equal(members.every(member => member.origin.kind === "declared" && ast.properties(broad).includes(member.origin.declaration)), true);
+  assert.equal(members.find(member => member.name === "count")?.type.kind === "primitive", true);
+  const read = members.find(member => member.name === "read");
+  assert.equal(read?.type.kind === "callable" && read.type.calls[0]?.result.kind === "primitive" &&
+    read.type.calls[0].result.primitive === "int32", true);
+  const total = members.find(member => member.name === "total");
+  assert.equal(total?.type.kind === "primitive" && total.type.primitive === "int32", true);
+  assert.equal(Object.isFrozen(outcome.construction) && Object.isFrozen(members) && members.every(Object.isFrozen), true);
+  assert.equal(outcome.memberCorrespondence === undefined, true, "a broad slot has construction metadata, not a declared-member correspondence");
+  const list = current.source.effectiveTypes.get(initializer("list"));
+  assert.equal(list !== undefined && list.kind !== "refused" && list.type.kind === "intrinsic" &&
+    list.type.intrinsic === "unknown" && list.construction?.kind === "array" && list.construction.element.kind === "primitive" &&
+    list.construction.element.primitive === "int32", true);
+  const exact = current.source.effectiveTypes.get(initializer("exact"));
+  assert.equal(exact !== undefined && exact.kind !== "refused" && exact.construction === undefined, true,
+    "construction metadata is absent on every non-broad aggregate slot");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("literal member correspondence keeps real property, method, accessor and nested declaration identities", () => {
+  const current = fixture(`const value: { count: int32; read(): int32; readonly total: int32; inner: { child: int32 } } = {
+    count: 1, read() { return 1; }, get total(): int32 { return 2; }, inner: { child: 3 }
+  }; const base: { count: number } = { count: 1 }; const spread: { count: number } = { ...base };`);
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual checked object literal is required.");
+  const outcome = current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape", true);
+  if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "shape") throw new Error("The actual chosen slot shape is required.");
+  const pairs = outcome.memberCorrespondence;
+  assert.equal(pairs?.length, 4);
+  for (const property of ast.properties(literal)) {
+    if (property === undefined) throw new Error("The actual authored member is required.");
+    const pair = pairs?.find(pair => pair.property === property);
+    assert.equal(pair !== undefined && outcome.type.members.some(member =>
+      sourceTypeDescriptorMemberOriginsEqual(member.origin, pair.origin)), true,
+      "each correspondence names the same real destination declaration retained by its slot");
+  }
+  const nested = current.nodes.find(node => ast.is.IsObjectLiteralExpression(node) && ast.parent(node) !== undefined &&
+    ast.is.IsPropertyAssignment(ast.parent(node)));
+  const inner = nested === undefined ? undefined : current.source.effectiveTypes.get(nested);
+  assert.equal(inner !== undefined && inner.kind !== "refused" && inner.memberCorrespondence?.length === 1 &&
+    inner.memberCorrespondence[0]?.property === ast.properties(nested)[0], true, "nested literals own their own unflattened correspondence");
+  const spread = ast.as.AsVariableDeclaration(current.declaration("spread"))?.Initializer;
+  const spreadOutcome = spread === undefined ? undefined : current.source.effectiveTypes.get(spread);
+  assert.equal(spreadOutcome !== undefined && spreadOutcome.kind !== "refused" && spreadOutcome.memberCorrespondence?.length === 0, true,
+    "an applicable spread-only literal has an empty correspondence, never a record for its spread");
+  assert.equal(pairs !== undefined && Object.isFrozen(pairs) && pairs.every(Object.isFrozen), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("a later B2 fill transports the same checked member identity to its original construction", () => {
+  const current = fixture(`function run(): void { const value = { count: 1 }; const required: { count: number } = value; }`);
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
+  const required = current.type("required");
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(required.kind === "shape" && outcome !== undefined && outcome.kind !== "refused" &&
+    outcome.memberCorrespondence?.length === 1 && outcome.memberCorrespondence[0]?.property === ast.properties(literal)[0] &&
+    required.members[0] !== undefined && sourceTypeDescriptorMemberOriginsEqual(outcome.memberCorrespondence[0]!.origin,
+      required.members[0].origin), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("two later B2 fills cannot publish two different destination declarations for one authored member", () => {
+  const current = fixture(`function run(): void { const value = { count: 1 };
+    const first: { count: number } = value; const second: { count: number } = value; }`);
+  const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_CONFLICT" && literal !== undefined &&
+    current.source.effectiveTypes.get(literal) === issues[0], true, "different chosen declarations are the same group's C4/C5 conflict");
+});
+
 test("literal admission retains its actual inferred or declared Source authority", () => {
   const current = fixture(`type Indexed = { readonly [key: string]: number };
     function run(): void { const inferred = [1, 2]; const declared: Indexed = { value: 1 }; }`);
@@ -954,215 +1056,111 @@ test("literal admission retains its actual inferred or declared Source authority
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("comma value selection keeps only the right operand while retaining left effects and closed derived kinds", () => {
-  const cases = [
-    ["integer", "int32", "primitive", "int32"], ["single", "float32", "primitive", "float32"],
-    ["boolean", "boolean", "primitive", "bool"], ["text", "string", "string", ""],
-    ["optional", "int32 | undefined", "optional", ""], ["array", "int32[]", "array", ""],
-    ["tuple", "readonly [int32, float32]", "tuple", ""], ["nominal", "Data", "declared", ""],
-  ] as const;
-  const current = fixture(`class Data { value: int32 = 1; }
-    ${cases.map(([name, type]) => `function comma_${name}(left: float32, right: ${type}): void {
-      const selected_${name} = (left++, (left++, right)); void selected_${name}; }`).join("\n")}
-    export function written(): number { let value = 0; return (value++, value + 1); }
-    declare function take(values: number[]): void;
-    function unbound(left: float32): void { const selected_unbound = (left++, []); take(selected_unbound); }
-    function declared(left: float32): number[] { return (left++, []); }`);
-  for (const [name, , kind, primitive] of cases) {
-    const type = current.type(`selected_${name}`);
-    assert.equal(type.kind === kind && (type.kind !== "primitive" || type.primitive === primitive), true, name);
-  }
+test("contextual methods and accessors take their declared descriptors from checked member identity for every key form", () => {
+  const current = fixture(`declare const token: unique symbol; const computed = "read" as const;
+    const selected: { read(value: int32): int32; 1(value: int32): int32; "quoted key"(value: int32): int32;
+      [token](value: int32): int32; readonly getter: int32; setter: int32 } = {
+      [computed](value) { return value + value; }, 1(value) { return value + value; },
+      "quoted key"(value) { return value + value; }, [token](value) { return value + value; },
+      get getter() { return 1; }, get setter(): int32 { return 1; }, set setter(value) { void (value + value); }
+    };`);
   const { ast } = current.source;
-  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
-  for (const derived of graph.derived.filter(derived => derived.operator === "sequence")) {
-    const binary = ast.as.AsBinaryExpression(derived.node);
-    assert.equal(derived.operands.length === 1 && derived.operands[0]?.node === binary?.Right, true,
-      "a comma has exactly its actual right operand as a value-type dependency, never its left effect");
+  const literal = ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual checked literal is required.");
+  const members = ast.properties(literal).filter((node): node is Node => node !== undefined &&
+    (ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node)));
+  assert.equal(members.length, 7);
+  for (const member of members) {
+    const returned = current.source.effectiveTypes.callableReturn(member);
+    assert.equal(returned !== undefined && returned.kind !== "refused" && returned.provenance.occurrence === member &&
+      returned.type.kind === (ast.is.IsSetAccessorDeclaration(member) ? "intrinsic" : "primitive") &&
+      (returned.type.kind === "intrinsic" ? returned.type.intrinsic === "void"
+        : returned.type.kind === "primitive" && returned.type.primitive === "int32"), true,
+    `member ${ast.pos(member)}: exact declared return`);
+    for (const parameter of ast.parameters(member)) {
+      const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+        outcome.type.primitive === "int32" && outcome.provenance.occurrence === parameter, true,
+      `member ${ast.pos(member)}: exact declared parameter`);
+    }
   }
-  const written = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "written");
-  const body = written === undefined ? undefined : ast.body(written);
-  const returned = body === undefined ? undefined : ast.children(body).find(node => node !== undefined && ast.is.IsReturnStatement(node));
-  const expression = returned === undefined ? undefined : ast.as.AsReturnStatement(returned)?.Expression;
-  const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
-  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int32", true,
-    "the exact written return keeps the right derived kind; declared number conversion remains target admission");
-  assertSameValue(current.type("selected_unbound"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => traceGenericFillSteps(() => {
-  const cases = ["identity", "freeze"].flatMap(call => ["array", "object"].flatMap(form =>
-    [false, true].flatMap(alias => ["declared", "inferred"].map(authority => ({
-      call, form, alias, authority, name: `${call}_${form}_${alias ? "alias" : "direct"}_${authority}`,
-    })))));
-  const current = fixture(`type Values = (string | number)[]; type Data = { marker: string; value: number };
-    type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
-    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
-    const key = "value" as const;
-    ${cases.map(row => {
-      const literal = row.form === "array" ? `[${JSON.stringify(row.name)}, 9007199254740993]`
-        : `{ marker: ${JSON.stringify(row.name)}, [key]: 9007199254740993 }`;
-      const type = row.form === "array" ? "Values" : "Data";
-      const annotation = row.authority === "inferred" ? "" : `: ${row.call === "freeze" ? `Locked<${type}>` : type}`;
-      return `function ${row.name}(): void { ${row.alias ? `const source = ${literal};` : ""}
-        const selected${annotation} = ${row.call}(${row.alias ? "source" : literal}); void selected; }`;
-    }).join("\n")}`);
+function assertSameValue(actual: unknown, expected: unknown): void {
+  assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
+}
+
+test("an implicit class prototype retains its real binder-flag origin without changing the constructor value", () => {
+  const current = fixture("const Make = class { value = 1; }; const item = new Make();");
   const { ast } = current.source;
+  const owner = current.nodes.find(node => ast.is.IsClassExpression(node));
+  if (owner === undefined) throw new Error("The actual runtime class expression is required.");
+  const query = current.source.semantics.forNode(owner);
+  const selectedType = query.types.expressionType(owner);
+  if (selectedType === undefined) throw new Error("The checked constructor value type is required.");
+  const properties = query.types.propertyInfos(selectedType).filter(property => (property.symbol.Flags & SymbolFlagsPrototype) !== 0);
+  assert.equal(properties.length, 1);
+  const property = properties[0]!;
+  const declarations = query.declarations.symbolDeclarations(property.symbol);
+  const outcome = current.source.effectiveTypes.get(owner);
+  const prototype = outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape"
+    ? outcome.type.members.find(member => member.origin.kind === "class-prototype" && member.origin.owner === owner) : undefined;
+  console.log(`Source class-prototype tuple: ${JSON.stringify({ flags: property.symbol.Flags, declarationCount: declarations.length,
+    origin: prototype?.origin.kind, ownerPosition: prototype?.origin.kind === "class-prototype" ? ast.pos(prototype.origin.owner) : undefined,
+    type: prototype?.type.kind })}`);
+  assert.equal(declarations.length, 0, "the binder-created property has no fabricated declaration");
+  assert.equal(prototype?.origin.kind === "class-prototype" && prototype.origin.owner === owner &&
+    prototype.type.kind === "declared" && prototype.type.declaration === owner, true);
+  const relation = query.types.structuralMembers(selectedType, selectedType, "correspondence");
+  const pair = relation.kind === "available" ? relation.members.find(pair => pair.kind === "present" &&
+    pair.destination.property.symbol === property.symbol) : undefined;
+  const origin = pair === undefined ? undefined : sourceTypeDescriptorMemberOrigin(current.source, query,
+    pair.destination.property, pair.destination.receiverType);
+  assert.equal(origin?.kind === "resolved" && prototype !== undefined &&
+    sourceTypeDescriptorMemberOriginsEqual(origin.origin, prototype.origin), true,
+  "constructor-value correspondence and descriptor inventory use the same real prototype symbol and origin");
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape" &&
+    outcome.type.constructs.length === 1 && outcome.type.constructs[0]?.result.kind === "declared" &&
+    outcome.type.constructs[0].result.declaration === owner, true, "the class expression remains its single constructor-value form");
+  assert.equal(Object.isFrozen(prototype?.origin), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+for (const body of [
+  `declare function take(value: (string | number)[]): void; function run(): void {
+    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; take(values); }`,
+  `function run(): (string | number)[] {
+    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; return values; }`,
+]) {
+  test(`a retained declared group fill owns aggregate admission authority: ${body}`, () => {
+    const current = fixture(body);
+    const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
+    if (literal === undefined) throw new Error("The actual filled aggregate construction is required.");
+    const outcome = current.source.effectiveTypes.get(literal);
+    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+    assert.equal(admissions.length, 1);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
+      admissions[0].authority === "declared" && sourceTypeDescriptorsEqual(outcome.type, admissions[0].type), true,
+      "B2/C22 retains the chosen declared fill, not the unannotated syntax site's inferred default");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("numeric aggregate elements keep their D2 admissions without admitting unrelated scalar or call sites", () => {
+  const current = fixture("function run(): void { const values = [1, 2]; const scalar = 3; void values; void scalar; }");
+  const { ast } = current.source;
+  const literal = ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
+  const scalar = ast.as.AsVariableDeclaration(current.declaration("scalar"))?.Initializer;
+  if (literal === undefined) throw new Error("The actual numeric aggregate is required.");
   const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
-  const observations = cases.map(row => {
-    const token = current.nodes.find(node => ast.is.IsStringLiteral(node) && ast.text(node) === row.name);
-    let literal = token === undefined ? undefined : ast.parent(token);
-    while (literal !== undefined && !(ast.is.IsArrayLiteralExpression(literal) || ast.is.IsObjectLiteralExpression(literal))) literal = ast.parent(literal);
-    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
-    const matching = admissions.filter(admission => admission.site === literal);
-    return { row, literal, outcome, matching };
-  });
-  for (const { row, literal, outcome, matching } of observations) {
-    console.log("C2288.generic-fill " + JSON.stringify({ name: row.name, expected: row.authority,
-      found: literal !== undefined, outcome: outcome?.kind ?? "absent", count: matching.length,
-      actual: matching[0]?.authority ?? "absent",
-      sameDescriptor: outcome !== undefined && outcome.kind !== "refused" && matching[0]?.type === outcome.type }));
+  assert.equal(admissions.filter(row => row.site === literal).length, 1);
+  for (const element of ast.elements(literal)) {
+    const matching = admissions.filter(row => row.site === element);
+    assert.equal(matching.length, 1, "each original numeric element remains a D2 input");
+    assert.equal(matching[0]?.kind === "literal-admission" && matching[0].authority === "inferred", true);
   }
-  for (const { row, literal, outcome, matching } of observations) {
-    assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching[0]?.authority === row.authority &&
-      matching[0].type === outcome.type, true, row.name);
-  }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-}));
-
-test("one homomorphic inversion covers every normalized input and each authored or checked caller source", () => {
-  const forms = [
-    { name: "object", type: "{ count: int32 }" }, { name: "interface", type: "Face" },
-    { name: "class", type: "Value" }, { name: "array", type: "int32[]" },
-    { name: "readonly_array", type: "readonly int32[]" },
-    { name: "tuple", type: "[int32, string?, ...boolean[]]" },
-    { name: "union", type: "{ left: int32 } | { right: string }" },
-    { name: "int32", type: "int32" }, { name: "string", type: "string" },
-    { name: "boolean", type: "boolean" }, { name: "bigint", type: "bigint" },
-    { name: "symbol", type: "symbol" }, { name: "type_parameter", type: "Model" },
-    { name: "any", type: "any" }, { name: "unknown", type: "unknown" },
-  ];
-  const inputs = forms.map(form => ({ ...form, transform: "Locked", invertible: form.name !== "any" && form.name !== "unknown" }))
-    .concat([{ name: "alias_of_alias", type: "int32[]", transform: "L2", invertible: true },
-      { name: "non_homomorphic", type: "int32[]", transform: "NonHomomorphic", invertible: false }]);
-  const cases = inputs.flatMap(input => [false, true].flatMap(alias => [false, true].map(declared => ({
-    ...input, alias, declared, name: `${input.name}_${alias ? "alias" : "direct"}_${declared ? "declared" : "inferred"}`,
-  }))));
-  const current = fixture(`interface Face { count: int32 } class Value { count: int32 = 1; }
-    type Locked<Input> = { readonly [Key in keyof Input]: Input[Key] };
-    type L2<Input> = Locked<Input>; type NonHomomorphic<Input> = { [Key in "a"]: Input };
-    declare function freeze<Input>(value: Input): Locked<Input>;
-    declare function indirect<Input>(value: Input): L2<Input>;
-    declare function nonHomomorphic<Input>(value: Input): NonHomomorphic<Input>;
-    ${cases.map(row => `function ${row.name}<Model>(input: ${row.type}): void {
-      ${row.alias ? "const copied = input;" : ""}
-      const selected${row.declared ? `: ${row.transform}<${row.type}>` : ""} =
-        ${row.transform === "L2" ? "indirect" : row.transform === "NonHomomorphic" ? "nonHomomorphic" : "freeze"}(${row.alias ? "copied" : "input"});
-      void selected;
-    }`).join("\n")}`);
-  const { ast } = current.source;
-  const observations = cases.map(row => {
-    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === row.name);
-    const parameter = owner === undefined ? undefined : ast.parameters(owner)[0];
-    const expectedNode = parameter === undefined ? undefined : ast.typeNode(parameter);
-    const selected = current.nodes.find(node => {
-      if (!ast.is.IsVariableDeclaration(node) || ast.text(ast.name(node)) !== "selected") return false;
-      for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
-        if (ast.is.IsFunctionDeclaration(parent)) return parent === owner;
-      }
-      return false;
-    });
-    const call = selected === undefined ? undefined : ast.as.AsVariableDeclaration(selected)?.Initializer;
-    const authored = selected === undefined ? undefined : ast.typeNode(selected);
-    const queries = owner === undefined ? undefined : current.source.semantics.forNode(owner);
-    const evidence = call === undefined ? undefined : queries?.operations.call(call);
-    const expected = expectedNode === undefined ? undefined : queries?.types.authoredType(expectedNode);
-    const application = evidence === undefined ? undefined : queries?.types.aliasApplication(evidence.sourceResultType);
-    const input = evidence === undefined || queries === undefined ? undefined :
-      sourceTypeFlowHomomorphicInput(current.source, queries, evidence.sourceResultType, authored);
-    const shouldInvert = row.invertible && (row.declared || application?.kind === "direct");
-    const matches = input !== undefined && expected !== undefined && queries?.types.isIdentical(input, expected) === true;
-    console.log("C2299.homomorphic-form " + JSON.stringify({ name: row.name,
-      source: row.declared ? "authored-reference" : "checked-application",
-      aliasApplication: application?.kind ?? "absent",
-      typeKind: evidence === undefined || queries === undefined ? "absent" :
-        queries.types.isTuple(evidence.sourceResultType) ? "tuple" :
-        queries.types.isArrayLike(evidence.sourceResultType) ? "array" :
-        queries.types.isUnion(evidence.sourceResultType) ? "union" :
-        queries.types.isAny(evidence.sourceResultType) ? "any" :
-        queries.types.isUnknown(evidence.sourceResultType) ? "unknown" :
-        queries.types.isNumberLike(evidence.sourceResultType) || queries.types.isStringLike(evidence.sourceResultType) ||
-        queries.types.isBooleanLike(evidence.sourceResultType) || queries.types.isBigIntLike(evidence.sourceResultType) ||
-        queries.types.isSymbolLike(evidence.sourceResultType) ? "primitive" : "object",
-      inverted: input !== undefined, matches, shouldInvert }));
-    return { row, selected, call, expected, input, matches, shouldInvert };
-  });
-  for (const { row, selected, call, expected, input, matches, shouldInvert } of observations) {
-    assert.equal(selected !== undefined && call !== undefined && expected !== undefined, true, row.name);
-    assert.equal(input !== undefined, shouldInvert, row.name);
-    assert.equal(matches, shouldInvert, row.name);
-  }
-});
-
-test("C30 and B2 authority uses the declared slot while every B4 or inferred slot stays inferred", () => {
-  const cases: readonly { readonly name: string; readonly authority: "declared" | "inferred";
-    readonly program: (literal: string) => string }[] = [
-    { name: "typed_parameter", authority: "declared", program: literal => `function typed(): void { take(${literal}); }` },
-    { name: "later_parameter", authority: "declared", program: literal => `function later(): void { const values = ${literal}; take(values); }` },
-    { name: "annotated_variable", authority: "declared", program: literal => `function variable(): void { const values: Values = ${literal}; void values; }` },
-    { name: "annotated_field", authority: "declared", program: literal => `class AnnotatedField { value: Values = ${literal}; }` },
-    { name: "annotated_property", authority: "declared", program: literal => `const property: { value: Values } = { value: ${literal} };` },
-    { name: "declared_return", authority: "declared", program: literal => `function returned(): Values { return ${literal}; }` },
-    { name: "later_return", authority: "declared", program: literal => `function laterReturn(): Values { const values = ${literal}; return values; }` },
-    { name: "concise", authority: "declared", program: literal => `const concise = (): Values => ${literal};` },
-    { name: "contextual_concise", authority: "declared", program: literal => `const context: () => Values = () => ${literal};` },
-    { name: "conditional_true", authority: "declared", program: literal => `function trueBranch(flag: boolean): Values { return flag ? ${literal} : []; }` },
-    { name: "conditional_false", authority: "declared", program: literal => `function falseBranch(flag: boolean): Values { return flag ? [] : ${literal}; }` },
-    { name: "nullish", authority: "declared", program: literal => `function nullish(input: Values | undefined): Values { return input ?? ${literal}; }` },
-    { name: "async_return", authority: "declared", program: literal => `async function asynchronous(): Promise<Values> { return ${literal}; }` },
-    { name: "as", authority: "declared", program: literal => `function assertion(): void { const values = ${literal} as Values; void values; }` },
-    { name: "satisfies", authority: "declared", program: literal => `function satisfaction(): void { const values = ${literal} satisfies Values; void values; }` },
-    { name: "api_argument", authority: "declared", program: literal => `function apiArgument(): void { api.take(${literal}); }` },
-    { name: "declared_element", authority: "declared", program: literal => `const nested: Values[] = [${literal}];` },
-    { name: "default_declared", authority: "declared", program: literal => `function declaredDefault(values: Values = ${literal}): void { void values; }` },
-    { name: "generic_identity", authority: "declared", program: literal => `function genericIdentity(): void { const values: Values = identity(${literal}); void values; }` },
-    { name: "generic_readonly", authority: "declared", program: literal => `function genericReadonly(): void { const values: readonly (string | number)[] = freeze(${literal}); void values; }` },
-    { name: "b4_return", authority: "inferred", program: literal => `function inferredReturn() { const values = ${literal}; return values; }` },
-    { name: "b4_concise", authority: "inferred", program: literal => `const inferredConcise = () => ${literal};` },
-    { name: "b4_yield", authority: "inferred", program: literal => `function* inferredYield() { yield ${literal}; }` },
-    { name: "export", authority: "inferred", program: literal => `export const exported = ${literal};` },
-    { name: "field", authority: "inferred", program: literal => `class InferredField { value = ${literal}; }` },
-    { name: "default", authority: "inferred", program: literal => `function inferredDefault(values = ${literal}): void { void values; }` },
-    { name: "open_local", authority: "inferred", program: literal => `function local(): void { const values = ${literal}; void values; }` },
-    { name: "derived", authority: "inferred", program: literal => `function derived(flag: boolean): void { const values = ${literal}; const selected = flag ? values : values; void selected; }` },
-    { name: "read_alias", authority: "inferred", program: literal => `function aliases(): void { const values = ${literal}; const alias = values; void alias; }` },
-    { name: "assignment_pattern", authority: "inferred", program: literal => `function pattern(): void { let first: string | number; [first] = ${literal}; void first; }` },
-  ];
-  const current = fixture(`type Values = (string | number)[]; type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
-    declare function take(value: Values): void; declare const api: { take(value: Values): void };
-    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
-    ${cases.map(row => row.program(`[${JSON.stringify(row.name)}, 9007199254740993, -9007199254740993, 1e100]`)).join("\n")}`);
-  const { ast } = current.source;
-  const failures: string[] = [];
-  const observed: { name: string; found: boolean; count: number; expected: string; actual: string; sameDescriptor: boolean }[] = [];
-  for (const row of cases) {
-    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
-      ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]) &&
-      ast.text(ast.elements(node)[0]) === row.name);
-    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
-    const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission" &&
-      obligation.site === literal);
-    const actual = admissions[0]?.kind === "literal-admission" ? admissions[0].authority : "missing";
-    const sameDescriptor = outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.type === outcome.type;
-    observed.push({ name: row.name, found: literal !== undefined, count: admissions.length, expected: row.authority, actual, sameDescriptor });
-    if (literal === undefined) failures.push(`${row.name}: actual aggregate construction`);
-    if (admissions.length !== 1) failures.push(`${row.name}: expected one admission, actual ${admissions.length}`);
-    if (actual !== row.authority) failures.push(`${row.name}: expected ${row.authority}, actual ${actual}`);
-    if (!sameDescriptor) failures.push(`${row.name}: identical published descriptor`);
-  }
-  console.log(`Source authority case map: ${JSON.stringify(observed)}`);
-  assert.equal(failures.length, 0, failures.join("; "));
+  assert.equal(admissions.some(row => row.site === scalar || ast.is.IsCallExpression(row.site)), false);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
@@ -1286,74 +1284,488 @@ test("C24 runtime parameters have groups while bodyless and type-only signatures
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("contextual methods and accessors take their declared descriptors from checked member identity for every key form", () => {
-  const current = fixture(`declare const token: unique symbol; const computed = "read" as const;
-    const selected: { read(value: int32): int32; 1(value: int32): int32; "quoted key"(value: int32): int32;
-      [token](value: int32): int32; readonly getter: int32; setter: int32 } = {
-      [computed](value) { return value + value; }, 1(value) { return value + value; },
-      "quoted key"(value) { return value + value; }, [token](value) { return value + value; },
-      get getter() { return 1; }, get setter(): int32 { return 1; }, set setter(value) { void (value + value); }
-    };`);
+test("comma value selection keeps only the right operand while retaining left effects and closed derived kinds", () => {
+  const cases = [
+    ["integer", "int32", "primitive", "int32"], ["single", "float32", "primitive", "float32"],
+    ["boolean", "boolean", "primitive", "bool"], ["text", "string", "string", ""],
+    ["optional", "int32 | undefined", "optional", ""], ["array", "int32[]", "array", ""],
+    ["tuple", "readonly [int32, float32]", "tuple", ""], ["nominal", "Data", "declared", ""],
+  ] as const;
+  const current = fixture(`class Data { value: int32 = 1; }
+    ${cases.map(([name, type]) => `function comma_${name}(left: float32, right: ${type}): void {
+      const selected_${name} = (left++, (left++, right)); void selected_${name}; }`).join("\n")}
+    export function written(): number { let value = 0; return (value++, value + 1); }
+    declare function take(values: number[]): void;
+    function unbound(left: float32): void { const selected_unbound = (left++, []); take(selected_unbound); }
+    function declared(left: float32): number[] { return (left++, []); }`);
+  for (const [name, , kind, primitive] of cases) {
+    const type = current.type(`selected_${name}`);
+    assert.equal(type.kind === kind && (type.kind !== "primitive" || type.primitive === primitive), true, name);
+  }
   const { ast } = current.source;
-  const literal = ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
-  if (literal === undefined) throw new Error("The actual checked literal is required.");
-  const members = ast.properties(literal).filter((node): node is Node => node !== undefined &&
-    (ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node)));
-  assert.equal(members.length, 7);
-  for (const member of members) {
-    const returned = current.source.effectiveTypes.callableReturn(member);
-    assert.equal(returned !== undefined && returned.kind !== "refused" && returned.provenance.occurrence === member &&
-      returned.type.kind === (ast.is.IsSetAccessorDeclaration(member) ? "intrinsic" : "primitive") &&
-      (returned.type.kind === "intrinsic" ? returned.type.intrinsic === "void"
-        : returned.type.kind === "primitive" && returned.type.primitive === "int32"), true,
-    `member ${ast.pos(member)}: exact declared return`);
-    for (const parameter of ast.parameters(member)) {
-      const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
-      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
-        outcome.type.primitive === "int32" && outcome.provenance.occurrence === parameter, true,
-      `member ${ast.pos(member)}: exact declared parameter`);
-    }
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  for (const derived of graph.derived.filter(derived => derived.operator === "sequence")) {
+    const binary = ast.as.AsBinaryExpression(derived.node);
+    assert.equal(derived.operands.length === 1 && derived.operands[0]?.node === binary?.Right, true,
+      "a comma has exactly its actual right operand as a value-type dependency, never its left effect");
+  }
+  const written = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "written");
+  const body = written === undefined ? undefined : ast.body(written);
+  const returned = body === undefined ? undefined : ast.children(body).find(node => node !== undefined && ast.is.IsReturnStatement(node));
+  const expression = returned === undefined ? undefined : ast.as.AsReturnStatement(returned)?.Expression;
+  const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int32", true,
+    "the exact written return keeps the right derived kind; declared number conversion remains target admission");
+  assertSameValue(current.type("selected_unbound"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => {
+  const cases = ["identity", "freeze"].flatMap(call => ["array", "object"].flatMap(form =>
+    [false, true].flatMap(alias => ["declared", "inferred"].map(authority => ({
+      call, form, alias, authority, name: `${call}_${form}_${alias ? "alias" : "direct"}_${authority}`,
+    })))));
+  const current = fixture(`type Values = (string | number)[]; type Data = { marker: string; value: number };
+    type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
+    const key = "value" as const;
+    ${cases.map(row => {
+      const literal = row.form === "array" ? `[${JSON.stringify(row.name)}, 9007199254740993]`
+        : `{ marker: ${JSON.stringify(row.name)}, [key]: 9007199254740993 }`;
+      const type = row.form === "array" ? "Values" : "Data";
+      const annotation = row.authority === "inferred" ? "" : `: ${row.call === "freeze" ? `Locked<${type}>` : type}`;
+      return `function ${row.name}(): void { ${row.alias ? `const source = ${literal};` : ""}
+        const selected${annotation} = ${row.call}(${row.alias ? "source" : literal}); void selected; }`;
+    }).join("\n")}`);
+  const { ast } = current.source;
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
+  const observations = cases.map(row => {
+    const token = current.nodes.find(node => ast.is.IsStringLiteral(node) && ast.text(node) === row.name);
+    let literal = token === undefined ? undefined : ast.parent(token);
+    while (literal !== undefined && !(ast.is.IsArrayLiteralExpression(literal) || ast.is.IsObjectLiteralExpression(literal))) literal = ast.parent(literal);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const matching = admissions.filter(admission => admission.site === literal);
+    return { row, literal, outcome, matching };
+  });
+  for (const { row, literal, outcome, matching } of observations) {
+    console.log("C2288.generic-fill " + JSON.stringify({ name: row.name, expected: row.authority,
+      found: literal !== undefined, outcome: outcome?.kind ?? "absent", count: matching.length,
+      actual: matching[0]?.authority ?? "absent",
+      sameDescriptor: outcome !== undefined && outcome.kind !== "refused" && matching[0]?.type === outcome.type }));
+  }
+  for (const { row, literal, outcome, matching } of observations) {
+    assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching[0]?.authority === row.authority &&
+      matching[0].type === outcome.type, true, row.name);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-function assertSameValue(actual: unknown, expected: unknown): void {
-  assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
-}
-
-for (const body of [
-  `declare function take(value: (string | number)[]): void; function run(): void {
-    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; take(values); }`,
-  `function run(): (string | number)[] {
-    const values = ["text", 9007199254740993, -9007199254740993, 1e100]; return values; }`,
-]) {
-  test(`a retained declared group fill owns aggregate admission authority: ${body}`, () => {
-    const current = fixture(body);
-    const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
-    if (literal === undefined) throw new Error("The actual filled aggregate construction is required.");
-    const outcome = current.source.effectiveTypes.get(literal);
-    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
-    assert.equal(admissions.length, 1);
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
-      admissions[0].authority === "declared" && sourceTypeDescriptorsEqual(outcome.type, admissions[0].type), true,
-      "B2/C22 retains the chosen declared fill, not the unannotated syntax site's inferred default");
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
-  });
-}
-
-test("numeric aggregate elements keep their D2 admissions without admitting unrelated scalar or call sites", () => {
-  const current = fixture("function run(): void { const values = [1, 2]; const scalar = 3; void values; void scalar; }");
+test("declared destination records cover normalized kinds without reflecting containers as member shapes", () => {
+  const forms = [
+    { name: "declared", type: "Face", forms: ["object"], kind: "declared", fill: true },
+    { name: "array", type: "(string | number)[]", forms: ["array"], kind: "array", fill: true },
+    { name: "readonly_array", type: "readonly (string | number)[]", forms: ["array", "tuple"], kind: "array", fill: true },
+    { name: "tuple", type: "readonly [string, number]", forms: ["tuple"], kind: "tuple", fill: true },
+    { name: "union", type: "readonly (string | number)[] | { readonly marker: string; readonly value: number }",
+      forms: ["array", "object", "tuple"], kind: "union", fill: true },
+    { name: "primitive", type: "number", forms: ["scalar"], kind: "primitive", fill: true },
+    { name: "optional", type: "readonly (string | number)[] | undefined", forms: ["array", "tuple"], kind: "optional", fill: true },
+    { name: "shape", type: "{ marker: string; value: number }", forms: ["object"], kind: "shape", fill: true },
+    { name: "callable", type: "(value: number) => number", forms: ["callable"], kind: "callable", fill: true },
+  ] as const;
+  const cases = forms.flatMap(input => input.forms.flatMap(form => ["identity", "freeze"].flatMap(call =>
+    [false, true].map(alias => ({ ...input, form, call, alias,
+      name: `destination_${input.name}_${form}_${call}_${alias ? "alias" : "direct"}` })))));
+  const current = fixture(`interface Face { marker: string; value: number }
+    type Locked<Input> = { readonly [Key in keyof Input]: Input[Key] };
+    declare function identity<Input>(value: Input): Input;
+    declare function freeze<Input>(value: Input): Locked<Input>;
+    ${cases.map(row => {
+      const literal = row.form === "array" ? `[${JSON.stringify(row.name)}, 1.5]`
+        : row.form === "tuple" ? `[${JSON.stringify(row.name)}, 1.5] as const`
+        : row.form === "object" ? `{ marker: ${JSON.stringify(row.name)}, value: 1.5 }`
+        : row.form === "scalar" ? "1.5" : "(value: number) => value";
+      const target = row.call === "freeze" ? `Locked<${row.type}>` : row.type;
+      return `function ${row.name}(): void { ${row.alias ? `const input_${row.name} = ${literal};` : ""}
+        const selected_${row.name}: ${target} = ${row.call}(${row.alias ? `input_${row.name}` : literal});
+        void selected_${row.name}; }`;
+    }).join("\n")}`);
   const { ast } = current.source;
-  const literal = ast.as.AsVariableDeclaration(current.declaration("values"))?.Initializer;
-  const scalar = ast.as.AsVariableDeclaration(current.declaration("scalar"))?.Initializer;
-  if (literal === undefined) throw new Error("The actual numeric aggregate is required.");
+  const defaults = createSourceTypeFlowAnalysisContext(current.source);
+  const graph = collectSourceTypeFlowEdges(defaults.context);
   const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
-  assert.equal(admissions.filter(row => row.site === literal).length, 1);
-  for (const element of ast.elements(literal)) {
-    const matching = admissions.filter(row => row.site === element);
-    assert.equal(matching.length, 1, "each original numeric element remains a D2 input");
-    assert.equal(matching[0]?.kind === "literal-admission" && matching[0].authority === "inferred", true);
+  const observations = cases.map(row => {
+    const declaration = current.declaration(`selected_${row.name}`);
+    const described = defaults.context.describe(declaration);
+    const record = graph.nodes.find(record => record.node === declaration);
+    const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(declaration) !== node &&
+      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    const readRecords = reads.map(node => graph.nodes.find(record => record.node === node));
+    let normalized = described;
+    const visited = new Set<SourceTypeDescriptor>();
+    while (normalized?.kind === "declared" && normalized.definition !== undefined && !visited.has(normalized)) {
+      visited.add(normalized);
+      normalized = normalized.definition;
+    }
+    const token = current.nodes.find(node => ast.is.IsStringLiteral(node) && ast.text(node) === row.name);
+    let literal = token === undefined ? undefined : ast.parent(token);
+    while (literal !== undefined && !(ast.is.IsArrayLiteralExpression(literal) || ast.is.IsObjectLiteralExpression(literal))) {
+      literal = ast.parent(literal);
+    }
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const matching = admissions.filter(admission => admission.site === literal);
+    return { row, declaration, described, record, reads, readRecords, normalized, literal, outcome, matching };
+  });
+  for (const { row, described, record, normalized, matching } of observations) {
+    console.log("C2306.destination " + JSON.stringify({ name: row.name, described: described?.kind ?? "absent",
+      normalized: normalized?.kind ?? "absent", record: record?.kind ?? "absent",
+      count: matching.length, authority: matching[0]?.authority ?? "absent" }));
   }
-  assert.equal(admissions.some(row => row.site === scalar || ast.is.IsCallExpression(row.site)), false);
+  for (const { row, described, record, reads, readRecords, normalized, literal, outcome, matching } of observations) {
+    assert.equal(described !== undefined && record?.kind === "fixed" && record.term?.kind === "fixed" &&
+      sourceTypeDescriptorsEqual(record.term.type, described), true, row.name + ": declared destination record");
+    assert.equal(reads.length > 0 && readRecords.every(read => read?.kind === "fixed" && read.term?.kind === "fixed" &&
+      described !== undefined && sourceTypeDescriptorsEqual(read.term.type, described)), true, row.name + ": declared reads");
+    const expected = row.kind === "declared" ? row.call === "identity" ? "declared" : "shape"
+      : row.call === "freeze" && row.kind === "callable" ? "shape" : row.kind;
+    const actual = row.kind === "declared" && row.call === "identity" ? described?.kind : normalized?.kind;
+    assert.equal(actual === expected, true, row.name + ": normalized descriptor");
+    if (literal !== undefined && row.fill) {
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching.length === 1 &&
+        matching[0]?.authority === "declared" && matching[0].type === outcome.type, true,
+        row.name + ": one declared admission with the identical published descriptor");
+    }
+  }
+});
+
+test("construction-family union and optional demands use the one immediate C30 kind selector", () => {
+  const cases = [
+    { name: "unique_array_union", declaration: "declare function take(value: { count: int32 } | readonly number[]): void;",
+      use: "take(ARGUMENT)", refused: false },
+    { name: "ambiguous_arrays", declaration: "declare function take(value: number[] | string[]): void;",
+      use: "take(ARGUMENT)", refused: true },
+    { name: "unique_optional", declaration: "declare function identity<Value>(value: Value): Value;",
+      use: "const selected: int32[] | undefined = identity(ARGUMENT); void selected", refused: false },
+    { name: "mapped_result_union", declaration: `type Values = number[];
+      type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+      declare function freeze<Value>(value: Value): Locked<Value>;`,
+      use: "const selected: Locked<Values> | string = freeze(ARGUMENT); void selected", refused: false },
+    { name: "nullable_union", declaration: "declare function take(value: number[] | string | undefined): void;",
+      use: "take(ARGUMENT)", refused: false },
+    { name: "optional_ambiguous", declaration: "declare function take(value: number[] | string[] | undefined): void;",
+      use: "take(ARGUMENT)", refused: true },
+    { name: "no_array_arm", declaration: "declare function take(value: {} | string): void;",
+      use: "take(ARGUMENT)", refused: true },
+  ] as const;
+  for (const row of cases) for (const alias of [false, true]) {
+    const name = row.name + (alias ? ":alias" : ":direct");
+    const argument = alias ? "source" : "[1, 2]";
+    const current = fixture(`${row.declaration} function run(): void {
+      ${alias ? "const source = [1, 2];" : ""} ${row.use.split("ARGUMENT").join(argument)}; }`);
+    const { ast } = current.source;
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const issues = current.source.effectiveTypes.refusals();
+    if (row.refused) {
+      assert.equal(literal !== undefined && outcome?.kind === "refused" &&
+        outcome.site === literal && outcome.code === "TSONIC_LOCAL_TYPE_UNION", true, name);
+      assert.equal(issues.length === 1 && issues[0] === outcome, true, name + ": one original construction-site refusal");
+    } else {
+      const admissions = current.source.effectiveTypes.obligations().filter(obligation =>
+        obligation.kind === "literal-admission" && obligation.site === literal);
+      assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" &&
+        admissions.length === 1 && admissions[0]?.authority === "declared" && admissions[0].type === outcome.type,
+        true, name + ": one declared admission of the identical selected descriptor");
+      assert.equal(issues.length, 0, name);
+    }
+  }
+});
+
+test("one homomorphic inversion covers every normalized input and each authored or checked caller source", () => {
+  const forms = [
+    { name: "object", type: "{ count: int32 }" }, { name: "interface", type: "Face" },
+    { name: "class", type: "Value" }, { name: "array", type: "int32[]" },
+    { name: "readonly_array", type: "readonly int32[]" },
+    { name: "tuple", type: "[int32, string?, ...boolean[]]" },
+    { name: "union", type: "{ left: int32 } | { right: string }" },
+    { name: "int32", type: "int32" }, { name: "string", type: "string" },
+    { name: "boolean", type: "boolean" }, { name: "bigint", type: "bigint" },
+    { name: "symbol", type: "symbol" }, { name: "type_parameter", type: "Model" },
+    { name: "any", type: "any" }, { name: "unknown", type: "unknown" },
+  ];
+  const inputs = forms.map(form => ({ ...form, transform: "Locked", invertible: form.name !== "any" && form.name !== "unknown" }))
+    .concat([{ name: "alias_of_alias", type: "int32[]", transform: "L2", invertible: true },
+      { name: "non_homomorphic", type: "int32[]", transform: "NonHomomorphic", invertible: false }]);
+  const cases = inputs.flatMap(input => [false, true].flatMap(alias => [false, true].map(declared => ({
+    ...input, alias, declared, name: `${input.name}_${alias ? "alias" : "direct"}_${declared ? "declared" : "inferred"}`,
+  }))));
+  const current = fixture(`interface Face { count: int32 } class Value { count: int32 = 1; }
+    type Locked<Input> = { readonly [Key in keyof Input]: Input[Key] };
+    type L2<Input> = Locked<Input>; type NonHomomorphic<Input> = { [Key in "a"]: Input };
+    declare function freeze<Input>(value: Input): Locked<Input>;
+    declare function indirect<Input>(value: Input): L2<Input>;
+    declare function nonHomomorphic<Input>(value: Input): NonHomomorphic<Input>;
+    ${cases.map(row => `function ${row.name}<Model>(input: ${row.type}): void {
+      ${row.alias ? "const copied = input;" : ""}
+      const selected${row.declared ? `: ${row.transform}<${row.type}>` : ""} =
+        ${row.transform === "L2" ? "indirect" : row.transform === "NonHomomorphic" ? "nonHomomorphic" : "freeze"}(${row.alias ? "copied" : "input"});
+      void selected;
+    }`).join("\n")}`);
+  const { ast } = current.source;
+  const observations = cases.map(row => {
+    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === row.name);
+    const parameter = owner === undefined ? undefined : ast.parameters(owner)[0];
+    const expectedNode = parameter === undefined ? undefined : ast.typeNode(parameter);
+    const selected = current.nodes.find(node => {
+      if (!ast.is.IsVariableDeclaration(node) || ast.text(ast.name(node)) !== "selected") return false;
+      for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
+        if (ast.is.IsFunctionDeclaration(parent)) return parent === owner;
+      }
+      return false;
+    });
+    const call = selected === undefined ? undefined : ast.as.AsVariableDeclaration(selected)?.Initializer;
+    const authored = selected === undefined ? undefined : ast.typeNode(selected);
+    const queries = owner === undefined ? undefined : current.source.semantics.forNode(owner);
+    const evidence = call === undefined ? undefined : queries?.operations.call(call);
+    const expected = expectedNode === undefined ? undefined : queries?.types.authoredType(expectedNode);
+    const application = evidence === undefined ? undefined : queries?.types.aliasApplication(evidence.sourceResultType);
+    const input = evidence === undefined || queries === undefined ? undefined :
+      sourceTypeFlowHomomorphicInput(current.source, queries, evidence.sourceResultType, authored);
+    const shouldInvert = row.invertible && (row.declared || application?.kind === "direct");
+    const matches = input !== undefined && expected !== undefined && queries?.types.isIdentical(input, expected) === true;
+    console.log("C2299.homomorphic-form " + JSON.stringify({ name: row.name,
+      source: row.declared ? "authored-reference" : "checked-application",
+      aliasApplication: application?.kind ?? "absent",
+      typeKind: evidence === undefined || queries === undefined ? "absent" :
+        queries.types.isTuple(evidence.sourceResultType) ? "tuple" :
+        queries.types.isArrayLike(evidence.sourceResultType) ? "array" :
+        queries.types.isUnion(evidence.sourceResultType) ? "union" :
+        queries.types.isAny(evidence.sourceResultType) ? "any" :
+        queries.types.isUnknown(evidence.sourceResultType) ? "unknown" :
+        queries.types.isNumberLike(evidence.sourceResultType) || queries.types.isStringLike(evidence.sourceResultType) ||
+        queries.types.isBooleanLike(evidence.sourceResultType) || queries.types.isBigIntLike(evidence.sourceResultType) ||
+        queries.types.isSymbolLike(evidence.sourceResultType) ? "primitive" : "object",
+      inverted: input !== undefined, matches, shouldInvert }));
+    return { row, selected, call, expected, input, matches, shouldInvert };
+  });
+  for (const { row, selected, call, expected, input, matches, shouldInvert } of observations) {
+    assert.equal(selected !== undefined && call !== undefined && expected !== undefined, true, row.name);
+    assert.equal(input !== undefined, shouldInvert, row.name);
+    assert.equal(matches, shouldInvert, row.name);
+  }
+});
+
+test("canonical member-origin equality distinguishes every finite key without display-name matching", () => {
+  const current = fixture(`declare const first: unique symbol; declare const second: unique symbol;
+    class First {} class Second {}
+    type Left = { [Key in "left"]: number }; type Right = { [Key in "right"]: number };`);
+  const first = current.declaration("first");
+  const second = current.declaration("second");
+  const classes = current.nodes.filter(node => current.source.ast.is.IsClassDeclaration(node));
+  const mapped = current.nodes.filter(node => current.source.ast.is.IsMappedTypeNode(node));
+  if (classes.length !== 2 || mapped.length !== 2) throw new Error("The actual class and mapped declaration identities are required.");
+  const firstClass = classes[0]!; const secondClass = classes[1]!;
+  const firstMapped = mapped[0]!; const secondMapped = mapped[1]!;
+  type Origin = SourceTypeDescriptorMember["origin"];
+  const cases: readonly { readonly name: string; readonly left: Origin; readonly right: Origin; readonly equal: boolean }[] = [
+    { name: "declared_same", left: { kind: "declared", declaration: first }, right: { kind: "declared", declaration: first }, equal: true },
+    { name: "declared_distinct", left: { kind: "declared", declaration: first }, right: { kind: "declared", declaration: second }, equal: false },
+    { name: "prototype_same", left: { kind: "class-prototype", owner: firstClass }, right: { kind: "class-prototype", owner: firstClass }, equal: true },
+    { name: "prototype_distinct", left: { kind: "class-prototype", owner: firstClass }, right: { kind: "class-prototype", owner: secondClass }, equal: false },
+    { name: "origin_kind", left: { kind: "declared", declaration: first }, right: { kind: "class-prototype", owner: firstClass }, equal: false },
+    { name: "string_same", left: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "left" } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "left" } }, equal: true },
+    { name: "string_distinct", left: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "left" } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "right" } }, equal: false },
+    { name: "number_same", left: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 1 } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 1 } }, equal: true },
+    { name: "number_distinct", left: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 1 } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 2 } }, equal: false },
+    { name: "signed_zero", left: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: -0 } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 0 } }, equal: false },
+    { name: "key_kind", left: { kind: "mapped", owner: firstMapped, key: { kind: "number", value: 1 } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "1" } }, equal: false },
+    { name: "symbol_same", left: { kind: "mapped", owner: firstMapped, key: { kind: "unique-symbol", declaration: first } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "unique-symbol", declaration: first } }, equal: true },
+    { name: "symbol_distinct", left: { kind: "mapped", owner: firstMapped, key: { kind: "unique-symbol", declaration: first } }, right: { kind: "mapped", owner: firstMapped, key: { kind: "unique-symbol", declaration: second } }, equal: false },
+    { name: "mapped_owner", left: { kind: "mapped", owner: firstMapped, key: { kind: "string", value: "left" } }, right: { kind: "mapped", owner: secondMapped, key: { kind: "string", value: "left" } }, equal: false },
+  ];
+  for (const row of cases) {
+    assert.equal(sourceTypeDescriptorMemberOriginsEqual(row.left, row.right), row.equal, row.name);
+    assert.equal(sourceTypeDescriptorMemberOriginsEqual(row.right, row.left), row.equal, row.name + ": symmetric");
+  }
+});
+
+test("descriptor inventories and checked literal pairs share one origin producer for every finite mapped key", () => {
+  const current = fixture(`declare const first: unique symbol; declare const second: unique symbol;
+    type Data = { left: int32; right: int32 };
+    type Flags = { [Key in "left" | "right"]: number };
+    type Numbers = { [Key in 1 | 2]: number };
+    type Symbols = { [Key in typeof first | typeof second]: number };
+    type Renamed<Input> = { [Key in keyof Input as \`get_\${Key & string}\`]: Input[Key] };
+    const declared: Data = { left: 1, right: 2 };
+    const flags: Flags = { left: 1, right: 2 };
+    const record: Record<"left" | "right", number> = { left: 1, right: 2 };
+    const numbers: Numbers = { 1: 1, 2: 2 };
+    const symbols: Symbols = { [first]: 1, [second]: 2 };
+    const partial: Partial<Data> = { left: 1, right: 2 };
+    const readonly: Readonly<Data> = { left: 1, right: 2 };
+    const renamed: Renamed<Data> = { get_left: 1, get_right: 2 };`);
+  const { ast } = current.source;
+  for (const name of ["declared", "flags", "record", "numbers", "symbols", "partial", "readonly", "renamed"]) {
+    const declaration = current.declaration(name);
+    const literal = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const annotation = ast.typeNode(declaration);
+    const queries = current.source.semantics.forNode(declaration);
+    const destination = annotation === undefined ? undefined : queries.types.authoredType(annotation);
+    const source = literal === undefined ? undefined : queries.types.expressionType(literal);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && source !== undefined && destination !== undefined, true, name);
+    if (outcome === undefined || outcome.kind === "refused" || source === undefined || destination === undefined) continue;
+    let descriptor = outcome.type;
+    while (descriptor.kind === "declared" && descriptor.definition !== undefined) descriptor = descriptor.definition;
+    assert.equal(descriptor.kind === "shape", true, name);
+    if (descriptor.kind !== "shape") continue;
+    const correspondence = queries.types.structuralMembers(source, destination, "correspondence");
+    assert.equal(correspondence.kind === "available", true, name);
+    if (correspondence.kind !== "available") continue;
+    const properties = queries.types.propertyInfos(destination);
+    assert.equal(properties.length, 2, name);
+    for (const property of properties) {
+      const pair = correspondence.members.find(pair => pair.kind === "present" && pair.destination.property.symbol === property.symbol);
+      assert.equal(pair !== undefined, true, name + ": same destination inventory symbol");
+      if (pair === undefined) continue;
+      const origin = sourceTypeDescriptorMemberOrigin(current.source, queries, pair.destination.property, pair.destination.receiverType);
+      assert.equal(origin?.kind === "resolved", true, name);
+      if (origin?.kind !== "resolved") continue;
+      const matches = descriptor.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+      assert.equal(matches.length, 1, name + ": one inventory origin");
+      const published = outcome.memberCorrespondence?.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+      assert.equal(published?.length, 1, name + ": one authored correspondence");
+      assert.equal(origin.origin.kind, ["declared", "partial", "readonly"].includes(name) ? "declared" : "mapped", name);
+      assert.equal(Object.isFrozen(matches[0]?.origin), true, name);
+      if (origin.origin.kind === "mapped") assert.equal(Object.isFrozen(matches[0]?.origin.kind === "mapped" ? matches[0].origin.key : undefined), true, name);
+    }
+  }
+});
+
+test("non-single mapped keys refuse complete used, unused and nested value descriptors at the original value", () => {
+  const forms = [
+    { name: "equal_enum_values", source: 'enum A { X = "x" } enum B { Y = "x" } type Collision = { [Key in A | B]: number };', key: "x" },
+    { name: "many_to_one_rename", source: 'type Rename<Input> = { [Key in keyof Input as "same"]: Input[Key] }; type Collision = Rename<{ a: number; b: number }>;', key: "same" },
+    { name: "numeric_string_collision", source: 'type Collision = { [Key in 1 | "1"]: number };', key: "1" },
+  ];
+  for (const form of forms) for (const used of [false, true]) for (const nested of [false, true]) {
+    const name = `${form.name}_${used ? "used" : "unused"}_${nested ? "nested" : "direct"}`;
+    const current = fixture(`${form.source} declare const value: ${nested ? "{ inner: Collision }" : "Collision"};
+      ${used ? `const read = value${nested ? ".inner" : ""}[${JSON.stringify(form.key)}];` : ""}`);
+    const declaration = current.declaration("value");
+    const mapped = current.nodes.find(node => current.source.ast.is.IsMappedTypeNode(node));
+    const outcome = current.source.effectiveTypes.get(declaration);
+    const issues = current.source.effectiveTypes.refusals().filter(issue => issue.site === declaration);
+    assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE" &&
+      outcome.site === declaration && outcome.related === mapped, true, name);
+    assert.equal(issues.length, 1, name + ": one value refusal");
+    assert.equal(outcome?.kind === "refused" && outcome.reason.includes(form.key) && !("type" in outcome), true, name + ": no partial descriptor");
+    assert.equal(current.nodes.filter(node => current.source.ast.is.IsElementAccessExpression(node)).every(node =>
+      !current.source.effectiveTypes.refusals().some(issue => issue.site === node && issue.code === "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE")), true,
+    name + ": receiver refusal is not recreated at the member use");
+  }
+});
+
+test("a retained B2 correspondence does not invent a destination for an unmatched authored property", () => {
+  const current = fixture("function run(): void { const value = { count: 1, extra: 2 }; const required: { count: number } = value; }");
+  const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.memberCorrespondence?.length === 1 &&
+    current.source.ast.text(current.source.ast.name(outcome.memberCorrespondence[0]?.property)) === "count", true);
+});
+
+test("broad array constructions consume the checked spread element projection for every iterable form", () => {
+  const forms = [
+    { name: "array", type: "number[]", element: "number" },
+    { name: "readonly_array", type: "readonly number[]", element: "number" },
+    { name: "tuple", type: "readonly [number, string]", element: "union" },
+    { name: "string", type: "string", element: "string" },
+    { name: "iterable", type: "Iterable<number>", element: "number" },
+    { name: "set", type: "Set<number>", element: "number" },
+    { name: "map_keys", type: "IterableIterator<number>", element: "number" },
+    { name: "map_values", type: "IterableIterator<string>", element: "string" },
+    { name: "map_entries", type: "IterableIterator<[number, string]>", element: "tuple" },
+    { name: "generator", type: "Generator<number, void, unknown>", element: "number" },
+  ];
+  for (const form of forms) {
+    const current = fixture(`function run(input: ${form.type}): object { const value: object = [...input]; return value; }`);
+    const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
+    const spread = literal === undefined ? undefined : current.source.ast.elements(literal)[0];
+    const queries = spread === undefined ? undefined : current.source.semantics.forNode(spread);
+    const iteration = spread === undefined ? undefined : queries?.operations.iteration(spread);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    assert.equal(iteration?.subject.kind === "spread" && iteration.subject.node === spread &&
+      !("iterationKind" in iteration) && !("mechanism" in iteration), true, form.name);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" &&
+      outcome.type.intrinsic === "object" && outcome.construction?.kind === "array", true, form.name);
+    if (outcome === undefined || outcome.kind === "refused" || outcome.construction?.kind !== "array") continue;
+    const element = outcome.construction.element;
+    assert.equal(form.element === "number" ? element.kind === "primitive" && element.primitive === "float64"
+      : element.kind === form.element, true, form.name);
+    if (element.kind === "tuple") assert.equal(element.elements.length === 2 &&
+      element.elements.every(element => element.kind === "required"), true, form.name);
+    if (element.kind === "union") assert.equal(element.types.length, 2, form.name);
+  }
+});
+
+test("C30 and B2 authority uses the declared slot while every B4 or inferred slot stays inferred", () => {
+  const cases: readonly { readonly name: string; readonly authority: "declared" | "inferred";
+    readonly program: (literal: string) => string }[] = [
+    { name: "typed_parameter", authority: "declared", program: literal => `function typed(): void { take(${literal}); }` },
+    { name: "later_parameter", authority: "declared", program: literal => `function later(): void { const values = ${literal}; take(values); }` },
+    { name: "annotated_variable", authority: "declared", program: literal => `function variable(): void { const values: Values = ${literal}; void values; }` },
+    { name: "annotated_field", authority: "declared", program: literal => `class AnnotatedField { value: Values = ${literal}; }` },
+    { name: "annotated_property", authority: "declared", program: literal => `const property: { value: Values } = { value: ${literal} };` },
+    { name: "declared_return", authority: "declared", program: literal => `function returned(): Values { return ${literal}; }` },
+    { name: "later_return", authority: "declared", program: literal => `function laterReturn(): Values { const values = ${literal}; return values; }` },
+    { name: "concise", authority: "declared", program: literal => `const concise = (): Values => ${literal};` },
+    { name: "contextual_concise", authority: "declared", program: literal => `const context: () => Values = () => ${literal};` },
+    { name: "conditional_true", authority: "declared", program: literal => `function trueBranch(flag: boolean): Values { return flag ? ${literal} : []; }` },
+    { name: "conditional_false", authority: "declared", program: literal => `function falseBranch(flag: boolean): Values { return flag ? [] : ${literal}; }` },
+    { name: "nullish", authority: "declared", program: literal => `function nullish(input: Values | undefined): Values { return input ?? ${literal}; }` },
+    { name: "async_return", authority: "declared", program: literal => `async function asynchronous(): Promise<Values> { return ${literal}; }` },
+    { name: "as", authority: "declared", program: literal => `function assertion(): void { const values = ${literal} as Values; void values; }` },
+    { name: "satisfies", authority: "declared", program: literal => `function satisfaction(): void { const values = ${literal} satisfies Values; void values; }` },
+    { name: "api_argument", authority: "declared", program: literal => `function apiArgument(): void { api.take(${literal}); }` },
+    { name: "declared_element", authority: "declared", program: literal => `const nested: Values[] = [${literal}];` },
+    { name: "default_declared", authority: "declared", program: literal => `function declaredDefault(values: Values = ${literal}): void { void values; }` },
+    { name: "generic_identity", authority: "declared", program: literal => `function genericIdentity(): void { const values: Values = identity(${literal}); void values; }` },
+    { name: "generic_readonly", authority: "declared", program: literal => `function genericReadonly(): void { const values: readonly (string | number)[] = freeze(${literal}); void values; }` },
+    { name: "b4_return", authority: "inferred", program: literal => `function inferredReturn() { const values = ${literal}; return values; }` },
+    { name: "b4_concise", authority: "inferred", program: literal => `const inferredConcise = () => ${literal};` },
+    { name: "b4_yield", authority: "inferred", program: literal => `function* inferredYield() { yield ${literal}; }` },
+    { name: "export", authority: "inferred", program: literal => `export const exported = ${literal};` },
+    { name: "field", authority: "inferred", program: literal => `class InferredField { value = ${literal}; }` },
+    { name: "default", authority: "inferred", program: literal => `function inferredDefault(values = ${literal}): void { void values; }` },
+    { name: "open_local", authority: "inferred", program: literal => `function local(): void { const values = ${literal}; void values; }` },
+    { name: "derived", authority: "inferred", program: literal => `function derived(flag: boolean): void { const values = ${literal}; const selected = flag ? values : values; void selected; }` },
+    { name: "read_alias", authority: "inferred", program: literal => `function aliases(): void { const values = ${literal}; const alias = values; void alias; }` },
+    { name: "assignment_pattern", authority: "inferred", program: literal => `function pattern(): void { let first: string | number; [first] = ${literal}; void first; }` },
+  ];
+  const current = fixture(`type Values = (string | number)[]; type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    declare function take(value: Values): void; declare const api: { take(value: Values): void };
+    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
+    ${cases.map(row => row.program(`[${JSON.stringify(row.name)}, 9007199254740993, -9007199254740993, 1e100]`)).join("\n")}`);
+  const { ast } = current.source;
+  const failures: string[] = [];
+  const observed: { name: string; found: boolean; count: number; expected: string; actual: string; sameDescriptor: boolean }[] = [];
+  for (const row of cases) {
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
+      ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]) &&
+      ast.text(ast.elements(node)[0]) === row.name);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission" &&
+      obligation.site === literal);
+    const actual = admissions[0]?.kind === "literal-admission" ? admissions[0].authority : "missing";
+    const sameDescriptor = outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.type === outcome.type;
+    observed.push({ name: row.name, found: literal !== undefined, count: admissions.length, expected: row.authority, actual, sameDescriptor });
+    if (literal === undefined) failures.push(`${row.name}: actual aggregate construction`);
+    if (admissions.length !== 1) failures.push(`${row.name}: expected one admission, actual ${admissions.length}`);
+    if (actual !== row.authority) failures.push(`${row.name}: expected ${row.authority}, actual ${actual}`);
+    if (!sameDescriptor) failures.push(`${row.name}: identical published descriptor`);
+  }
+  console.log(`Source authority case map: ${JSON.stringify(observed)}`);
+  assert.equal(failures.length, 0, failures.join("; "));
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
