@@ -76,10 +76,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   for (const node of syntax) {
-    if (!ast.is.IsParameterDeclaration(node)) continue;
+    if (!ast.is.IsParameterDeclaration(node) || typeOnly.has(node)) continue;
+    const owner = ast.parent(node);
+    if (owner === undefined || !isCallable(ast, owner) || ast.body(owner) === undefined) continue;
     const query = semantics.forNode(node);
     const projected = declaredSlots.parameter(node, query);
-    const owner = ast.parent(node);
     if (ast.typeNode(node) === undefined && projected === undefined && Node_Initializer(ast, node) === undefined &&
       owner !== undefined && (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner)) &&
       query.types.contextualType(owner) !== undefined) continue;

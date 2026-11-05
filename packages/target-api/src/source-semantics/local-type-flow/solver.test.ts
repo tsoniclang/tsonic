@@ -1062,7 +1062,7 @@ test("C14 every derived form preserves declaration-typed operands across the com
   assert.equal(current.source.effectiveTypes.refusals().length, 0, "all declaration-typed operand sources remain never-open");
 });
 
-test("C24 every callable declaration kind publishes its actual parameter groups before its body", () => {
+test("C24 runtime parameters have groups while bodyless and type-only signatures retain only declared metadata", () => {
   const current = fixture(`declare function external(value: int32): int32;
     function overloaded(value: int32): int32; function overloaded(value: int32): int32 { return value; }
     abstract class Base { abstract run(value: int32): int32; abstract get value(): int32; abstract set value(next: int32); }
@@ -1077,29 +1077,33 @@ test("C24 every callable declaration kind publishes its actual parameter groups 
     const asynchronous: (value: int32) => Promise<int32> = async value => value;
     function patterned({ value }: { value: int32 }, ...rest: int32[]): int32 { return value + rest[0]; }`);
   const { ast } = current.source;
+  const context = createSourceTypeFlowAnalysisContext(current.source).context;
+  const graph = collectSourceTypeFlowEdges(context);
   const parameters = current.nodes.filter(node => ast.is.IsParameterDeclaration(node));
   assert.equal(parameters.length > 15, true, "the fixture spans bodyless, overload, runtime and type-only signatures");
   for (const parameter of parameters) {
+    const owner = ast.parent(parameter);
+    const runtime = owner !== undefined && ast.body(owner) !== undefined;
+    const record = graph.nodes.find(record => record.node === parameter);
+    assert.equal(runtime ? record !== undefined && graph.roots.includes(record.root) : record === undefined, true,
+      `parameter ${ast.pos(parameter)} has a runtime group if and only if its callable has a body`);
     const outcome = current.source.effectiveTypes.get(parameter);
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === parameter, true,
-      `parameter ${ast.pos(parameter)} is the same checked declaration`);
+    if (runtime) assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === parameter, true,
+      `runtime parameter ${ast.pos(parameter)} is the same checked declaration`);
+    const type = runtime ? outcome !== undefined && outcome.kind !== "refused" ? outcome.type : undefined : context.describe(parameter);
     const name = ast.name(parameter);
     if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "genericValue") {
-      const owner = ast.parent(parameter);
       const binder = owner === undefined ? undefined : ast.typeParameters(owner)[0];
-      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
-        outcome.type.declaration === binder && outcome.type.typeArguments.length === 0, true,
+      assert.equal(type?.kind === "declared" && type.declaration === binder && type.typeArguments.length === 0, true,
       "an actual formal parameter retains its unbound binder identity, never a caller's instantiated value");
       continue;
     }
     if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "rest") {
-      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
-        outcome.type.element.kind === "primitive" && outcome.type.element.primitive === "int32", true,
+      assert.equal(type?.kind === "array" && type.element.kind === "primitive" && type.element.primitive === "int32", true,
       "the actual rest parameter retains its complete declared array descriptor");
     }
     if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) !== "rest") {
-      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
-        outcome.type.primitive === "int32", true, `parameter ${ast.pos(parameter)} retains its declared width`);
+      assert.equal(type?.kind === "primitive" && type.primitive === "int32", true, `parameter ${ast.pos(parameter)} retains its declared width`);
     }
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
