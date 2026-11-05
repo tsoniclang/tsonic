@@ -648,6 +648,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const published = declared === undefined ? undefined : outcomes.get(declared);
       if (published?.kind === "refused") return undefined;
       const type = published?.type ?? (declared === undefined ? undefined : context.describe(declared));
+      if (declared !== undefined && type !== undefined && published === undefined) {
+        const sourceFile = ast.getSourceFile(declared);
+        if (sourceFile !== undefined) outcomes.set(declared, Object.freeze({ kind: "resolved", type,
+          provenance: Object.freeze({ group: declared, occurrence: declared, sourceFile }) }));
+      }
       return type === undefined ? undefined : { kind: parameter.parameterKind, type,
         ...(declared === undefined ? {} : { declaration: declared }) };
     });

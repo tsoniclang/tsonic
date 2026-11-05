@@ -811,6 +811,26 @@ test("class-expression values retain their constructor contract independently of
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("unused real signature parameters publish the same chosen descriptor as their callable", () => {
+  const current = fixture(`export function run(price: number, replacement: int32[], wide: int64): boolean {
+    const items = [1, 2]; return items[0] === 1;
+  }`);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node));
+  const callable = declaration === undefined ? undefined : current.source.effectiveTypes.get(declaration);
+  assert.equal(callable !== undefined && callable.kind !== "refused" && callable.type.kind === "callable", true);
+  if (callable === undefined || callable.kind === "refused" || callable.type.kind !== "callable") throw new Error("The actual callable is required.");
+  const parameters = callable.type.calls[0]?.parameters ?? [];
+  assert.equal(parameters.length, 3);
+  for (const parameter of parameters) {
+    const outcome = parameter.declaration === undefined ? undefined : current.source.effectiveTypes.get(parameter.declaration);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true, "an unused parameter is still a real value declaration");
+    if (outcome === undefined || outcome.kind === "refused") throw new Error("The actual parameter outcome is required.");
+    assert.equal(sourceTypeDescriptorsEqual(outcome.type, parameter.type), true);
+    assert.equal(outcome.provenance.occurrence === parameter.declaration, true);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }

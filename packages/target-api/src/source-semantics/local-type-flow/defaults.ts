@@ -172,6 +172,16 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         : describeSyntax(selected.explicitTypeNode, queries, 0, bindings);
       if (declaration !== undefined && descriptor !== undefined) bindings.set(declaration, descriptor);
     }
+    if (call !== undefined && ast.is.IsNewExpression(node)) {
+      const owner = typeDeclaration(call.sourceResultType, queries);
+      const parameters = owner === undefined ? [] : sourceTypeFlowTypeParameters(ast, owner);
+      const arguments_ = ast.typeArguments(node);
+      if (arguments_.length === parameters.length) parameters.forEach((parameter, index) => {
+        const argument = arguments_[index];
+        const descriptor = argument === undefined ? undefined : describeSyntax(argument, queries, 0, bindings);
+        if (descriptor !== undefined) bindings.set(parameter, descriptor);
+      });
+    }
     return bindings;
   }
 
@@ -233,6 +243,15 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const file = ast.getSourceFile(node);
     const queries = consumer ?? (file !== undefined && semantics.includes(file) ? semantics.forFile(file) : declarationQueries.get(node));
     if (queries === undefined) return undefined;
+    if (component === undefined && ast.is.IsCallExpression(node)) {
+      const call = queries.operations.call(node);
+      const returned = call === undefined ? undefined : queries.operations.callResult(call);
+      if (call !== undefined && returned?.authoredTypeNode !== undefined) {
+        const declaration = queries.declarations.signatureDeclaration(call.selectedSignature);
+        component = { selectedType: returned.resultType, contextualCall: call, authoredTypeNode: returned.authoredTypeNode,
+          ...(declaration === undefined ? {} : { declaration }) };
+      }
+    }
     active.add(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
