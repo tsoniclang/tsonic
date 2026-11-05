@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourceTypeDescriptorHasTypeVariables } from "./terms.js";
 import type { SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal } from "./types.js";
 
 export interface SourceTypeFlowDeclaredSlot {
@@ -43,9 +44,11 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return selected;
   }
 
-  function select(node: Node, selected: SourceTypeComponentEvidence | undefined): SourceTypeFlowDeclaredSlot {
+  function select(node: Node, selected: SourceTypeComponentEvidence | undefined,
+    concrete = false): SourceTypeFlowDeclaredSlot | undefined {
     if (selected === undefined) return Object.freeze({});
     const described = context.describe(node, selected);
+    if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) return undefined;
     return described === undefined ? Object.freeze({ component: selected })
       : Object.freeze({ ...projected(node, described), component: selected });
   }
@@ -125,8 +128,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if ((ast.is.IsAsExpression(parent) || ast.is.IsSatisfiesExpression(parent) || ast.is.IsTypeAssertion(parent)) &&
       Node_Expression(ast, parent) === occurrence && !ast.isConstAssertion(parent)) {
       const selected = component(parent, query);
-      if (selected !== undefined && query.types.couldContainTypeVariables(selected.selectedType)) return undefined;
-      return select(node, selected);
+      return select(node, selected, true);
     }
     if (ast.is.IsReturnStatement(parent) && Node_Expression(ast, parent) === occurrence ||
       ast.is.IsArrowFunction(parent) && ast.body(parent) === occurrence) {
@@ -145,8 +147,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       if (bindings.length !== 1) return undefined;
       const parameter = call.sourceSelectedSignatureParameters[bindings[0]!.sourceParameterIndex];
       const declared = parameter?.parameterDeclaration === undefined ? undefined : component(parameter.parameterDeclaration, query);
-      if (declared === undefined || query.types.couldContainTypeVariables(declared.selectedType)) return undefined;
-      return select(node, { ...declared, contextualCall: call });
+      if (declared === undefined) return undefined;
+      return select(node, { ...declared, contextualCall: call }, true);
     }
     if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {
       const literal = ast.parent(parent);

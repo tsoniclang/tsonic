@@ -109,6 +109,27 @@ export function sourceTypeDescriptorDepth(type: SourceTypeDescriptor): number {
   return depth + 1;
 }
 
+export function sourceTypeDescriptorHasTypeVariables(ast: AstReader, type: SourceTypeDescriptor,
+  bound: ReadonlySet<Node> = new Set()): boolean {
+  const visit = (selected: SourceTypeDescriptor): boolean => sourceTypeDescriptorHasTypeVariables(ast, selected, bound);
+  if (type.kind === "declared") {
+    if (ast.is.IsTypeParameterDeclaration(type.declaration) && !bound.has(type.declaration)) return true;
+    return type.typeArguments.some(visit);
+  }
+  if (type.kind === "array") return visit(type.element);
+  if (type.kind === "tuple") return type.elements.some(visit);
+  if (type.kind === "optional") return visit(type.value);
+  if (type.kind === "union") return type.types.some(visit);
+  if (type.kind === "shape") return type.members.some(member => visit(member.type)) ||
+    type.indexes.some(index => visit(index.key) || visit(index.value));
+  if (type.kind === "callable") return [...type.calls, ...type.constructs].some(signature => {
+    const scope = new Set([...bound, ...signature.typeParameters]);
+    return signature.parameters.some(parameter => sourceTypeDescriptorHasTypeVariables(ast, parameter.type, scope)) ||
+      sourceTypeDescriptorHasTypeVariables(ast, signature.result, scope);
+  });
+  return false;
+}
+
 export interface SourceTypeFlowTermGroup {
   readonly variable: SourceTypeFlowVariable;
   readonly nodes: readonly SourceTypeFlowNode[];
