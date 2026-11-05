@@ -831,6 +831,59 @@ test("unused real signature parameters publish the same chosen descriptor as the
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+
+for (const initializer of ["value => value", "function(value) { const copied = value; return copied; }"]) {
+  test(`a declared callable slot owns its actual parameters and return before body solving: ${initializer}`, () => {
+    const current = fixture(`export const callback: (value: int32) => int32 = ${initializer};`);
+    const { ast } = current.source;
+    const callable = ast.as.AsVariableDeclaration(current.declaration("callback"))?.Initializer;
+    if (callable === undefined) throw new Error("The actual checked callable is required.");
+    const parameter = ast.parameters(callable)[0];
+    if (parameter === undefined) throw new Error("The actual checked parameter is required.");
+    const isInt32 = (outcome: SourceEffectiveTypeOutcome | undefined): boolean => outcome !== undefined &&
+      outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int32";
+    assert.equal(isInt32(current.source.effectiveTypes.get(parameter)), true, "the real parameter inherits its authored slot width");
+    const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(parameter) !== node &&
+      current.source.navigation.sourceReferenceFor(node)?.declaration === parameter);
+    assert.equal(reads.length > 0, true, "the checked body reads the real parameter");
+    assert.equal(reads.every(node => isInt32(current.source.effectiveTypes.get(node))), true,
+      "the body graph uses the chosen parameter width, not a late callable-only repair");
+    const returned = current.source.effectiveTypes.callableReturn(callable);
+    assert.equal(isInt32(returned) && returned?.kind !== "refused" && returned?.provenance.occurrence === callable, true);
+    const value = current.source.effectiveTypes.get(callable);
+    assert.equal(value !== undefined && value.kind !== "refused" && value.type.kind === "callable" &&
+      value.type.calls[0]?.declaration === callable && value.type.calls[0].parameters[0]?.declaration === parameter &&
+      value.type.calls[0].parameters[0].type.kind === "primitive" && value.type.calls[0].parameters[0].type.primitive === "int32" &&
+      value.type.calls[0].result.kind === "primitive" && value.type.calls[0].result.primitive === "int32", true);
+    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "write-fit" && row.required === callable);
+    assert.equal(admissions.length, 1, "the actual return expression has one native admission against the declared result");
+    assert.equal(admissions[0]?.type.kind === "primitive" && admissions[0].type.primitive === "int32" &&
+      admissions[0].valueType?.kind === "primitive" && admissions[0].valueType.primitive === "int32", true);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("nested declared callables retain authored union order and async returns retain their full Promise", () => {
+  const current = fixture(`const nested: () => () => string | int32 = () => () => 1 as int32;
+    const asynchronous: (value: int32) => Promise<int32> = async value => value;`);
+  const { ast } = current.source;
+  const outer = ast.as.AsVariableDeclaration(current.declaration("nested"))?.Initializer;
+  const inner = outer === undefined ? undefined : ast.body(outer);
+  const asynchronous = ast.as.AsVariableDeclaration(current.declaration("asynchronous"))?.Initializer;
+  if (inner === undefined || asynchronous === undefined) throw new Error("The actual checked callable occurrences are required.");
+  const returned = current.source.effectiveTypes.callableReturn(inner);
+  assert.equal(returned !== undefined && returned.kind !== "refused" && returned.type.kind === "union" &&
+    returned.type.types.length === 2 && returned.type.types[0]?.kind === "string" &&
+    returned.type.types[1]?.kind === "primitive" && returned.type.types[1].primitive === "int32", true,
+    "declared union order comes from the authored result, never the order of inferred returns");
+  const deferred = current.source.effectiveTypes.callableReturn(asynchronous);
+  assert.equal(deferred !== undefined && deferred.kind !== "refused" && deferred.provenance.occurrence === asynchronous &&
+    deferred.type.kind === "declared" && deferred.type.typeArguments.length === 1 &&
+    deferred.type.typeArguments[0]?.kind === "primitive" && deferred.type.typeArguments[0].primitive === "int32", true,
+    "the canonical callable return contains the complete Promise, not a target-wrapped payload");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("literal admission retains its actual inferred or declared Source authority", () => {
   const current = fixture(`type Indexed = { readonly [key: string]: number };
     function run(): void { const inferred = [1, 2]; const declared: Indexed = { value: 1 }; }`);

@@ -5,6 +5,7 @@ import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.js";
 import { createSourceTypeDescriptorReader } from "./descriptors.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowSource,
@@ -14,6 +15,7 @@ export interface SourceTypeFlowDefaults {
   readonly context: SourceTypeFlowAnalysisContext;
   readonly nodes: readonly Node[];
   readonly values: readonly Node[];
+  readonly declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
   fixedRule(node: Node): SourceTypeFlowFixedRule | undefined;
   hasDeclaredSourceType(node: Node): boolean;
 }
@@ -77,6 +79,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   }
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
   const active = new Set<Node>();
+  let declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
   const declarationQueries = new WeakMap<Node, SourceFileSemantics>();
   for (const node of nodes) {
     if (!(ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node) ||
@@ -252,10 +255,26 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
           ...(declaration === undefined ? {} : { declaration }) };
       }
     }
+    const contextual = component === undefined && (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)) &&
+      ast.typeNode(node) === undefined ? declaredSlots.callable(node) : undefined;
     active.add(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
     let result: SourceTypeDescriptor | undefined;
+    if (contextual !== undefined) {
+      const signature = queries.types.declarationSignatureInfo(node);
+      const parameters = signature?.parameters.map((parameter, index) => {
+        const declaration = parameter.declaration;
+        const type = declaration === undefined ? undefined : describe(declaration, undefined, depth, queries, arguments_);
+        return type === undefined ? undefined : { kind: contextual.parameters[index]?.kind ?? parameter.parameterKind,
+          type, ...(declaration === undefined ? {} : { declaration }) };
+      });
+      if (parameters !== undefined && parameters.every(parameter => parameter !== undefined)) {
+        result = { kind: "callable", calls: [{ declaration: node, typeParameters: sourceTypeFlowTypeParameters(ast, node),
+          parameters: parameters.filter((parameter): parameter is NonNullable<typeof parameter> => parameter !== undefined),
+          result: contextual.result }], constructs: [] };
+      }
+    }
     const rule = file !== undefined && semantics.includes(file) ? fixedRule(node) : undefined;
     if (rule !== undefined && (component === undefined || component.declaration === rule.declaration)) {
       result = { kind: "primitive", primitive: "int64" };
@@ -275,6 +294,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (result === undefined && annotation !== undefined) {
       active.delete(node);
       return undefined;
+    }
+    if (result === undefined && declaration !== undefined && ast.is.IsParameterDeclaration(declaration)) {
+      result = declaredSlots.parameter(declaration);
     }
     if (result === undefined) result = primitive([...(component === undefined ? [node] : []),
       ...queries.facts.selectedSubjects(undefined, declaration),
@@ -337,7 +359,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const range = ast.authoredRange(node);
       return { start: range.kind === "authored" ? range.start : ast.pos(node), preorder: ordinals.get(node) ?? nodes.length };
     } });
-  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), fixedRule, hasDeclaredSourceType });
+  declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
+  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), declaredSlots,
+    fixedRule, hasDeclaredSourceType });
 }
 
 export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): "int32" | "float64" {

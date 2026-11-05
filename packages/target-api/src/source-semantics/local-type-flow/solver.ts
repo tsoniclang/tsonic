@@ -1,11 +1,12 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
+import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import type { SourceFileSemantics } from "../types.js";
 import type {
   SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor,
@@ -526,7 +527,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const uniqueIssues = [...new Set([...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused]))]
     .sort((left, right) => compare(left.site, right.site));
   const frozenIssues = Object.freeze(uniqueIssues);
-  const frozenObligations = Object.freeze(obligations);
   for (const node of defaults.nodes) {
     const ast = source.ast;
     if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) || ast.is.IsPropertyAccessExpression(node))) continue;
@@ -557,31 +557,28 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     let type: SourceTypeDescriptor | undefined;
     let failure: SourceTypeFlowRefusal | undefined;
     const annotation = ast.typeNode(declaration);
+    const contextual = annotation === undefined ? defaults.declaredSlots.callable(declaration) : undefined;
     if (ast.is.IsConstructorDeclaration(declaration)) {
       const owner = ast.parent(declaration);
       const selected = owner === undefined ? undefined : queries.declarations.declaredType(owner);
       if (owner !== undefined && selected !== undefined) type = context.describe(owner, { selectedType: selected, declaration: owner });
+    } else if (contextual !== undefined) {
+      type = contextual.result;
+      const requiredType = defaults.declaredSlots.returned(declaration);
+      if (requiredType === undefined) throw new Error("A declared callable return requires its exact Source result descriptor.");
+      for (const returned of sourceTypeFlowCallableReturns(ast, declaration).returned) {
+        const value = outcomes.get(returned);
+        if (value === undefined) throw new Error("A declared callable body requires its canonical Source publication.");
+        if (value.kind === "refused") { failure = value; break; }
+        obligations.push(Object.freeze({ kind: "write-fit", site: returned, type: freezeSourceTypeDescriptor(requiredType),
+          value: returned, valueType: value.type, required: declaration }));
+      }
     } else if (selectedType !== undefined && (annotation !== undefined || ast.body(declaration) === undefined ||
       file === undefined || !source.semantics.includes(file))) {
       type = context.describe(declaration, { selectedType, declaration,
         ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
     } else {
-      const body = ast.body(declaration);
-      const pending = body === undefined ? [] : [body];
-      const returned: Node[] = [];
-      let absent = false;
-      while (pending.length > 0) {
-        const node = pending.pop()!;
-        if (node !== body && (ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) ||
-          ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
-          ast.is.IsSetAccessorDeclaration(node) || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) continue;
-        if (node === body && !ast.is.IsBlock(node)) returned.push(node);
-        else if (ast.is.IsReturnStatement(node)) {
-          const expression = Node_Expression(ast, node);
-          if (expression !== undefined) returned.push(expression);
-          else absent = true;
-        } else for (const child of ast.children(node)) if (child !== undefined) pending.push(child);
-      }
+      const { returned, absent } = sourceTypeFlowCallableReturns(ast, declaration);
       const types: SourceTypeDescriptor[] = [];
       const asynchronous = ast.hasModifierKind(declaration, "async");
       let incomplete = false;
@@ -644,7 +641,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const queries = source.semantics.forNode(node);
     const signature = queries.types.declarationSignatureInfo(node);
     if (signature === undefined) continue;
-    const parameters = signature.parameters.map(parameter => {
+    const contextual = defaults.declaredSlots.callable(node);
+    const parameters = signature.parameters.map((parameter, index) => {
       const declared = parameter.declaration;
       const published = declared === undefined ? undefined : outcomes.get(declared);
       if (published?.kind === "refused") return undefined;
@@ -654,7 +652,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         if (sourceFile !== undefined) outcomes.set(declared, Object.freeze({ kind: "resolved", type,
           provenance: Object.freeze({ group: declared, occurrence: declared, sourceFile }) }));
       }
-      return type === undefined ? undefined : { kind: parameter.parameterKind, type,
+      return type === undefined ? undefined : { kind: contextual?.parameters[index]?.kind ?? parameter.parameterKind, type,
         ...(declared === undefined ? {} : { declaration: declared }) };
     });
     if (parameters.some(parameter => parameter === undefined)) continue;
@@ -686,6 +684,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         provenance: Object.freeze({ ...returned.provenance, occurrence: node, sourceFile: file }) }));
     }
   }
+  const frozenObligations = Object.freeze(obligations);
   return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),
     obligations: () => frozenObligations, refusals: () => frozenIssues });
 }
