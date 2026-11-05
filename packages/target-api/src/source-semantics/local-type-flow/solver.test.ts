@@ -996,6 +996,19 @@ test("generic binder fills retain declared authority for direct and aliased fixe
       found: literal !== undefined, outcome: outcome?.kind ?? "absent", count: matching.length,
       actual: matching[0]?.authority ?? "absent",
       sameDescriptor: outcome !== undefined && outcome.kind !== "refused" && matching[0]?.type === outcome.type }));
+    if (row.call === "freeze" && !row.alias && row.authority === "declared") {
+      const call = literal === undefined ? undefined : ast.parent(literal);
+      const slot = call === undefined ? undefined : ast.parent(call);
+      const authored = slot === undefined ? undefined : ast.typeNode(slot);
+      const queries = slot === undefined ? undefined : current.source.semantics.forNode(slot);
+      const selected = authored === undefined || queries === undefined ? undefined : queries.types.authoredType(authored);
+      const application = selected === undefined || queries === undefined ? undefined : queries.types.aliasApplication(selected);
+      console.log("C2295.homomorphic-slot " + JSON.stringify({ name: row.name,
+        aliasApplication: application?.kind ?? "absent",
+        typeKind: selected === undefined || queries === undefined ? "absent" : queries.types.isTuple(selected) ? "tuple" :
+          queries.types.isArrayLike(selected) ? "array" : queries.types.isUnion(selected) ? "union" : "object",
+        authoredKind: authored === undefined ? "absent" : ast.kindName(authored) }));
+    }
   }
   for (const { row, literal, outcome, matching } of observations) {
     assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
