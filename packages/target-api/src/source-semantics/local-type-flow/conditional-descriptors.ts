@@ -1,4 +1,4 @@
-import type { Node, TypeAliasApplicationInfo } from "@tsonic/tsts";
+import type { Node, Type, TypeAliasApplicationInfo } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "../types.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import type { SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
@@ -14,9 +14,13 @@ export function sourceTypeDescriptorConditionalDefinition(
 ): SourceTypeDescriptor | undefined {
   const { ast } = source;
   const results: SourceTypeDescriptor[] = [];
+  const retained = new Map<Node, { readonly values: Bindings; readonly types: ReadonlyMap<Node, Type> }>();
+  const original = { values: bindings, types: new Map(application.bindings.map(binding => [binding.declaration, binding.argument])) };
   for (const step of application.conditionalSteps) {
     if (step.branch === "deferred" || step.selectedNode === undefined || step.selectedType === undefined) return undefined;
-    const selected = new Map(bindings);
+    const base = retained.get(step.conditional) ?? original;
+    const selected = new Map(base.values);
+    const checked = new Map(base.types);
     const inferred = new Map<Node, SourceTypeDescriptor>();
     const conditional = ast.as.AsConditionalTypeNode(step.conditional);
     if (conditional?.CheckType === undefined || conditional.ExtendsType === undefined) return undefined;
@@ -27,12 +31,18 @@ export function sourceTypeDescriptorConditionalDefinition(
       if (parameter !== undefined && !queries.types.isIdentical(parameter.argument, binding.argument)) return undefined;
       const argument = parameter === undefined ? undefined : bindings.get(parameter.declaration);
       for (const declaration of binding.declarations) {
-        const value = argument ?? inferred.get(declaration);
+        const previous = checked.get(declaration);
+        const value = argument ?? inferred.get(declaration) ?? (previous !== undefined &&
+          queries.types.isIdentical(previous, binding.argument) ? selected.get(declaration) : undefined);
         if (value === undefined) return undefined;
         selected.set(declaration, value);
+        checked.set(declaration, binding.argument);
       }
     }
-    if (ast.is.IsConditionalTypeNode(step.selectedNode)) continue;
+    if (ast.is.IsConditionalTypeNode(step.selectedNode)) {
+      retained.set(step.selectedNode, { values: selected, types: checked });
+      continue;
+    }
     const result = read(step.selectedNode, selected);
     if (result === undefined) return undefined;
     results.push(result);

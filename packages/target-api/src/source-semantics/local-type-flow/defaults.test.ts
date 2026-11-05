@@ -66,6 +66,32 @@ test("checked conditional aliases preserve distinct parameter and result widths 
   }
 });
 
+test("nested checked conditional steps retain an outer infer binding by its exact selected scope", () => {
+  const current = fixture(`interface Box<Value> { value: Value; }
+    type Inner<Value> = Value extends Box<infer Element> ? (Element extends int32 ? Element : never) : never;
+    declare const selected: Inner<Box<int32>>;`);
+  const descriptor = current.defaults.context.describe(current.declaration("selected"));
+  assert.equal(descriptor !== undefined, true, "the nested conditional has its exact complete descriptor");
+  if (descriptor === undefined) throw new Error("The nested conditional descriptor is required.");
+  const type = sourceTypeDescriptorStructure(descriptor);
+  assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
+    "the outer infer binding survives into the checker's selected inner branch");
+  const { ast } = current.source;
+  const declaration = current.defaults.nodes.find(node => ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === "Inner");
+  const inferred = current.defaults.nodes.find(node => ast.is.IsTypeParameterDeclaration(node) && ast.text(ast.name(node)) === "Element");
+  const annotation = ast.typeNode(current.declaration("selected"));
+  const argument = annotation === undefined ? undefined : ast.typeArguments(annotation)[0];
+  const queries = current.source.semantics.forNode(current.declaration("selected"));
+  const checked = argument === undefined ? undefined : queries.types.authoredType(argument);
+  const application = declaration === undefined || checked === undefined ? undefined : queries.types.instantiateAlias(declaration, [checked]);
+  assert.equal(application?.kind === "conditional" && application.conditionalSteps.length >= 2 && inferred !== undefined, true,
+    "the real checked application contains the nested selected steps and original infer binder");
+  const nestedCarriesOuter = application?.conditionalSteps.slice(1).some(step =>
+    step.bindings.some(binding => inferred !== undefined && binding.declarations.includes(inferred))) ?? false;
+  console.info("C2329_NESTED_INFER", JSON.stringify({ steps: application?.conditionalSteps.length ?? 0, nestedCarriesOuter }));
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("normalised intersection aliases preserve the underlying nominal declaration instead of a false self-recursion cut", () => {
   const current = fixture(`class Failure { readonly code: int32 = 1; }
     type Maybe = Failure | null | undefined;
