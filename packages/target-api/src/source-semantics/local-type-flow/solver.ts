@@ -1,11 +1,12 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../../source-navigation/ast.js";
-import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind } from "./defaults.js";
+import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
+import type { SourceFileSemantics } from "../types.js";
 import type {
   SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor,
   SourceTypeFlowAssociation, SourceTypeFlowDerived, SourceTypeFlowGraph, SourceTypeFlowNode,
@@ -56,6 +57,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const groups = new Map<SourceTypeFlowVariable, Group>();
   const outcomes = new WeakMap<Node, SourceEffectiveTypeOutcome>();
   const calls = new WeakMap<Node, SourceEffectiveCallInstantiation>();
+  const callableReturns = new WeakMap<Node, SourceEffectiveTypeOutcome>();
+  const callableQueries = new WeakMap<Node, SourceFileSemantics>();
+  const activeReturns = new Set<Node>();
   const obligations: SourceTypeFlowObligation[] = [];
   const valueVariables = new WeakMap<Node, SourceTypeFlowVariable>();
   const records = new WeakMap<Node, SourceTypeFlowNode>();
@@ -72,7 +76,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const declared = selected.nodes.filter(isSourceTypeFlowDeclaredConstruction);
       const constructions = declared.flatMap(node => {
         const component = node.association?.component;
-        const type = component === undefined ? undefined : context.describe(node.node, component);
+        const type = node.declaredType ?? (component === undefined ? undefined : context.describe(node.node, component));
         return type === undefined ? [] : [{ type, site: node.node, fixed: true }];
       });
       result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
@@ -91,6 +95,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       record.declaration !== undefined && source.ast.typeNode(record.declaration) !== undefined) ? record : undefined;
   }
   function declaredDescriptor(record: SourceTypeFlowNode): SourceTypeDescriptor | undefined {
+    if (record.declaredType !== undefined) return record.declaredType;
     if (isSourceTypeFlowDeclaredConstruction(record)) {
       return group(record.variable).constructions.find(fill => fill.site === record.node)?.type;
     }
@@ -121,6 +126,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return undefined;
   }
   for (const issue of graph.refusals) {
+    const construction = records.get(issue.site);
+    if (construction !== undefined && construction.kind === "fixed" && construction.declaredType === undefined &&
+      construction.association?.component === undefined && issue.code === "TSONIC_LOCAL_TYPE_UNION") {
+      group(construction.variable).refused = issue;
+      continue;
+    }
     const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
     if (owner !== undefined) owner.pendingRefusals.push(issue);
     else for (let current: Node | undefined = issue.site; current !== undefined; current = source.ast.parent(current)) {
@@ -239,8 +250,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     const fixed = selected.fills.filter(fill => fill.fixed);
     if (fixed.length > 1 && fixed.some(fill => !sourceTypeDescriptorsEqual(fixed[0]!.type, fill.type))) {
-      const array = graph.nodes.find(node => node.term?.kind === "array" &&
-        source.ast.is.IsArrayLiteralExpression(node.node) && group(node.term.element) === selected);
+      const array = arrayConstruction(selected);
       refuse(selected, array === undefined ? "TSONIC_LOCAL_TYPE_CONFLICT" : "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS",
         array?.node ?? fixed[1]!.site, fixed[0]!.site);
       return;
@@ -249,6 +259,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT",
         fill.site, selected.filledBy ?? selected.signatures[0]?.site);
     }
+  }
+  function arrayConstruction(selected: Group): SourceTypeFlowNode | undefined {
+    return graph.nodes.find(node => node.term?.kind === "array" &&
+      source.ast.is.IsArrayLiteralExpression(node.node) && group(node.term.element) === selected);
   }
   function constructed(selected: Group): SourceTypeDescriptor | undefined {
     for (const term of selected.terms) {
@@ -270,6 +284,21 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
           const value = group(argument).type;
           if (value === undefined) return undefined;
           arguments_.push(value);
+        }
+        if (term.source !== undefined) {
+          const call = graph.calls.find(call => call.node === term.site);
+          const substitutions = [...(call === undefined ? [] : [...call.receiver, ...call.method])].flatMap(binder => {
+            const selected = group(binder.variable);
+            return selected.type === undefined ? [] : [{ declaration: binder.declaration, type: selected.type }];
+          });
+          const parameters = sourceTypeFlowTypeParameters(source.ast, term.declaration);
+          parameters.forEach((declaration, index) => {
+            if (declaration !== undefined && arguments_[index] !== undefined) substitutions.push({ declaration, type: arguments_[index]! });
+          });
+          const descriptor = context.describe(term.site, term.source, substitutions);
+          if (descriptor?.kind === "declared" && descriptor.declaration === term.declaration) {
+            return { ...descriptor, typeArguments: arguments_ };
+          }
         }
         return { kind: "declared", declaration: term.declaration, typeArguments: arguments_,
           ...(term.source === undefined ? {} : { source: term.source }) };
@@ -369,10 +398,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (sourceTypeDescriptorDepth(selected.type) > 4) refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
       validate(selected);
     }
-    selected.pendingRefusals.sort((left, right) => compare(left.site, right.site));
-    if (selected.refused === undefined && selected.pendingRefusals[0] !== undefined) {
-      selected.refused = selected.pendingRefusals[0];
-    }
     selected.solved = true;
   }
   const remaining = new Map<Group, number>();
@@ -396,6 +421,32 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   for (const selected of groups.values()) if (!selected.solved) {
     refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node);
+  }
+
+  function propagateRefusal(selected: Group): void {
+    if (selected.refused === undefined) return;
+    const pending = [selected];
+    const seen = new Set<Group>();
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      const affected = [...current.dependents];
+      for (const term of current.terms) for (const child of children(term)) affected.push(group(child));
+      for (const target of affected) {
+        if (!target.inference || target.refused !== undefined && target.refused !== selected.refused) continue;
+        target.refused = selected.refused;
+        pending.push(target);
+      }
+    }
+  }
+  for (const selected of groups.values()) propagateRefusal(selected);
+  for (const selected of groups.values()) {
+    if (selected.refused !== undefined || !selected.inference) continue;
+    const pending = selected.pendingRefusals.sort((left, right) => compare(left.site, right.site))[0];
+    if (pending === undefined) continue;
+    selected.refused = pending;
+    propagateRefusal(selected);
   }
 
   function obligation(use: SourceTypeFlowUse, selected: Group): void {
@@ -422,11 +473,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function publish(node: Node, selected: Group, association?: SourceTypeFlowAssociation): void {
     const record = declaredRecord(node);
     const declared = record !== undefined;
-    if (!declared && !selected.inference && (selected.filledBy === undefined || selected.defaulted)) return;
-    const type = record !== undefined ? declaredDescriptor(record) : selected.type;
-    if (declared && type === undefined) return;
-    if (!declared && selected.outside) return;
-    if (!declared && selected.inference && selected.refused !== undefined) { outcomes.set(node, selected.refused); return; }
+    if (selected.refused !== undefined && (!declared || record.declaredType === undefined &&
+      record.association?.component === undefined)) { outcomes.set(node, selected.refused); return; }
+    const type = record !== undefined ? declaredDescriptor(record) : selected.inference ? selected.type
+      : context.describe(node, association?.component);
     if (type === undefined) {
       if (!selected.inference) return;
       refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
@@ -454,11 +504,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const term = node.term;
     if (term === undefined || term.site !== node.node || node.variable.path.length !== 0) continue;
     const selected = group(node.variable);
-    if (selected.inference && selected.type !== undefined && !selected.outside && selected.refused === undefined && (
+    const chosen = node.declaredType ?? selected.type;
+    if ((selected.inference || chosen?.kind === "declared") && chosen !== undefined && !selected.outside && selected.refused === undefined && (
       term.kind === "numeric" && context.literal(term.site) !== undefined ||
       term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
       term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site))) {
-      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: selected.type, required: node.node }));
+      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: chosen, required: node.node }));
     }
   }
   for (const call of graph.calls) {
@@ -491,7 +542,6 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const initializer = source.ast.is.IsVariableDeclaration(declaration) || source.ast.is.IsPropertyDeclaration(declaration) ||
       source.ast.is.IsParameterDeclaration(declaration) ? Node_Initializer(source.ast, declaration) : undefined;
     const literalDefault = initializer !== undefined && (context.literal(initializer) !== undefined || source.ast.is.IsObjectLiteralExpression(initializer));
-    if (defaults.fixedRule(node) === undefined && !defaults.hasDeclaredSourceType(node) && !literalDefault) continue;
     const type = context.describe(node);
     const sourceFile = source.ast.getSourceFile(node);
     if (type === undefined || sourceFile === undefined) continue;
@@ -503,6 +553,122 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     .sort((left, right) => compare(left.site, right.site));
   const frozenIssues = Object.freeze(uniqueIssues);
   const frozenObligations = Object.freeze(obligations);
-  return Object.freeze({ get: (node: Node) => outcomes.get(node), callInstantiation: (call: Node) => calls.get(call),
+  for (const node of defaults.nodes) {
+    const ast = source.ast;
+    if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) || ast.is.IsPropertyAccessExpression(node))) continue;
+    const queries = source.semantics.forNode(node);
+    const call = ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ? queries.operations.call(node) : undefined;
+    const declaration = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node)?.selectedReadDeclaration
+      : call === undefined ? undefined : queries.declarations.signatureDeclaration(call.selectedSignature);
+    if (declaration !== undefined) callableQueries.set(declaration, queries);
+  }
+  function callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined {
+    const cached = callableReturns.get(declaration);
+    if (cached !== undefined) return cached;
+    if (activeReturns.has(declaration)) return undefined;
+    const ast = source.ast;
+    const callable = ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
+      ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration) ||
+      ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
+      ast.is.IsSetAccessorDeclaration(declaration) || ast.is.IsConstructorDeclaration(declaration) ||
+      ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration);
+    if (!callable) return undefined;
+    activeReturns.add(declaration);
+    const file = ast.getSourceFile(declaration);
+    const queries = callableQueries.get(declaration) ?? (file !== undefined && source.semantics.includes(file)
+      ? source.semantics.forFile(file) : undefined);
+    if (queries === undefined) { activeReturns.delete(declaration); return undefined; }
+    const signature = queries.types.declarationSignatureInfo(declaration);
+    const selectedType = signature?.returnType;
+    let type: SourceTypeDescriptor | undefined;
+    let failure: SourceTypeFlowRefusal | undefined;
+    const annotation = ast.typeNode(declaration);
+    if (ast.is.IsConstructorDeclaration(declaration)) {
+      const owner = ast.parent(declaration);
+      const selected = owner === undefined ? undefined : queries.declarations.declaredType(owner);
+      if (owner !== undefined && selected !== undefined) type = context.describe(owner, { selectedType: selected, declaration: owner });
+    } else if (selectedType !== undefined && (annotation !== undefined || ast.body(declaration) === undefined)) {
+      type = context.describe(declaration, { selectedType, declaration,
+        ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
+    } else {
+      const body = ast.body(declaration);
+      const pending = body === undefined ? [] : [body];
+      const returned: Node[] = [];
+      while (pending.length > 0) {
+        const node = pending.pop()!;
+        if (node !== body && (ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) ||
+          ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
+          ast.is.IsSetAccessorDeclaration(node) || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) continue;
+        if (node === body && !ast.is.IsBlock(node)) returned.push(node);
+        else if (ast.is.IsReturnStatement(node)) {
+          const expression = Node_Expression(ast, node);
+          if (expression !== undefined) returned.push(expression);
+        } else for (const child of ast.children(node)) if (child !== undefined) pending.push(child);
+      }
+      const types: SourceTypeDescriptor[] = [];
+      const asynchronous = ast.hasModifierKind(declaration, "async");
+      let incomplete = false;
+      for (const node of returned) {
+        let selected = outcomes.get(node);
+        if (ast.is.IsCallExpression(node)) {
+          const call = source.semantics.forNode(node).operations.call(node);
+          const owner = call === undefined ? undefined : queries.declarations.signatureDeclaration(call.selectedSignature);
+          const signature = owner === undefined ? undefined : queries.types.declarationSignatureInfo(owner);
+          if (owner !== undefined && signature?.returnType !== undefined &&
+            !queries.types.couldContainTypeVariables(signature.returnType)) selected = callableReturn(owner);
+        }
+        if (selected?.kind === "refused") { failure = selected; break; }
+        let current = selected?.type ?? context.describe(node);
+        if (current === undefined) { incomplete = true; break; }
+        if (asynchronous && current.kind === "declared" && current.source !== undefined) {
+          const actual = current.source.selectedType;
+          const awaited = queries.types.awaitedType(actual);
+          const arguments_ = queries.types.typeArguments(actual);
+          const index = awaited === undefined ? -1 : arguments_.findIndex(argument => queries.types.isIdentical(argument, awaited));
+          if (index >= 0) current = current.typeArguments[index];
+        }
+        if (current === undefined) { incomplete = true; break; }
+        if (!types.some(previous => sourceTypeDescriptorsEqual(previous, current!))) types.push(current);
+      }
+      if (failure === undefined && !incomplete && (returned.length === 0 || types.length > 0)) {
+        type = types.length === 0 ? { kind: "intrinsic", intrinsic: "void" }
+          : types.length === 1 ? types[0] : { kind: "union", types };
+        if (asynchronous && selectedType !== undefined) {
+          const complete = context.describe(declaration, { selectedType });
+          const awaited = queries.types.awaitedType(selectedType);
+          const arguments_ = queries.types.typeArguments(selectedType);
+          const index = awaited === undefined ? -1 : arguments_.findIndex(argument => queries.types.isIdentical(argument, awaited));
+          type = complete?.kind === "declared" && index >= 0 ? { ...complete,
+            typeArguments: complete.typeArguments.map((argument, offset) => offset === index ? type! : argument) } : undefined;
+        }
+      }
+    }
+    activeReturns.delete(declaration);
+    const outcome = failure ?? (type === undefined || file === undefined ? undefined : Object.freeze({ kind: "resolved" as const,
+      type: freezeSourceTypeDescriptor(type), provenance: Object.freeze({ group: declaration, occurrence: declaration, sourceFile: file }) }));
+    if (outcome !== undefined) callableReturns.set(declaration, outcome);
+    return outcome;
+  }
+  for (const node of defaults.nodes) {
+    if (source.ast.is.IsFunctionDeclaration(node) || source.ast.is.IsFunctionExpression(node) || source.ast.is.IsArrowFunction(node) ||
+      source.ast.is.IsMethodDeclaration(node) || source.ast.is.IsGetAccessorDeclaration(node) ||
+      source.ast.is.IsSetAccessorDeclaration(node) || source.ast.is.IsConstructorDeclaration(node)) callableReturn(node);
+  }
+  for (const node of defaults.nodes) if (source.ast.is.IsCallExpression(node)) {
+    const queries = source.semantics.forNode(node);
+    const call = queries.operations.call(node);
+    const declaration = call === undefined ? undefined : queries.declarations.signatureDeclaration(call.selectedSignature);
+    const signature = declaration === undefined ? undefined : queries.types.declarationSignatureInfo(declaration);
+    if (declaration === undefined || signature?.returnType === undefined || queries.types.couldContainTypeVariables(signature.returnType)) continue;
+    const returned = callableReturn(declaration);
+    if (returned === undefined) continue;
+    if (returned.kind === "refused") outcomes.set(node, returned);
+    else {
+      const file = source.ast.getSourceFile(node);
+      if (file !== undefined) outcomes.set(node, Object.freeze({ ...returned,
+        provenance: Object.freeze({ ...returned.provenance, occurrence: node, sourceFile: file }) }));
+    }
+  }
+  return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),
     obligations: () => frozenObligations, refusals: () => frozenIssues });
 }

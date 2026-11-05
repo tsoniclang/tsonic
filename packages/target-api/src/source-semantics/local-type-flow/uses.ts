@@ -245,8 +245,13 @@ function requiredUse(
   const queries = context.source.semantics.forNode(record.node);
   const association = retained ?? sourceAssociation(context, record.node, component);
   const none = (): SourceTypeFlowUse => Object.freeze({ kind: "none", site, variable: record.variable, association });
-  if (queries.types.isUnknown(component.selectedType) || queries.types.isNonPrimitive(component.selectedType) ||
-    queries.types.isAny(component.selectedType)) return none();
+  if (queries.types.isUnknown(component.selectedType) || queries.types.isAny(component.selectedType)) return none();
+  if (queries.types.isNonPrimitive(component.selectedType)) {
+    if (record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
+    const type = context.describe(record.node, component);
+    return type === undefined ? refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association)
+      : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
+  }
   if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
   if (queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
     return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);

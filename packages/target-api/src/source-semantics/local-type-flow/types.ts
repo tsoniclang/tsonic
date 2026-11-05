@@ -7,16 +7,31 @@ import type { SourceProgramSemantics, SourceTypeComponentEvidence } from "../typ
 export type SourceTypeDescriptor =
   | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
   | { readonly kind: "string" }
+  | { readonly kind: "intrinsic"; readonly intrinsic: "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol" }
+  | { readonly kind: "union"; readonly types: readonly SourceTypeDescriptor[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceTypeDescriptor }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly [SourceTypeDescriptor, SourceTypeDescriptor] }
   | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[] }
+  | { readonly kind: "callable"; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | {
       readonly kind: "declared";
       readonly declaration: Node;
       readonly typeArguments: readonly SourceTypeDescriptor[];
       readonly source?: SourceTypeComponentEvidence;
+      readonly members?: readonly SourceTypeDescriptorMember[];
     }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor };
+
+export interface SourceTypeDescriptorSignature {
+  readonly declaration?: Node;
+  readonly typeParameters: readonly Node[];
+  readonly parameters: readonly {
+    readonly declaration?: Node;
+    readonly kind: "required" | "optional" | "rest";
+    readonly type: SourceTypeDescriptor;
+  }[];
+  readonly result: SourceTypeDescriptor;
+}
 
 export interface SourceTypeDescriptorMember {
   readonly name: string;
@@ -113,6 +128,7 @@ export interface SourceEffectiveCallInstantiation {
 
 export interface SourceEffectiveTypes {
   get(node: Node): SourceEffectiveTypeOutcome | undefined;
+  callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined;
   callInstantiation(call: Node): SourceEffectiveCallInstantiation | undefined;
   obligations(): readonly SourceTypeFlowObligation[];
   refusals(): readonly SourceTypeFlowRefusal[];
@@ -133,7 +149,8 @@ export interface SourceTypeFlowOrder {
 
 export interface SourceTypeFlowAnalysisContext {
   readonly source: SourceTypeFlowSource;
-  describe(node: Node, component?: SourceTypeComponentEvidence): SourceTypeDescriptor | undefined;
+  describe(node: Node, component?: SourceTypeComponentEvidence,
+    arguments_?: readonly SourceEffectiveTypeArgument[]): SourceTypeDescriptor | undefined;
   literal(node: Node): SourceLiteralValue | undefined;
   order(node: Node): SourceTypeFlowOrder;
 }
@@ -192,6 +209,7 @@ export interface SourceTypeFlowNode {
   readonly initializer?: Node;
   readonly term?: SourceTypeFlowTerm;
   readonly association?: SourceTypeFlowAssociation;
+  readonly declaredType?: SourceTypeDescriptor;
 }
 
 export interface SourceTypeFlowLink {

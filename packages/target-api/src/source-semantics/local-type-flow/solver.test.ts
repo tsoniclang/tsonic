@@ -329,14 +329,24 @@ test("C29 module declarations keep their own type without signature refusals", (
   const defaults = createSourceTypeFlowAnalysisContext(current.source);
   assertSameValue(current.type("plain"), defaults.context.describe(current.declaration("plain")));
   assertSameValue(current.type("typed"), { kind: "primitive", primitive: "int32" });
-  assert.equal(current.source.effectiveTypes.get(current.declaration("record")) === undefined, true);
+  const record = current.source.effectiveTypes.get(current.declaration("record"));
+  assert.equal(record !== undefined && record.kind !== "refused" && record.type.kind === "declared" &&
+    current.source.ast.is.IsTypeAliasDeclaration(record.type.declaration) &&
+    current.source.semantics.forNode(current.declaration("record")).declarations.isDefaultLibraryDeclaration(record.type.declaration) &&
+    current.source.ast.text(current.source.ast.name(record.type.declaration)) === "Record", true);
+  assert.equal(record !== undefined && record.kind !== "refused" && record.type.kind === "declared" &&
+    record.type.typeArguments.length === 2 && record.type.typeArguments.every(type => type.kind === "string"), true);
 });
 
-test("C29 declared recursive unions stay outside the descriptor domain without refusing", () => {
+test("declared recursive unions publish their declared reference without expansion or refusal", () => {
   const current = fixture("type Tree = number | readonly Tree[]; declare const input: Tree; function run(value: Tree): Tree { const retained: Tree = value; return retained; }");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Tree");
   for (const name of ["input", "retained"]) {
-    assert.equal(current.source.effectiveTypes.get(current.declaration(name)) === undefined, true, name);
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    assert.equal(declaration !== undefined && outcome !== undefined && outcome.kind !== "refused" &&
+      outcome.type.kind === "declared" && outcome.type.declaration === declaration && outcome.type.typeArguments.length === 0, true, name);
   }
 });
 
@@ -429,14 +439,26 @@ test("C30 data-member construction keeps its declared shape and the original ope
   }
 });
 
-test("C30 an unrepresentable declared construction stays outside without an initializer retry", () => {
+test("an index-signature declared construction publishes its declared reference without an initializer retry", () => {
   const current = fixture("type Indexed = { [name: string]: number }; function run(): void { const data: Indexed = { value: 1 }; }");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
   const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
   assert.equal(literal !== undefined, true);
-  assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal) === undefined, true);
-  assert.equal(current.source.effectiveTypes.get(current.declaration("data")) === undefined, true);
-  assert.equal(current.source.effectiveTypes.obligations().some(obligation => obligation.site === literal), false);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Indexed");
+  for (const node of [current.declaration("data"), literal]) {
+    const outcome = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(declaration !== undefined && outcome !== undefined && outcome.kind !== "refused" &&
+      outcome.type.kind === "declared" && outcome.type.declaration === declaration, true);
+  }
+  assert.equal(current.nodes.some(node => {
+    const outcome = current.source.effectiveTypes.get(node);
+    return outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape" &&
+      outcome.type.members.some(member => member.name === "value");
+  }), false, "the initializer is never inferred into an unrelated structural carrier");
+  const admissions = current.source.effectiveTypes.obligations().filter(obligation =>
+    obligation.kind === "literal-admission" && obligation.site === literal);
+  assert.equal(admissions.length, 1);
 });
 
 test("C29 open union demands still produce the original Host refusal", () => {
@@ -455,6 +477,50 @@ test("synthetic call result terms never request literal construction admission",
     current.source.ast.is.IsObjectLiteralExpression(obligation.site)), true);
   assert.equal(admissions.every(obligation => !current.source.ast.is.IsCallExpression(obligation.site)), true);
   assert.equal(admissions.some(obligation => current.source.ast.is.IsNumericLiteral(obligation.site)), true);
+});
+
+test("C2224 an array construction owns the mixed-fixed refusal through an asserted numeric peer", () => {
+  const current = fixture("function run(narrow: float32): void { const values = [narrow, 0.5 as number]; void values; }");
+  const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && issues[0].site === literal, true,
+    "the construction, not an alias or later scalar demand, owns the C19 cause");
+});
+
+test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation", () => {
+  for (const elements of ["signed, 9007199254740993", "9007199254740993, signed", "signed, -9007199254740993"]) {
+    const current = fixture(`function run(signed: int32): void { const values = [${elements}]; void values; }`);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, elements);
+    const selected = current.type("values");
+    assert.equal(selected.kind === "array" && selected.element.kind === "primitive" &&
+      selected.element.primitive === "int32", true, elements);
+    const original = current.nodes.find(node => current.source.ast.text(node) === elements.split(", ").find(part => part !== "signed") &&
+      (current.source.ast.is.IsNumericLiteral(node) || current.source.ast.is.IsPrefixUnaryExpression(node)));
+    assert.equal(original !== undefined && current.source.effectiveTypes.obligations().some(obligation =>
+      obligation.kind === "literal-admission" && obligation.site === original &&
+      obligation.type.kind === "primitive" && obligation.type.primitive === "int32"), true,
+    "the original retained token reaches Native range admission without a Host fit refusal");
+  }
+});
+
+test("C2224 a refused empty construction suppresses its dependent projection refusal", () => {
+  const current = fixture("function run(): boolean { const values = []; values[0] = 1; return values !== undefined; }");
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
+  assert.equal(issues[0]?.code === "TSONIC_UNTYPED_ARRAY_LITERAL" && issues[0].site === literal, true);
+  const access = current.nodes.find(node => current.source.ast.is.IsElementAccessExpression(node));
+  assert.equal(access !== undefined && current.source.effectiveTypes.get(access) === issues[0], true,
+    "the projection carries the same construction cause, not a textual duplicate");
+});
+
+test("C2224 independent empty constructions retain independent causes", () => {
+  const current = fixture("function run(): void { const first = {}; const second = {}; void first; void second; }");
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 2);
+  assert.equal(issues.every(issue => issue.code === "TSONIC_UNTYPED_OBJECT_LITERAL"), true);
+  assert.equal(issues[0] !== issues[1] && issues[0]?.site !== issues[1]?.site, true);
 });
 
 test("negative zero publishes the floating default for an open and an exported binding", () => {

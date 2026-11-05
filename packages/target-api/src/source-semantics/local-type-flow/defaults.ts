@@ -1,11 +1,11 @@
 import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type SourcePrimitiveKind, type Type } from "@tsonic/tsts";
-import { sourceArrayElementType } from "../array-types.js";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual } from "./terms.js";
+import { createSourceTypeDescriptorReader } from "./descriptors.js";
 import type {
-  SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
+  SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowSource,
 } from "./types.js";
 
@@ -14,6 +14,38 @@ export interface SourceTypeFlowDefaults {
   readonly nodes: readonly Node[];
   fixedRule(node: Node): SourceTypeFlowFixedRule | undefined;
   hasDeclaredSourceType(node: Node): boolean;
+}
+
+export function sourceTypeFlowTypeDeclaration(
+  source: SourceTypeFlowSource,
+  queries: SourceFileSemantics,
+  type: Type,
+  authoredTypeNode?: Node,
+): Node | undefined {
+  const { ast, navigation } = source;
+  const reference = authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(authoredTypeNode)
+    ? ast.as.AsTypeReferenceNode(authoredTypeNode)?.TypeName
+    : authoredTypeNode !== undefined && ast.is.IsImportTypeNode(authoredTypeNode)
+      ? ast.as.AsImportTypeNode(authoredTypeNode)?.Qualifier : undefined;
+  const authored = reference === undefined ? undefined : navigation.sourceReferenceFor(reference)?.declaration;
+  if (authored !== undefined && (ast.is.IsTypeAliasDeclaration(authored) || ast.is.IsClassDeclaration(authored) ||
+    ast.is.IsInterfaceDeclaration(authored) || ast.is.IsEnumDeclaration(authored) || ast.is.IsTypeParameterDeclaration(authored))) return authored;
+  const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
+  return symbol === undefined ? undefined : queries.declarations.symbolDeclarations(symbol).find(declaration =>
+    ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
+    ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
+    ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration) ||
+    ast.is.IsTypeLiteralNode(declaration));
+}
+
+export function sourceTypeFlowTypeParameters(ast: SourceTypeFlowSource["ast"], declaration: Node): readonly Node[] {
+  const owner = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) ||
+    ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeAliasDeclaration(declaration) ||
+    ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||
+    ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
+    ast.is.IsFunctionTypeNode(declaration) || ast.is.IsConstructorTypeNode(declaration) ||
+    ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration);
+  return owner ? ast.typeParameters(declaration).filter((parameter): parameter is Node => parameter !== undefined) : [];
 }
 
 export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource): SourceTypeFlowDefaults {
@@ -89,167 +121,39 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return undefined;
   }
 
-  function typeDeclaration(type: Type, queries: SourceFileSemantics): Node | undefined {
-    const symbol = queries.declarations.typeAliasSymbol(type) ?? queries.declarations.typeSymbol(type);
-    return symbol === undefined ? undefined : queries.declarations.symbolDeclarations(symbol).find(declaration =>
-      ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
-      ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsEnumDeclaration(declaration) ||
-      ast.is.IsTypeParameterDeclaration(declaration));
+  function typeDeclaration(type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node): Node | undefined {
+    return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode);
   }
 
-  function describeSyntax(node: Node, queries: SourceFileSemantics, depth: number): SourceTypeDescriptor | undefined {
-    if (depth > 4) return undefined;
-    const direct = primitive([node]);
-    if (direct !== undefined) return direct;
-    const parenthesized = ast.is.IsParenthesizedTypeNode(node) ? ast.as.AsParenthesizedTypeNode(node)?.Type : undefined;
-    if (parenthesized !== undefined) return describeSyntax(parenthesized, queries, depth);
-    const array = ast.is.IsArrayTypeNode(node) ? ast.as.AsArrayTypeNode(node)?.ElementType : undefined;
-    if (array !== undefined) {
-      const element = describeSyntax(array, queries, depth + 1);
-      return element === undefined ? undefined : { kind: "array", readonly: false, element };
-    }
-    const operated = ast.is.IsTypeOperatorNode(node) ? ast.as.AsTypeOperatorNode(node)?.Type : undefined;
-    if (operated !== undefined && ast.operatorKindName(node) === "KindReadonlyKeyword") {
-      const value = describeSyntax(operated, queries, depth);
-      return value?.kind === "array" || value?.kind === "tuple" ? { ...value, readonly: true } : value;
-    }
-    const tuple = ast.is.IsTupleTypeNode(node) ? ast.as.AsTupleTypeNode(node) : undefined;
-    if (tuple !== undefined) {
-      const elements = ast.elements(node);
-      if (elements.length !== 2 || elements[0] === undefined || elements[1] === undefined) return undefined;
-      const first = describeSyntax(ast.is.IsNamedTupleMember(elements[0]) ? ast.as.AsNamedTupleMember(elements[0])!.Type! : elements[0], queries, depth + 1);
-      const second = describeSyntax(ast.is.IsNamedTupleMember(elements[1]) ? ast.as.AsNamedTupleMember(elements[1])!.Type! : elements[1], queries, depth + 1);
-      return first === undefined || second === undefined ? undefined
-        : { kind: "tuple", readonly: false, elements: [first, second] };
-    }
-    if (ast.is.IsUnionTypeNode(node)) {
-      const members = ast.children(node).filter((child): child is Node => child !== undefined);
-      const present = members.filter(child => {
-        const type = queries.types.authoredType(child);
-        return type !== undefined && !queries.types.isNullish(type);
-      });
-      if (present.length !== 1 || present.length === members.length) return undefined;
-      const value = describeSyntax(present[0]!, queries, depth + 1);
-      return value === undefined ? undefined : { kind: "optional", value };
-    }
-    if (ast.is.IsImportTypeNode(node) && ast.typeArguments(node).length === 0) {
-      const importedPrimitive = primitive(queries.facts.authoredTypeSubjects(node));
-      if (importedPrimitive !== undefined) return importedPrimitive;
-    }
-    const type = queries.types.authoredType(node);
-    if (type === undefined) return undefined;
-    const referenceName = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
-      : ast.is.IsImportTypeNode(node) ? ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
-    if (referenceName !== undefined) {
-      const declaration = typeDeclaration(type, queries);
-      if (declaration !== undefined) {
-        const declaredPrimitive = primitive([declaration, ...queries.facts.selectedSubjects(undefined, declaration)]);
-        if (declaredPrimitive !== undefined) return declaredPrimitive;
-      }
-      if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) && ast.typeParameters(declaration).length === 0) {
-        const body = ast.as.AsTypeAliasDeclaration(declaration)?.Type;
-        if (body !== undefined && body !== node && !active.has(declaration)) {
-          active.add(declaration);
-          const result = describeSyntax(body, queries, depth);
-          active.delete(declaration);
-          if (result !== undefined) return result;
-        }
-      }
-      const arguments_ = ast.typeArguments(node);
-      if (declaration !== undefined && !ast.is.IsTypeAliasDeclaration(declaration) && arguments_.length > 0) {
-        const values: SourceTypeDescriptor[] = [];
-        for (const argument of arguments_) {
-          const value = argument === undefined ? undefined : describeSyntax(argument, queries, depth + 1);
-          if (value === undefined) return undefined;
-          values.push(value);
-        }
-        if (queries.types.isArrayLike(type) && values.length === 1) {
-          return { kind: "array", readonly: queries.types.indexInfos(type).some(info => info.readonly), element: values[0]! };
-        }
-        return { kind: "declared", declaration, typeArguments: values,
-          source: Object.freeze({ selectedType: type, declaration, authoredTypeNode: node }) };
-      }
-    }
-    return describeType(type, queries, { selectedType: type, authoredTypeNode: node }, depth, true);
-  }
+  const { syntax: describeSyntax, type: describeType } = createSourceTypeDescriptorReader(source, typeDeclaration,
+    declaration => sourceTypeFlowTypeParameters(ast, declaration));
 
-  function describeType(type: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-    depth: number, declared: boolean): SourceTypeDescriptor | undefined {
-    if (depth > 4 || queries.types.isAny(type) || queries.types.isUnknown(type) || queries.types.isNonPrimitive(type) ||
-      queries.types.isNever(type) || queries.types.isIntersection(type)) return undefined;
-    const direct = primitive(queries.facts.typeSubjects(type));
-    if (direct !== undefined) return direct;
-    if (queries.types.isBooleanLike(type)) return { kind: "primitive", primitive: "bool" };
-    if (queries.types.isUnion(type)) {
-      const parts = queries.types.unionOrIntersectionTypes(type);
-      const present = parts.filter(part => !queries.types.isNullish(part));
-      if (declared && present.length === 1 && present.length < parts.length) {
-        const value = describeType(present[0]!, queries, { ...component, selectedType: present[0]! }, depth + 1, true);
-        return value === undefined ? undefined : { kind: "optional", value };
-      }
-      return undefined;
-    }
-    if (queries.types.isNumberLike(type)) return { kind: "primitive", primitive: "float64" };
-    if (queries.types.isStringLike(type)) return { kind: "string" };
-    if (queries.types.isBigIntLike(type) || queries.types.isVoidLike(type) || queries.types.isNullish(type)) return undefined;
-    if (queries.types.isTuple(type)) {
-      const elements = queries.types.tupleElementInfos(type);
-      if (elements.length !== 2) return undefined;
-      const values = elements.map(element => {
-        const syntax = element.declaration === undefined ? undefined : ast.typeNode(element.declaration);
-        return syntax === undefined ? describeType(element.type, queries, { selectedType: element.type }, depth + 1, declared)
-          : describeSyntax(syntax, queries, depth + 1);
+  function occurrenceBindings(node: Node, queries: SourceFileSemantics,
+    component?: SourceTypeComponentEvidence): ReadonlyMap<Node, SourceTypeDescriptor> {
+    const bindings = new Map<Node, SourceTypeDescriptor>();
+    const call = component?.contextualCall ?? ((ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))
+      ? queries.operations.call(node) : undefined);
+    const receiver = call?.sourceReceiver ?? (ast.is.IsPropertyAccessExpression(node)
+      ? queries.operations.propertyAccess(node)?.receiver : ast.is.IsElementAccessExpression(node)
+        ? queries.operations.elementAccess(node)?.receiver : undefined);
+    if (receiver !== undefined && receiver.expression !== node) {
+      const descriptor = describe(receiver.expression);
+      const arguments_ = descriptor?.kind === "declared" ? descriptor.typeArguments
+        : descriptor?.kind === "array" ? [descriptor.element] : [];
+      const declared = queries.types.typeArgumentBindings(receiver.type) ?? [];
+      declared.forEach((binding, index) => {
+        const value = arguments_[index] ?? describeType(binding.argumentType, queries, { selectedType: binding.argumentType });
+        if (value !== undefined) bindings.set(binding.declaration, value);
       });
-      return values[0] === undefined || values[1] === undefined ? undefined
-        : { kind: "tuple", readonly: queries.types.indexInfos(type).some(info => info.readonly), elements: [values[0], values[1]] };
     }
-    const elementType = sourceArrayElementType(type, queries);
-    if (elementType !== undefined) {
-      const element = describeType(elementType, queries, { selectedType: elementType }, depth + 1, declared);
-      return element === undefined ? undefined
-        : { kind: "array", readonly: queries.types.indexInfos(type).some(info => info.readonly), element };
+    for (const selected of call?.sourceSelectedMethodTypeArguments ?? []) {
+      const declaration = typeDeclaration(selected.typeParameter, queries);
+      const descriptor = selected.explicitTypeNode === undefined
+        ? describeType(selected.selectedType, queries, { selectedType: selected.selectedType }, 0, bindings)
+        : describeSyntax(selected.explicitTypeNode, queries, 0, bindings);
+      if (declaration !== undefined && descriptor !== undefined) bindings.set(declaration, descriptor);
     }
-    const declaration = typeDeclaration(type, queries);
-    if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
-      ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeParameterDeclaration(declaration))) {
-      const values: SourceTypeDescriptor[] = [];
-      const construction = component.contextualCall;
-      const syntaxArguments = construction !== undefined && ast.is.IsNewExpression(construction.call)
-        ? ast.typeArguments(construction.call) : [];
-      if (syntaxArguments.length > 0) {
-        if (!(ast.is.IsClassDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration)) ||
-          syntaxArguments.length !== ast.typeParameters(declaration).length) return undefined;
-        for (const argument of syntaxArguments) {
-          const value = argument === undefined ? undefined : describeSyntax(argument, queries, depth + 1);
-          if (value === undefined) return undefined;
-          values.push(value);
-        }
-        return { kind: "declared", declaration, typeArguments: values, source: component };
-      }
-      const bindings = queries.types.typeArgumentBindings(type);
-      for (const argument of bindings?.map(binding => binding.argumentType) ?? queries.types.typeArguments(type)) {
-        const value = describeType(argument, queries, { selectedType: argument }, depth + 1, declared);
-        if (value === undefined) return undefined;
-        values.push(value);
-      }
-      return { kind: "declared", declaration, typeArguments: values, source: component };
-    }
-    if (queries.types.callSignatures(type).length > 0 || queries.types.constructSignatures(type).length > 0) return undefined;
-    if (queries.types.indexInfos(type).length > 0) return undefined;
-    const members: SourceTypeDescriptorMember[] = [];
-    for (const property of queries.types.propertyInfos(type)) {
-      const selected = queries.declarations.primarySymbolDeclaration(property.symbol);
-      if (selected === undefined || ast.is.IsMethodDeclaration(selected) || ast.is.IsMethodSignatureDeclaration(selected) ||
-        ast.is.IsGetAccessorDeclaration(selected) || ast.is.IsSetAccessorDeclaration(selected)) return undefined;
-      const annotation = ast.typeNode(selected);
-      const value = annotation === undefined
-        ? describeType(property.type, queries, { selectedType: property.type, declaration: selected }, depth + 1, declared)
-        : describeSyntax(annotation, queries, depth + 1);
-      if (value === undefined) return undefined;
-      members.push({ name: property.name, optional: property.optional, type: property.optional && value.kind !== "optional"
-        ? { kind: "optional", value } : value, declaration: selected, readonly: property.readonly });
-    }
-    return { kind: "shape", members };
+    return bindings;
   }
 
   function ownLiteral(node: Node, depth: number): SourceTypeDescriptor | undefined {
@@ -258,7 +162,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const queries = semantics.forNode(node);
       const call = queries.operations.call(node);
       if (call?.sourceSelectedSignatureKind === "resolved") return describeType(call.sourceResultType, queries,
-        { selectedType: call.sourceResultType, contextualCall: call }, depth, true);
+        { selectedType: call.sourceResultType, contextualCall: call }, depth, occurrenceBindings(node, queries, { selectedType: call.sourceResultType, contextualCall: call }));
     }
     const literal = literals.get(node);
     if (literal?.form === "numeric" || literal?.form === "prefix-unary" || literal?.form === "parenthesized" || literal?.form === "binary") {
@@ -301,14 +205,16 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   }
 
   function describe(node: Node, component?: SourceTypeComponentEvidence, depth = 0,
-    consumer?: SourceFileSemantics): SourceTypeDescriptor | undefined {
+    consumer?: SourceFileSemantics, arguments_: readonly SourceEffectiveTypeArgument[] = []): SourceTypeDescriptor | undefined {
     if (depth > 4 || active.has(node)) return undefined;
-    if (component === undefined) {
+    if (component === undefined && arguments_.length === 0) {
       const cached = cache.get(node);
       if (cached !== undefined) return cached;
     }
     const queries = consumer ?? semantics.forNode(node);
     active.add(node);
+    const bindings = new Map(occurrenceBindings(node, queries, component));
+    for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
     let result: SourceTypeDescriptor | undefined;
     const rule = fixedRule(node);
     if (rule !== undefined && (component === undefined || component.declaration === rule.declaration)) {
@@ -316,7 +222,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const declaration = component?.declaration ?? declarationFor(node);
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
-    if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth);
+    if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth, bindings);
     if (result === undefined && annotation !== undefined) {
       active.delete(node);
       return undefined;
@@ -343,7 +249,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const type = component?.selectedType ?? queries.types.expressionType(node) ??
         (declaration === undefined ? undefined : queries.declarations.declaredValueType(declaration));
       if (type !== undefined) result = describeType(type, queries, component ?? { selectedType: type,
-        ...(declaration === undefined ? {} : { declaration }) }, depth, declaration !== undefined || component !== undefined);
+        ...(declaration === undefined ? {} : { declaration }) }, depth, bindings);
     }
     if (result !== undefined && result.kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node);
@@ -362,7 +268,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     active.delete(node);
     if (result === undefined) return undefined;
     const frozen = freezeSourceTypeDescriptor(result);
-    if (component === undefined) cache.set(node, frozen);
+    if (component === undefined && arguments_.length === 0) cache.set(node, frozen);
     return frozen;
   }
 
@@ -374,7 +280,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       ...(annotation === undefined ? [] : queries.facts.authoredTypeSubjects(annotation))]) !== undefined;
   }
 
-  const context: SourceTypeFlowAnalysisContext = Object.freeze({ source, describe,
+  const context: SourceTypeFlowAnalysisContext = Object.freeze({ source,
+    describe: (node: Node, component?: SourceTypeComponentEvidence, arguments_?: readonly SourceEffectiveTypeArgument[]) =>
+      describe(node, component, 0, undefined, arguments_),
     literal: (node: Node) => literals.get(node),
     order: (node: Node) => {
       const range = ast.authoredRange(node);

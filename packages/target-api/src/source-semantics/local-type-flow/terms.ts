@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
-  SourceTypeDescriptor, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
+  SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
   SourceTypeFlowRefusal, SourceTypeFlowTerm, SourceTypeFlowVariable,
 } from "./types.js";
 
@@ -11,6 +11,11 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
   switch (left.kind) {
     case "primitive": return right.kind === "primitive" && left.primitive === right.primitive;
     case "string": return right.kind === "string";
+    case "intrinsic": return right.kind === "intrinsic" && left.intrinsic === right.intrinsic;
+    case "union": return right.kind === "union" && left.types.length === right.types.length &&
+      left.types.every(type => right.types.some(selected => sourceTypeDescriptorsEqual(type, selected)));
+    case "callable": return right.kind === "callable" && signaturesEqual(left.calls, right.calls) &&
+      signaturesEqual(left.constructs, right.constructs);
     case "optional": return right.kind === "optional" && sourceTypeDescriptorsEqual(left.value, right.value);
     case "array": return right.kind === "array" && left.readonly === right.readonly &&
       sourceTypeDescriptorsEqual(left.element, right.element);
@@ -28,16 +33,38 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
   }
 }
 
+function signaturesEqual(left: readonly SourceTypeDescriptorSignature[], right: readonly SourceTypeDescriptorSignature[]): boolean {
+  return left.length === right.length && left.every((signature, index) => {
+    const selected = right[index]!;
+    return signature.typeParameters.length === selected.typeParameters.length &&
+      signature.typeParameters.every((parameter, offset) => parameter === selected.typeParameters[offset]) &&
+      signature.parameters.length === selected.parameters.length && signature.parameters.every((parameter, offset) =>
+        parameter.kind === selected.parameters[offset]?.kind &&
+        sourceTypeDescriptorsEqual(parameter.type, selected.parameters[offset]!.type)) &&
+      sourceTypeDescriptorsEqual(signature.result, selected.result);
+  });
+}
+
 export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTypeDescriptor {
   switch (type.kind) {
-    case "primitive": case "string": return Object.freeze({ ...type });
+    case "primitive": case "string": case "intrinsic": return Object.freeze({ ...type });
+    case "union": return Object.freeze({ ...type, types: Object.freeze(type.types.map(freezeSourceTypeDescriptor)) });
+    case "callable": {
+      const signatures = (values: readonly SourceTypeDescriptorSignature[]) => Object.freeze(values.map(signature =>
+        Object.freeze({ ...signature, typeParameters: Object.freeze([...signature.typeParameters]),
+          parameters: Object.freeze(signature.parameters.map(parameter => Object.freeze({ ...parameter,
+            type: freezeSourceTypeDescriptor(parameter.type) }))), result: freezeSourceTypeDescriptor(signature.result) })));
+      return Object.freeze({ ...type, calls: signatures(type.calls), constructs: signatures(type.constructs) });
+    }
     case "array": return Object.freeze({ ...type, element: freezeSourceTypeDescriptor(type.element) });
     case "optional": return Object.freeze({ ...type, value: freezeSourceTypeDescriptor(type.value) });
     case "tuple": return Object.freeze({ ...type, elements: Object.freeze([
       freezeSourceTypeDescriptor(type.elements[0]), freezeSourceTypeDescriptor(type.elements[1]),
     ] as const) });
     case "declared": return Object.freeze({ ...type,
-      typeArguments: Object.freeze(type.typeArguments.map(freezeSourceTypeDescriptor)) });
+      typeArguments: Object.freeze(type.typeArguments.map(freezeSourceTypeDescriptor)),
+      ...(type.members === undefined ? {} : { members: Object.freeze(type.members.map(member =>
+        Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) }) });
     case "shape": return Object.freeze({ ...type, members: Object.freeze(type.members.map(member =>
       Object.freeze({ ...member, type: freezeSourceTypeDescriptor(member.type) }))) });
   }
@@ -45,6 +72,8 @@ export function freezeSourceTypeDescriptor(type: SourceTypeDescriptor): SourceTy
 
 export function sourceTypeDescriptorDepth(type: SourceTypeDescriptor): number {
   const children = type.kind === "array" ? [type.element] : type.kind === "optional" ? [type.value]
+    : type.kind === "union" ? type.types : type.kind === "callable" ? [...type.calls, ...type.constructs]
+      .flatMap(signature => [...signature.parameters.map(parameter => parameter.type), signature.result])
     : type.kind === "tuple" ? type.elements : type.kind === "declared" ? type.typeArguments
     : type.kind === "shape" ? type.members.map(member => member.type) : [];
   let depth = -1;
@@ -150,9 +179,7 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   }
   function refuse(slot: TermSlot, refusal: SourceTypeFlowRefusal): void {
     const selected = root(slot);
-    if (!selected.refusals.some(prior => prior.code === refusal.code && prior.site === refusal.site)) {
-      selected.refusals.push(refusal);
-    }
+    if (selected.refusals.length === 0) selected.refusals.push(refusal);
   }
   function union(left: TermSlot, right: TermSlot, site: Node): void {
     const pending: [TermSlot, TermSlot][] = [[left, right]];

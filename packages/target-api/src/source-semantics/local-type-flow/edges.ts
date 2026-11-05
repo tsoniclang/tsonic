@@ -7,6 +7,10 @@ import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.j
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceTypeComponentEvidence } from "../types.js";
+import { sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
+import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
+import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
@@ -52,6 +56,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   ]);
   const terms = new Map<SourceTypeFlowVariable, SourceTypeFlowTerm>();
   const positions = new Map<SourceTypeFlowVariable, SourceTypeFlowNode>();
+  const declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
 
   for (const sourceFile of context.source.sourceFiles) {
     if (ast.isDeclarationFile(sourceFile)) continue;
@@ -83,7 +88,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   for (const node of syntax) {
     if (typeOnly.has(node)) continue;
-    if (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node)) declaration(node);
+    if (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsPropertyDeclaration(node)) declaration(node);
     if (ast.is.IsForOfStatement(node)) iteration(node);
     if (isValueSyntax(ast, node)) value(node);
   }
@@ -111,17 +116,20 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (previous !== undefined) return previous.variable;
     const root = rootOf.get(node);
     if (root === undefined) return undefined;
-    const construction = kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node))
+    const construction = kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
+      context.literal(node) !== undefined)
       ? declaredLiteralSlot(node) : undefined;
+    if (construction?.refusal !== undefined) refusals.push(construction.refusal);
     const sourceFile = ast.getSourceFile(node);
     const selectedAssociation = construction === undefined || sourceFile === undefined ? association
       : Object.freeze({ occurrence: node, sourceFile,
         ...(construction.component === undefined ? {} : { component: construction.component }) });
     const variable = Object.freeze({ node, path: Object.freeze([]) });
     nodes.set(node, Object.freeze({ node, root, variable, kind: construction === undefined ? kind : "fixed",
-      publish: construction === undefined || construction.component !== undefined,
+      publish: true,
       ...(term === undefined ? {} : { term }),
       ...(declarationNode === undefined ? {} : { declaration: declarationNode }),
+      ...(construction?.type === undefined ? {} : { declaredType: construction.type }),
       ...(selectedAssociation === undefined ? {} : { association: selectedAssociation }) }));
     if (term !== undefined) terms.set(variable, term);
     return variable;
@@ -223,14 +231,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const variable = type === undefined ? undefined : record(node, "fixed", Object.freeze({ kind: "fixed", site: node, type }),
       declarationNode, sourceFile === undefined ? undefined : Object.freeze({ occurrence: node, sourceFile,
         ...(component === undefined ? {} : { component }) }));
-    const entry = nodes.get(node);
-    if (entry !== undefined && type !== undefined && !declaredWidth(type)) nodes.set(node, Object.freeze({ ...entry, publish: false }));
     if (type !== undefined && declaredWidth(type)) active.add(node);
     return variable;
   }
 
   function declaredWidth(type: SourceTypeDescriptor): boolean {
     return type.kind === "primitive" ? type.primitive !== "float64" && type.primitive !== "bool"
+      : type.kind === "union" ? type.types.some(declaredWidth)
+      : type.kind === "callable" ? [...type.calls, ...type.constructs].some(signature =>
+        declaredWidth(signature.result) || signature.parameters.some(parameter => declaredWidth(parameter.type)))
       : type.kind === "array" ? declaredWidth(type.element)
       : type.kind === "optional" ? declaredWidth(type.value)
       : type.kind === "declared" ? type.typeArguments.some(declaredWidth)
@@ -315,93 +324,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     return nodes.get(node)?.kind === "fixed" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node));
   }
 
-  function declaredLiteralSlot(node: Node): { readonly component?: SourceTypeComponentEvidence } | undefined {
-    let occurrence = node;
-    let parent = ast.parent(occurrence);
-    while (parent !== undefined && ast.is.IsParenthesizedExpression(parent) && Node_Expression(ast, parent) === occurrence) {
-      occurrence = parent;
-      parent = ast.parent(parent);
-    }
-    if (parent === undefined) return undefined;
-    if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {
-      const literal = ast.parent(parent);
-      const enclosing = literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? declaredLiteralSlot(literal) : undefined;
-      if (enclosing === undefined) return undefined;
-      const query = semantics.forNode(node);
-      const name = ast.name(parent);
-      const selected = name === undefined ? undefined : query.propertyNames.get(name);
-      const property = enclosing.component === undefined || selected?.kind !== "resolved" ? undefined
-        : query.types.propertyInfos(enclosing.component.selectedType).find(property => property.name === selected.name);
-      if (property === undefined) return Object.freeze({});
-      const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
-      const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
-      return Object.freeze({ component: Object.freeze({ selectedType: property.type,
-        ...(declaration === undefined ? {} : { declaration }),
-        ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) }) });
-    }
-    let owner: Node | undefined;
-    let returned = false;
-    let assertion = false;
-    if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
-      Node_Initializer(ast, parent) === occurrence) owner = parent;
-    else if ((ast.is.IsAsExpression(parent) || ast.is.IsSatisfiesExpression(parent)) &&
-      Node_Expression(ast, parent) === occurrence && !ast.isConstAssertion(parent)) {
-      owner = parent;
-      assertion = true;
-    } else if (ast.is.IsArrowFunction(parent) && ast.body(parent) === occurrence) {
-      owner = parent;
-      returned = true;
-    } else if (ast.is.IsReturnStatement(parent) && Node_Expression(ast, parent) === occurrence) {
-      for (let ancestor = ast.parent(parent); ancestor !== undefined; ancestor = ast.parent(ancestor)) {
-        if (isCallable(ast, ancestor)) { owner = ancestor; break; }
-      }
-      returned = true;
-    }
-    if (owner === undefined || ast.typeNode(owner) === undefined) return undefined;
-    const name = ast.name(owner);
-    if ((ast.is.IsVariableDeclaration(owner) || ast.is.IsParameterDeclaration(owner)) && name !== undefined &&
-      (ast.is.IsObjectBindingPattern(name) || ast.is.IsArrayBindingPattern(name))) return Object.freeze({});
-    const query = semantics.forNode(node);
-    let component = declaredComponent(owner, query);
-    if (assertion) {
-      if (component === undefined) return undefined;
-      const type = component.selectedType;
-      const symbol = query.declarations.typeSymbol(type);
-      const declaration = symbol === undefined ? undefined : query.declarations.primarySymbolDeclaration(symbol);
-      if (query.types.isAny(type) || query.types.isUnknown(type) || query.types.isNonPrimitive(type) ||
-        query.types.isUnion(type) || query.types.isIntersection(type) || query.types.couldContainTypeVariables(type) ||
-        declaration !== undefined && ast.is.IsInterfaceDeclaration(declaration) && !query.types.isArrayLike(type)) return undefined;
-    }
-    if (returned && component !== undefined && ast.hasModifierKind(owner, "async")) {
-      component = awaitedLiteralComponent(component, query);
-    }
-    return Object.freeze(component === undefined ? {} : { component });
-  }
-
-  function awaitedLiteralComponent(component: SourceTypeComponentEvidence,
-    query: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
-    const awaited = query.types.awaitedType(component.selectedType);
-    if (awaited === undefined) return undefined;
-    const visited = new Set<Node>();
-    let annotation = component.authoredTypeNode;
-    while (annotation !== undefined && !visited.has(annotation)) {
-      visited.add(annotation);
-      if (ast.is.IsParenthesizedTypeNode(annotation)) {
-        annotation = ast.as.AsParenthesizedTypeNode(annotation)?.Type;
-        continue;
-      }
-      if (!ast.is.IsTypeReferenceNode(annotation)) return undefined;
-      const candidates = ast.typeArguments(annotation).filter((argument): argument is Node => {
-        const selected = argument === undefined ? undefined : query.types.authoredType(argument);
-        return selected !== undefined && query.types.isIdentical(selected, awaited);
-      });
-      if (candidates.length === 1) return Object.freeze({ ...component, selectedType: awaited, authoredTypeNode: candidates[0]! });
-      if (candidates.length !== 0) return undefined;
-      const declaration = navigation.sourceReferenceFor(ast.as.AsTypeReferenceNode(annotation)?.TypeName)?.declaration;
-      annotation = declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) && ast.typeParameters(declaration).length === 0
-        ? ast.typeNode(declaration) : undefined;
-    }
-    return undefined;
+  function declaredLiteralSlot(node: Node) {
+    return declaredSlots.get(node);
   }
 
   function declaredPattern(node: Node, component: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics,
@@ -489,17 +413,21 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const selectedNode = nodes.get(selected);
       if (source === undefined) return fixed(node, referenceComponent(node, selected));
       if (selectedNode?.term?.kind === "fixed") {
-        const result = fixed(node, referenceComponent(node, selected));
-        if (result !== undefined && selectedNode.kind === "parameter" && selectedNode.association?.component !== undefined) {
-          replace(node, { term: Object.freeze({ kind: "fixed", site: node, type: selectedNode.term.type }) });
-        }
-        return result;
+        const component = referenceComponent(node, selected);
+        const type = selectedNode.term.type;
+        const narrowed = type.kind === "optional" && component !== undefined &&
+          !semantics.forNode(node).types.isUnion(component.selectedType) &&
+          !semantics.forNode(node).types.isNullish(component.selectedType) ? type.value : type;
+        return fixed(node, component, narrowed);
       }
       const result = record(node, selectedNode?.kind === "fixed" ? "fixed" : "read", undefined, selected);
       link(source === undefined ? undefined : narrowedRead(source, node), result, node);
       return result;
     }
     if (ast.isConstAssertion(node) || ast.is.IsBigIntLiteral(node)) return fixed(node);
+    if (ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) || ast.is.IsTypeAssertion(node)) {
+      return fixed(node, declaredComponent(node, semantics.forNode(node)));
+    }
     if (ast.is.IsSpreadElement(node)) {
       const operand = Node_Expression(ast, node);
       return operand === undefined ? undefined : value(operand, initializer, depth);
@@ -701,8 +629,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (selected === undefined) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node); return undefined; }
       const variable = project(result, { kind: "member", name });
       link(member.source, variable, member.site);
+      const declarations = selectedSourcePropertyDeclarations(query, undefined, selected.symbol, [selectedType]);
+      const declaration = member.declaration ?? (declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, "read"));
       shape.push(Object.freeze({ name, variable, optional: selected.optional,
-        ...(member.declaration === undefined ? {} : { declaration: member.declaration }) }));
+        ...(declaration === undefined ? {} : { declaration }) }));
     }
     replace(node, { term: Object.freeze({ kind: "shape", site: node, members: Object.freeze(shape) }) });
     return result;
@@ -951,7 +881,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     }
     const declaration = query.declarations.signatureDeclaration(source.selectedSignature);
     const signature = declaration === undefined ? undefined : query.types.declarationSignatureInfo(declaration);
-    const dependentResult = signature?.returnType !== undefined && mentionedBinders(signature.returnType, query.types, 0).size > 0;
+    const dependentResult = signature?.returnType !== undefined && mentionedBinders(signature.returnType, query.types, 0,
+      new Set(), declaration === undefined ? undefined : ast.typeNode(declaration)).size > 0;
     if (signature?.returnType !== undefined && dependentResult) join(signature.returnType, result, node,
       Object.freeze({ selectedType: source.sourceResultType, contextualCall: source, ...(declaration === undefined ? {} : { declaration }),
         ...(declaration === undefined || ast.typeNode(declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(declaration)! }) }), 0, "result");
@@ -1051,8 +982,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       component: SourceTypeComponentEvidence, level: number, role: "argument" | "callback" | "result" = "argument"): void {
       if (level > 4) { refuse("TSONIC_LOCAL_TYPE_LIMIT", occurrence); return; }
       const formalQuery = query;
-      const symbol = formalQuery.declarations.typeSymbol(formal);
-      const declaration = symbol === undefined ? undefined : formalQuery.declarations.primarySymbolDeclaration(symbol);
+      const homomorphic = sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
+      if (homomorphic !== undefined) {
+        join(homomorphic, variable, occurrence, Object.freeze({ ...component, selectedType: homomorphic }), level + 1, role);
+        return;
+      }
+      const declaration = sourceTypeFlowTypeDeclaration(context.source, formalQuery, formal);
       const binder = declaration === undefined ? undefined : binders.get(declaration);
       if (binder !== undefined) {
         if (role === "argument" && argumentPlace !== undefined && declaration !== undefined) {
@@ -1167,11 +1102,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     }
 
     function mentionedBinders(type: Type, types: SourceFinalTypeQueries,
-      level: number, seen = new Set<Type>()): ReadonlySet<Node> {
+      level: number, seen = new Set<Type>(), authoredTypeNode?: Node): ReadonlySet<Node> {
       if (level > 4 || seen.has(type)) return new Set();
       seen.add(type);
-      const symbol = query.declarations.typeSymbol(type);
-      const declaration = symbol === undefined ? undefined : query.declarations.primarySymbolDeclaration(symbol);
+      const homomorphic = sourceTypeFlowHomomorphicInput(context.source, query, type, authoredTypeNode);
+      if (homomorphic !== undefined) return mentionedBinders(homomorphic, types, level + 1, seen);
+      const declaration = sourceTypeFlowTypeDeclaration(context.source, query, type);
       if (declaration !== undefined && binders.has(declaration)) return new Set([declaration]);
       const children = types.isTuple(type) ? types.tupleElementTypes(type) : types.isUnion(type) || types.isIntersection(type)
         ? types.unionOrIntersectionTypes(type) : types.typeArguments(type);
@@ -1270,7 +1206,7 @@ function descriptorPart(ast: AstReader, type: SourceTypeDescriptor, part: Source
   if (part.kind === "tuple") return type.kind === "tuple" ? type.elements[part.index] : undefined;
   if (part.kind === "member") return type.kind === "shape" ? type.members.find(member => member.name === part.name)?.type : undefined;
   if (type.kind !== "declared") return undefined;
-  const index = ast.typeParameters(type.declaration).indexOf(part.declaration);
+  const index = sourceTypeFlowTypeParameters(ast, type.declaration).indexOf(part.declaration);
   return index < 0 ? undefined : type.typeArguments[index];
 }
 
