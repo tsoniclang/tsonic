@@ -47,8 +47,14 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
   function select(node: Node, selected: SourceTypeComponentEvidence | undefined,
     concrete = false): SourceTypeFlowDeclaredSlot | undefined {
     if (selected === undefined) return Object.freeze({});
-    const described = context.describe(node, selected);
-    if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) return undefined;
+    const formal = concrete && selected.contextualCall !== undefined ? {
+      selectedType: selected.selectedType,
+      ...(selected.declaration === undefined ? {} : { declaration: selected.declaration }),
+      ...(selected.authoredTypeNode === undefined ? {} : { authoredTypeNode: selected.authoredTypeNode }),
+    } : selected;
+    const unbound = context.describe(node, formal);
+    if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound)) return undefined;
+    const described = formal === selected ? unbound : context.describe(node, selected);
     return described === undefined ? Object.freeze({ component: selected })
       : Object.freeze({ ...projected(node, described), component: selected });
   }
