@@ -8,6 +8,7 @@ import { collectSourceTypeFlowEdges } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor } from "./types.js";
 import { sourceTypeDescriptorsEqual } from "./terms.js";
+import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -996,19 +997,6 @@ test("generic binder fills retain declared authority for direct and aliased fixe
       found: literal !== undefined, outcome: outcome?.kind ?? "absent", count: matching.length,
       actual: matching[0]?.authority ?? "absent",
       sameDescriptor: outcome !== undefined && outcome.kind !== "refused" && matching[0]?.type === outcome.type }));
-    if (row.call === "freeze" && !row.alias && row.authority === "declared") {
-      const call = literal === undefined ? undefined : ast.parent(literal);
-      const slot = call === undefined ? undefined : ast.parent(call);
-      const authored = slot === undefined ? undefined : ast.typeNode(slot);
-      const queries = slot === undefined ? undefined : current.source.semantics.forNode(slot);
-      const selected = authored === undefined || queries === undefined ? undefined : queries.types.authoredType(authored);
-      const application = selected === undefined || queries === undefined ? undefined : queries.types.aliasApplication(selected);
-      console.log("C2295.homomorphic-slot " + JSON.stringify({ name: row.name,
-        aliasApplication: application?.kind ?? "absent",
-        typeKind: selected === undefined || queries === undefined ? "absent" : queries.types.isTuple(selected) ? "tuple" :
-          queries.types.isArrayLike(selected) ? "array" : queries.types.isUnion(selected) ? "union" : "object",
-        authoredKind: authored === undefined ? "absent" : ast.kindName(authored) }));
-    }
   }
   for (const { row, literal, outcome, matching } of observations) {
     assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
@@ -1016,6 +1004,80 @@ test("generic binder fills retain declared authority for direct and aliased fixe
       matching[0].type === outcome.type, true, row.name);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("one homomorphic inversion covers every normalized input and each authored or checked caller source", () => {
+  const forms = [
+    { name: "object", type: "{ count: int32 }" }, { name: "interface", type: "Face" },
+    { name: "class", type: "Value" }, { name: "array", type: "int32[]" },
+    { name: "readonly_array", type: "readonly int32[]" },
+    { name: "tuple", type: "[int32, string?, ...boolean[]]" },
+    { name: "union", type: "{ left: int32 } | { right: string }" },
+    { name: "int32", type: "int32" }, { name: "string", type: "string" },
+    { name: "boolean", type: "boolean" }, { name: "bigint", type: "bigint" },
+    { name: "symbol", type: "symbol" }, { name: "type_parameter", type: "Model" },
+    { name: "any", type: "any" }, { name: "unknown", type: "unknown" },
+  ];
+  const inputs = forms.map(form => ({ ...form, transform: "Locked", invertible: form.name !== "any" && form.name !== "unknown" }))
+    .concat([{ name: "alias_of_alias", type: "int32[]", transform: "L2", invertible: true },
+      { name: "non_homomorphic", type: "int32[]", transform: "NonHomomorphic", invertible: false }]);
+  const cases = inputs.flatMap(input => [false, true].flatMap(alias => [false, true].map(declared => ({
+    ...input, alias, declared, name: `${input.name}_${alias ? "alias" : "direct"}_${declared ? "declared" : "inferred"}`,
+  }))));
+  const current = fixture(`interface Face { count: int32 } class Value { count: int32 = 1; }
+    type Locked<Input> = { readonly [Key in keyof Input]: Input[Key] };
+    type L2<Input> = Locked<Input>; type NonHomomorphic<Input> = { [Key in "a"]: Input };
+    declare function freeze<Input>(value: Input): Locked<Input>;
+    declare function indirect<Input>(value: Input): L2<Input>;
+    declare function nonHomomorphic<Input>(value: Input): NonHomomorphic<Input>;
+    ${cases.map(row => `function ${row.name}<Model>(input: ${row.type}): void {
+      ${row.alias ? "const copied = input;" : ""}
+      const selected${row.declared ? `: ${row.transform}<${row.type}>` : ""} =
+        ${row.transform === "L2" ? "indirect" : row.transform === "NonHomomorphic" ? "nonHomomorphic" : "freeze"}(${row.alias ? "copied" : "input"});
+      void selected;
+    }`).join("\n")}`);
+  const { ast } = current.source;
+  const observations = cases.map(row => {
+    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === row.name);
+    const parameter = owner === undefined ? undefined : ast.parameters(owner)[0];
+    const expectedNode = parameter === undefined ? undefined : ast.typeNode(parameter);
+    const selected = current.nodes.find(node => {
+      if (!ast.is.IsVariableDeclaration(node) || ast.text(ast.name(node)) !== "selected") return false;
+      for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
+        if (ast.is.IsFunctionDeclaration(parent)) return parent === owner;
+      }
+      return false;
+    });
+    const call = selected === undefined ? undefined : ast.as.AsVariableDeclaration(selected)?.Initializer;
+    const authored = selected === undefined ? undefined : ast.typeNode(selected);
+    const queries = owner === undefined ? undefined : current.source.semantics.forNode(owner);
+    const evidence = call === undefined ? undefined : queries?.operations.call(call);
+    const expected = expectedNode === undefined ? undefined : queries?.types.authoredType(expectedNode);
+    const application = evidence === undefined ? undefined : queries?.types.aliasApplication(evidence.sourceResultType);
+    const input = evidence === undefined || queries === undefined ? undefined :
+      sourceTypeFlowHomomorphicInput(current.source, queries, evidence.sourceResultType, authored);
+    const shouldInvert = row.invertible && (row.declared || application?.kind === "direct");
+    const matches = input !== undefined && expected !== undefined && queries?.types.isIdentical(input, expected) === true;
+    console.log("C2299.homomorphic-form " + JSON.stringify({ name: row.name,
+      source: row.declared ? "authored-reference" : "checked-application",
+      aliasApplication: application?.kind ?? "absent",
+      typeKind: evidence === undefined || queries === undefined ? "absent" :
+        queries.types.isTuple(evidence.sourceResultType) ? "tuple" :
+        queries.types.isArrayLike(evidence.sourceResultType) ? "array" :
+        queries.types.isUnion(evidence.sourceResultType) ? "union" :
+        queries.types.isAny(evidence.sourceResultType) ? "any" :
+        queries.types.isUnknown(evidence.sourceResultType) ? "unknown" :
+        queries.types.isNumberLike(evidence.sourceResultType) || queries.types.isStringLike(evidence.sourceResultType) ||
+        queries.types.isBooleanLike(evidence.sourceResultType) || queries.types.isBigIntLike(evidence.sourceResultType) ||
+        queries.types.isSymbolLike(evidence.sourceResultType) ? "primitive" : "object",
+      inverted: input !== undefined, matches, shouldInvert }));
+    return { row, selected, call, expected, input, matches, shouldInvert };
+  });
+  for (const { row, selected, call, expected, input, matches, shouldInvert } of observations) {
+    assert.equal(selected !== undefined && call !== undefined && expected !== undefined, true, row.name);
+    assert.equal(input !== undefined, shouldInvert, row.name);
+    assert.equal(matches, shouldInvert, row.name);
+  }
 });
 
 test("C30 and B2 authority uses the declared slot while every B4 or inferred slot stays inferred", () => {

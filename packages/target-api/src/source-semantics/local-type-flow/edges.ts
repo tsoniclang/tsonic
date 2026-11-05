@@ -1022,7 +1022,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const formalQuery = query;
       const homomorphic = sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
       if (homomorphic !== undefined) {
-        join(homomorphic, variable, occurrence, Object.freeze({ ...component, selectedType: homomorphic }), level + 1, role);
+        const { authoredTypeNode, ...inputComponent } = component;
+        join(homomorphic, variable, occurrence, Object.freeze({ ...inputComponent, selectedType: homomorphic }), level + 1, role);
         return;
       }
       const declaration = sourceTypeFlowTypeDeclaration(context.source, formalQuery, formal);

@@ -164,7 +164,7 @@ export function createSourceTypeDescriptorReader(
     const result = new Map(bindings);
     const application = queries.types.aliasApplication(selectedType);
     if (application?.kind === "direct" && application.bindings.length === 1 &&
-      sourceTypeFlowHomomorphicInput(source, queries, selectedType, application.typeNode) !== undefined) {
+      sourceTypeFlowHomomorphicInput(source, queries, selectedType) !== undefined) {
       const input = bindings.get(application.bindings[0]!.declaration);
       const parameters = input?.kind === "declared" && input.source !== undefined
         ? queries.types.typeArgumentBindings(input.source.selectedType)?.map(binding => binding.declaration) : undefined;
