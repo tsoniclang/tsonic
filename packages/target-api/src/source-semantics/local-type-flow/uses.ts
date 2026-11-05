@@ -4,6 +4,7 @@ import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-b
 import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
   SourceTypeFlowArgumentPlace, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowRefusalCode, SourceTypeFlowUse,
@@ -45,23 +46,10 @@ export function collectSourceTypeFlowUses(
     }
     return derivedValues.has(value);
   }
-  const aliasLinks = new Map<SourceTypeFlowNode["variable"], SourceTypeFlowNode["variable"][]>();
-  for (const link of graph.links) {
-    for (const [from, to] of [[link.source, link.target], [link.target, link.source]] as const) {
-      let adjacent = aliasLinks.get(from);
-      if (adjacent === undefined) aliasLinks.set(from, adjacent = []);
-      adjacent.push(to);
-    }
-  }
-  const constructionAliases = new Set<SourceTypeFlowNode["variable"]>();
-  const pending = graph.nodes.filter(record => record.term?.kind === "fixed" && aliasLinks.has(record.variable) &&
-    (ast.is.IsArrayLiteralExpression(record.node) || ast.is.IsObjectLiteralExpression(record.node))).map(record => record.variable);
-  while (pending.length > 0) {
-    const selected = pending.pop()!;
-    if (constructionAliases.has(selected)) continue;
-    constructionAliases.add(selected);
-    pending.push(...aliasLinks.get(selected) ?? []);
-  }
+  const aliasLinks = sourceTypeFlowLinkAdjacency(graph.links);
+  const constructionAliases = sourceTypeFlowReachableVariables(graph.nodes.filter(record =>
+    record.term?.kind === "fixed" && aliasLinks.has(record.variable) &&
+    (ast.is.IsArrayLiteralExpression(record.node) || ast.is.IsObjectLiteralExpression(record.node))).map(record => record.variable), aliasLinks);
   const uses: SourceTypeFlowUse[] = [];
   for (const record of nodes.values()) {
     if (!graph.roots.includes(record.root) || !withinInferenceRoot(ast, record.node, record.root)) {
