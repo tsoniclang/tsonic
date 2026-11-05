@@ -42,8 +42,73 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return selected;
   }
 
+  function typeVariables(type: SourceTypeDescriptor, found = new Set<Node>()): Set<Node> {
+    const visit = (selected: SourceTypeDescriptor): void => { typeVariables(selected, found); };
+    if (type.kind === "declared") {
+      if (ast.is.IsTypeParameterDeclaration(type.declaration)) found.add(type.declaration);
+      type.typeArguments.forEach(visit);
+      if (type.definition !== undefined) visit(type.definition);
+    } else if (type.kind === "array") visit(type.element);
+    else if (type.kind === "tuple") type.elements.forEach(element => visit(element.type));
+    else if (type.kind === "optional") visit(type.value);
+    else if (type.kind === "union") type.types.forEach(visit);
+    else if (type.kind === "shape" || type.kind === "callable") {
+      if (type.kind === "shape") { type.members.forEach(member => visit(member.type)); type.indexes.forEach(index => { visit(index.key); visit(index.value); }); }
+      for (const signature of [...type.calls, ...type.constructs]) {
+        const own = new Set(signature.typeParameters);
+        const inner = new Set<Node>();
+        signature.parameters.forEach(parameter => typeVariables(parameter.type, inner));
+        typeVariables(signature.result, inner);
+        for (const variable of inner) if (!own.has(variable)) found.add(variable);
+      }
+    }
+    return found;
+  }
+
+  // A type argument is authored when it is written in source: an explicit call/construction type argument list, or a
+  // receiver whose declaration is annotated or initialised by a construction with explicit type arguments.
+  function authoredReceiver(expression: Node | undefined): boolean {
+    let current = expression;
+    while (current !== undefined && ast.is.IsParenthesizedExpression(current)) current = Node_Expression(ast, current);
+    if (current === undefined) return false;
+    if (ast.is.IsNewExpression(current)) return ast.typeArguments(current).length > 0;
+    const declaration = navigation.sourceReferenceFor(current)?.declaration;
+    if (declaration === undefined || !(ast.is.IsVariableDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration) ||
+      ast.is.IsPropertyDeclaration(declaration))) return false;
+    if (ast.typeNode(declaration) !== undefined) return true;
+    const initializer = Node_Initializer(ast, declaration);
+    return initializer !== undefined && ast.is.IsNewExpression(initializer) && ast.typeArguments(initializer).length > 0;
+  }
+
+  // C30 / C-2306: a generic formal is a declared slot of its instantiated type when every type variable it mentions is
+  // bound by an authored type argument at this call (method binders by the call's own type arguments; class/interface
+  // binders by an authored receiver or by the construction's own type arguments).
+  function authoredBinders(formal: SourceTypeDescriptor, callNode: Node | undefined, occurrence: Node): boolean {
+    // A contextual callable keeps its own contextual typing: only explicit call type arguments make its formal a declared
+    // slot. Receiver instantiations make declared slots for values (aggregate constructions and their aliases) only.
+    const callable = ast.is.IsArrowFunction(occurrence) || ast.is.IsFunctionExpression(occurrence);
+    return callNode !== undefined && authoredBinding(callNode, typeVariables(formal), !callable);
+  }
+
+  function authoredBinding(callNode: Node, variables: ReadonlySet<Node>, receivers = true): boolean {
+    if (variables.size === 0) return true;
+    const explicit = ast.typeArguments(callNode).length > 0;
+    const callee = ast.is.IsCallExpression(callNode) ? Node_Expression(ast, callNode) : undefined;
+    const receiver = callee !== undefined && (ast.is.IsPropertyAccessExpression(callee) || ast.is.IsElementAccessExpression(callee))
+      ? Node_Expression(ast, callee) : undefined;
+    for (const variable of variables) {
+      const owner = ast.parent(variable);
+      if (owner === undefined) return false;
+      const nominal = ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner);
+      if (!nominal) { if (!explicit) return false; continue; }
+      if (ast.is.IsNewExpression(callNode)) { if (!explicit) return false; continue; }
+      if (!receivers || !authoredReceiver(receiver)) return false;
+    }
+    return true;
+  }
+
   function select(node: Node, selected: SourceTypeComponentEvidence | undefined,
-    concrete = false): SourceTypeFlowDeclaredSlot | undefined {
+    concrete = false, callNode?: Node): SourceTypeFlowDeclaredSlot | undefined {
     if (selected === undefined) return Object.freeze({ authority: "declared" });
     const formal = concrete && selected.contextualCall !== undefined ? {
       selectedType: selected.selectedType,
@@ -51,8 +116,10 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       ...(selected.authoredTypeNode === undefined ? {} : { authoredTypeNode: selected.authoredTypeNode }),
     } : selected;
     const unbound = context.describe(node, formal);
-    if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound)) return undefined;
+    if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound) &&
+      !authoredBinders(unbound, callNode, node)) return undefined;
     const described = formal === selected ? unbound : context.describe(node, selected);
+    if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) return undefined;
     return described === undefined ? Object.freeze({ component: selected, authority: "declared" })
       : Object.freeze({ ...projected(node, described, "declared"), component: selected });
   }
@@ -213,7 +280,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       const parameter = call.sourceSelectedSignatureParameters[bindings[0]!.sourceParameterIndex];
       const declared = parameter?.parameterDeclaration === undefined ? undefined : component(parameter.parameterDeclaration, query);
       if (declared === undefined) return undefined;
-      return select(node, { ...declared, contextualCall: call }, true);
+      return select(node, { ...declared, contextualCall: call }, true, parent);
     }
     if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {
       const literal = ast.parent(parent);
@@ -242,7 +309,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return undefined;
   }
 
-  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)),
+  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), authoredBinding,
     callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
     component?: SourceTypeComponentEvidence): void {
     if (read(node, semantics.forNode(node)) !== undefined) return;

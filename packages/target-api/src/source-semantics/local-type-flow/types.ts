@@ -319,7 +319,9 @@ interface SourceTypeFlowUseBase {
 }
 
 export type SourceTypeFlowUse = SourceTypeFlowUseBase & (
-  | { readonly kind: "fill"; readonly type: SourceTypeDescriptor }
+  // authority: stated only when the fill comes from the value's own declared slot (C30); otherwise the solver derives it
+  // from the fill's authored component.
+  | { readonly kind: "fill"; readonly type: SourceTypeDescriptor; readonly authority?: "declared" }
   | {
       readonly kind: "check";
       readonly check: Exclude<SourceTypeFlowObligationKind, "write-fit" | "literal-admission">;

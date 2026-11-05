@@ -8,6 +8,7 @@ import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from ".
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
+import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
   SourceTypeFlowArgumentPlace, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowRefusalCode, SourceTypeFlowUse,
@@ -31,6 +32,7 @@ export function collectSourceTypeFlowUses(
   graph: SourceTypeFlowGraph,
 ): readonly SourceTypeFlowUse[] {
   const { ast } = context.source;
+  const declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
   const nodes = new Map<Node, SourceTypeFlowNode>();
   for (const node of graph.nodes) {
     if (node.kind !== "binder" && node.publish) {
@@ -62,6 +64,20 @@ export function collectSourceTypeFlowUses(
     const reached = sourceTypeFlowReachableVariables([construction.variable], aliasLinks);
     const family = Object.freeze(constructionRecords.filter(record => reached.has(record.variable)));
     for (const variable of reached) constructionFamilies.set(variable, family);
+  }
+  // Retained argument places are validated before any occurrence is classified (C28).
+  for (const call of graph.calls) for (const place of call.argumentPlaces) {
+    if (callAssociation(context, place.value.node, call.source, place.binding).parameter !== place.parameter) {
+      throw new Error("Local type uses require the same retained argument-place parameter.");
+    }
+  }
+  // A value's own declared slot (C30) fills its group exactly as an authored component would, except that broad slots
+  // (unknown, any, object, void) never fill, as in requiredUse.
+  function declaredSlotFill(record: SourceTypeFlowNode, site: Node, association: SourceTypeFlowAssociation): SourceTypeFlowUse | undefined {
+    const slot = declaredSlots.get(record.node);
+    if (slot?.authority !== "declared" || slot.type === undefined || slot.refusal !== undefined) return undefined;
+    if (slot.type.kind === "intrinsic" && ["unknown", "any", "object", "void"].includes(slot.type.intrinsic)) return undefined;
+    return Object.freeze({ kind: "fill", site, variable: record.variable, type: slot.type, authority: "declared", association });
   }
   const uses: SourceTypeFlowUse[] = [];
   for (const record of nodes.values()) {
@@ -178,6 +194,12 @@ export function collectSourceTypeFlowUses(
     }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent) && ast.body(parent) === value) {
       const owner = ast.is.IsArrowFunction(parent) ? parent : containingCallable(ast, parent);
+      if (owner !== undefined && ast.typeNode(owner) === undefined && !captured) {
+        // C30: a callable without a return annotation whose contextual signature has an authored result (a typed
+        // callback variable or parameter) makes its returned value a declared slot of that result.
+        const fill = declaredSlotFill(record, parent, sourceAssociation(context, record.node));
+        if (fill !== undefined) return [fill];
+      }
       if (owner === undefined || ast.typeNode(owner) === undefined) return captured
         ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
       const queries = context.source.semantics.forNode(record.node);
@@ -245,10 +267,15 @@ export function collectSourceTypeFlowUses(
       const association = callAssociation(context, record.node, call, binding);
       const component = association.component!;
       if (retained?.argumentPlaces.some(place => place.binding === binding)) {
-        return Object.freeze({ kind: "none", site: node, variable: record.variable, association });
+        // A generic argument place whose formal is bound only by authored type arguments is a declared slot of the
+        // instantiated formal (C30 / C-2306); otherwise the binder link alone carries the value.
+        const binders = new Set(retained.argumentPlaces.filter(place => place.binding === binding).map(place => place.binder));
+        return (declaredSlots.authoredBinding(node, binders) ? declaredSlotFill(record, node, association) : undefined) ??
+          Object.freeze({ kind: "none", site: node, variable: record.variable, association });
       }
       if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) {
-        return refusal(record, argument, "TSONIC_LOCAL_TYPE_GENERIC", association);
+        // A generic formal bound only by authored type arguments is a declared slot of its instantiation (C30).
+        return declaredSlotFill(record, argument, association) ?? refusal(record, argument, "TSONIC_LOCAL_TYPE_GENERIC", association);
       }
       if (ambiguousNumericOverload(context, call, binding)) return refusal(record, argument, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
       return required(record, argument, component, false, association);
@@ -280,8 +307,14 @@ function requiredUse(
   const association = retained ?? sourceAssociation(context, record.node, component);
   const none = (): SourceTypeFlowUse => Object.freeze({ kind: "none", site, variable: record.variable, association });
   if (queries.types.isUnknown(component.selectedType) || queries.types.isAny(component.selectedType)) return none();
-  if (queries.types.isNonPrimitive(component.selectedType)) {
-    if (record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
+  // A declared `object` slot fills only a generic call's result binder (B2: the instantiation becomes concrete). It never
+  // fills an ordinary value group: a literal stored there keeps its own construction (C-2246), and an unannotated empty
+  // literal keeps its own refusal (28j'). A construction family always goes through the one C30 kind selector
+  // below (C-2310), even for an object-like slot.
+  if (queries.types.isNonPrimitive(component.selectedType) && constructions.length === 0) {
+    const ast = context.source.ast;
+    if (!(ast.is.IsCallExpression(record.node) || ast.is.IsNewExpression(record.node)) ||
+      record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
     const type = context.describe(record.node, component);
     return type === undefined ? refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association)
       : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });

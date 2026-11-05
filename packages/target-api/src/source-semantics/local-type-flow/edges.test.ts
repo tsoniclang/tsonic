@@ -647,11 +647,16 @@ test("unexpressible declared unions never acquire empty published reference grou
   const current = fixture(`type Tree = number | readonly Tree[];
     function run(value: Tree): Tree { const alias: Tree = value; return alias; }`);
   const alias = current.declaration("alias");
-  assert.equal(current.graph.nodes.some(entry => entry.node === alias), false);
-  for (const reference of current.syntax.filter(node => current.source.ast.is.IsIdentifier(node) &&
-    (current.text(node) === "value" || current.text(node) === "alias"))) {
-    assert.equal(current.graph.nodes.some(entry => entry.node === reference && entry.publish), false);
-  }
+  // Since C-2263 alias identity the recursive alias is expressible: the declared alias and its reads are fixed declared
+  // facts in the publication domain (C-2226), still with no open group, no empty reference group and no refusal.
+  const declared = (node: Node): boolean => current.graph.nodes.some(entry => entry.node === node && entry.publish &&
+    entry.kind === "fixed" && entry.term?.kind === "fixed" && entry.term.type.kind === "declared");
+  assert.equal(declared(alias), true);
+  const reads = current.syntax.filter(node => current.source.ast.is.IsIdentifier(node) &&
+    (current.text(node) === "value" || current.text(node) === "alias") &&
+    current.source.ast.name(current.source.ast.parent(node)!) !== node);
+  assert.equal(reads.length, 2);
+  for (const reference of reads) assert.equal(declared(reference), true);
   assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
   assert.equal(current.graph.refusals.length, 0);
 });

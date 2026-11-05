@@ -188,7 +188,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const use of uses) if (use.kind === "fill") {
     const component = use.association?.component;
     pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false,
-      authority: component?.authoredTypeNode !== undefined || component?.declaration !== undefined &&
+      authority: use.authority === "declared" || component?.authoredTypeNode !== undefined || component?.declaration !== undefined &&
         source.ast.typeNode(component.declaration) !== undefined ? "declared" : "inferred",
       ...(component === undefined ? {} : { component }) } });
   }
@@ -592,6 +592,22 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     outcomes.set(node, Object.freeze({ kind: literalDefault ? "default" : "resolved", type,
       provenance: Object.freeze({ group: declaration, occurrence: node, sourceFile,
         ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
+  }
+  // A variable or parameter declaration whose name is a binding pattern is a declared fact (C29): its storage is its
+  // annotation's descriptor, or, unannotated, its initializer's published value. Targets declare the destructured
+  // source from this fact; each binding element publishes its own member value above.
+  for (const node of defaults.nodes) {
+    if (outcomes.has(node) || !(source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsParameterDeclaration(node))) continue;
+    const name = source.ast.name(node);
+    if (name === undefined || !(source.ast.is.IsObjectBindingPattern(name) || source.ast.is.IsArrayBindingPattern(name))) continue;
+    const sourceFile = source.ast.getSourceFile(node);
+    if (sourceFile === undefined) continue;
+    const initializer = Node_Initializer(source.ast, node);
+    const value = source.ast.typeNode(node) === undefined && initializer !== undefined ? outcomes.get(initializer) : undefined;
+    if (value?.kind === "refused") { outcomes.set(node, value); continue; }
+    const type = value?.type ?? context.describe(node);
+    if (type === undefined) continue;
+    outcomes.set(node, Object.freeze({ kind: "resolved", type, provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
   }
   // Property signatures of interfaces and of named type literals are declared facts too (C29): each carries its
   // authored declared type, so targets declare the member from the Host fact.

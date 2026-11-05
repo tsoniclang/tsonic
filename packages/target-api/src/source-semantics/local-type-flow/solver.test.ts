@@ -273,7 +273,13 @@ test("raw declaration-only syntax stays outside the effective-value domain", () 
   const current = fixture("interface Marker { readonly name: string } function run(): void { const value = 1; }");
   const declaration = current.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node));
   assert.equal(declaration !== undefined, true);
-  assert.equal(declaration === undefined || current.source.effectiveTypes.get(declaration) === undefined, true);
+  if (declaration === undefined) return;
+  // K-2447 domain contract: a declaration publishes at most its own declared identity as metadata, never a value group.
+  const outcome = current.source.effectiveTypes.get(declaration);
+  assert.equal(outcome === undefined || outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+    outcome.type.declaration === declaration && outcome.provenance.group === declaration, true);
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  assert.equal(graph.nodes.some(entry => entry.node === declaration), false);
 });
 
 function outcomeCode(outcome: SourceEffectiveTypeOutcome | undefined): string | undefined {
@@ -1848,4 +1854,31 @@ test("C-2297 a literal published as its own shape corresponds each authored memb
   assert.equal(outcome.memberCorrespondence?.length, properties.length);
   assert.equal(outcome.memberCorrespondence?.every(entry => entry.origin.kind === "declared" && entry.origin.declaration === entry.property), true,
     "the destination of an own-shape publication is the literal's own member, not a separately selected type");
+});
+
+test("C30 authority follows the destination's authored type through authored type arguments and contextual closure returns", () => {
+  const union = "(string | number)";
+  const paths: readonly { readonly name: string; readonly authority: "declared" | "inferred"; readonly text: (name: string) => string }[] = [
+    { name: "alias", authority: "declared", text: n => `type ${n}Values = ${union}[]; export function ${n}(): ${n}Values { const values: ${n}Values = ["t", 1]; return values; }` },
+    { name: "argument", authority: "declared", text: n => `function ${n}Accept(values: ${union}[]): ${union}[] { return values; } export function ${n}(): ${union}[] { const values = ["t", 1]; return ${n}Accept(values); }` },
+    { name: "nested", authority: "declared", text: n => `function ${n}Call(make: () => ${union}[]): ${union}[] { return make(); } export function ${n}(): ${union}[] { return ${n}Call(() => { const values = ["t", 1]; return values; }); }` },
+    { name: "explicit_argument", authority: "declared", text: n => `function ${n}Accept<T>(values: T[]): T[] { return values; } export function ${n}(): ${union}[] { const values = ["t", 1]; return ${n}Accept<${union}>(values); }` },
+    { name: "explicit_direct", authority: "declared", text: n => `function ${n}Accept<T>(values: T[]): T[] { return values; } export function ${n}(): ${union}[] { return ${n}Accept<${union}>(["t", 1]); }` },
+    { name: "explicit_callback", authority: "declared", text: n => `function ${n}Call<T>(make: () => T[]): T[] { return make(); } export function ${n}(): ${union}[] { return ${n}Call<${union}>(() => { const values = ["t", 1]; return values; }); }` },
+    { name: "authored_receiver", authority: "declared", text: n => `class ${n}Receiver<T> { accept(values: T[]): T[] { return values; } } export function ${n}(): ${union}[] { const receiver = new ${n}Receiver<${union}>(); const values = ["t", 1]; return receiver.accept(values); }` },
+    { name: "typed_callback", authority: "declared", text: n => `export function ${n}(): ${union}[] { const make: () => ${union}[] = () => { const values = ["t", 1]; return values; }; return make(); }` },
+    { name: "inferred_argument", authority: "inferred", text: n => `function ${n}Accept<T>(values: T[]): T[] { return values; } export function ${n}() { const values = ["t", 1]; return ${n}Accept(values); }` },
+    { name: "inferred_direct", authority: "inferred", text: n => `function ${n}Accept<T>(values: T[]): T[] { return values; } export function ${n}() { return ${n}Accept(["t", 1]); }` },
+    { name: "untyped_callback", authority: "inferred", text: n => `function ${n}Call<T>(make: () => T[]): T[] { return make(); } export function ${n}() { return ${n}Call(() => { const values = ["t", 1]; return values; }); }` },
+  ];
+  for (const path of paths) {
+    const current = fixture(path.text(path.name));
+    const { ast } = current.source;
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+    assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused", true, path.name);
+    assert.equal(admissions.length === 1 && admissions[0]?.kind === "literal-admission" && admissions[0].authority === path.authority, true,
+      `${path.name}: authority is the destination slot's own authored type`);
+  }
 });

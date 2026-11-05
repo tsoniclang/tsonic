@@ -383,11 +383,12 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (type !== undefined) result = describeType(type, queries, component ?? { selectedType: type,
         ...(declaration === undefined ? {} : { declaration }) }, depth, bindings);
     }
-    if (result !== undefined && result.kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
+    // A declared alias whose definition already carries absence (type T = U | undefined) is not wrapped again.
+    if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node);
       if (node === declaration || type !== undefined && queries.types.isUnion(type)) result = { kind: "optional", value: result };
     }
-    if (result !== undefined && result.kind !== "optional" && component !== undefined &&
+    if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && component !== undefined &&
       queries.types.isUnion(component.selectedType) && queries.types.unionOrIntersectionTypes(component.selectedType)
         .some(type => queries.types.isNullish(type))) {
       result = { kind: "optional", value: result };

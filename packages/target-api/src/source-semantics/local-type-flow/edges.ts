@@ -140,6 +140,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (ast.is.IsArrayLiteralExpression(current.node) || ast.is.IsObjectLiteralExpression(current.node)) {
         return nodes.get(current.node)?.term?.kind === "fixed" ? current : undefined;
       }
+      // `[...] as const` / `<const>[...]`: the asserted aggregate literal is the fixed origin.
+      if ((ast.is.IsAsExpression(current.node) || ast.is.IsTypeAssertion(current.node)) && ast.isConstAssertion(current.node)) {
+        const inner = Node_Expression(ast, current.node);
+        const asserted = inner === undefined ? undefined : nodes.get(inner)?.variable;
+        if (asserted !== undefined) { current = asserted; continue; }
+      }
       current = fixedAliases.get(current);
     }
     return undefined;
@@ -1083,7 +1089,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           join(values[0]!, variable, occurrence, Object.freeze({ ...component, selectedType: values[0]! }), level, role);
           return;
         }
-        if (formalQuery.types.couldContainTypeVariables(formal)) refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence);
+        // Only a union that mentions one of this call's binders is a generic join; a closed union formal (its checker
+        // type may still report "could contain type variables" for anonymous object members) is chosen by the one C30
+        // kind selector at the construction (uses.ts), not refused here.
+        if (mentionedBinders(formal, formalQuery.types, level).size > 0) refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence);
         return;
       }
       if (formalQuery.types.isTuple(formal)) {
