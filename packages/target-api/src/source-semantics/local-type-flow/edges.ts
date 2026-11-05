@@ -157,7 +157,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       positions.set(canonical, result);
       const parentTerm = terms.get(variable);
       const parentType = parentTerm?.kind === "fixed" ? parentTerm.type : undefined;
-      const childType = parentType === undefined ? undefined : descriptorPart(ast, parentType, canonical);
+      const childType = parentType === undefined ? undefined : descriptorPart(context, variable.node, parentType, canonical);
       if (childType !== undefined) putTerm(result, Object.freeze({ kind: "fixed", site: variable.node, type: childType }));
     }
     return result;
@@ -949,7 +949,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         }
         for (const argument of arguments_) inheritedReceiverArguments.set(argument.declaration, argument.argumentType);
       }
-      const parameters = ast.typeParameters(owner);
+      const ownerType = query.declarations.declaredType(owner);
+      const parameters = ownerType === undefined ? sourceTypeFlowTypeParameters(ast, owner) :
+        query.types.typeArgumentBindings(ownerType)?.map(binding => binding.declaration) ?? sourceTypeFlowTypeParameters(ast, owner);
       const arguments_ = query.types.typeArguments(call.sourceReceiver.type);
       if (receiverOwner === owner && arguments_.length < parameters.length) { refuse("TSONIC_LOCAL_TYPE_GENERIC", node, owner); return []; }
       const declarations: Node[] = [];
@@ -1191,14 +1193,16 @@ function numericLeaves(ast: AstReader, root: Node): boolean {
   return true;
 }
 
-function descriptorPart(ast: AstReader, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
+function descriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
   if (part.kind === "element") return type.kind === "array" ? type.element : undefined;
   if (part.kind === "optional-value") return type.kind === "optional" ? type.value : undefined;
   if (part.kind === "tuple") return type.kind === "tuple" ? type.elements[part.index] : undefined;
   if (part.kind === "member") return type.kind === "shape" || type.kind === "declared"
     ? type.members?.find(member => member.name === part.name)?.type ?? type.indexes.find(index => index.key.kind === "string")?.value : undefined;
   if (type.kind !== "declared") return undefined;
-  const index = sourceTypeFlowTypeParameters(ast, type.declaration).indexOf(part.declaration);
+  const parameters = type.source === undefined ? undefined : context.source.semantics.forNode(site).types
+    .typeArgumentBindings(type.source.selectedType)?.map(binding => binding.declaration);
+  const index = (parameters ?? sourceTypeFlowTypeParameters(context.source.ast, type.declaration)).indexOf(part.declaration);
   return index < 0 ? undefined : type.typeArguments[index];
 }
 

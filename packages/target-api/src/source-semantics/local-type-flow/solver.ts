@@ -260,7 +260,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
             const selected = group(binder.variable);
             return selected.type === undefined ? [] : [{ declaration: binder.declaration, type: selected.type }];
           });
-          const parameters = sourceTypeFlowTypeParameters(source.ast, term.declaration);
+          const parameters = queries.types.typeArgumentBindings(declaredType)?.map(binding => binding.declaration) ??
+            sourceTypeFlowTypeParameters(source.ast, term.declaration);
           parameters.forEach((declaration, index) => {
             if (declaration !== undefined && arguments_[index] !== undefined) substitutions.push({ declaration, type: arguments_[index]! });
           });

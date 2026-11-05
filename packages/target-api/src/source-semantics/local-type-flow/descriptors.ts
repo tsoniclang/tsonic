@@ -98,6 +98,18 @@ export function createSourceTypeDescriptorReader(
           const argument = arguments_[index];
           if (argument !== undefined) instantiated.set(parameter, argument);
         });
+        const declaredBindings = queries.types.typeArgumentBindings(selectedType);
+        if (declaredBindings !== undefined) {
+          const ordered: SourceTypeDescriptor[] = [];
+          for (const binding of declaredBindings) {
+            const argument = instantiated.get(binding.declaration) ?? type(binding.argumentType, queries,
+              { selectedType: binding.argumentType }, depth + 1, instantiated);
+            if (argument === undefined) return undefined;
+            ordered.push(argument);
+            instantiated.set(binding.declaration, argument);
+          }
+          arguments_.splice(0, arguments_.length, ...ordered);
+        }
         const body = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
         const referenceOnly = body !== undefined && (ast.is.IsUnionTypeNode(body) || ast.is.IsMappedTypeNode(body) ||
           ast.is.IsConditionalTypeNode(body) || ast.is.IsTypeLiteralNode(body) &&
@@ -154,7 +166,9 @@ export function createSourceTypeDescriptorReader(
     if (application?.kind === "direct" && application.bindings.length === 1 &&
       sourceTypeFlowHomomorphicInput(source, queries, selectedType, application.typeNode) !== undefined) {
       const input = bindings.get(application.bindings[0]!.declaration);
-      if (input?.kind === "declared") parametersFor(input.declaration).forEach((parameter, index) => {
+      const parameters = input?.kind === "declared" && input.source !== undefined
+        ? queries.types.typeArgumentBindings(input.source.selectedType)?.map(binding => binding.declaration) : undefined;
+      if (input?.kind === "declared") (parameters ?? parametersFor(input.declaration)).forEach((parameter, index) => {
         const argument = input.typeArguments[index];
         if (argument !== undefined) result.set(parameter, argument);
       });
