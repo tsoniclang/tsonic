@@ -330,7 +330,9 @@ export function createSourceTypeDescriptorReader(
     // form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
     // needs its structure refuses. Project declarations must describe completely.
     const file = ast.getSourceFile(declaration);
-    return file !== undefined && ast.isDeclarationFile(file) && !reads.some(read => read.failure !== undefined)
+    return file !== undefined && ast.isDeclarationFile(file) &&
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) &&
+      !reads.some(read => read.failure !== undefined)
       ? { ...reference, cut: "unexpressible" } : undefined;
   }
 

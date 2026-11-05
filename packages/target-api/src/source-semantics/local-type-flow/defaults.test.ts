@@ -29,6 +29,39 @@ function fixture(text: string, noImplicitAny = true) {
   return { source, defaults, declaration };
 }
 
+test("an unresolved foreign conditional alias is not an identity-only nominal cut", () => {
+  const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
+    declare const local: Local;
+    export function run(): void { const alias = local; void alias; const count: int32 = 1; void count; }`);
+  assert.equal(current.defaults.context.describe(current.declaration("local")) === undefined, true,
+    "an open conditional has no nominal identity and makes its project declaration inexpressible");
+  const read = current.defaults.values.find(node => current.source.ast.is.IsIdentifier(node) && current.source.ast.text(node) === "local");
+  const outcome = read === undefined ? undefined : current.source.effectiveTypes.get(read);
+  assert.equal(outcome?.kind === "refused" && outcome.site === read && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true,
+    "the original local read owns its one precise Source refusal");
+  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === read).length, 1);
+  const count = current.source.effectiveTypes.get(current.declaration("count"));
+  assert.equal(count !== undefined && count.kind !== "refused" && count.type.kind === "primitive" && count.type.primitive === "int32", true,
+    "an expressible sibling is independent of the unresolved alias");
+});
+
+test("a closed foreign conditional alias publishes its exact primitive result inside a project interface", () => {
+  const current = fixture(`interface Local { read(value: int32): Awaited<Promise<int32>>; }
+    declare const local: Local;
+    export function run(): void { const alias = local; void alias; }`);
+  const descriptor = current.defaults.context.describe(current.declaration("local"));
+  assert.equal(descriptor?.kind === "declared" && descriptor.definition?.kind === "shape", true,
+    "the closed alias has a complete project interface definition");
+  if (descriptor?.kind !== "declared" || descriptor.definition?.kind !== "shape") throw new Error("The original interface definition is required.");
+  const method = descriptor.definition.members.find(member => member.name === "read");
+  const callable = method === undefined ? undefined : sourceTypeDescriptorStructure(method.type);
+  const result = callable?.kind === "callable" ? callable.calls[0]?.result : undefined;
+  const primitive = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
+  assert.equal(primitive?.kind === "primitive" && primitive.primitive === "int32", true,
+    "Awaited's resolved result retains the exact authored int32 width");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("checked conditional aliases preserve distinct parameter and result widths through exact infer binders", () => {
   for (const reverse of [false, true]) {
     const declarations = [
