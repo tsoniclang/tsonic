@@ -476,7 +476,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       term.kind === "numeric" && context.literal(term.site) !== undefined ||
       term.kind === "array" && source.ast.is.IsArrayLiteralExpression(term.site) ||
       term.kind === "shape" && source.ast.is.IsObjectLiteralExpression(term.site))) {
-      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: chosen, required: node.node }));
+      obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: chosen, required: node.node,
+        authority: node.declaredType !== undefined || isSourceTypeFlowDeclaredConstruction(node) ? "declared" : "inferred" }));
     }
   }
   for (const call of graph.calls) {

@@ -111,8 +111,7 @@ export type SourceTypeFlowObligationKind =
   | "literal-admission"
   | "write-fit";
 
-export interface SourceTypeFlowObligation {
-  readonly kind: SourceTypeFlowObligationKind;
+interface SourceTypeFlowObligationBase {
   readonly site: Node;
   readonly type: SourceTypeDescriptor;
   readonly required: Node;
@@ -122,6 +121,11 @@ export interface SourceTypeFlowObligation {
   readonly valueVariable?: SourceTypeFlowVariable;
   readonly association?: SourceTypeFlowAssociation;
 }
+
+export type SourceTypeFlowObligation = SourceTypeFlowObligationBase & (
+  | { readonly kind: "literal-admission"; readonly authority: "inferred" | "declared" }
+  | { readonly kind: Exclude<SourceTypeFlowObligationKind, "literal-admission"> }
+);
 
 export interface SourceEffectiveTypeArgument {
   readonly declaration: Node;

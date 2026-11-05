@@ -831,6 +831,21 @@ test("unused real signature parameters publish the same chosen descriptor as the
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("literal admission retains its actual inferred or declared Source authority", () => {
+  const current = fixture(`type Indexed = { readonly [key: string]: number };
+    function run(): void { const inferred = [1, 2]; const declared: Indexed = { value: 1 }; }`);
+  const { ast } = current.source;
+  const inferred = ast.as.AsVariableDeclaration(current.declaration("inferred"))?.Initializer;
+  const declared = ast.as.AsVariableDeclaration(current.declaration("declared"))?.Initializer;
+  for (const [literal, authority] of [[inferred, "inferred"], [declared, "declared"]] as const) {
+    assert.equal(literal !== undefined, true, "the actual construction exists in the checked source");
+    const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+    assert.equal(admissions.length, 1, "one canonical construction admission owns the Source authority");
+    assert.equal(admissions[0]?.kind === "literal-admission" && admissions[0].authority === authority, true);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }
