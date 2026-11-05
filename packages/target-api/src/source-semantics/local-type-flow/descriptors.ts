@@ -33,7 +33,7 @@ export function createSourceTypeDescriptorReader(
 
   function syntax(node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
-    const direct = primitive([node]);
+    const direct = ast.is.IsUnionTypeNode(node) ? undefined : primitive([node]);
     if (direct !== undefined) return direct;
     const selectedType = queries.types.authoredType(node);
     if (selectedType === undefined) return undefined;
@@ -300,6 +300,8 @@ export function createSourceTypeDescriptorReader(
     if (queries.types.isStringLike(selectedType)) return { kind: "string" };
     if (queries.types.isBigIntLike(selectedType)) return { kind: "intrinsic", intrinsic: "bigint" };
     if (queries.types.isSymbolLike(selectedType)) return { kind: "intrinsic", intrinsic: "symbol" };
+    if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)) &&
+      queries.types.constructSignatures(selectedType).length > 0) return callable(selectedType, queries, depth, bindings);
     if (queries.types.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
       for (const member of queries.types.unionOrIntersectionTypes(selectedType)) {

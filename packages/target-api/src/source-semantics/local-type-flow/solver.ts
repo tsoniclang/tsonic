@@ -513,8 +513,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
   }
   for (const node of defaults.nodes) {
-    if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node) ||
-      source.ast.is.IsClassExpression(node))) continue;
+    if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node))) continue;
     const queries = source.semantics.forNode(node);
     const selectedType = queries.declarations.declaredType(node);
     const type = selectedType === undefined ? undefined : context.describe(node, { selectedType, declaration: node });

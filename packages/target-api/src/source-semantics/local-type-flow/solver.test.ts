@@ -802,6 +802,15 @@ test("project class and interface declarations publish their own member identiti
   }
 });
 
+test("class-expression values retain their constructor contract independently of declaration instance shapes", () => {
+  const current = fixture("const Make = class { value = 1; }; const item = new Make();");
+  const expression = current.nodes.find(node => current.source.ast.is.IsClassExpression(node));
+  const chosen = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
+  assert.equal(chosen !== undefined && chosen.kind !== "refused" && chosen.type.kind === "callable" &&
+    chosen.type.constructs.length === 1, true, "a runtime class expression keeps its real constructor value descriptor");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 function assertSameValue(actual: unknown, expected: unknown): void {
   assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
 }
