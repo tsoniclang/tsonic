@@ -5,7 +5,7 @@ import { parseSourceNumericLiteral } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,
-  sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits,
+  sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorIsIntegral,
   sourcePrimitiveUnaryOperators, type SourcePrimitiveBinaryOperator, type SourcePrimitiveOperatorOperand,
 } from "./operator-decisions.js";
 
@@ -61,6 +61,12 @@ test("D-A every operator family classifies all 18 by 18 primitive pairs with a r
       classified += 1;
     }
     assert.equal(classified, 324, operator);
+  }
+});
+
+test("the integral boundary shares the operator owner's exact finite classification", () => {
+  for (const kind of sourcePrimitiveOperatorKinds) {
+    assert.equal(sourcePrimitiveOperatorIsIntegral(kind), integral.has(kind), kind);
   }
 });
 

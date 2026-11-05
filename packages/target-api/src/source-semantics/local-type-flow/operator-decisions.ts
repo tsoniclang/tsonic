@@ -88,6 +88,10 @@ const equalityOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["
 const bitwiseOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["bit-and", "bit-or", "bit-xor"]);
 const shiftOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["shift-left", "shift-right", "shift-right-unsigned"]);
 
+export function sourcePrimitiveOperatorIsIntegral(kind: SourcePrimitiveKind): boolean {
+  return integrals.has(kind);
+}
+
 export function decideSourcePrimitiveBinaryOperator(
   operator: SourcePrimitiveBinaryOperator,
   left: SourcePrimitiveOperatorOperand,
