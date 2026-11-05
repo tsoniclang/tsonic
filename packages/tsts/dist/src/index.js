@@ -4,5 +4,6 @@ export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/co
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
+export * from "./internal/ast/symbolflags.js";
 export { ContextFlagsSkipBindingPatterns } from "./internal/checker/types.js";
 //# sourceMappingURL=index.js.map
