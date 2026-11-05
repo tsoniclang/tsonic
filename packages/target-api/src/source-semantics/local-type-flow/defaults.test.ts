@@ -34,13 +34,6 @@ test("C2284 finite mapped members retain their exact checked declaration tuple f
   if (selected === undefined || mapped === undefined) throw new Error("The original checked mapped type is required.");
   const members = queries.types.propertyInfos(selected);
   assert.equal(members.length, 2, "both finite authored keys are observed without an invented member origin");
-  for (const member of members) {
-    const declarations = queries.declarations.symbolDeclarations(member.symbol);
-    console.log(`C2284 mapped member: ${JSON.stringify({ name: member.name, flags: member.symbol.Flags,
-      declarationCount: declarations.length, declarations: declarations.map(declaration => ({
-        kind: current.source.ast.kindName(declaration), position: current.source.ast.pos(declaration), sameMappedType: declaration === mapped,
-      })) })}`);
-  }
 });
 
 test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
