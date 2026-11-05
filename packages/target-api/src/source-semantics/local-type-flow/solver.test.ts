@@ -6,7 +6,7 @@ import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
-import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember } from "./types.js";
+import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";
 import type { SourceLiteralMemberCorrespondence } from "./types.js";
 import type { SourceStructuralMemberPair } from "../structural-members.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
@@ -2588,7 +2588,9 @@ test("C2337 assignment-pattern RHS retains every heterogeneous checked tuple ele
   const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node) &&
     ast.elements(node)[0] !== undefined && ast.is.IsStringLiteral(ast.elements(node)[0]));
   const selected = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
-  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+  const admissions = current.source.effectiveTypes.obligations().filter(
+    (row): row is Extract<SourceTypeFlowObligation, { readonly kind: "literal-admission" }> => row.kind === "literal-admission" && row.site === literal,
+  );
   assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "tuple" &&
     selected.type.elements.length === 4 && selected.type.elements[0]?.type.kind === "string" &&
     selected.type.elements.slice(1).every(element => element.type.kind === "primitive" && element.type.primitive === "float64"), true);

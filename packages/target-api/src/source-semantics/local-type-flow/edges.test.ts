@@ -769,8 +769,8 @@ test("C2330 a missing operation operand publishes one graph refusal without a pa
   const expression = current.node("outer + 1", node => current.source.ast.is.IsBinaryExpression(node));
   const reference = current.source.ast.as.AsBinaryExpression(expression)?.Left;
   assert.equal(current.graph.refusals.length === 1 && current.graph.refusals[0]?.site === reference &&
-    current.graph.refusals[0].code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
-    current.graph.refusals[0].related === current.declaration("outer"), true);
+    current.graph.refusals[0]!.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
+    current.graph.refusals[0]!.related === current.declaration("outer"), true);
   assert.equal(current.graph.nodes.some(record => record.node === expression), false);
   assert.equal(current.graph.derived.some(operation => operation.node === expression), false);
 });
