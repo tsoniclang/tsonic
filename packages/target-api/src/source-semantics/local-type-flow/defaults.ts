@@ -454,8 +454,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
 
 export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): "int32" | "float64" {
   const numeric = literal.numeric;
+  const integer = literal.integerConstant ?? literal.integer;
   return numeric?.kind === "checked-float64" || numeric?.kind === "authored" &&
-    (numeric.token.negative && numeric.token.coefficient === 0n || /[.eE]/u.test(numeric.token.decimalText))
+    (numeric.token.negative && numeric.token.coefficient === 0n || /[.eE]/u.test(numeric.token.decimalText)) ||
+    integer !== undefined && !sourceTypeFlowIntegerFits(integer, "int32")
     ? "float64" : "int32";
 }
 

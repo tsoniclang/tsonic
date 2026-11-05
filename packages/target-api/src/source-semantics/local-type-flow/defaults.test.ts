@@ -352,6 +352,30 @@ test("negative zero keeps the floating leaf default without changing ordinary ze
   assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int32" });
 });
 
+test("the one integer default owner checks signed 32-bit bounds for local, module and exported literals", () => {
+  const cases = [
+    ["positive_boundary", "2147483647", "int32"],
+    ["positive_overflow", "2147483648", "float64"],
+    ["positive_above", "2147483649", "float64"],
+    ["negative_boundary", "-2147483648", "int32"],
+    ["negative_overflow", "-2147483649", "float64"],
+    ["wrapped_overflow", "(2147483648)", "float64"],
+    ["positive_zero", "0", "int32"],
+    ["negative_zero", "-0", "float64"],
+    ["fractional", "1.5", "float64"],
+    ["exponent", "1e2", "float64"],
+  ] as const;
+  const current = fixture(cases.map(([name, literal]) =>
+    `const module_${name} = ${literal}; export const exported_${name} = ${literal};`
+  ).join("\n") + `\nfunction run(): void { ${cases.map(([name, literal]) => `const local_${name} = ${literal};`).join("\n")} }`);
+  for (const scope of ["local", "module", "exported"]) for (const [name, _literal, primitive] of cases) {
+    const declaration = current.declaration(`${scope}_${name}`);
+    const selected = current.defaults.context.describe(declaration);
+    assert.equal(selected?.kind === "primitive" && selected.primitive === primitive, true, `${scope}_${name}`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {
   const current = fixture("function run(): void { const value: number | string = 1; const dictionary: { [key: string]: number } = {}; }");
   const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
