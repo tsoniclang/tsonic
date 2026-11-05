@@ -61,6 +61,11 @@ export function sourceTypeFlowTypeParameters(ast: SourceTypeFlowSource["ast"], d
   return owner ? ast.typeParameters(declaration).filter((parameter): parameter is Node => parameter !== undefined) : [];
 }
 
+function sourceTypeFlowOptionalChainRead(node: Node, queries: SourceFileSemantics): boolean {
+  return queries.operations.propertyAccess(node)?.optionalChain === true || queries.operations.elementAccess(node)?.optionalChain === true ||
+    queries.operations.call(node)?.optionalChain === true;
+}
+
 export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource): SourceTypeFlowDefaults {
   const { ast, semantics, navigation, sourceFacts } = source;
   const literals = analyzeSourceLiteralValues(ast, source.sourceFiles).literalValue;
@@ -387,6 +392,14 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node);
       if (node === declaration || type !== undefined && queries.types.isUnion(type)) result = { kind: "optional", value: result };
+    }
+    // An optional-chain read (a?.b, a?.[i], a?.f()) is absent when its chain short-circuits: its value carries absence
+    // even though the selected member's own declared type does not.
+    if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && component === undefined &&
+      sourceTypeFlowOptionalChainRead(node, queries)) {
+      const type = queries.types.expressionType(node);
+      if (type !== undefined && queries.types.isUnion(type) &&
+        queries.types.unionOrIntersectionTypes(type).some(part => queries.types.isNullish(part))) result = { kind: "optional", value: result };
     }
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && component !== undefined &&
       queries.types.isUnion(component.selectedType) && queries.types.unionOrIntersectionTypes(component.selectedType)
