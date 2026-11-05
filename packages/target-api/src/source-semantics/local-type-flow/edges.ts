@@ -108,15 +108,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
   const constructionFamilies = new Map<Node, { readonly source: SourceTypeFlowVariable; readonly target: SourceTypeFlowVariable }[]>();
   for (const [target, source] of fixedAliases) {
-    const seen = new Set<SourceTypeFlowVariable>();
-    let origin: SourceTypeFlowVariable | undefined = source;
-    while (origin !== undefined && !seen.has(origin)) {
-      seen.add(origin);
-      if (ast.is.IsArrayLiteralExpression(origin.node) || ast.is.IsObjectLiteralExpression(origin.node)) break;
-      origin = fixedAliases.get(origin);
-    }
-    if (origin === undefined || !(ast.is.IsArrayLiteralExpression(origin.node) || ast.is.IsObjectLiteralExpression(origin.node)) ||
-      nodes.get(origin.node)?.term?.kind !== "fixed" || declaredSlots.get(origin.node)?.authority === "declared") continue;
+    const origin = fixedAggregateOrigin(source);
+    if (origin === undefined || declaredSlots.get(origin.node)?.authority === "declared") continue;
     let family = constructionFamilies.get(origin.node);
     if (family === undefined) constructionFamilies.set(origin.node, family = []);
     family.push({ source, target });
@@ -136,6 +129,19 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   function refuse(code: SourceTypeFlowRefusal["code"], site: Node, related?: Node): void {
     refusals.push(createSourceTypeFlowRefusal(code, site, related));
+  }
+
+  function fixedAggregateOrigin(variable: SourceTypeFlowVariable): SourceTypeFlowVariable | undefined {
+    const seen = new Set<SourceTypeFlowVariable>();
+    let current: SourceTypeFlowVariable | undefined = variable;
+    while (current !== undefined && !seen.has(current)) {
+      seen.add(current);
+      if (ast.is.IsArrayLiteralExpression(current.node) || ast.is.IsObjectLiteralExpression(current.node)) {
+        return nodes.get(current.node)?.term?.kind === "fixed" ? current : undefined;
+      }
+      current = fixedAliases.get(current);
+    }
+    return undefined;
   }
 
   function record(node: Node, kind: SourceTypeFlowNode["kind"], term?: SourceTypeFlowTerm,
@@ -769,7 +775,19 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (argument !== undefined && type !== undefined && declaredWidth(type)) active.add(argument.node);
     }
     const genericConstruction = ast.is.IsNewExpression(node) && (source.sourceSelectedMethodTypeArguments?.length ?? 0) > 0;
-    if (!genericConstruction && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
+    const genericAggregate = source.sourceArgumentBindings.some(binding => {
+      const argument = arguments_[binding.sourceArgumentIndex];
+      if (argument === undefined || fixedAggregateOrigin(argument) === undefined) return false;
+      const parameter = source.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
+      const component = parameter?.parameterDeclaration === undefined ? undefined : declaredComponent(parameter.parameterDeclaration, query);
+      if (component === undefined) return false;
+      const formal = sourceTypeFlowHomomorphicInput(context.source, query, component.selectedType, component.authoredTypeNode) ?? component.selectedType;
+      const declaration = sourceTypeFlowTypeDeclaration(context.source, query, formal);
+      return declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration) &&
+        (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
+          sourceTypeFlowTypeDeclaration(context.source, query, argument.typeParameter) === declaration);
+    });
+    if (!genericConstruction && !genericAggregate && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
       (receiver === undefined || !active.has(receiver.node))) {
       const result = query.operations.callResult(source);
       const declaration = query.declarations.signatureDeclaration(source.selectedSignature);

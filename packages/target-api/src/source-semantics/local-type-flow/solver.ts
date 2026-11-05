@@ -365,10 +365,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     const fixed = selected.fills.filter(fill => fill.fixed);
     const declared = selected.signatures.length > 0;
+    const aggregateFill = selected.nodes.some(node => node.term?.kind === "fixed" &&
+      (source.ast.is.IsArrayLiteralExpression(node.node) || source.ast.is.IsObjectLiteralExpression(node.node)) &&
+      defaults.declaredSlots.get(node.node)?.authority !== "declared")
+      ? selected.fills.find(fill => !fill.fixed && fill.authority === "declared") : undefined;
     const retainedStructure = !selected.inference && selected.terms.some(term => term.kind !== "fixed" && term.kind !== "numeric" &&
       !source.ast.is.IsArrayLiteralExpression(term.site) && !source.ast.is.IsObjectLiteralExpression(term.site))
       ? constructed(selected) : undefined;
-    const anchor = selected.constructions[0] ?? (!selected.inference ? fixed[0] ??
+    const construction = selected.constructions[0];
+    const anchor = (construction?.authority === "declared" ? construction : aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
         : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" as const })
       : declared ? fixed[0] : selected.fills[0]);

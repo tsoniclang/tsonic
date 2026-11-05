@@ -928,6 +928,38 @@ test("literal admission retains its actual inferred or declared Source authority
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => {
+  const cases = ["identity", "freeze"].flatMap(call => ["array", "object"].flatMap(form =>
+    [false, true].flatMap(alias => ["declared", "inferred"].map(authority => ({
+      call, form, alias, authority, name: `${call}_${form}_${alias ? "alias" : "direct"}_${authority}`,
+    })))));
+  const current = fixture(`type Values = (string | number)[]; type Data = { marker: string; value: number };
+    type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    declare function identity<Value>(value: Value): Value; declare function freeze<Value>(value: Value): Locked<Value>;
+    const key = "value" as const;
+    ${cases.map(row => {
+      const literal = row.form === "array" ? `[${JSON.stringify(row.name)}, 9007199254740993]`
+        : `{ marker: ${JSON.stringify(row.name)}, [key]: 9007199254740993 }`;
+      const type = row.form === "array" ? "Values" : "Data";
+      const annotation = row.authority === "inferred" ? "" : `: ${row.call === "freeze" ? `Locked<${type}>` : type}`;
+      return `function ${row.name}(): void { ${row.alias ? `const source = ${literal};` : ""}
+        const selected${annotation} = ${row.call}(${row.alias ? "source" : literal}); void selected; }`;
+    }).join("\n")}`);
+  const { ast } = current.source;
+  const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
+  for (const row of cases) {
+    const token = current.nodes.find(node => ast.is.IsStringLiteral(node) && ast.text(node) === row.name);
+    let literal = token === undefined ? undefined : ast.parent(token);
+    while (literal !== undefined && !(ast.is.IsArrayLiteralExpression(literal) || ast.is.IsObjectLiteralExpression(literal))) literal = ast.parent(literal);
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const matching = admissions.filter(admission => admission.site === literal);
+    assert.equal(literal !== undefined && outcome !== undefined && outcome.kind !== "refused" && matching.length === 1, true, row.name);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching[0]?.authority === row.authority &&
+      matching[0].type === outcome.type, true, row.name);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C30 and B2 authority uses the declared slot while every B4 or inferred slot stays inferred", () => {
   const cases: readonly { readonly name: string; readonly authority: "declared" | "inferred";
     readonly program: (literal: string) => string }[] = [
