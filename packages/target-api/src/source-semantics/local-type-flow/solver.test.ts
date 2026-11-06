@@ -862,6 +862,47 @@ test("two generic occurrences keep separate binder instantiations", () => {
   assert.equal(first !== undefined && second !== undefined && first.call !== second.call, true);
 });
 
+test("C2434 explicit symbolic destinations retain the original enclosing type parameter", () => {
+  const current = fixture(`function identity<Input>(values: Input[]): Input[] { return values; }
+    function empty<Outer>(): Outer[] { const selected = identity<Outer>([]); return selected; }`);
+  const { ast } = current.source;
+  const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "empty");
+  const parameter = owner === undefined ? undefined : ast.typeParameters(owner)[0];
+  const type = current.type("selected");
+  assert.equal(parameter !== undefined && type.kind === "array" && type.element.kind === "declared" &&
+    type.element.declaration === parameter && type.element.typeArguments.length === 0, true,
+  "the explicit argument retains the actual enclosing declaration, not a concrete or inferred replacement");
+  const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(outcome.type, type), true,
+    "the same authored symbolic destination reaches the original empty allocation");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const unbound = fixture(`declare function receive<Value>(value: Value[]): Value[];
+    function read(): void { const missing = receive([]); void missing; }`);
+  assert.equal(unbound.source.effectiveTypes.refusals().some(refusal => refusal.code === "TSONIC_UNTYPED_ARRAY_LITERAL"), true,
+    "an inferred empty construction has no independent authored symbolic argument");
+});
+
+test("C2437 authored symbolic aliases consume the canonical descriptor's original parameter identity", () => {
+  for (const argument of ["Alias", "Nested"]) {
+    const current = fixture(`function identity<Input>(values: Input[]): Input[] { return values; }
+      function empty<Outer>(): Outer[] {
+        type Alias = Outer; type Nested = Alias;
+        return identity<${argument}>([]);
+      }`);
+    const { ast } = current.source;
+    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "empty");
+    const parameter = owner === undefined ? undefined : ast.typeParameters(owner)[0];
+    const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const array = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+    const element = array?.kind === "array" ? sourceTypeDescriptorStructure(array.element) : undefined;
+    assert.equal(parameter !== undefined && element?.kind === "declared" && element.declaration === parameter, true,
+      `${argument}: the original enclosing type parameter survives authored alias expansion`);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, `${argument}: the original empty allocation has an authored destination`);
+  }
+});
+
 test("the use bound is a Host refusal rather than a partial use prefix", () => {
   const uses = Array.from({ length: 1025 }, () => "take(value);").join(" ");
   const current = fixture(`declare function take(value: number): void; function run(): void { const value = 1; ${uses} }`);
@@ -1277,6 +1318,48 @@ test("C2436 broad heterogeneous arrays retain independent scalar calculation gro
       { kind: "primitive", primitive: "float64" }] } });
   assert.equal(current.source.effectiveTypes.refusals().length, 0,
     "a broad aggregate element cannot make its authored bool and any calculations one equality group");
+});
+
+test("C2437 optional generic destinations retain the exact authored member correspondence", () => {
+  const current = fixture(`type Maybe<Value> = Value | null | undefined;
+    class Holder<Value> {
+      value: Maybe<Value>;
+      constructor(value: Maybe<Value>) { this.value = value; }
+      get current(): Maybe<Value> { return this.value; }
+    }
+    function run(): void {
+      const shape = { value: 3n as int64 };
+      const holder = new Holder<{ value: int64 }>(shape);
+      const absent = new Holder<{ value: int64 }>(undefined);
+      const empty = new Holder<{ value: int64 }>(null);
+      void holder; void absent; void empty;
+    }`);
+  const { ast } = current.source;
+  const literal = current.nodes.find(node => ast.is.IsObjectLiteralExpression(node));
+  const property = literal === undefined ? undefined : ast.properties(literal)[0];
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "shape", true);
+  if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "shape") {
+    throw new Error("The original object allocation and declared destination must remain published.");
+  }
+  assert.equal(outcome.memberCorrespondence?.length, 1,
+    "the original property has one exact checked pair to its authored destination member");
+  const pair = outcome.memberCorrespondence?.[0];
+  assert.equal(property !== undefined && pair?.property === property &&
+    pair.origin === outcome.type.members[0]?.origin, true,
+  "the retained original property and published member share the same canonical origin object");
+  assertSameValue(outcome.type.members[0]?.type, { kind: "primitive", primitive: "int64" });
+  const missing = ["absent", "empty"].map(name => {
+    const call = ast.as.AsVariableDeclaration(current.declaration(name))?.Initializer;
+    return call === undefined ? undefined : ast.arguments(call)[0];
+  });
+  for (const node of missing) {
+    assert.equal(node !== undefined, true, "the original nullish constructor argument is retained");
+    const selected = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "intrinsic" &&
+      selected.type.intrinsic === "absence", true, "a nullish actual argument retains absence, never the present member slot");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("C2232 scalar tokens retain the entire declared union instead of selecting a physical arm", () => {

@@ -96,6 +96,29 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return type === undefined ? undefined : { type, ...(selected === undefined ? {} : { component: selected }) };
   }
 
+  function authoredVariables(type: SourceTypeDescriptor, component: SourceTypeComponentEvidence | undefined): ReadonlySet<Node> | undefined {
+    const variables = typeVariables(type);
+    if (variables.size === 0 || component?.authoredTypeNode === undefined) return undefined;
+    const references = new Set<Node>();
+    const pending = [component.authoredTypeNode];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      const declaration = navigation.sourceReferenceFor(node)?.declaration;
+      if (declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration)) references.add(declaration);
+      if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)) {
+        const parent = ast.parent(node);
+        const reference = ast.is.IsTypeReferenceNode(node) ? node : parent !== undefined &&
+          ast.is.IsTypeReferenceNode(parent) && ast.as.AsTypeReferenceNode(parent)?.TypeName === node ? parent : undefined;
+        const selectedType = reference === undefined ? undefined : semantics.forNode(reference).types.authoredType(reference);
+        const described = reference === undefined || selectedType === undefined ? undefined
+          : context.describe(reference, { selectedType, authoredTypeNode: reference });
+        if (described !== undefined) for (const variable of typeVariables(described)) references.add(variable);
+      }
+      for (const child of ast.children(node)) if (child !== undefined) pending.push(child);
+    }
+    return [...variables].every(variable => references.has(variable)) ? variables : undefined;
+  }
+
   function authoredBinding(callNode: Node | undefined, variables: ReadonlySet<Node>): ReadonlyMap<Node, AuthoredBinding> | undefined {
     if (variables.size === 0) return new Map();
     const query = callNode === undefined ? undefined : semantics.forNode(callNode);
@@ -120,7 +143,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const bound = new Map<Node, AuthoredBinding>();
     const conflicts = new Set<Node>();
     const bind = (declaration: Node, type: SourceTypeDescriptor, component?: SourceTypeComponentEvidence): void => {
-      if (!variables.has(declaration) || conflicts.has(declaration) || sourceTypeDescriptorHasTypeVariables(ast, type)) return;
+      if (!variables.has(declaration) || conflicts.has(declaration) || sourceTypeDescriptorHasTypeVariables(ast, type) &&
+        authoredVariables(type, component) === undefined) return;
       const previous = bound.get(declaration);
       if (previous !== undefined && !sourceTypeDescriptorsEqual(previous.type, type)) {
         bound.delete(declaration);
@@ -217,8 +241,16 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound) && bindings === undefined) return undefined;
     const described = formal === selected ? unbound : context.describe(node, selected,
       bindings === undefined ? undefined : [...bindings].map(([declaration, value]) => ({ declaration, type: value.type })));
-    if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) return undefined;
-    const origin = unbound?.kind === "declared" ? bindings?.get(unbound.declaration)?.component : undefined;
+    if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) {
+      const retained = new Set<Node>();
+      for (const binding of bindings?.values() ?? []) for (const variable of authoredVariables(binding.type, binding.component) ?? []) {
+        retained.add(variable);
+      }
+      const variables = typeVariables(described);
+      if (variables.size === 0 || [...variables].some(variable => !retained.has(variable))) return undefined;
+    }
+    const original = unbound === undefined ? undefined : structural(unbound);
+    const origin = original?.kind === "declared" ? bindings?.get(original.declaration)?.component : undefined;
     const retained = origin === undefined ? selected : { ...origin,
       ...(selected.contextualCall === undefined ? {} : { contextualCall: selected.contextualCall }) };
     const projected = described === undefined ? undefined : parameterKind === "optional"
