@@ -236,6 +236,32 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       parent = ast.parent(occurrence);
     }
     if (parent === undefined) return undefined;
+    if (ast.is.IsBinaryExpression(parent) && ast.operatorKindName(parent) === "KindEqualsToken" &&
+      ast.as.AsBinaryExpression(parent)?.Right === occurrence && (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node))) {
+      const left = ast.as.AsBinaryExpression(parent)?.Left;
+      if (left === undefined) return undefined;
+      if (ast.is.IsIdentifier(left)) {
+        const declaration = navigation.sourceReferenceFor(left)?.declaration;
+        return declaration === undefined ? undefined : select(node, component(declaration, query));
+      }
+      const propertyAccess = ast.is.IsPropertyAccessExpression(left) ? query.operations.propertyAccess(left) : undefined;
+      const access = propertyAccess ?? (ast.is.IsElementAccessExpression(left) ? query.operations.elementAccess(left) : undefined);
+      if (access === undefined) return undefined;
+      const declaration = propertyAccess?.selectedWriteDeclaration ?? access.selectedDeclaration;
+      if (declaration !== undefined && ast.is.IsSetAccessorDeclaration(declaration)) {
+        const parameters = ast.parameters(declaration);
+        return parameters.length !== 1 || parameters[0] === undefined ? undefined : select(node, component(parameters[0], query));
+      }
+      const property = query.types.propertyInfos(access.receiver.type).find(property => property.symbol === access.selectedSymbol);
+      const origin = property === undefined ? undefined : sourceTypeDescriptorMemberOrigin(context.source, query, property, access.receiver.type);
+      const receiver = context.describe(access.receiver.expression);
+      const shape = receiver === undefined ? undefined : structural(receiver);
+      if (origin?.kind !== "resolved" || shape?.kind !== "shape") return undefined;
+      const members = shape.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+      const member = members.length === 1 ? members[0] : undefined;
+      return member === undefined ? undefined : projected(node,
+        member.optional ? { kind: "optional", value: member.type } : member.type, "declared");
+    }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
       Node_Initializer(ast, parent) === occurrence) {
       const name = ast.name(parent);

@@ -134,9 +134,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const selected = group(record.variable);
     if (bodyCallResults.has(selected) && record.declaredType === undefined &&
       source.ast.typeNode(record.declaration ?? record.node) === undefined) return selected.type;
+    const construction = selected.constructions.find(fill => fill.site === record.node);
+    if (construction?.authority === "inferred" && selected.chosenFill?.authority === "declared") return selected.chosenFill.type;
     if (record.declaredType !== undefined) return record.declaredType;
     if (isSourceTypeFlowDeclaredConstruction(record)) {
-      return group(record.variable).constructions.find(fill => fill.site === record.node)?.type;
+      return construction?.type;
     }
     return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
   }
@@ -273,12 +275,21 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   const pendingFills: { readonly variable: SourceTypeFlowVariable; readonly fill: Fill }[] = [];
   const initialFills = new Map<Group, Fill[]>();
+  function inferredLiteralStorage(selected: Group, fill: Fill): boolean {
+    if (fill.authority !== "inferred" || !selected.constructions.includes(fill) ||
+      !selected.terms.some(term => term.kind === "numeric" && term.site === fill.site)) return false;
+    const type = sourceTypeDescriptorStructure(fill.type);
+    return type.kind === "union" || type.kind === "optional" || type.kind === "intrinsic" &&
+      (type.intrinsic === "unknown" || type.intrinsic === "object" || type.intrinsic === "any");
+  }
   function unboundNumericLiteral(variable: SourceTypeFlowVariable, fill?: Fill): SourceLiteralValue | undefined {
     const selected = group(variable);
     const literal = context.literal(variable.node);
-    return literal !== undefined && selected.filledBy === undefined && selected.fills.length === 0 && selected.constructions.length === 0 &&
+    return literal !== undefined && selected.filledBy === undefined && selected.fills.every(fill => inferredLiteralStorage(selected, fill)) &&
+      selected.constructions.every(fill => inferredLiteralStorage(selected, fill)) &&
       selected.terms.some(term => term.kind === "numeric") && !selected.terms.some(term => term.kind === "fixed") &&
-      defaults.declaredSlots.get(variable.node)?.authority !== "declared" && !initialFills.get(selected)?.some(prior => prior !== fill)
+      defaults.declaredSlots.get(variable.node)?.authority !== "declared" &&
+      !initialFills.get(selected)?.some(prior => prior !== fill && !inferredLiteralStorage(selected, prior))
       ? literal : undefined;
   }
 
@@ -308,9 +319,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     while (pending.length > 0) {
       const current = pending.pop()!;
       const selected = group(current);
-      if (seen.has(selected) || selected.fills.length > 0 || selected.constructions.length > 0 ||
+      if (seen.has(selected) || selected.filledBy !== undefined || selected.fills.some(prior => !inferredLiteralStorage(selected, prior)) ||
+        selected.constructions.some(prior => !inferredLiteralStorage(selected, prior)) ||
         selected.terms.some(term => term.kind === "fixed") || defaults.declaredSlots.get(current.node)?.authority === "declared" ||
-        initialFills.get(selected)?.some(prior => prior !== fill)) return false;
+        initialFills.get(selected)?.some(prior => prior !== fill && !inferredLiteralStorage(selected, prior))) return false;
       seen.add(selected);
       const literal = context.literal(current.node);
       if (literal !== undefined && selected.terms.some(term => term.kind === "numeric")) {
@@ -356,6 +368,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       continue;
     }
     const primitive = sourceTypeDescriptorStructure(fill.type);
+    if (!fill.fixed && fill.authority === "declared") for (const record of selected.nodes) {
+      if (record.term?.kind !== "fixed" || !source.ast.is.IsArrayLiteralExpression(record.node) ||
+        defaults.declaredSlots.get(record.node)?.authority === "declared") continue;
+      for (const [index, child] of source.ast.elements(record.node).entries()) {
+        const variable = child === undefined ? undefined : valueVariables.get(child);
+        if (variable === undefined || unboundNumericLiteral(variable, fill) === undefined) continue;
+        const type = sourceTypeFlowDescriptorPart(context, record.node, fill.type,
+          primitive.kind === "tuple" ? { kind: "tuple", index } : { kind: "element" });
+        if (type !== undefined) pendingFills.push({ variable, fill: { type, site: fill.site, fixed: false, authority: fill.authority } });
+      }
+    }
     if (!fill.fixed && fill.authority === "declared" && primitive.kind === "primitive" && selected.derived.length > 0 &&
       selected.derived.every(derived => derived.operator === "conditional" &&
         derived.operands.every(operand => literalSelectionFits(operand, primitive.primitive, fill)))) {
@@ -372,7 +395,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (derived.operands.every(variable => spelling ? unboundNumericLiteral(variable, fill) !== undefined
         : literalSelectionFits(variable, calculation, fill))) {
         for (const variable of derived.operands) pendingFills.push({ variable,
-          fill: primitive.kind === "primitive" ? fill : { ...fill, type: { kind: "primitive", primitive: calculation } } });
+          fill: spelling || primitive.kind === "primitive" ? fill : { ...fill, type: { kind: "primitive", primitive: calculation } } });
       }
     }
     for (const term of selected.terms) {
@@ -483,7 +506,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const literal = selected.nodes.find(node => source.ast.is.IsObjectLiteralExpression(node.node));
       refuse(selected, "TSONIC_UNTYPED_OBJECT_LITERAL", literal?.node ?? selected.variable.node);
     }
-    const fixed = selected.fills.filter(fill => fill.fixed);
+    const fixed = selected.fills.filter(fill => fill.fixed && !inferredLiteralStorage(selected, fill));
     if (fixed.length > 1 && fixed.some(fill => !sourceTypeDescriptorsEqual(fixed[0]!.type, fill.type))) {
       const array = arrayConstruction(selected);
       refuse(selected, array === undefined ? "TSONIC_LOCAL_TYPE_CONFLICT" : "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS",
@@ -491,6 +514,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       return;
     }
     for (const fill of selected.fills) {
+      if (inferredLiteralStorage(selected, fill)) continue;
       if (!sourceTypeDescriptorsEqual(selected.type, fill.type)) {
         refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT",
           fill.site, selected.filledBy ?? selected.signatures[0]?.site);
@@ -637,8 +661,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         else if (arm !== undefined) {
           if (arm.kind === "unfitted") return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
           primitive = arm.primitive;
-        } else if (operand?.kind === "union") return unionOperandRefusal(derived, operand);
-        else {
+        } else {
           const creation = numericCreation(derived.node);
           const own = sourceTypeFlowNumericLiteralKind(creation.literal ?? literal);
           if (own.kind === "refused") {
@@ -735,7 +758,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const declared = slot?.authority !== "declared" || slot.type === undefined ? undefined : sourceTypeDescriptorStructure(slot.type);
     if (declared?.kind === "union" || declared?.kind === "optional") return undefined;
     if (declared?.kind === "primitive") return declared.primitive;
-    const type = selected.fills.map(fill => sourceTypeDescriptorStructure(fill.type)).find(type => type.kind === "primitive");
+    const fill = selected.fills.find(fill => fill.authority === "declared" && sourceTypeDescriptorStructure(fill.type).kind === "primitive") ??
+      selected.fills.find(fill => sourceTypeDescriptorStructure(fill.type).kind === "primitive");
+    const type = fill === undefined ? undefined : sourceTypeDescriptorStructure(fill.type);
     return type?.kind === "primitive" ? type.primitive : undefined;
   }
 
@@ -903,7 +928,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       ? constructed(selected) : undefined;
     if (retainedStructure !== undefined) structuredGroups.add(selected);
     const construction = selected.constructions[0];
-    const anchor = (construction?.authority === "declared" ? construction : aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
+    const contextualFill = construction?.authority === "inferred" ? selected.fills.find(fill => !fill.fixed && fill.authority === "declared") : undefined;
+    const anchor = (construction?.authority === "declared" ? construction : contextualFill ?? aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
         : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" as const })
       : declared ? fixed[0] : selected.fills[0]);
@@ -927,7 +953,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const literal = context.literal(term.site);
       if (destination === undefined || literal === undefined) continue;
       const storage = sourceTypeDescriptorStructure(destination.type);
-      if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
+      if (destination.authority === "declared" && storage.kind === "primitive") {
+        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(storage));
+      } else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
         const creation = numericCreation(term.site);
         if (creation.literal === undefined) continue;
         const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal);

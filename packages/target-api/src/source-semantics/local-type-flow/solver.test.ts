@@ -747,7 +747,7 @@ test("a C8 fixed heterogeneous construction keeps its scalar child at the comple
   const selected = number === undefined ? undefined : current.source.effectiveTypes.get(number);
   assert.equal(selected !== undefined && selected.kind !== "refused", true);
   if (selected === undefined || selected.kind === "refused") throw new Error("The original numeric value publication is required.");
-  assert.equal(sourceTypeDescriptorsEqual(selected.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "float64" }] }), true);
+  assert.equal(sourceTypeDescriptorsEqual(selected.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "int64" }] }), true);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
@@ -791,6 +791,62 @@ test("C30 signed literal children retain the same declared scalar and union slot
     if (whole === undefined || whole.kind === "refused" || child === undefined || child.kind === "refused") throw new Error("Both original signed-literal outcomes are required.");
     assert.equal(sourceTypeDescriptorsEqual(whole.type, child.type), true,
       "the spelling child does not acquire an independent int64 default under a declared floating slot");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2377 literal demands precede the own default without changing C8 storage or inferred authority", () => {
+  const current = fixture(`declare function take(value: (string | number)[]): void;
+    function inferred(): void { const original = ["text", -9007199254740993, 1e100]; void original; }
+    function contextual(): void { const filled = ["text", -9007199254740993, 1e100]; take(filled); }
+    function scalar(narrow: float32): void { const own = -7; const partnered = -7 + narrow; void own; void partnered; }
+    function fixed(peer: int64): void { const retained = [peer, -9223372036854775809]; void retained; }`);
+  const { ast } = current.source;
+  for (const [name, authority] of [["original", "inferred"], ["filled", "declared"]] as const) {
+    const logical: SourceTypeDescriptor = { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "float64" },
+      ...(authority === "inferred" ? [{ kind: "primitive" as const, primitive: "int64" as const }] : [])] };
+    const literal = ast.as.AsVariableDeclaration(current.declaration(name))?.Initializer;
+    const whole = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    assert.equal(whole !== undefined && whole.kind !== "refused" && whole.type.kind === "array" &&
+      sourceTypeDescriptorsEqual(whole.type.element, logical), true, name + ": the complete C8 logical storage is retained");
+    const admission = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
+    assert.equal(admission.length === 1 && admission[0]?.kind === "literal-admission" && admission[0].authority === authority &&
+      whole !== undefined && whole.kind !== "refused" && admission[0].type === whole.type, true, name + ": only the actual destination supplies authority");
+    const negative = literal === undefined ? undefined : ast.elements(literal)[1];
+    const child = negative === undefined ? undefined : current.source.effectiveTypes.get(negative);
+    assert.equal(child !== undefined && child.kind !== "refused" && sourceTypeDescriptorsEqual(child.type, logical), true,
+      name + ": a literal's full union storage is not a union-valued operand");
+  }
+  assertSameValue(current.type("own"), { kind: "primitive", primitive: "int64" });
+  assertSameValue(current.type("partnered"), { kind: "primitive", primitive: "float32" });
+  assertSameValue(current.type("retained"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int64" } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0,
+    "the original fixed-peer nonfit stays a D2 obligation, not an own-default range refusal");
+});
+
+test("C2377 assigned closures use the original callable storage before a numeric body default", () => {
+  const current = fixture(`function property(seed: int32): void {
+      const value = { count: seed, read(): int32 { return this.count; } }; const alias = value;
+      alias.read = () => 11;
+    }
+    function element(seed: int32): void {
+      const value = { count: seed, read(): int32 { return this.count; } }; const alias = value;
+      alias["read"] = function() { return 11; };
+    }
+    function identifier(): void { let read: () => int32; read = () => 11; }
+    function optional(box: { read?: () => int32 }): void { box.read = () => 11; }`);
+  const { ast } = current.source;
+  const closures = current.nodes.filter(node => ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node));
+  assert.equal(closures.length, 4);
+  for (const closure of closures) {
+    const selected = current.source.effectiveTypes.get(closure);
+    const returned = current.source.effectiveTypes.callableReturn(closure);
+    const signatures = selected !== undefined && selected.kind !== "refused" && selected.type.kind === "callable" ? selected.type.calls : undefined;
+    const result = signatures?.[0]?.result;
+    assert.equal(signatures?.length === 1 && result?.kind === "primitive" && result.primitive === "int32", true,
+      "the retained original callable owns its exact int32 result");
+    assert.equal(returned !== undefined && returned.kind !== "refused" && returned.type.kind === "primitive" &&
+      returned.type.primitive === "int32", true, "the actual literal body receives that same declared result demand");
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
