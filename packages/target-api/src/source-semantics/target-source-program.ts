@@ -112,6 +112,7 @@ export function createTargetSourceProgram(
       },
       typeSymbol: queries.checker.getTypeSymbol,
       typeAliasSymbol: queries.checker.getTypeAliasSymbol,
+      aliasedSymbol: queries.checker.getAliasedSymbol,
       symbolName: queries.checker.getSymbolName,
       symbolDeclarations(symbol: Symbol) {
         return definedValues(queries.checker.getSymbolDeclarations(symbol));

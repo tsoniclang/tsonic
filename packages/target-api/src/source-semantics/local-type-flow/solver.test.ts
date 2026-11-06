@@ -16,6 +16,7 @@ import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
 import { sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
+import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 
 function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -117,6 +118,110 @@ test("C2404 generic array binders project the same solved aggregate used by ever
     assert.equal(instance !== undefined && instance.method.length === 1 && instance.method[0]?.type === outcome.type.element &&
       instance.result?.kind === "array" && instance.result.element === outcome.type.element, true,
       "the canonical element object is shared by the allocation, method binder and call result");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2408 every formal shape retains authored binding provenance and exact native aliases", () => {
+  const forms = [
+    { name: "array", type: "(string | T)[]", value: '["text", 9007199254740993]' },
+    { name: "union", type: "string | T", value: "9007199254740993" },
+    { name: "optional", type: "T | undefined", value: "9007199254740993" },
+    { name: "tuple", type: "[string, T]", value: '["text", 9007199254740993]' },
+    { name: "callback_return", type: "() => T", value: "() => 9007199254740993" },
+    { name: "callback_parameter", type: "(value: T) => T", value: "value => 9007199254740993" },
+  ];
+  const current = fixture(`${forms.map(form => `declare function take_${form.name}<T>(sample: T, value: ${form.type}): void;`).join("\n")}
+    class Context<T> { ${forms.map(form => `${form.name}(value: ${form.type}): void { void value; }`).join("\n")} }
+    ${forms.flatMap(form => [
+      `function explicit_${form.name}(): void { take_${form.name}<float32>(0.5, ${form.value}); }`,
+      `function receiver_${form.name}(): void { const receiver = new Context<float32>(); receiver.${form.name}(${form.value}); }`,
+      `function other_${form.name}(sample: float32): void { take_${form.name}(sample, ${form.value}); }`,
+      `function inferred_${form.name}(): void { take_${form.name}(0.5, ${form.value}); }`,
+    ]).join("\n")}`);
+  const { ast } = current.source;
+  const slots = createSourceTypeFlowDeclaredSlotReader(createSourceTypeFlowAnalysisContext(current.source).context);
+  const integers = current.nodes.filter(node => {
+    const range = ast.is.IsNumericLiteral(node) ? ast.authoredRange(node) : undefined;
+    const file = range?.kind === "authored" ? ast.getSourceFile(node) : undefined;
+    return range?.kind === "authored" && file !== undefined &&
+      ast.getSourceText(file).slice(range.start, range.end) === "9007199254740993";
+  });
+  assert.equal(integers.length, 24);
+  for (const literal of integers) {
+    let owner = ast.parent(literal);
+    while (owner !== undefined && !ast.is.IsFunctionDeclaration(owner)) owner = ast.parent(owner);
+    const name = owner === undefined ? undefined : ast.name(owner);
+    const label = name === undefined ? "missing" : ast.text(name);
+    const call = current.nodes.find(node => {
+      if (!ast.is.IsCallExpression(node)) return false;
+      let parent = ast.parent(node);
+      while (parent !== undefined && !ast.is.IsFunctionDeclaration(parent)) parent = ast.parent(parent);
+      return parent === owner;
+    });
+    const query = call === undefined ? undefined : current.source.semantics.forNode(call);
+    const selected = call === undefined ? undefined : query?.operations.call(call);
+    const declaration = selected === undefined ? undefined : query?.declarations.signatureDeclaration(selected.selectedSignature);
+    const binderOwner = declaration !== undefined && ast.is.IsMethodDeclaration(declaration) ? ast.parent(declaration) : declaration;
+    const binder = binderOwner === undefined ? undefined : ast.typeParameters(binderOwner)[0];
+    const bindings = binder === undefined ? undefined : slots.checkedBinding(call, new Set([binder]));
+    const authored = !label.startsWith("inferred_");
+    assert.equal(bindings !== undefined, authored, label + ": only an actual authored binder creates a destination");
+    if (authored) {
+      const outcome = current.source.effectiveTypes.get(literal);
+      const physical = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.construction ?? outcome.type;
+      assert.equal(physical?.kind === "primitive" && physical.primitive === "float32", true,
+        label + ": the original authored float32 survives the checker's number erasure");
+    }
+  }
+});
+
+test("C2412 homomorphic results retain their wrapper separately from the authored input binder", () => {
+  const current = fixture(`type Locked<Input> = { readonly [Key in keyof Input]: Input[Key] };
+    type Box<Input> = { item: Input }; type Row = { value: int32 };
+    declare function direct<Input>(value: Input): Locked<Input>;
+    declare function forwarded<Input>(value: Input): Locked<Input>;
+    declare function boxed<Input>(value: Input): Box<Input>;
+    function first(value: int32): void { const input = { value }; const result: Locked<Row> = direct(input); void result; }
+    function second(value: int32): void { const original = { value }; const alias = original;
+      const result: Locked<Row> = forwarded(alias); void result; }`);
+  const { ast } = current.source;
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const terms = createSourceTypeFlowTerms(ast, graph);
+  const box = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "boxed");
+  const boxQuery = box === undefined ? undefined : current.source.semantics.forNode(box);
+  const boxSignature = box === undefined ? undefined : boxQuery?.types.declarationSignatureInfo(box);
+  assert.equal(box !== undefined && boxQuery !== undefined && boxSignature?.returnType !== undefined &&
+    sourceTypeFlowHomomorphicInput(current.source, boxQuery, boxSignature.returnType, ast.typeNode(box)) === undefined, true,
+    "an arbitrary Box<Input> has no homomorphic input relation");
+  assert.equal(graph.calls.length, 2);
+  for (const call of graph.calls) {
+    const binder = call.method[0];
+    const wrapper = call.result === undefined ? undefined : terms.group(call.result).terms.find(term => term.kind === "declared");
+    const query = current.source.semantics.forNode(call.node);
+    const retainedInput = wrapper?.source === undefined ? undefined : sourceTypeFlowHomomorphicInput(current.source, query,
+      wrapper.source.selectedType, wrapper.source.authoredTypeNode);
+    const selectedParameter = call.source.sourceSelectedMethodTypeArguments?.[0]?.typeParameter;
+    assert.equal(call.result !== undefined && binder !== undefined &&
+      terms.group(call.result).variable !== terms.group(binder.variable).variable &&
+      wrapper?.typeArguments.length === 1 && terms.group(wrapper.typeArguments[0]!).variable === terms.group(binder.variable).variable &&
+      wrapper.source?.authoredTypeNode !== undefined &&
+      query.declarations.authoredTypeDeclaration(wrapper.source.authoredTypeNode) === wrapper.declaration &&
+      retainedInput !== undefined && selectedParameter !== undefined && query.types.isIdentical(retainedInput, selectedParameter), true,
+      "a mapped result is the existing declared wrapper term, never equality with its untransformed input");
+    const instance = current.source.effectiveTypes.callInstantiation(call.node);
+    const input = instance?.method[0]?.type;
+    const result = instance?.result;
+    const inputShape = input === undefined ? undefined : sourceTypeDescriptorStructure(input);
+    const resultShape = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
+    const outcome = current.source.effectiveTypes.get(call.node);
+    assert.equal(inputShape?.kind === "shape" && inputShape.members.length === 1 &&
+      !inputShape.members[0]?.readonly && inputShape.members[0]?.type.kind === "primitive" &&
+      inputShape.members[0].type.primitive === "int32", true, "the original authored input keeps its exact mutable native member");
+    assert.equal(result?.kind === "declared" && resultShape?.kind === "shape" && resultShape.members.length === 1 &&
+      resultShape.members[0]?.readonly === true && resultShape.members[0].type.kind === "primitive" &&
+      resultShape.members[0].type.primitive === "int32" && outcome !== undefined && outcome.kind !== "refused" &&
+      outcome.type === result, true, "the separately solved result preserves its readonly wrapper and one publication object");
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });

@@ -1,4 +1,4 @@
-import type { AstReader, Node, ResolvedSourcePropertyAccessInfo, Symbol, Type } from "@tsonic/tsts";
+import { SymbolFlagsAlias, type AstReader, type Node, type ResolvedSourcePropertyAccessInfo, type Symbol, type Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "./types.js";
 
 export function selectedSourcePropertyDeclarations(
@@ -9,21 +9,33 @@ export function selectedSourcePropertyDeclarations(
 ): readonly Node[] | undefined {
   if (sourceTypes === undefined && selectedDeclaration !== undefined) return Object.freeze([selectedDeclaration]);
   if (selectedSymbol === undefined || sourceTypes?.length === 0) return undefined;
-  const roots = new Set([selectedSymbol, ...semantics.declarations.rootSymbols(selectedSymbol)]);
+  const selectedRoots = [selectedSymbol, ...semantics.declarations.rootSymbols(selectedSymbol)]
+    .map(symbol => selectedSourcePropertySymbol(semantics, symbol));
+  if (selectedRoots.some(symbol => symbol === undefined)) return undefined;
+  const roots = new Set(selectedRoots);
   const symbols = new Set<Symbol>();
   if (sourceTypes === undefined) {
-    for (const symbol of roots) symbols.add(symbol);
+    for (const symbol of selectedRoots) {
+      if (symbol !== undefined) symbols.add(symbol);
+    }
   } else {
     for (const type of sourceTypes) {
       const matches = semantics.types.propertyInfos(type).filter(property =>
-        [property.symbol, ...property.rootSymbols].some(symbol => roots.has(symbol)));
+        [property.symbol, ...property.rootSymbols].some(symbol => roots.has(selectedSourcePropertySymbol(semantics, symbol))));
       if (matches.length !== 1) return undefined;
       symbols.add(matches[0]!.symbol);
       for (const symbol of matches[0]!.rootSymbols) symbols.add(symbol);
     }
   }
-  const declarations = [...new Set([...symbols].flatMap(symbol => semantics.declarations.symbolDeclarations(symbol)))];
+  const selectedSymbols = [...symbols].map(symbol => selectedSourcePropertySymbol(semantics, symbol));
+  if (selectedSymbols.some(symbol => symbol === undefined)) return undefined;
+  const declarations = [...new Set(selectedSymbols.flatMap(symbol =>
+    symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol)))];
   return declarations.length === 0 ? undefined : Object.freeze(declarations);
+}
+
+function selectedSourcePropertySymbol(semantics: SourceFileSemantics, symbol: Symbol): Symbol | undefined {
+  return (symbol.Flags & SymbolFlagsAlias) === 0 ? symbol : semantics.declarations.aliasedSymbol(symbol);
 }
 
 export function selectSourcePropertyDeclaration(

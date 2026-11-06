@@ -85,7 +85,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (owner === undefined || !isCallable(ast, owner) || ast.body(owner) === undefined) continue;
     const query = semantics.forNode(node);
     const projected = declaredSlots.parameter(node, query);
-    if (ast.typeNode(node) === undefined && projected === undefined && Node_Initializer(ast, node) === undefined &&
+    if (ast.typeNode(node) === undefined && (projected === undefined || isInlineArgument(ast, owner)) && Node_Initializer(ast, node) === undefined &&
       owner !== undefined && (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner)) &&
       query.types.contextualType(owner) !== undefined) continue;
     const type = projected ?? context.describe(node);
@@ -1172,7 +1172,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       component: SourceTypeComponentEvidence, level: number, role: "argument" | "callback" | "result" = "argument"): void {
       if (level > 4) { refuse("TSONIC_LOCAL_TYPE_LIMIT", occurrence); return; }
       const formalQuery = query;
-      const homomorphic = sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
+      const homomorphic = role === "result" ? undefined
+        : sourceTypeFlowHomomorphicInput(context.source, formalQuery, formal, component.authoredTypeNode);
       if (homomorphic !== undefined) {
         const { authoredTypeNode, ...inputComponent } = component;
         join(homomorphic, variable, occurrence, Object.freeze({ ...inputComponent, selectedType: homomorphic }), level + 1, role);

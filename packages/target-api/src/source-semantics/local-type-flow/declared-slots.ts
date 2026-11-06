@@ -3,8 +3,9 @@ import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { sourceObjectLiteralDestinationMember } from "../object-literal-correspondence.js";
+import { sourceArrayElementType } from "../array-types.js";
 import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import type { SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal } from "./types.js";
 
 export interface SourceTypeFlowDeclaredSlot {
@@ -12,6 +13,11 @@ export interface SourceTypeFlowDeclaredSlot {
   readonly component?: SourceTypeComponentEvidence;
   readonly type?: SourceTypeDescriptor;
   readonly refusal?: SourceTypeFlowRefusal;
+}
+
+interface AuthoredBinding {
+  readonly type: SourceTypeDescriptor;
+  readonly component?: SourceTypeComponentEvidence;
 }
 
 export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAnalysisContext) {
@@ -65,46 +71,115 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return found;
   }
 
-  // A type argument is authored when it is written in source: an explicit call/construction type argument list, or a
-  // receiver whose declaration is annotated or initialised by a construction with explicit type arguments.
-  function authoredReceiver(expression: Node | undefined): boolean {
-    let current = expression;
-    while (current !== undefined && ast.is.IsParenthesizedExpression(current)) current = Node_Expression(ast, current);
-    if (current === undefined) return false;
-    if (ast.is.IsNewExpression(current)) return ast.typeArguments(current).length > 0;
-    const declaration = navigation.sourceReferenceFor(current)?.declaration;
-    if (declaration === undefined || !(ast.is.IsVariableDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration) ||
-      ast.is.IsPropertyDeclaration(declaration))) return false;
-    if (ast.typeNode(declaration) !== undefined) return true;
-    const initializer = Node_Initializer(ast, declaration);
-    return initializer !== undefined && ast.is.IsNewExpression(initializer) && ast.typeArguments(initializer).length > 0;
-  }
-
-  // C30 / C-2306: a generic formal is a declared slot of its instantiated type when every type variable it mentions is
-  // bound by an authored type argument at this call (method binders by the call's own type arguments; class/interface
-  // binders by an authored receiver or by the construction's own type arguments).
-  function authoredBinders(formal: SourceTypeDescriptor, callNode: Node | undefined, occurrence: Node): boolean {
-    // A contextual callable keeps its own contextual typing: only explicit call type arguments make its formal a declared
-    // slot. Receiver instantiations make declared slots for values (aggregate constructions and their aliases) only.
-    const callable = ast.is.IsArrowFunction(occurrence) || ast.is.IsFunctionExpression(occurrence);
-    return callNode !== undefined && authoredBinding(callNode, typeVariables(formal), !callable);
-  }
-
-  function authoredBinding(callNode: Node, variables: ReadonlySet<Node>, receivers = true): boolean {
-    if (variables.size === 0) return true;
-    const explicit = ast.typeArguments(callNode).length > 0;
-    const callee = ast.is.IsCallExpression(callNode) ? Node_Expression(ast, callNode) : undefined;
-    const receiver = callee !== undefined && (ast.is.IsPropertyAccessExpression(callee) || ast.is.IsElementAccessExpression(callee))
-      ? Node_Expression(ast, callee) : undefined;
-    for (const variable of variables) {
-      const owner = ast.parent(variable);
-      if (owner === undefined) return false;
-      const nominal = ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner);
-      if (!nominal) { if (!explicit) return false; continue; }
-      if (ast.is.IsNewExpression(callNode)) { if (!explicit) return false; continue; }
-      if (!receivers || !authoredReceiver(receiver)) return false;
+  function authoredValue(node: Node, query: SourceFileSemantics): AuthoredBinding | undefined {
+    let expression = node;
+    while (ast.is.IsParenthesizedExpression(expression)) {
+      const operand = Node_Expression(ast, expression);
+      if (operand === undefined) return undefined;
+      expression = operand;
     }
-    return true;
+    if (ast.is.IsNewExpression(expression) && ast.typeArguments(expression).length > 0) {
+      const type = context.describe(expression);
+      return type === undefined ? undefined : { type };
+    }
+    const declaration = navigation.sourceReferenceFor(expression)?.declaration;
+    if (declaration === undefined) return undefined;
+    if (ast.typeNode(declaration) === undefined) {
+      const initializer = Node_Initializer(ast, declaration);
+      return initializer !== undefined && ast.is.IsNewExpression(initializer) && ast.typeArguments(initializer).length > 0
+        ? authoredValue(initializer, query) : undefined;
+    }
+    const selected = component(declaration, query);
+    const type = context.describe(expression, selected);
+    return type === undefined ? undefined : { type, ...(selected === undefined ? {} : { component: selected }) };
+  }
+
+  function checkedBinding(callNode: Node | undefined, variables: ReadonlySet<Node>): ReadonlyMap<Node, AuthoredBinding> | undefined {
+    if (variables.size === 0) return new Map();
+    const query = callNode === undefined ? undefined : semantics.forNode(callNode);
+    const call = callNode === undefined ? undefined : query?.operations.call(callNode);
+    if (query === undefined || callNode === undefined || call?.sourceSelectedSignatureKind !== "resolved") return undefined;
+    const receiver = call.sourceReceiver ?? call.sourceCallee;
+    const receiverBindings = query.types.typeArgumentBindings(receiver.type) ?? [];
+    const methodBindings = (call.sourceSelectedMethodTypeArguments ?? []).flatMap(argument => {
+      const symbol = query.declarations.typeSymbol(argument.typeParameter);
+      return (symbol === undefined ? [] : query.declarations.symbolDeclarations(symbol)).flatMap(declaration => {
+        if (!ast.is.IsTypeParameterDeclaration(declaration)) return [];
+        const declared = query.declarations.declaredType(declaration);
+        return declared !== undefined && query.types.isIdentical(declared, argument.typeParameter) ? [{ declaration, argument }] : [];
+      });
+    });
+    const checked = new Set([...receiverBindings.map(binding => binding.declaration), ...methodBindings.map(binding => binding.declaration)]);
+    if ([...variables].some(variable => !checked.has(variable))) return undefined;
+    const bound = new Map<Node, AuthoredBinding>();
+    const conflicts = new Set<Node>();
+    const bind = (declaration: Node, type: SourceTypeDescriptor, component?: SourceTypeComponentEvidence): void => {
+      if (!variables.has(declaration) || conflicts.has(declaration) || sourceTypeDescriptorHasTypeVariables(ast, type)) return;
+      const previous = bound.get(declaration);
+      if (previous !== undefined && !sourceTypeDescriptorsEqual(previous.type, type)) {
+        bound.delete(declaration);
+        conflicts.add(declaration);
+      } else bound.set(declaration, previous ?? { type, ...(component === undefined ? {} : { component }) });
+    };
+    const positions = (formal: SourceTypeDescriptor, actual: SourceTypeDescriptor, component?: SourceTypeComponentEvidence): void => {
+      if (formal.kind === "declared" && ast.is.IsTypeParameterDeclaration(formal.declaration)) {
+        bind(formal.declaration, actual, component);
+      } else if (formal.kind === "array" && actual.kind === "array") {
+        const selectedType = component === undefined ? undefined : sourceArrayElementType(component.selectedType, query);
+        positions(formal.element, actual.element, selectedType === undefined ? undefined : { selectedType });
+      } else if (formal.kind === "optional" && actual.kind === "optional") {
+        const selectedType = component === undefined ? undefined : query.types.nonNullableType(component.selectedType);
+        positions(formal.value, actual.value, selectedType === undefined ? undefined : { selectedType });
+      }
+      else if (formal.kind === "tuple" && actual.kind === "tuple" && formal.elements.length === actual.elements.length) {
+        formal.elements.forEach((element, index) => {
+          const selected = actual.elements[index];
+          const selectedType = component === undefined ? undefined : query.types.tupleElementInfos(component.selectedType)[index]?.type;
+          if (selected?.kind === element.kind) positions(element.type, selected.type, selectedType === undefined ? undefined : { selectedType });
+        });
+      } else if (formal.kind === "declared" && actual.kind === "declared" && formal.declaration === actual.declaration &&
+        formal.typeArguments.length === actual.typeArguments.length) {
+        const application = component === undefined ? undefined : query.types.aliasApplication(component.selectedType);
+        const arguments_ = application?.declaration === actual.declaration ? application.bindings.map(binding =>
+          ({ declaration: binding.declaration, argumentType: binding.argument })) : component === undefined ? []
+          : query.types.typeArgumentBindings(component.selectedType) ?? [];
+        const parameters = ast.typeParameters(actual.declaration);
+        formal.typeArguments.forEach((argument, index) => {
+          const selectedType = arguments_.find(binding => binding.declaration === parameters[index])?.argumentType;
+          const authoredTypeNode = component?.authoredTypeNode === undefined ? undefined : ast.typeArguments(component.authoredTypeNode)[index];
+          positions(argument, actual.typeArguments[index]!, selectedType === undefined ? undefined : { selectedType,
+            ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }) });
+        });
+      }
+    };
+    const receiverType = authoredValue(receiver.expression, query)?.type;
+    if (receiverType?.kind === "declared") {
+      if (receiverBindings.length === receiverType.typeArguments.length) receiverBindings.forEach((binding, index) => bind(binding.declaration,
+        receiverType.typeArguments[index]!, { selectedType: binding.argumentType }));
+    } else if (receiverType?.kind === "array") {
+      if (receiverBindings.length === 1) bind(receiverBindings[0]!.declaration, receiverType.element);
+    }
+    for (const { declaration, argument } of methodBindings) {
+      if (argument.explicitTypeNode === undefined) continue;
+      const type = context.describe(callNode, { selectedType: argument.selectedType, authoredTypeNode: argument.explicitTypeNode });
+      if (type !== undefined) bind(declaration, type, { selectedType: argument.selectedType, authoredTypeNode: argument.explicitTypeNode });
+    }
+    for (const binding of call.sourceArgumentBindings) {
+      const parameter = call.sourceSelectedSignatureParameters[binding.sourceParameterIndex]?.parameterDeclaration;
+      const argument = call.sourceArguments[binding.sourceArgumentIndex]?.expression;
+      const selected = parameter === undefined ? undefined : component(parameter, query);
+      const actual = argument === undefined ? undefined : authoredValue(argument, query);
+      const formal = selected === undefined ? undefined : context.describe(parameter!, selected);
+      if (formal !== undefined && actual !== undefined) positions(formal, actual.type, actual.component);
+    }
+    const destination = read(callNode, query);
+    const declaration = query.declarations.signatureDeclaration(call.selectedSignature);
+    const selected = declaration === undefined ? undefined : component(declaration, query);
+    const returned = selected === undefined ? undefined : context.describe(declaration!, selected);
+    if (destination?.authority === "declared" && destination.type !== undefined && returned !== undefined) {
+      positions(returned, destination.type, destination.component);
+    }
+    return [...variables].every(variable => bound.has(variable)) ? bound : undefined;
   }
 
   function select(node: Node, selected: SourceTypeComponentEvidence | undefined,
@@ -116,12 +191,17 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       ...(selected.authoredTypeNode === undefined ? {} : { authoredTypeNode: selected.authoredTypeNode }),
     } : selected;
     const unbound = context.describe(node, formal);
-    if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound) &&
-      !authoredBinders(unbound, callNode, node)) return undefined;
-    const described = formal === selected ? unbound : context.describe(node, selected);
+    const bindings = unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound)
+      ? checkedBinding(callNode, typeVariables(unbound)) : undefined;
+    if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound) && bindings === undefined) return undefined;
+    const described = formal === selected ? unbound : context.describe(node, selected,
+      bindings === undefined ? undefined : [...bindings].map(([declaration, value]) => ({ declaration, type: value.type })));
     if (described !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, described)) return undefined;
-    return described === undefined ? Object.freeze({ component: selected, authority: "declared" })
-      : Object.freeze({ ...projected(node, described, "declared"), component: selected });
+    const origin = unbound?.kind === "declared" ? bindings?.get(unbound.declaration)?.component : undefined;
+    const retained = origin === undefined ? selected : { ...origin,
+      ...(selected.contextualCall === undefined ? {} : { contextualCall: selected.contextualCall }) };
+    return described === undefined ? Object.freeze({ component: retained, authority: "declared" })
+      : Object.freeze({ ...projected(node, described, "declared"), component: retained });
   }
 
 
@@ -335,7 +415,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return undefined;
   }
 
-  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), authoredBinding,
+  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), checkedBinding,
     callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
     component?: SourceTypeComponentEvidence): void {
     if (read(node, semantics.forNode(node)) !== undefined) return;

@@ -68,7 +68,7 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
     : queries.declarations.symbolDeclarations(mapped.syntheticOrigin);
   const role = declarations?.every(declaration => ast.is.IsSetAccessorDeclaration(declaration)) ? "write" : "read";
   const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, role)
-    ?? canonicalMemberDeclaration(ast, queries, property);
+    ?? canonicalMemberDeclaration(ast, declarations, property);
   if (declaration !== undefined) return Object.freeze({ kind: "resolved",
     origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "declared", declaration }) });
   const parent = property.symbol.Parent;
@@ -83,10 +83,9 @@ export function sourceTypeDescriptorMemberOrigin(source: SourceTypeFlowSource, q
 // binder appends a symbol's declarations in bind order and mergeSymbol appends merged declarations in program
 // file order. A synthetic member with several root symbols (e.g. an intersection of distinct members) is not one
 // logical member and has no declared origin here.
-function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], queries: SourceFileSemantics,
+function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], declarations: readonly Node[],
   property: TypePropertyInfo): Node | undefined {
   if (property.rootSymbols.length > 1) return undefined;
-  const declarations = queries.declarations.symbolDeclarations(property.rootSymbols[0] ?? property.symbol);
   if (declarations.length < 2 || declarations.some(declaration =>
     ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) return undefined;
   return declarations[0];
