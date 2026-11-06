@@ -2,6 +2,7 @@ import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
+import { getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -34,6 +35,22 @@ export function sourceTypeFlowCallResultType(queries: SourceFileSemantics, call:
     queries.types.isUnion(call.sourceResultType) && queries.types.unionOrIntersectionTypes(call.sourceResultType)
       .some(member => queries.types.isNullish(member))
     ? sourceTypeDescriptorUnion([type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
+}
+
+export function sourceTypeFlowNominalReadComponent(source: SourceTypeFlowSource,
+  node: Node): SourceTypeComponentEvidence | undefined {
+  const { ast } = source;
+  if (!ast.is.IsIdentifier(node)) return undefined;
+  const selected = source.semantics.selectValueTypeRefinement(node);
+  if (selected.kind !== "resolved") return undefined;
+  const queries = source.semantics.forNode(node);
+  if (queries.types.isIdentical(selected.declaredType, selected.selectedType) ||
+    queries.types.couldContainTypeVariables(selected.selectedType)) return undefined;
+  const declaration = sourceTypeFlowTypeDeclaration(source, queries, selected.selectedType);
+  if (declaration === undefined || !(ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))) return undefined;
+  const declared = queries.declarations.declaredType(declaration);
+  return declared !== undefined && queries.types.isIdentical(declared, selected.selectedType)
+    ? Object.freeze({ selectedType: selected.selectedType, declaration }) : undefined;
 }
 
 export function sourceTypeFlowTypeDeclaration(
@@ -226,9 +243,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     for (const selected of call?.sourceSelectedMethodTypeArguments ?? []) {
       const declaration = typeDeclaration(selected.typeParameter, queries);
-      const descriptor = selected.explicitTypeNode === undefined
-        ? describeType(selected.selectedType, queries, { selectedType: selected.selectedType }, 0, bindings)
-        : describeSyntax(selected.explicitTypeNode, queries, 0, bindings);
+      const component = getSourceMethodTypeArgumentComponent(selected);
+      const descriptor = component.authoredTypeNode === undefined
+        ? describeType(selected.selectedType, queries, component, 0, bindings)
+        : describeSyntax(component.authoredTypeNode, queries, 0, bindings);
       if (declaration !== undefined && descriptor !== undefined) bindings.set(declaration, descriptor);
     }
     if (call !== undefined && ast.is.IsNewExpression(node)) {
@@ -352,7 +370,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     describing.push(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
-    let result: SourceTypeDescriptor | undefined;
+    const nominal = component === undefined || component.declaration === declarationFor(node)
+      ? sourceTypeFlowNominalReadComponent(source, node) : undefined;
+    let result = nominal === undefined ? undefined : describeType(nominal.selectedType, queries, nominal, depth, bindings);
     if (contextual !== undefined) {
       const signature = queries.types.declarationSignatureInfo(node);
       const parameters = signature?.parameters.map((parameter, index) => {
@@ -498,10 +518,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         .some(type => queries.types.isNullish(type))) {
       result = { kind: "optional", value: result };
     }
-    if (result?.kind === "optional" && declaration !== undefined && node !== declaration &&
+    const structure = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
+    if (structure?.kind === "optional" && declaration !== undefined && node !== declaration &&
       declaration === declarationFor(node)) {
       const selected = component?.selectedType ?? queries.types.expressionType(node);
-      if (selected !== undefined && !queries.types.isUnion(selected) && !queries.types.isNullish(selected)) result = result.value;
+      if (selected !== undefined && !queries.types.isUnion(selected) && !queries.types.isNullish(selected)) result = structure.value;
     }
     active.delete(node);
     describing.pop();

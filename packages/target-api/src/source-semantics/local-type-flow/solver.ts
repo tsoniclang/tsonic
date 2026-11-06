@@ -2,6 +2,7 @@ import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import { sourceArrayElementType } from "../array-types.js";
+import { getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowCallResultType, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
@@ -208,7 +209,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const variable = projectedVariables[index]!;
     const base = valueVariables.get(variable.node);
     const baseGroup = base === undefined ? undefined : group(base);
-    const declaredMember = variable.path[0]?.kind === "member" && variable.path.every(part => part.kind !== "binder") &&
+    const declaredProjection = (variable.path[0]?.kind === "member" || variable.path[0]?.kind === "optional-value") &&
+      variable.path.every(part => part.kind !== "binder") &&
       baseGroup?.terms.some(term => term.kind === "declared" ||
         term.kind === "fixed" && term.type.kind === "declared") &&
       group(variable) !== baseGroup;
@@ -219,7 +221,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const bodyResult = variable.path.every(part => part.kind !== "binder") && baseGroup !== undefined
       ? bodyCallResults.get(baseGroup)?.call.node : undefined;
     const origin = baseGroup === undefined ? undefined : receiverProjections.get(baseGroup)?.[0]?.origin ??
-      bodyResult ?? aggregate?.site ?? (declaredMember ? variable.node : undefined);
+      bodyResult ?? aggregate?.site ?? (declaredProjection ? variable.node : undefined);
     if (baseGroup === undefined || origin === undefined) { index += 1; continue; }
     retainReceiverProjection(variable, { source: baseGroup, origin,
       site: variable.node, path: variable.path, construction: false });
@@ -1283,7 +1285,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const selected of groups.values()) {
     for (const node of selected.nodes) if (node.publish && node.declaration === node.node && selected.type !== undefined) {
       for (const use of source.navigation.declarationUses(node.declaration)) if (use.role !== "type-only" && use.role !== "source-linkage") {
-        publish(use.reference, selected, node.association);
+        if (!records.has(use.reference)) publish(use.reference, selected, node.association);
       }
     }
   }
@@ -1322,8 +1324,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const symbol = queries.declarations.typeSymbol(argument.typeParameter);
       const declarations = symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)
         .filter(declaration => source.ast.is.IsTypeParameterDeclaration(declaration));
-      const type = declarations.length !== 1 ? undefined : context.describe(node, { selectedType: argument.selectedType,
-        ...(argument.explicitTypeNode === undefined ? {} : { authoredTypeNode: argument.explicitTypeNode }) });
+      const type = declarations.length !== 1 ? undefined : context.describe(node, getSourceMethodTypeArgumentComponent(argument));
       if (declarations.length !== 1 || type === undefined) break;
       method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(type) }));
     }

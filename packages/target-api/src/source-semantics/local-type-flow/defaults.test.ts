@@ -30,6 +30,34 @@ function fixture(text: string, noImplicitAny = true) {
   return { source, defaults, declaration };
 }
 
+test("C2429 only a published winning default contributes its original authored primitive component", () => {
+  const current = fixture(`declare function create<Value = int32>(): Value;
+    declare function infer<Value = int32>(value: Value): Value;
+    function run(narrow: float32, wide: number): void {
+      const chosen = create(); const explicit = create<float32>();
+      const authored = infer(narrow); const equalBacking = infer(wide); const fractional = infer(1.5);
+      void chosen; void explicit; void authored; void equalBacking; void fractional;
+    }`);
+  const { ast } = current.source;
+  const expected = [["chosen", "int32", "default"], ["explicit", "float32", "explicit"],
+    ["authored", "float32", "inferred"], ["equalBacking", "float64", "inferred"], ["fractional", "float64", "inferred"]] as const;
+  for (const [name, primitive, origin] of expected) {
+    const declaration = current.declaration(name);
+    const callNode = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const call = callNode === undefined ? undefined : current.source.semantics.forNode(callNode).operations.call(callNode);
+    const argument = call?.sourceSelectedMethodTypeArguments?.[0];
+    const outcome = current.source.effectiveTypes.get(declaration);
+    const selected = callNode === undefined ? undefined : current.source.effectiveTypes.callInstantiation(callNode);
+    assert.equal(argument !== undefined && (argument.defaultTypeNode !== undefined) === (origin === "default") &&
+      (argument.explicitTypeNode !== undefined) === (origin === "explicit"), true,
+    name + ": only the checked selected contribution supplies authored syntax");
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+      outcome.type.primitive === primitive && selected?.method.length === 1 && selected.method[0]?.type.kind === "primitive" &&
+      selected.method[0].type.primitive === primitive, true, name + ": value and same-call binder retain the original Source primitive");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("an unresolved foreign conditional alias is not an identity-only nominal cut", () => {
   const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
     declare const local: Local;

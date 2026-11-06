@@ -1,4 +1,14 @@
 import type { AstReader, Node, SourceFileQueries, Type } from "@tsonic/tsts";
+import type { ResolvedSourceCallInfo } from "../source-navigation/call-info.js";
+import type { SourceTypeComponentEvidence } from "./types.js";
+
+export function getSourceMethodTypeArgumentComponent(
+  argument: NonNullable<ResolvedSourceCallInfo["sourceSelectedMethodTypeArguments"]>[number],
+): SourceTypeComponentEvidence {
+  const authoredTypeNode = argument.explicitTypeNode ?? argument.defaultTypeNode;
+  return Object.freeze({ selectedType: argument.selectedType,
+    ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }) });
+}
 
 export interface SourceTypeArgumentBinding {
   readonly declaration: Node;

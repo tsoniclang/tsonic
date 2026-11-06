@@ -8,7 +8,7 @@ import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import { sourceArrayElementType } from "../array-types.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceTypeComponentEvidence } from "../types.js";
-import { sourceTypeDescriptorIndexValue, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { sourceTypeDescriptorIndexValue, sourceTypeFlowNominalReadComponent, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
@@ -480,11 +480,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const selectedNode = nodes.get(selected);
       if (source === undefined) return fixed(node, referenceComponent(node, selected));
       if (selectedNode?.term?.kind === "fixed") {
-        const component = referenceComponent(node, selected);
+        const nominal = sourceTypeFlowNominalReadComponent(context.source, node);
+        const component = nominal ?? referenceComponent(node, selected);
         const type = selectedNode.term.type;
-        const narrowed = type.kind === "optional" && component !== undefined &&
+        const structure = sourceTypeDescriptorStructure(type);
+        const narrowed = nominal !== undefined ? context.describe(node, nominal) : structure.kind === "optional" && component !== undefined &&
           !semantics.forNode(node).types.isUnion(component.selectedType) &&
-          !semantics.forNode(node).types.isNullish(component.selectedType) ? type.value : type;
+          !semantics.forNode(node).types.isNullish(component.selectedType) ? structure.value : type;
         if (narrowed !== type || !(ast.is.IsArrayLiteralExpression(selectedNode.term.site) ||
           ast.is.IsObjectLiteralExpression(selectedNode.term.site))) {
           const result = fixed(node, component, narrowed);
@@ -817,12 +819,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   function narrowedRead(source: SourceTypeFlowVariable, occurrence: Node): SourceTypeFlowVariable {
     const term = terms.get(source);
-    if (term?.kind !== "optional") return source;
-    const types = semantics.forNode(occurrence).types;
+    const query = semantics.forNode(occurrence);
+    const types = query.types;
+    const declared = term?.kind === "declared" ? query.declarations.declaredType(term.declaration) : undefined;
+    if (term?.kind !== "optional" && (declared === undefined || !types.isUnion(declared) ||
+      !types.unionOrIntersectionTypes(declared).some(member => types.isNullish(member)))) return source;
     const selected = types.expressionType(occurrence);
     if (selected === undefined || types.isNullish(selected) || types.isUnion(selected) &&
       types.unionOrIntersectionTypes(selected).some(member => types.isNullish(member))) return source;
-    return term.value;
+    return term?.kind === "optional" ? term.value : project(source, optionalValuePart);
   }
 
   function pattern(node: Node, source: SourceTypeFlowVariable, site: Node): void {
@@ -1267,19 +1272,23 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
             refuse("TSONIC_LOCAL_TYPE_UNION", occurrence); return;
           }
           const valueType = values[0]!;
+          const valueComponent = presentFormalComponent(valueType, component, formalQuery);
+          if (valueComponent === undefined) { refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence); return; }
           const child = project(variable, optionalValuePart);
           putTerm(variable, Object.freeze({ kind: "optional", site: occurrence, value: child, source: component }));
           if (mentionedBinders(valueType, formalQuery.types, level + 1).size > 0) {
-            join(valueType, child, occurrence, Object.freeze({ ...component, selectedType: valueType }), level + 1, role);
+            join(valueType, child, occurrence, valueComponent, level + 1, role);
           } else {
-            const type = context.describe(occurrence, component);
-            if (type?.kind === "optional") putTerm(child, Object.freeze({ kind: "fixed", site: occurrence, type: type.value }));
+            const type = context.describe(occurrence, valueComponent);
+            if (type !== undefined) putTerm(child, Object.freeze({ kind: "fixed", site: occurrence, type }));
             else refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", occurrence);
           }
           return;
         }
         if (role === "argument" && values.length === 1 && values.length < members.length) {
-          join(values[0]!, variable, occurrence, Object.freeze({ ...component, selectedType: values[0]! }), level, role);
+          const valueComponent = presentFormalComponent(values[0]!, component, formalQuery);
+          if (valueComponent === undefined) { refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence); return; }
+          join(values[0]!, variable, occurrence, valueComponent, level, role);
           return;
         }
         const arrayFormal = role === "argument" && formalQuery.types.isUnion(formal)
@@ -1385,6 +1394,18 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (mentionedBinders(formal, formalQuery.types, level).size > 0 || formalQuery.types.couldContainTypeVariables(formal)) {
         refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence);
       }
+    }
+
+    function presentFormalComponent(type: Type, component: SourceTypeComponentEvidence,
+      queries: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
+      const annotation = component.authoredTypeNode ?? (component.declaration === undefined ? undefined : ast.typeNode(component.declaration));
+      const selection = annotation === undefined ? undefined : queries.types.authoredSelection(annotation, type);
+      if (annotation !== undefined && (selection?.kind !== "authored-members" || selection.nodes.length !== 1 ||
+        selection.selectedNullishTypes.length !== 0)) return undefined;
+      const authoredTypeNode = selection?.kind === "authored-members" ? selection.nodes[0] : undefined;
+      const declaration = sourceTypeFlowTypeDeclaration(context.source, queries, type, authoredTypeNode);
+      return Object.freeze({ selectedType: type, ...(declaration === undefined ? {} : { declaration }),
+        ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }) });
     }
 
     function arrayArgumentFormal(alternatives: readonly Type[], variable: SourceTypeFlowVariable, occurrence: Node,
@@ -1601,7 +1622,7 @@ export function sourceTypeFlowDeclaredPatternBindings(context: SourceTypeFlowAna
 export function sourceTypeFlowDescriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {
   const structure = sourceTypeDescriptorStructure(type);
   if (part.kind === "element") return structure.kind === "array" ? structure.element : undefined;
-  if (part.kind === "optional-value") return type.kind === "optional" ? type.value : undefined;
+  if (part.kind === "optional-value") return structure.kind === "optional" ? structure.value : undefined;
   if (part.kind === "tuple") return structure.kind === "tuple" ? sourceTypeDescriptorTupleValue(structure, part.index) : undefined;
   if (part.kind === "member") return structure.kind === "shape"
     ? structure.members.find(member => member.name === part.name)?.type ?? structure.indexes.find(index => index.key.kind === "string")?.value : undefined;

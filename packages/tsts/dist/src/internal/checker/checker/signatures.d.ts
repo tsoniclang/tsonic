@@ -4846,6 +4846,7 @@ export declare function Checker_getMinTypeArgumentCount(receiver: GoPtr<Checker>
 export declare function Checker_hasTypeParameterDefault(receiver: GoPtr<Checker>, t: GoPtr<Type>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.fillMissingTypeArguments","kind":"method","status":"implemented","sigHash":"90119f31e42b5b3c6483f74a4486a50d2c36e8e47fd66a2b2a63c01cf4ffbd18","bodyHash":"53094ad900a81ee75d20b4e1e28ec02aebdcae494b0d9096524457dadbc4f47a"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains original default syntax for native trailing-argument fills in the existing selected-call candidate journal without changing selected Types."}
  *
  * Go source:
  * func (c *Checker) fillMissingTypeArguments(typeArguments []*Type, typeParameters []*Type, minTypeArgumentCount int, isJavaScriptImplicitAny bool) []*Type {
@@ -4909,8 +4910,10 @@ export declare function Checker_getDefaultTypeArgumentType(receiver: GoPtr<Check
  * }
  */
 export declare function Checker_getDefaultFromTypeParameter(receiver: GoPtr<Checker>, t: GoPtr<Type>): GoPtr<Type>;
+export declare function sourceTypeParameterDefaultNode(parameter: Type): Node | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getResolvedTypeParameterDefault","kind":"method","status":"implemented","sigHash":"df0b5f27b5a3ad3a7f7e37bc9b455d7dc3215612a0d28be3e13b5ebb30fa4f7d","bodyHash":"4203eefed124d92a7d77c86f54cc659c56fa486c3247c69112bd8d7a8103ddcb"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Shares the original default-node origin reader with selected-call transport; ordinary native default resolution and cache semantics are unchanged."}
  *
  * Go source:
  * func (c *Checker) getResolvedTypeParameterDefault(t *Type) *Type {

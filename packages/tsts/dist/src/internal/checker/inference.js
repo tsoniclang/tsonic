@@ -10,9 +10,10 @@ import { IsMethodDeclaration, IsTypeParameterDeclaration } from "../ast/generate
 import { SymbolFlagsOptional, SymbolFlagsProperty } from "../ast/symbolflags.js";
 import { CheckFlagsReadonly, CheckFlagsReverseMapped } from "../ast/checkflags.js";
 import { LinkStore_Get } from "../core/linkstore.js";
+import { copySelectedCallDefaults, retainSelectedCallDefault } from "./checker/selected-call-evidence-transaction.js";
 import { InferenceFlagsNoDefault, InferenceFlagsAnyDefault, InferenceFlagsNone, InferencePriorityAlwaysStrict, InferencePriorityCircularity, InferencePriorityContravariantConditional, InferencePriorityHomomorphicMappedType, InferencePriorityMappedTypeConstraint, InferencePriorityMaxValue, InferencePriorityNakedTypeVariable, InferencePriorityNone, InferencePriorityPartialHomomorphicMappedType, InferencePriorityPriorityImpliesCombination, InferencePriorityReturnType, InferencePrioritySpeculativeTuple, UnionReductionSubtype, getEndElementCount, getMappedTypeModifiers, isTupleType, isLiteralType, someType, applyStringMapping, getNumberLiteralValue, getBigIntLiteralValue, getBooleanLiteralValue, getStringLiteralValue, InferencePriorityLiteralKeyof, InferencePriorityNoConstraints, InferencePrioritySubstituteSource, MappedTypeModifiersIncludeOptional, MappedTypeModifiersIncludeReadonly, } from "./checker/state.js";
 import { Checker_clearActiveMapperCaches, Checker_getBaseConstraintOfType, Checker_getConstraintOfType, Checker_getConstraintTypeFromMappedType, Checker_getDefaultConstraintOfConditionalType, Checker_getSubstitutionIntersection, Checker_isNoInferType, } from "./checker/inference.js";
-import { Checker_getApplicableIndexInfo, Checker_getBaseSignature, Checker_getConstraintOfTypeParameter, Checker_getDefaultFromTypeParameter, Checker_getErasedSignature, Checker_getMinTypeArgumentCount, Checker_fillMissingTypeArguments, Checker_getReturnTypeOfSignature, Checker_getSignaturesOfType, Checker_getTypeArguments, Checker_getTypeParameterFromMappedType, Checker_getTypeReferenceArity, Checker_getTypeWithThisArgument, Checker_isApplicableIndexType, } from "./checker/signatures.js";
+import { Checker_getApplicableIndexInfo, Checker_getBaseSignature, Checker_getConstraintOfTypeParameter, Checker_getDefaultFromTypeParameter, sourceTypeParameterDefaultNode, Checker_getErasedSignature, Checker_getMinTypeArgumentCount, Checker_fillMissingTypeArguments, Checker_getReturnTypeOfSignature, Checker_getSignaturesOfType, Checker_getTypeArguments, Checker_getTypeParameterFromMappedType, Checker_getTypeReferenceArity, Checker_getTypeWithThisArgument, Checker_isApplicableIndexType, } from "./checker/signatures.js";
 import { Checker_distributeIndexOverObjectType, Checker_getIndexInfoOfType, Checker_getIndexInfosOfType, Checker_getIndexType, Checker_getIndexTypeEx, Checker_getIndexedAccessType, Checker_getLiteralTypeFromProperty, Checker_getNameTypeFromMappedType, Checker_getPropertyOfType, Checker_getTypeOfSymbol, Checker_isReadonlySymbol, Checker_newIndexInfo, Checker_newSymbol, Checker_newSymbolEx, Checker_setStructuredTypeMembers, } from "./checker/symbols.js";
 import { Checker_createArrayType, Checker_createArrayTypeEx, Checker_getContextualType, Checker_getContextualTypeForObjectLiteralMethod, Checker_createTupleType, Checker_createTupleTypeEx, Checker_filterType, Checker_getActualTypeVariable, Checker_getApparentType, Checker_getBaseTypeOfLiteralType, Checker_getElementTypeOfSliceOfTupleType, Checker_getElementTypes, Checker_getFalseTypeFromConditionalType, Checker_getIntersectionType, Checker_getNullableType, Checker_getNumberLiteralType, Checker_getPropertiesOfObjectType, Checker_getPropertiesOfType, Checker_getReducedType, Checker_getRegularTypeOfLiteralType, Checker_getSimplifiedType, Checker_getTemplateTypeFromMappedType, Checker_getTrueTypeFromConditionalType, Checker_getUnionType, Checker_getUnionTypeEx, Checker_getWidenedLiteralType, Checker_getWidenedType, Checker_instantiateType, Checker_isArrayOrTupleType, Checker_isArrayType, Checker_isConstTypeVariable, Checker_isGenericMappedType, Checker_isMutableArrayLikeType, Checker_isReadonlyArrayType, Checker_mapType, Checker_maybeTypeOfKind, Checker_isNonGenericObjectType, Checker_newAnonymousType, Checker_newObjectType, Checker_parseBigIntLiteralType, Checker_removeMissingOrUndefinedType, Checker_removeMissingType, } from "./checker/types.js";
 import { Checker_newBackreferenceMapper, Checker_newInferenceTypeMapper, mergeTypeMappers, newMergedTypeMapper, newTypeMapper } from "./mapper.js";
@@ -2549,6 +2550,7 @@ export function Checker_newInferenceContext(receiver, typeParameters, signature,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.cloneInferenceContext","kind":"method","status":"implemented","sigHash":"b528c8557efc41276497cfd0a0ece81df38ffc94e84beb7e3bce2cd5ff238da8","bodyHash":"f6e00d8c073892864f75139c1caa233e8ef774e4d4a50f84b0a1ad50c7a6a090"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains only the exact copied selected-default contribution in the existing bounded call-evidence frame; native inference caches and signatures are unchanged."}
  *
  * Go source:
  * func (c *Checker) cloneInferenceContext(n *InferenceContext, extraFlags InferenceFlags) *InferenceContext {
@@ -2562,10 +2564,13 @@ export function Checker_cloneInferenceContext(receiver, n, extraFlags) {
     if (n === undefined) {
         return undefined;
     }
-    return Checker_newInferenceContextWorker(receiver, core.Map(n.inferences, cloneInferenceInfo), n.signature, n.flags | extraFlags, n.compareTypes);
+    const cloned = Checker_newInferenceContextWorker(receiver, core.Map(n.inferences, cloneInferenceInfo), n.signature, n.flags | extraFlags, n.compareTypes);
+    copySelectedCallDefaults(receiver, n, cloned);
+    return cloned;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.cloneInferredPartOfContext","kind":"method","status":"implemented","sigHash":"5494df88169cd173775b5f3ee1adbec489ccace52f60371081cfcdf04a80d9fd","bodyHash":"4556cd82622a921a32b3e5f484e133d41af729c94b5a93e5c31432d7c9394628"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains only the exact copied selected-default contribution in the existing bounded call-evidence frame; native inference caches and signatures are unchanged."}
  *
  * Go source:
  * func (c *Checker) cloneInferredPartOfContext(n *InferenceContext) *InferenceContext {
@@ -2581,7 +2586,9 @@ export function Checker_cloneInferredPartOfContext(receiver, n) {
     if (inferences.length === 0) {
         return undefined;
     }
-    return Checker_newInferenceContextWorker(receiver, core.Map(inferences, cloneInferenceInfo), n.signature, n.flags, n.compareTypes);
+    const cloned = Checker_newInferenceContextWorker(receiver, core.Map(inferences, cloneInferenceInfo), n.signature, n.flags, n.compareTypes);
+    copySelectedCallDefaults(receiver, n, cloned);
+    return cloned;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.newInferenceContextWorker","kind":"method","status":"implemented","sigHash":"59fccbc304520d0e5bd1f60884e44dc146d0792a36b7732eb31419c430c3bbef","bodyHash":"b968d990f2712e0aa186d860a1916dbc77ac0656ddda0362ba25e00593e4487d"}
@@ -2664,6 +2671,7 @@ export function Checker_inferFromIntraExpressionSites(receiver, n) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.getInferredType","kind":"method","status":"implemented","sigHash":"436a997c39ab435c05948be5e6daf128288aeec093ec139ffeb8092f98b82931","bodyHash":"93777b5af3ccc033fc95ecbba08bb7460666f77b99316c7a4447ed1d127cc4ac"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains authored-default origin only when the native branch selects it and clears it on native recomputation or constraint replacement; the existing bounded selected-call journal owns evidence."}
  *
  * Go source:
  * func (c *Checker) getInferredType(n *InferenceContext, index int) *Type {
@@ -2764,6 +2772,7 @@ export function Checker_getInferredType(receiver, n, index) {
         }
         let inferredType = undefined;
         let fallbackType = undefined;
+        let defaultTypeNode;
         if (n.signature !== undefined) {
             let inferredCovariantType = undefined;
             if (inference.candidates.length !== 0) {
@@ -2795,6 +2804,7 @@ export function Checker_getInferredType(receiver, n, index) {
                 const defaultType = Checker_getDefaultFromTypeParameter(receiver, inference.typeParameter);
                 if (defaultType !== undefined) {
                     inferredType = Checker_instantiateType(receiver, defaultType, mergeTypeMappers(Checker_newBackreferenceMapper(receiver, n, index), n.nonFixingMapper));
+                    defaultTypeNode = sourceTypeParameterDefaultNode(inference.typeParameter);
                 }
             }
         }
@@ -2811,6 +2821,7 @@ export function Checker_getInferredType(receiver, n, index) {
             if (inferredType !== undefined) {
                 const constraintWithThis = Checker_getTypeWithThisArgument(receiver, instantiatedConstraint, inferredType, false);
                 if (n.compareTypes(inferredType, constraintWithThis, false) === TernaryFalse) {
+                    defaultTypeNode = undefined;
                     let filteredByConstraint = undefined;
                     if (inference.priority === InferencePriorityReturnType) {
                         filteredByConstraint = Checker_mapType(receiver, inferredType, (t) => n.compareTypes(t, constraintWithThis, false) !== TernaryFalse ? t : c.neverType);
@@ -2819,11 +2830,13 @@ export function Checker_getInferredType(receiver, n, index) {
                 }
             }
             if (inferredType === undefined) {
+                defaultTypeNode = undefined;
                 inferredType = (fallbackType !== undefined && n.compareTypes(fallbackType, Checker_getTypeWithThisArgument(receiver, instantiatedConstraint, fallbackType, false), false) !== TernaryFalse) ? fallbackType : instantiatedConstraint;
             }
             inference.inferredType = inferredType;
         }
         Checker_clearActiveMapperCaches(receiver);
+        retainSelectedCallDefault(receiver, n, inference.typeParameter, inference.inferredType, defaultTypeNode);
     }
     return inference.inferredType;
 }

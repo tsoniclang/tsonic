@@ -852,6 +852,7 @@ export interface ResolvedCallSelectedMethodTypeArgumentEvidence {
     readonly typeParameter: Type;
     readonly selectedType: Type;
     readonly explicitTypeNode?: Node;
+    readonly defaultTypeNode?: Node;
 }
 export interface ResolvedCallSelectedSignatureParameterEvidence {
     readonly parameterIndex: number;

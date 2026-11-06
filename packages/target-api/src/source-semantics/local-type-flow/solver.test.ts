@@ -4511,6 +4511,70 @@ test("C2421 named function values and their aliases retain the callable, not its
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2424 closed nominal guard reads retain authored members without changing their declared storage", () => {
+  const current = fixture(`class Base { base: int32 = 1; }
+    class Child extends Base { child: float32 = 1; }
+    function run(value: Base | string | undefined, error: unknown): void {
+      const before = value; const unknownBefore = error;
+      if (value instanceof Child) { const narrowed = value; void narrowed.child; }
+      if (error instanceof Child) { const caught = error; void caught.child; }
+      const after = value; const unknownAfter = error; void before; void unknownBefore; void after; void unknownAfter;
+    }`);
+  const { ast } = current.source;
+  const child = current.nodes.find(node => ast.is.IsClassDeclaration(node) && ast.text(ast.name(node)) === "Child");
+  for (const name of ["narrowed", "caught"]) {
+    const declaration = current.declaration(name);
+    const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const outcome = initializer === undefined ? undefined : current.source.effectiveTypes.get(initializer);
+    const structure = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+    assert.equal(child !== undefined && outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+      outcome.type.declaration === child && structure?.kind === "shape" && structure.members.some(member =>
+        member.name === "child" && member.type.kind === "primitive" && member.type.primitive === "float32"), true,
+    name + ": the actual closed class declaration owns the flow read and member width");
+  }
+  for (const name of ["before", "after"]) {
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "optional", true,
+      name + ": a guard never rewrites the authored absence-capable slot");
+  }
+  for (const name of ["unknownBefore", "unknownAfter"]) {
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" && outcome.type.intrinsic === "unknown", true,
+      name + ": an unguarded broad read stays broad");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2424 optional generic result positions retain the authored present component and one absence", () => {
+  const current = fixture(`interface Box<Value> { readonly value: Value; }
+    type Maybe<Value> = Box<Value> | undefined;
+    declare function direct<Value>(value: Value): Box<Value> | undefined;
+    declare function alias<Value>(value: Value): Maybe<Value>;
+    function run(value: float32): void {
+      const first = direct(value); const second = alias(value);
+      if (first !== undefined) { const firstRead = first; const firstValue = firstRead.value; void firstValue; }
+      if (second !== undefined) { const secondRead = second; const secondValue = secondRead.value; void secondValue; }
+      const stillOptional = first; void stillOptional;
+    }`);
+  for (const name of ["first", "second", "stillOptional"]) {
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    const type = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+    assert.equal(type?.kind === "optional" && sourceTypeDescriptorStructure(type.value).kind !== "optional", true,
+      name + ": one original absence, not a wrapped whole-result component");
+  }
+  for (const name of ["firstRead", "secondRead"]) {
+    const outcome = current.source.effectiveTypes.get(current.declaration(name));
+    const type = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+    assert.equal(type?.kind === "shape" && type.members[0]?.type.kind === "primitive" && type.members[0].type.primitive === "float32", true,
+      name + ": the present read uses the solved original binder");
+    const reference = current.source.ast.as.AsVariableDeclaration(current.declaration(name))?.Initializer;
+    const read = reference === undefined ? undefined : current.source.effectiveTypes.get(reference);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && read !== undefined && read.kind !== "refused" &&
+      read.type === outcome.type, true, name + ": the original occurrence keeps its identical directed present result");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C2388 receiver writes keep the retained fixed argument's binder path", () => {
   const current = fixture(`class Box<Value> { value: Value; constructor(value: Value) { this.value = value; } }
     class Receiver<Value> { accept(value: Box<Value>): void { void value; } }
