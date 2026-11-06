@@ -445,7 +445,19 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       }
     }
     const annotation = component?.authoredTypeNode ?? (declaration === undefined ? undefined : ast.typeNode(declaration));
-    if (result === undefined && annotation !== undefined) result = describeSyntax(annotation, queries, depth, bindings);
+    if (result === undefined && annotation !== undefined) {
+      const refinement = ast.is.IsIdentifier(node) && node !== declaration && declaration === declarationFor(node) &&
+        annotation === ast.typeNode(declaration) ? semantics.selectValueTypeRefinement(node) : undefined;
+      const selected = refinement?.kind === "resolved" && refinement.reference.declaration === declaration
+        ? queries.types.authoredSelection(annotation, refinement.selectedType) : undefined;
+      if (selected?.kind === "authored-members") {
+        const members = selected.nodes.map(member => describeSyntax(member, queries, depth, bindings));
+        if (members.every((member): member is SourceTypeDescriptor => member !== undefined)) {
+          result = sourceTypeDescriptorUnion([...members,
+            ...selected.selectedNullishTypes.map(() => ({ kind: "intrinsic", intrinsic: "absence" }) as const)]);
+        }
+      } else result = describeSyntax(annotation, queries, depth, bindings);
+    }
     if (result === undefined && annotation !== undefined) {
       active.delete(node);
       describing.pop();

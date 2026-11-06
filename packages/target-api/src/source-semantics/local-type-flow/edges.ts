@@ -485,7 +485,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const component = nominal ?? referenceComponent(node, selected);
         const type = selectedNode.term.type;
         const structure = sourceTypeDescriptorStructure(type);
-        const narrowed = nominal !== undefined ? context.describe(node, nominal) : structure.kind === "optional" && component !== undefined &&
+        const refinement = structure.kind === "union" ? semantics.selectValueTypeRefinement(node) : undefined;
+        const projected = refinement?.kind === "resolved" && !semantics.forNode(node).types.isIdentical(
+          refinement.declaredType, refinement.selectedType);
+        const narrowed = nominal !== undefined || projected ? context.describe(node, component) : structure.kind === "optional" && component !== undefined &&
           sourceTypeFlowTypeIsPresent(semantics.forNode(node).types, component.selectedType) ? structure.value : type;
         if (narrowed !== type || !(ast.is.IsArrayLiteralExpression(selectedNode.term.site) ||
           ast.is.IsObjectLiteralExpression(selectedNode.term.site))) {

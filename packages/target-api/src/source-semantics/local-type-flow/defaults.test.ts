@@ -53,6 +53,67 @@ test("C2428 aliased generic method callbacks publish the original selected binde
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2446 narrowed callable reads retain their original authored branch without retargeting union storage", () => {
+  const current = fixture(`function run(values: int32[]): void {
+    const mapper: ((value: int32) => int32) | string = (value: int32): int32 => value;
+    const alias = mapper; const second = alias; const mapped = values.map(alias);
+    void mapper; void alias; void second; void mapped;
+  }`);
+  const { ast } = current.source;
+  const declaration = current.declaration("mapper");
+  const stored = current.source.effectiveTypes.get(declaration);
+  assert.equal(stored !== undefined && stored.kind !== "refused" && stored.type.kind === "union" &&
+    stored.type.types.length === 2, true, "the original declaration keeps its complete authored storage union");
+  const reads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
+    current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+  assert.equal(reads.length, 2, "both actual mapper reads are retained");
+  const alias = current.declaration("alias");
+  const aliasReads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
+    current.source.navigation.sourceReferenceFor(node)?.declaration === alias);
+  assert.equal(aliasReads.length, 3, "each original alias read, including the actual map argument, is retained");
+  for (const node of [...reads, ...aliasReads, alias, current.declaration("second")]) {
+    const described = current.defaults.context.describe(node);
+    const outcome = current.source.effectiveTypes.get(node);
+    const callable = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
+    const published = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+    for (const selected of [callable, published]) {
+      const signature = selected?.kind === "callable" ? selected.calls[0] : undefined;
+      assert.equal(signature?.parameters[0]?.type.kind === "primitive" &&
+        signature.parameters[0].type.primitive === "int32" && signature.result.kind === "primitive" &&
+        signature.result.primitive === "int32" && signature.declaration !== undefined &&
+        ast.is.IsFunctionTypeNode(signature.declaration), true,
+      "the selected original callable syntax, parameter width and result width survive each alias/read");
+    }
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2446 union occurrence projection preserves subsets and refuses to guess erased numeric branches", () => {
+  const current = fixture(`function run(value: int32 | float32 | string, input: ((value: int32) => int32) | string,
+    partial: ((value: int32) => int32) | string | undefined): void {
+    const unchanged = input;
+    if (typeof input !== "string") { const callable = input; void callable; }
+    if (typeof value !== "string") { const numeric = value; void numeric; }
+    if (typeof partial !== "string") { const optional = partial; void optional; }
+    void unchanged;
+  }`);
+  const unchanged = current.defaults.context.describe(current.declaration("unchanged"));
+  assert.equal(unchanged?.kind === "union" && unchanged.types.length === 2, true,
+    "an unrefined callable|string occurrence retains both original branches");
+  const numeric = current.defaults.context.describe(current.declaration("numeric"));
+  assert.equal(numeric?.kind === "union" && numeric.types.some(type => type.kind === "primitive" && type.primitive === "int32") &&
+    numeric.types.some(type => type.kind === "primitive" && type.primitive === "float32") &&
+    numeric.types.length === 3 && numeric.types.some(type => type.kind === "string"), true,
+  "equal erased numeric backing types never choose a native width");
+  const optional = current.defaults.context.describe(current.declaration("optional"));
+  const present = optional === undefined ? undefined : sourceTypeDescriptorStructure(optional);
+  const value = present?.kind === "optional" ? sourceTypeDescriptorStructure(present.value) : undefined;
+  assert.equal(value?.kind === "callable" && value.calls[0]?.parameters[0]?.type.kind === "primitive" &&
+    value.calls[0].parameters[0].type.primitive === "int32" && value.calls[0].result.kind === "primitive" &&
+    value.calls[0].result.primitive === "int32", true,
+  "a checked callable-and-absence subset retains its original callable and one absence state");
+});
+
 test("C2429 only a published winning default contributes its original authored primitive component", () => {
   const current = fixture(`declare function create<Value = int32>(): Value;
     declare function infer<Value = int32>(value: Value): Value;
