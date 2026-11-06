@@ -3,11 +3,12 @@ import { Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js
 import { ModifierFlagsPrivate, ModifierFlagsReadonly, ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
 import * as utf8 from "../go/unicode/utf8.js";
-import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindCallSignature, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindNeverKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindTypeLiteral, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindCallSignature, KindBigIntKeyword, KindBooleanKeyword, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindNeverKeyword, KindNumberKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindStringKeyword, KindTypeAliasDeclaration, KindTypeLiteral, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { argumentPassingFactKey, canonicalIdentityFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, } from "./facts.js";
 import { extensionHostRunSourceAnalysis, extensionHostProviderExportMaterialized, extensionHostSetFact, getExtensionHost, } from "./host.js";
 import { getProviderVirtualArtifactForCompiler, getProviderVirtualCompilerMetadata, getProviderTypeFamilyVariantNominalMemberName, } from "./provider-virtual-internal.js";
 import { parseProviderFunctionSignatureMarker, providerFunctionSignatureMarkerMaximumLength } from "./provider-callable-signatures.js";
+import { parseProviderSourcePrimitiveMarker, providerSourcePrimitiveMarkerMaximumLength, } from "./provider-source-primitives.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
     const extensionHost = getExtensionHost(program);
     if (extensionHost === undefined || file === undefined) {
@@ -44,6 +45,7 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
     }, evidence);
     extensionHost[extensionHostSetFact](file, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule), evidence);
     recordProviderVirtualFunctionSignatureFacts(extensionHost, file, virtualModule, compilerMetadata.renderedFunctionSignatures, evidence);
+    const sourcePrimitives = bindProviderSourcePrimitives(file, compilerMetadata.renderedSourcePrimitives);
     const fileSymbol = Node_Symbol(file);
     if (fileSymbol === undefined) {
         return;
@@ -82,7 +84,7 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
         if (symbol === undefined) {
             throw new Error(`Provider virtual artifact '${virtualModule.fileName}' did not bind export identity '${declaration.id}'.`);
         }
-        recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualModule, declaration, evidence);
+        recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualModule, declaration, evidence, sourcePrimitives.get(declaration.id) ?? []);
         if (directName === undefined) {
             continue;
         }
@@ -91,7 +93,7 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
             throw new Error(`Provider virtual artifact '${virtualModule.fileName}' did not bind direct declaration '${declaration.id}'.`);
         }
         if (directSymbol !== symbol) {
-            recordProviderVirtualExportSymbolFacts(extensionHost, directSymbol, virtualModule, declaration, evidence);
+            recordProviderVirtualExportSymbolFacts(extensionHost, directSymbol, virtualModule, declaration, evidence, sourcePrimitives.get(declaration.id) ?? []);
         }
         if (declaration.signatures === undefined || declaration.signatures.length === 0) {
             for (const exportDeclaration of directSymbol.Declarations ?? []) {
@@ -110,7 +112,42 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
         }
     }
 }
-function recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualModule, declaration, evidence) {
+function bindProviderSourcePrimitives(file, primitives) {
+    const annotations = new Map();
+    if (primitives.length === 0)
+        return annotations;
+    const sourceText = SourceFile_Text(file);
+    const byteLength = utf8.StringByteLen(sourceText);
+    const used = new Set();
+    const visit = (node) => {
+        if (node.Kind === KindNumberKeyword || node.Kind === KindBigIntKeyword
+            || node.Kind === KindBooleanKeyword || node.Kind === KindStringKeyword) {
+            const start = Node_Pos(node);
+            const marker = parseProviderSourcePrimitiveMarker(utf8.StringByteSlice(sourceText, start, Math.min(byteLength, start + providerSourcePrimitiveMarkerMaximumLength)));
+            if (marker !== undefined) {
+                const primitive = primitives[marker];
+                if (primitive === undefined || primitive.marker !== marker || used.has(marker)) {
+                    throw new Error("Provider source-primitive annotation has an invalid or duplicate manifest marker.");
+                }
+                used.add(marker);
+                const selected = annotations.get(primitive.exportId) ?? [];
+                selected.push(Object.freeze({ node, primitive: primitive.primitive }));
+                annotations.set(primitive.exportId, selected);
+            }
+        }
+        Node_ForEachChild(node, child => {
+            if (child !== undefined)
+                visit(child);
+            return false;
+        });
+    };
+    visit(file);
+    if (used.size !== primitives.length) {
+        throw new Error("Provider virtual artifact did not bind every source-primitive annotation.");
+    }
+    return annotations;
+}
+function recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualModule, declaration, evidence, sourcePrimitives) {
     const exportName = getProviderSourceExportName(declaration);
     extensionHost[extensionHostSetFact](symbol, canonicalIdentityFactKey, {
         kind: "export",
@@ -125,7 +162,7 @@ function recordProviderVirtualExportSymbolFacts(extensionHost, symbol, virtualMo
     }, evidence);
     const publication = extensionHost[extensionHostSetFact](symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
     if (publication === "inserted")
-        extensionHost[extensionHostProviderExportMaterialized](symbol);
+        extensionHost[extensionHostProviderExportMaterialized](symbol, sourcePrimitives);
 }
 function recordProviderVirtualFunctionSignatureFacts(extensionHost, file, virtualModule, renderedFunctionSignatures, evidence) {
     if (renderedFunctionSignatures.length === 0) {

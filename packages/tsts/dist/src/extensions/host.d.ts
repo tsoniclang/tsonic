@@ -10,6 +10,7 @@ import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./fact
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
 import { providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, type ProviderVirtualCompilerArtifact, type ProviderVirtualCompilerMetadata } from "./provider-virtual-internal.js";
+import { type ProviderSourcePrimitiveAnnotation } from "./provider-source-primitives.js";
 import { type ProviderMaterializationRound } from "./provider-materialization.js";
 export interface ExtensionEvidence {
     readonly message: string;
@@ -196,6 +197,7 @@ export interface SourceAnalysisContext {
 export interface ProviderExportMaterializationContext {
     readonly symbol: Symbol;
     readonly declaration: ProviderVirtualDeclarationFact;
+    readonly sourcePrimitives: readonly ProviderSourcePrimitiveAnnotation[];
     readonly facts: Pick<SourceAnalysisFactAccess, "set">;
 }
 export interface ExtensionInitializeContext {
@@ -632,7 +634,7 @@ export declare class ExtensionHost {
     readonly factResolver: ExtensionFactResolver;
     readonly providers: ProviderRegistry;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
-    [extensionHostProviderExportMaterialized](symbol: Symbol): void;
+    [extensionHostProviderExportMaterialized](symbol: Symbol, sourcePrimitives: readonly ProviderSourcePrimitiveAnnotation[]): void;
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
     get program(): object;

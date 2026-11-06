@@ -11,6 +11,7 @@ import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } 
 import { getProviderVirtualArtifactForCompiler, getProviderTypeFamilyVariantNominalMemberName, getStableProviderVirtualSliceSuffix, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, providerVirtualInternalRoot, providerVirtualPublicRoot, } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
 import { createProviderRenderedFunctionSignature, hasUniqueProviderCallableIdentities, renderProviderFunctionSignatureMarker, } from "./provider-callable-signatures.js";
+import { renderProviderSourcePrimitiveMarker } from "./provider-source-primitives.js";
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
 import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits, providerModuleContextLimits, } from "./provider-resource-limits.js";
@@ -2530,7 +2531,7 @@ export class ExtensionHost {
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }
-    [extensionHostProviderExportMaterialized](symbol) {
+    [extensionHostProviderExportMaterialized](symbol, sourcePrimitives) {
         if (this.#semanticFinalizationState !== "open") {
             throw new Error("Provider exports must materialize before semantic finalization.");
         }
@@ -2552,6 +2553,7 @@ export class ExtensionHost {
                         materialized(Object.freeze({
                             symbol,
                             declaration,
+                            sourcePrimitives: Object.freeze(sourcePrimitives.map(annotation => Object.freeze({ ...annotation }))),
                             facts: Object.freeze({ set: facts.set }),
                         }));
                     }
@@ -4453,7 +4455,11 @@ function providerVirtualCompilerMetadataEqual(left, right) {
     return left.directDeclarations.length === right.directDeclarations.length
         && left.directDeclarations.every((declaration, index) => declaration.id === right.directDeclarations[index]?.id
             && declaration.localName === right.directDeclarations[index]?.localName)
-        && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
+        && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures)
+        && left.renderedSourcePrimitives.length === right.renderedSourcePrimitives.length
+        && left.renderedSourcePrimitives.every((primitive, index) => primitive.marker === right.renderedSourcePrimitives[index]?.marker
+            && primitive.exportId === right.renderedSourcePrimitives[index]?.exportId
+            && primitive.primitive === right.renderedSourcePrimitives[index]?.primitive);
 }
 function providerDeclarationMaterializationEquals(left, right) {
     if (left === undefined || left.kind !== right.kind) {
@@ -4487,6 +4493,7 @@ function renderProviderDeclarationModel(model, options = {}) {
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
         directDeclarations: new Map(),
         renderedFunctionSignatures: [],
+        renderedSourcePrimitives: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
     if (options.mode === "canonical-export" || hasDirectDeclarations) {
@@ -4581,6 +4588,7 @@ function snapshotProviderVirtualCompilerMetadata(context) {
     return Object.freeze({
         directDeclarations: Object.freeze([...context.directDeclarations].map(([id, localName]) => Object.freeze({ id, localName }))),
         renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
+        renderedSourcePrimitives: Object.freeze([...context.renderedSourcePrimitives]),
     });
 }
 function renderProviderImportDeclaration(declaration) {
@@ -4878,8 +4886,14 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
         case "bigint":
         case "object":
             return type.kind;
-        case "source-primitive":
-            return renderSourcePrimitiveType(type.name);
+        case "source-primitive": {
+            if (context.declaration === undefined) {
+                throw new Error("Provider source primitive was rendered without an owning declaration.");
+            }
+            const marker = context.renderedSourcePrimitives.length;
+            context.renderedSourcePrimitives.push(Object.freeze({ marker, exportId: context.declaration.id, primitive: type.name }));
+            return `(${renderProviderSourcePrimitiveMarker(marker)}${renderSourcePrimitiveType(type.name)})`;
+        }
         case "source-global":
             return type.typeArguments === undefined || type.typeArguments.length === 0
                 ? `globalThis.${type.name}`

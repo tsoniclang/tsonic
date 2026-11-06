@@ -368,7 +368,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const sourceNode = nodes.get(source.node);
     if (!active.has(source.node) && !derived.has(source.node)) {
       if (sourceNode?.term?.kind !== "fixed") return fixed(node, declaredComponent(node, query));
-      const result = record(node, "fixed", Object.freeze({ ...sourceNode.term, site: node }), node, sourceNode.association);
+      const result = record(node, "fixed", sourceNode.term, node, sourceNode.association);
       replace(node, { publish: sourceNode.publish });
       if (result !== undefined) fixedAliases.set(result, source);
       return result;
@@ -480,8 +480,18 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const narrowed = type.kind === "optional" && component !== undefined &&
           !semantics.forNode(node).types.isUnion(component.selectedType) &&
           !semantics.forNode(node).types.isNullish(component.selectedType) ? type.value : type;
-        const result = fixed(node, component, narrowed);
-        if (narrowed === type && result !== undefined) fixedAliases.set(result, source);
+        if (narrowed !== type || !(ast.is.IsArrayLiteralExpression(selectedNode.term.site) ||
+          ast.is.IsObjectLiteralExpression(selectedNode.term.site))) {
+          const result = fixed(node, component, narrowed);
+          if (narrowed === type && result !== undefined) fixedAliases.set(result, source);
+          return result;
+        }
+        const sourceFile = ast.getSourceFile(node);
+        const result = record(node, "fixed", undefined, selected, sourceFile === undefined ? undefined : Object.freeze({
+          occurrence: node, sourceFile, ...(component === undefined ? {} : { component }),
+        }));
+        link(source, result, node);
+        if (result !== undefined) fixedAliases.set(result, source);
         return result;
       }
       const result = record(node, selectedNode?.kind === "fixed" ? "fixed" : "read", undefined, selected);

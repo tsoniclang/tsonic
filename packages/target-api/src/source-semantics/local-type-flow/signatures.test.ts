@@ -3,6 +3,8 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createTargetSourceProgram } from "../target-source-program.js";
+import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms } from "./terms.js";
 import type {
@@ -558,4 +560,23 @@ test("signature collection requires its supplied inference predicate and rejects
   assert.equal(collectSourceTypeFlowSignatures.length, 3, "the current API has no optional scope argument");
   assert.throws(() => Reflect.apply(collectSourceTypeFlowSignatures, undefined, [checked.context, input]), TypeError,
     "the old unscoped signature cannot silently acquire a default or compatibility path");
+});
+
+test("C2388 contextual authored results do not become inferred signatures", () => {
+  const current = fixture(`function take(values: number[]): void { void values; }
+    function declared(): number[] {
+      const read: () => number[] = () => { const values = [1]; return values; }; return read();
+    }
+    function inferred() { const values = [1]; take(values); return values; }`);
+  const { context } = createSourceTypeFlowAnalysisContext(current.source);
+  const collected = collectSourceTypeFlowEdges(context);
+  const terms = createSourceTypeFlowTerms(current.source.ast, collected);
+  const signatures = collectSourceTypeFlowSignatures(context, collected, terms.isInference);
+  const arrow = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
+  const inferred = current.find("KindFunctionDeclaration", "inferred");
+  assert.equal(arrow !== undefined && signatures.every(signature => signature.owner !== arrow), true,
+    "the original authored callback result, not a checked return, owns the declared slot");
+  assert.equal(signatures.some(signature => signature.owner === inferred), true,
+    "a genuinely inferred signature retains its original closure boundary");
+  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.code === "TSONIC_LOCAL_TYPE_SIGNATURE").length, 1);
 });

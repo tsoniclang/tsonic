@@ -3910,3 +3910,45 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
   const issues = current.source.effectiveTypes.refusals();
   assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; ").slice(0, 2048));
 });
+
+test("C2388 receiver writes keep the retained fixed argument's binder path", () => {
+  const current = fixture(`class Box<Value> { value: Value; constructor(value: Value) { this.value = value; } }
+    class Receiver<Value> { accept(value: Box<Value>): void { void value; } }
+    function run(): boolean {
+      const receiver = new Receiver<int32>(); const original = new Box<int32>(7 as int32);
+      receiver.accept(original); return original.value === 7;
+    }`);
+  const { ast } = current.source;
+  const writes = current.source.effectiveTypes.obligations().filter(row => {
+    const call = row.association?.call?.call;
+    const callee = call === undefined ? undefined : ast.as.AsCallExpression(call)?.Expression;
+    return row.kind === "write-fit" && callee !== undefined && ast.is.IsPropertyAccessExpression(callee) &&
+      ast.text(ast.name(callee)!) === "accept";
+  });
+  assert.equal(writes.length, 1);
+  const write = writes[0];
+  assert.equal(write?.kind === "write-fit" && write.valueVariable !== undefined && write.valueVariable.node === write.value &&
+    write.valueVariable.path.some(part => part.kind === "binder" && ast.is.IsTypeParameterDeclaration(part.declaration)) &&
+    write.valueType?.kind === "primitive" && write.valueType.primitive === "int32", true,
+    "the original fixed Box argument keeps its exact projected binder, independently of inference eligibility");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2388 parameter names publish their already solved declaration descriptor", () => {
+  const current = fixture(`declare function map(values: number[], callback: (value: number, index: int32) => number): number[];
+    function run(offset: number): number[] { return map([1, 2], (value, index) => index + offset); }`);
+  const { ast } = current.source;
+  const parameters = current.nodes.filter(node => ast.is.IsParameterDeclaration(node) &&
+    ast.parent(node) !== undefined && ast.body(ast.parent(node)!) !== undefined &&
+    ast.name(node) !== undefined && ast.is.IsIdentifier(ast.name(node)) && ["index", "offset"].includes(ast.text(ast.name(node)!)));
+  assert.equal(parameters.length, 2);
+  for (const parameter of parameters) {
+    const name = ast.name(parameter)!;
+    const declaration = current.source.effectiveTypes.get(parameter);
+    const selected = current.source.effectiveTypes.get(name);
+    assert.equal(declaration !== undefined && declaration.kind !== "refused" && selected !== undefined &&
+      selected.kind !== "refused" && selected.type === declaration.type && selected.provenance.occurrence === name, true,
+      "the identifier name retains its canonical declaration fact without a second type query");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});

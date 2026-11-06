@@ -1190,7 +1190,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         required: use.required, requiredType: freezeSourceTypeDescriptor(use.type), association: use.association }));
     } else if (use.kind === "write") {
       const candidateVariable = use.valueVariable ?? valueVariables.get(use.value);
-      const valueVariable = candidateVariable !== undefined && group(candidateVariable).inference ? candidateVariable : undefined;
+      const valueVariable = candidateVariable !== undefined &&
+        (group(candidateVariable).inference || candidateVariable.path.length > 0) ? candidateVariable : undefined;
       const valueGroup = candidateVariable === undefined ? undefined : group(candidateVariable);
       const record = candidateVariable?.path.length === 0 ? declaredRecord(candidateVariable.node) : undefined;
       const selectedValue = record !== undefined ? declaredDescriptor(record)
@@ -1231,7 +1232,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       record.association?.component === undefined)) { outcomes.set(node, selected.refused); return; }
     // A group solved from a retained structure (e.g. a generic result array whose element is a solved binder, N1) publishes
     // that solved structure; only an unstructured fixed group is described from its checked type.
-    const published = record !== undefined ? declaredDescriptor(record) : calculation ??
+    const published = record !== undefined ? declaredDescriptor(record) :
       (selected.inference || selected.derived.length > 0 || selected.terms.some(term => term.kind === "numeric") ||
         structuredGroups.has(selected) ? selected.type
         : context.describe(node, association?.component));
@@ -1400,6 +1401,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       outcomes.set(binding.node, Object.freeze({ kind: "resolved", type: freezeSourceTypeDescriptor(type),
         provenance: Object.freeze({ group: node, occurrence: binding.node, sourceFile }) }));
     }
+  }
+  for (const node of defaults.nodes) {
+    if (!(source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsParameterDeclaration(node) || source.ast.is.IsBindingElement(node))) continue;
+    const name = source.ast.name(node);
+    const outcome = outcomes.get(node);
+    if (name === undefined || !source.ast.is.IsIdentifier(name) || outcomes.has(name) || outcome === undefined) continue;
+    outcomes.set(name, outcome.kind === "refused" ? outcome : Object.freeze({ ...outcome,
+      provenance: Object.freeze({ ...outcome.provenance, occurrence: name }) }));
   }
   for (const node of defaults.nodes) {
     if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node) ||
