@@ -136,6 +136,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       source.ast.typeNode(record.declaration ?? record.node) === undefined) return selected.type;
     const construction = selected.constructions.find(fill => fill.site === record.node);
     if (construction?.authority === "inferred" && selected.chosenFill?.authority === "declared") return selected.chosenFill.type;
+    const declaration = record.declaration ?? record.association?.component?.declaration;
+    if (record.term?.kind === "fixed" && selected.chosenFill?.authority === "declared" && !selected.chosenFill.fixed &&
+      record.association?.component?.authoredTypeNode === undefined && (declaration === undefined || source.ast.typeNode(declaration) === undefined) &&
+      selected.constructions.some(fill => fill.authority === "inferred" && fill.site === record.term?.site &&
+        source.ast.is.IsArrayLiteralExpression(fill.site))) {
+      return selected.chosenFill.type;
+    }
     if (record.declaredType !== undefined) return record.declaredType;
     if (isSourceTypeFlowDeclaredConstruction(record)) {
       return construction?.type;
@@ -753,12 +760,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         : structure.kind === "primitive" && sourcePrimitiveOperatorIsIntegral(structure.primitive);
   }
 
+  function declaredDestination(selected: Group, site?: Node): Fill | undefined {
+    return selected.constructions.find(fill => fill.authority === "declared" && (site === undefined || fill.site === site)) ??
+      selected.fills.find(fill => !fill.fixed && fill.authority === "declared");
+  }
+
   function expectedOperatorKind(selected: Group, node: Node): SourcePrimitiveKind | undefined {
     const slot = defaults.declaredSlots.get(node);
     const declared = slot?.authority !== "declared" || slot.type === undefined ? undefined : sourceTypeDescriptorStructure(slot.type);
     if (declared?.kind === "union" || declared?.kind === "optional") return undefined;
     if (declared?.kind === "primitive") return declared.primitive;
-    const fill = selected.fills.find(fill => fill.authority === "declared" && sourceTypeDescriptorStructure(fill.type).kind === "primitive") ??
+    const fill = declaredDestination(selected, node) ??
       selected.fills.find(fill => sourceTypeDescriptorStructure(fill.type).kind === "primitive");
     const type = fill === undefined ? undefined : sourceTypeDescriptorStructure(fill.type);
     return type?.kind === "primitive" ? type.primitive : undefined;
@@ -772,7 +784,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (whole === undefined) return undefined;
     const slot = defaults.declaredSlots.get(derived.node);
     const destination = (slot?.authority === "declared" ? slot.type : undefined) ??
-      selected.fills.find(fill => fill.authority === "declared")?.type;
+      declaredDestination(selected, derived.node)?.type;
     const structure = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination);
     return destination !== undefined && (structure?.kind === "union" || structure?.kind === "optional")
       ? sourceTypeFlowScalarCalculationArm(destination, whole.literal) : undefined;
@@ -928,12 +940,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       ? constructed(selected) : undefined;
     if (retainedStructure !== undefined) structuredGroups.add(selected);
     const construction = selected.constructions[0];
-    const contextualFill = construction?.authority === "inferred" ? selected.fills.find(fill => !fill.fixed && fill.authority === "declared") : undefined;
+    const destination = declaredDestination(selected);
+    const destinationType = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination.type);
+    const laterScalarStorage = construction === undefined && fixed.length === 0 && selected.terms.length > 0 &&
+      (destinationType?.kind === "union" || destinationType?.kind === "optional") &&
+      selected.terms.every(term => term.kind === "numeric" && defaults.declaredSlots.get(term.site)?.authority !== "declared");
+    const contextualFill = construction?.authority === "inferred" || laterScalarStorage ? destination : undefined;
     const anchor = (construction?.authority === "declared" ? construction : contextualFill ?? aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
       (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
         : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" as const })
       : declared ? fixed[0] : selected.fills[0]);
-    const scalarStorage = construction !== undefined && selected.terms.length > 0 &&
+    const scalarStorage = (construction !== undefined || laterScalarStorage) && selected.terms.length > 0 &&
       selected.terms.every(term => term.kind === "numeric" || term.kind === "fixed") &&
       selected.constructions.every(fill => {
         const type = sourceTypeDescriptorStructure(fill.type);
@@ -947,8 +964,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     if (scalarStorage) for (const term of selected.terms) {
       if (selected.derived.some(derived => derived.node === term.site)) continue;
-      const destination = selected.constructions.find(fill => fill.site === term.site && fill.authority === "declared") ??
-        selected.fills.find(fill => !fill.fixed && fill.authority === "declared") ??
+      const destination = declaredDestination(selected, term.site) ??
         selected.constructions.find(fill => fill.site === term.site);
       const literal = context.literal(term.site);
       if (destination === undefined || literal === undefined) continue;

@@ -3750,3 +3750,86 @@ test("C2373 bodyless signature patterns publish the same authored binding slots 
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
+
+test("C2384 later declared aggregate demands select the scalar arm before the numeric own default", () => {
+  const destinations = [
+    { name: "union", annotation: "(string | number)", element: { kind: "union", types: [
+      { kind: "string" }, { kind: "primitive", primitive: "float64" },
+    ] } },
+    { name: "optional", annotation: "(number | undefined)", element: {
+      kind: "optional", value: { kind: "primitive", primitive: "float64" },
+    } },
+    { name: "primitive", annotation: "number", element: { kind: "primitive", primitive: "float64" } },
+  ] as const;
+  const literals = [
+    { name: "small", expression: "7" },
+    { name: "wide", expression: "9007199254740993" },
+    { name: "floating", expression: "1.5" },
+  ] as const;
+  const uses = ["argument", "return", "async", "nested", "genericArgument", "genericCallback", "receiver", "typedCallback"] as const;
+  const rows = uses.flatMap(use => destinations.flatMap(destination => literals.map(literal => {
+    const name = `${use}_${destination.name}_${literal.name}`;
+    const values = `values_${name}`;
+    const alias = `alias_${name}`;
+    const type = `${destination.annotation}[]`;
+    const expression = `[${destination.name === "union" ? '"text", ' : destination.name === "optional" ? "undefined, " : ""}${literal.expression}]`;
+    const local = `const ${values} = ${expression};`;
+    const programs = {
+      argument: `function accept_${name}(input: ${type}): ${type} { return input; }
+        function run_${name}(): ${type} { ${local} return accept_${name}(${values}); }`,
+      return: `function run_${name}(): ${type} { ${local} const ${alias} = ${values}; return ${alias}; }`,
+      async: `async function run_${name}(): Promise<${type}> { ${local} return ${values}; }`,
+      nested: `function invoke_${name}(read: () => ${type}): ${type} { return read(); }
+        function run_${name}(): ${type} { return invoke_${name}(() => { ${local} return ${values}; }); }`,
+      genericArgument: `function accept_${name}<Value>(input: Value[]): Value[] { return input; }
+        function run_${name}(): ${type} { ${local} return accept_${name}<${destination.annotation}>(${values}); }`,
+      genericCallback: `function invoke_${name}<Value>(read: () => Value[]): Value[] { return read(); }
+        function run_${name}(): ${type} { return invoke_${name}<${destination.annotation}>(() => { ${local} return ${values}; }); }`,
+      receiver: `class Receiver_${name}<Value> { accept(input: Value[]): Value[] { return input; } }
+        function run_${name}(): ${type} { const receiver = new Receiver_${name}<${destination.annotation}>();
+          ${local} return receiver.accept(${values}); }`,
+      typedCallback: `function run_${name}(): ${type} { const read: () => ${type} = () => {
+        ${local} return ${values}; }; return read(); }`,
+    };
+    return { name, values, alias, use, destination, program: programs[use] };
+  })));
+  const current = fixture(rows.map(row => row.program).join("\n"));
+  const { ast } = current.source;
+  const admissions = current.source.effectiveTypes.obligations().filter(
+    (row): row is Extract<SourceTypeFlowObligation, { readonly kind: "literal-admission" }> => row.kind === "literal-admission",
+  );
+  assert.equal(rows.length, 72);
+  assert.equal(current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node)).length, rows.length);
+  for (const row of rows) {
+    const declaration = current.declaration(row.values);
+    const literal = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const whole = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    assert.equal(literal !== undefined && ast.is.IsArrayLiteralExpression(literal) && whole !== undefined &&
+      whole.kind !== "refused" && whole.type.kind === "array", true, row.name + ": original allocation");
+    if (literal === undefined || whole === undefined || whole.kind === "refused" || whole.type.kind !== "array") {
+      throw new Error(row.name + ": the original solved array is required.");
+    }
+    assert.equal(sourceTypeDescriptorsEqual(whole.type.element, row.destination.element), true,
+      row.name + ": complete declared element storage, including every union arm or absence");
+    assert.equal(current.type(row.values) === whole.type, true, row.name + ": the local retains the allocation descriptor");
+    if (row.use === "return") assert.equal(current.type(row.alias) === whole.type, true, row.name + ": exact alias identity");
+    for (const read of current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.text(node) === row.values && ast.name(declaration) !== node)) {
+      const outcome = current.source.effectiveTypes.get(read);
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type === whole.type, true,
+        row.name + ": each same-root read retains the solved storage descriptor");
+    }
+    const elements = ast.elements(literal).filter((node): node is Node => node !== undefined);
+    const numeric = elements[elements.length - 1];
+    const selected = numeric === undefined ? undefined : current.source.effectiveTypes.get(numeric);
+    assert.equal(selected !== undefined && selected.kind !== "refused" &&
+      sourceTypeDescriptorsEqual(selected.type, whole.type.element), true, row.name + ": the literal retains full logical storage");
+    const physical = selected === undefined || selected.kind === "refused" ? undefined : selected.construction ?? selected.type;
+    assert.equal(physical?.kind === "primitive" && physical.primitive === "float64", true,
+      row.name + ": the one declared float arm precedes int64 creation");
+    const matching = admissions.filter(admission => admission.site === literal);
+    assert.equal(matching.length === 1 && matching[0]?.authority === "declared" && matching[0].type === whole.type, true,
+      row.name + ": one admission retains the exact declared destination and allocation");
+  }
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; ").slice(0, 2048));
+});

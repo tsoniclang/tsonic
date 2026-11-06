@@ -34,14 +34,15 @@ export function run(): boolean {
 
 export function errorConstructorFootprintSource(footprint) {
   const body = footprint === "readonly" ? `return "initialized";`
-    : `${footprint === "receiver" ? "this" : footprint === "bound" ? "value" : "original"}.message = "changed"; return "initialized";`;
+    : `${footprint === "receiver" ? "this" : footprint === "bound" ? "value" : "original"}.note = "changed"; return "initialized";`;
   const initializer = footprint === "deferred" ? `() => { ${body} }`
-    : footprint === "bound" ? `((value: Error) => { ${body} })(original)`
+    : footprint === "bound" ? `((value: Owned) => { ${body} })(original)`
     : `(() => { ${body} })()`;
   return `
 export function run(): void {
-  const original = new Error("original");
-  class Base extends Error { initialized = ${initializer}; }
+  class Owned extends Error { note = ""; }
+  const original = new Owned("original");
+  class Base extends Owned { initialized = ${initializer}; }
   class Derived extends Base {}
   const created = new Derived("derived");
 }

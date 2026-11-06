@@ -146,6 +146,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (ast.is.IsArrayLiteralExpression(current.node) || ast.is.IsObjectLiteralExpression(current.node)) {
         return nodes.get(current.node)?.term?.kind === "fixed" ? current : undefined;
       }
+      const term = terms.get(current);
+      if (term?.kind === "fixed" && (ast.is.IsArrayLiteralExpression(term.site) || ast.is.IsObjectLiteralExpression(term.site))) {
+        const origin = nodes.get(term.site);
+        if (origin?.term?.kind === "fixed") return origin.variable;
+      }
       // `[...] as const` / `<const>[...]`: the asserted aggregate literal is the fixed origin.
       if ((ast.is.IsAsExpression(current.node) || ast.is.IsTypeAssertion(current.node)) && ast.isConstAssertion(current.node)) {
         const inner = Node_Expression(ast, current.node);
