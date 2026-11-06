@@ -199,8 +199,8 @@ export function collectSourceTypeFlowUses(
 
   function required(record: SourceTypeFlowNode, site: Node, component: SourceTypeComponentEvidence | undefined,
     check = false, retained?: SourceTypeFlowAssociation, projected?: SourceTypeDescriptor): SourceTypeFlowUse {
-    const use = requiredUse(context, record, site, component, check, retained, constructionFamilies.get(record.variable) ?? [], projected);
     const input = homomorphicResults.get(record.variable);
+    const use = requiredUse(context, record, site, component, check, retained, constructionFamilies.get(record.variable) ?? [], projected, input);
     return use.kind === "fill" && use.type.kind === "intrinsic" && use.type.intrinsic === "object" && input !== undefined
       ? Object.freeze({ ...use, variable: input }) : use;
   }
@@ -363,6 +363,7 @@ function requiredUse(
   retained?: SourceTypeFlowAssociation,
   constructions: readonly SourceTypeFlowNode[] = [],
   projected?: SourceTypeDescriptor,
+  homomorphicInput?: SourceTypeFlowVariable,
 ): SourceTypeFlowUse {
   if (component === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", retained);
   const queries = context.source.semantics.forNode(record.node);
@@ -371,9 +372,9 @@ function requiredUse(
   if (queries.types.isUnknown(component.selectedType) || queries.types.isAny(component.selectedType)) return none();
   // A declared `object` slot fills only a generic call's result binder (B2: the instantiation becomes concrete). It never
   // fills an ordinary value group: a literal stored there keeps its own construction (C-2246), and an unannotated empty
-  // literal keeps its own refusal (28j'). A construction family always goes through the one C30 kind selector
-  // below (C-2310), even for an object-like slot.
-  if (queries.types.isNonPrimitive(component.selectedType) && constructions.length === 0) {
+  // literal keeps its own refusal (28j').
+  if (queries.types.isNonPrimitive(component.selectedType) && homomorphicInput === undefined &&
+    !constructions.some(construction => construction.node === record.node)) {
     const ast = context.source.ast;
     if (!(ast.is.IsCallExpression(record.node) || ast.is.IsNewExpression(record.node)) ||
       record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();

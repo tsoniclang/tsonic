@@ -719,6 +719,42 @@ test("uncontextualized empty object and array declarations are Host refusals", (
   assert.equal(codes.includes("TSONIC_UNTYPED_ARRAY_LITERAL"), true);
 });
 
+test("C2445 later broad slots check the original aggregate without supplying its creation type", () => {
+  for (const broad of ["unknown", "object", "any"]) {
+    for (const use of ["const selected: Broad = value; return selected;", "receive(value); return value;", "return value;"]) {
+      const current = fixture(`type Broad = ${broad}; declare function receive(value: Broad): void;
+        function run(): Broad { const value = {}; ${use} }`);
+      const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
+      const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+      assert.equal(literal !== undefined && outcome?.kind === "refused" && outcome.code === "TSONIC_UNTYPED_OBJECT_LITERAL" &&
+        outcome.site === literal, true, `${broad}: the later slot cannot replace the original untyped object`);
+      assert.equal(current.source.effectiveTypes.refusals().length, 1, `${broad}: one original construction owns the refusal`);
+    }
+    const array = fixture(`function make() { return []; }
+      function run(): ${broad} { const selected: ${broad} = make(); return selected; }`);
+    const literal = array.nodes.find(node => array.source.ast.is.IsArrayLiteralExpression(node));
+    const outcome = literal === undefined ? undefined : array.source.effectiveTypes.get(literal);
+    assert.equal(literal !== undefined && outcome?.kind === "refused" && outcome.code === "TSONIC_UNTYPED_ARRAY_LITERAL" &&
+      outcome.site === literal, true, `${broad}: a later call-result slot cannot type the original empty array`);
+    assert.equal(array.source.effectiveTypes.refusals().length, 1, `${broad}: the original array owns its one refusal`);
+  }
+  const positive = fixture(`function run(): void {
+    const annotated: object = {};
+    const value = { count: 1 }; const alias: object = value;
+    const values = [1]; const valuesAlias: object = values;
+    void annotated; void alias; void valuesAlias;
+  }`);
+  const value = positive.type("value");
+  assert.equal(value.kind === "shape" && value.members.length === 1 && value.members[0]?.type.kind === "primitive" &&
+    value.members[0].type.primitive === "int64", true, "a later broad check leaves the nonempty member's original width intact");
+  const values = positive.type("values");
+  assert.equal(values.kind === "array" && values.element.kind === "primitive" && values.element.primitive === "int64", true,
+    "a later broad check leaves the original array element intact");
+  const annotated = positive.type("annotated");
+  assert.equal(annotated.kind === "intrinsic" && annotated.intrinsic === "object", true, "an original authored creation keeps its existing contract");
+  assert.equal(positive.source.effectiveTypes.refusals().length, 0);
+});
+
 test("Host-fixed counters and every checked read carry the same B8 authority", () => {
   const current = fixture("export const moduleValue = 1; function run(): void { for (let index = 8; index >= 0; index -= 2) { const copy: number = index; } }");
   assertSameValue(current.type("index"), { kind: "primitive", primitive: "int64" });
