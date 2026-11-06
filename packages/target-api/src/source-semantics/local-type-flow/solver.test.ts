@@ -9,7 +9,7 @@ import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";
 import type { SourceLiteralMemberCorrespondence } from "./types.js";
 import type { SourceStructuralMemberPair } from "../structural-members.js";
-import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeFlowTerms, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
@@ -3764,6 +3764,7 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
   const literals = [
     { name: "small", expression: "7" },
     { name: "wide", expression: "9007199254740993" },
+    { name: "negativeWide", expression: "-9007199254740993" },
     { name: "floating", expression: "1.5" },
   ] as const;
   const uses = ["argument", "return", "async", "nested", "genericArgument", "genericCallback", "receiver", "typedCallback"] as const;
@@ -3793,13 +3794,44 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
     };
     return { name, values, alias, use, destination, program: programs[use] };
   })));
-  const current = fixture(rows.map(row => row.program).join("\n"));
+  const objects = uses.map(use => {
+    const name = `object_${use}`;
+    const values = `values_${name}`;
+    const alias = `alias_${name}`;
+    const type = "{ n: string | number }";
+    const local = `const ${values} = { n: 9007199254740993 };`;
+    const programs = {
+      argument: `function accept_${name}(input: ${type}): ${type} { return input; }
+        function run_${name}(): ${type} { ${local} return accept_${name}(${values}); }`,
+      return: `function run_${name}(): ${type} { ${local} const ${alias} = ${values}; return ${alias}; }`,
+      async: `async function run_${name}(): Promise<${type}> { ${local} return ${values}; }`,
+      nested: `function invoke_${name}(read: () => ${type}): ${type} { return read(); }
+        function run_${name}(): ${type} { return invoke_${name}(() => { ${local} return ${values}; }); }`,
+      genericArgument: `function accept_${name}<Value>(input: { n: Value }): { n: Value } { return input; }
+        function run_${name}(): ${type} { ${local} return accept_${name}<string | number>(${values}); }`,
+      genericCallback: `function invoke_${name}<Value>(read: () => { n: Value }): { n: Value } { return read(); }
+        function run_${name}(): ${type} { return invoke_${name}<string | number>(() => { ${local} return ${values}; }); }`,
+      receiver: `class Receiver_${name}<Value> { accept(input: { n: Value }): { n: Value } { return input; } }
+        function run_${name}(): ${type} { const receiver = new Receiver_${name}<string | number>();
+          ${local} return receiver.accept(${values}); }`,
+      typedCallback: `function run_${name}(): ${type} { const read: () => ${type} = () => {
+        ${local} return ${values}; }; return read(); }`,
+    };
+    return { name, values, alias, use, program: programs[use] };
+  });
+  const original = `function originalAccept(values: (string | number)[]): (string | number)[] { return values; }
+    function originalRun(): (string | number)[] {
+      const originalValues = ["text", 9007199254740993, -9007199254740993, 1e100]; return originalAccept(originalValues);
+    }`;
+  const current = fixture([...rows.map(row => row.program), ...objects.map(row => row.program), original].join("\n"));
   const { ast } = current.source;
   const admissions = current.source.effectiveTypes.obligations().filter(
     (row): row is Extract<SourceTypeFlowObligation, { readonly kind: "literal-admission" }> => row.kind === "literal-admission",
   );
-  assert.equal(rows.length, 72);
-  assert.equal(current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node)).length, rows.length);
+  assert.equal(rows.length, 96);
+  assert.equal(objects.length, uses.length);
+  assert.equal(current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node)).length, rows.length + 1);
+  assert.equal(current.nodes.filter(node => ast.is.IsObjectLiteralExpression(node)).length, objects.length);
   for (const row of rows) {
     const declaration = current.declaration(row.values);
     const literal = ast.as.AsVariableDeclaration(declaration)?.Initializer;
@@ -3830,6 +3862,51 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
     assert.equal(matching.length === 1 && matching[0]?.authority === "declared" && matching[0].type === whole.type, true,
       row.name + ": one admission retains the exact declared destination and allocation");
   }
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const terms = createSourceTypeFlowTerms(ast, graph);
+  const logical = destinations[0].element;
+  for (const row of objects) {
+    const declaration = current.declaration(row.values);
+    const literal = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const whole = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+    const structure = whole === undefined || whole.kind === "refused" ? undefined : sourceTypeDescriptorStructure(whole.type);
+    const member = structure?.kind === "shape" ? structure.members.find(member => member.name === "n") : undefined;
+    assert.equal(member !== undefined && sourceTypeDescriptorsEqual(member.type, logical), true,
+      row.name + ": the ordinary shape producer retains the full declared member storage");
+    if (literal === undefined || whole === undefined || whole.kind === "refused") throw new Error(row.name + ": the original object is required.");
+    assert.equal(current.type(row.values) === whole.type, true, row.name + ": original object/local identity");
+    if (row.use === "return") assert.equal(current.type(row.alias) === whole.type, true, row.name + ": original object alias identity");
+    const record = graph.nodes.find(record => record.node === literal);
+    assert.equal(record?.term?.kind === "shape" && record.term.members.length === 1, true,
+      row.name + ": an object already uses its canonical structural producer, not an array's fixed copy");
+    const property = ast.properties(literal)[0];
+    const numeric = property === undefined ? undefined : ast.as.AsPropertyAssignment(property)?.Initializer;
+    const selected = numeric === undefined ? undefined : current.source.effectiveTypes.get(numeric);
+    assert.equal(selected !== undefined && selected.kind !== "refused" && sourceTypeDescriptorsEqual(selected.type, logical) &&
+      selected.construction?.kind === "primitive" && selected.construction.primitive === "float64", true,
+      row.name + ": the existing member dependency selects the declared scalar arm");
+    const matching = admissions.filter(admission => admission.site === literal);
+    assert.equal(matching.length === 1 && matching[0]?.authority === "declared" && matching[0].type === whole.type, true,
+      row.name + ": one object admission retains the declared destination identity");
+  }
+  const originalLiteral = ast.as.AsVariableDeclaration(current.declaration("originalValues"))?.Initializer;
+  const originalType = current.type("originalValues");
+  assert.equal(originalLiteral !== undefined && originalType.kind === "array" &&
+    sourceTypeDescriptorsEqual(originalType.element, logical), true, "the original four-element array retains only its declared two-arm storage");
+  const numericGroups = originalLiteral === undefined ? [] : ast.elements(originalLiteral).slice(1).map(element => {
+    const record = graph.nodes.find(record => record.node === element);
+    if (record === undefined) throw new Error("Each original numeric occurrence must retain its actual graph variable.");
+    const selected = terms.group(record.variable);
+    assert.equal(selected.terms.length > 0 && selected.terms.every(term => term.kind === "numeric"), true,
+      "the mixed array does not merge a numeric literal group with its string or fixed aggregate");
+    const outcome = current.source.effectiveTypes.get(record.node);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(outcome.type, logical) &&
+      outcome.construction?.kind === "primitive" && outcome.construction.primitive === "float64", true,
+      "each original numeric child, including the whole prefix, retains the declared scalar construction");
+    return selected.variable;
+  });
+  assert.equal(numericGroups.length === 3 && new Set(numericGroups).size === 3, true,
+    "the three original numeric children retain distinct canonical groups");
   const issues = current.source.effectiveTypes.refusals();
   assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; ").slice(0, 2048));
 });
