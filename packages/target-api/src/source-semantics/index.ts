@@ -1,7 +1,7 @@
 export * from "./target-source-program.js";
 export type * from "./local-type-flow/types.js";
 export { sourceTypeDescriptorMemberOriginsEqual } from "./local-type-flow/member-origins.js";
-export { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
+export { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./local-type-flow/terms.js";
 export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 export type {
   SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers,
