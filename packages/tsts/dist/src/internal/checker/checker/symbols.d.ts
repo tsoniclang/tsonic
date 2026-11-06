@@ -1,4 +1,5 @@
 import type { bool, int } from "../../../go/scalars.js";
+import type { ExtensionConditionalCapture } from "../../../extensions/conditional-type-evidence.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Declaration, ExportDeclarationNode, ExportSpecifierNode, Expression, IdentifierNode, ImportDeclarationNode, PropertyName } from "../../ast/generated/unions.js";
@@ -8247,6 +8248,7 @@ export declare function Checker_isDeclarationContainedBy(receiver: GoPtr<Checker
 export declare function Checker_isNamedMember(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>, id: string): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeWithAlias","kind":"method","status":"implemented","sigHash":"03de27e27a37380d5e378575dd89c7c31f0a1db41bdf3d4749703d9b7607f1ee","bodyHash":"e8004c6149bff2519a8014c28bef372f47b6c1b328ba70a150f121383073f0fa"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The native entry retains the same cache and depth owner with absent evidence. Explicit conditional capture replays that worker on cache hits, validates against the canonical result and never replaces its cached identity."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeWithAlias(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
@@ -8292,6 +8294,7 @@ export declare function Checker_isNamedMember(receiver: GoPtr<Checker>, symbol_:
  * }
  */
 export declare function Checker_instantiateTypeWithAlias(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
+export declare function Checker_instantiateTypeWithAliasAndCapture(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getNameTypeFromMappedType","kind":"method","status":"implemented","sigHash":"a4ed7a8b79ace07f0c6c2431b9b9f839191b6aecc586cec199e2a98a43fa79ba","bodyHash":"ac3aef27321eaf6f815ca14850aeaee8cf8d3757d6c487bf3fdc3a685af9a603"}
  *

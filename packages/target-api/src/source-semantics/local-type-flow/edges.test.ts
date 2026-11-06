@@ -1017,3 +1017,30 @@ test("C2357 fixed array inputs do not resolve free, broad or competing formal al
   assert.equal(calls.every(call => call.argumentPlaces.length === 0), true,
     "an existing array value does not prove an ambiguous generic formal position");
 });
+
+test("C2424 local constructor results retain enclosing binder identities independently of call inputs", () => {
+  const current = fixture(`function wrap<Outer>(first: Outer) {
+    class Local<Inner> { first: Outer; value: Inner;
+      constructor(first: Outer, value: Inner) { this.first = first; this.value = value; } }
+    return new Local<word>(first, 1);
+  }
+  function run(first: word): void { const result = wrap(first); void result.value; }`);
+  const { ast } = current.source;
+  const wrapper = current.syntax.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "wrap");
+  const outer = wrapper === undefined ? undefined : ast.typeParameters(wrapper)[0];
+  const construction = current.graph.calls.find(call => ast.is.IsNewExpression(call.node));
+  const result = construction?.result;
+  const term = result === undefined ? undefined : current.terms.group(result).terms.find(term => term.kind === "declared");
+  assert.equal(outer !== undefined && term?.kind === "declared" && term.typeArguments.length === 2, true,
+    "the original class result keeps both its enclosing and own argument positions");
+  if (outer === undefined || term?.kind !== "declared") throw new Error("The retained local class template is required.");
+  const original = current.terms.group(term.typeArguments[0]!).terms;
+  assert.equal(original.length === 1 && original[0]?.kind === "fixed" && original[0].type.kind === "declared" &&
+    original[0].type.declaration === outer && original[0].type.typeArguments.length === 0, true,
+  "the enclosing formal is its original declaration reference, never a checked numeric argument");
+  const invocation = current.graph.calls.find(call => current.text(call.node) === "wrap(first)");
+  assert.equal(invocation?.method.length === 1 && invocation.method[0]?.declaration === outer && invocation.result !== undefined &&
+    !current.same(invocation.method[0].variable, invocation.result), true,
+  "the actual call input binder is independent of the retained result");
+  assert.equal(current.graph.refusals.length, 0);
+});

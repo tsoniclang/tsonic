@@ -790,6 +790,7 @@ export declare function Checker_getIterationTypesOfIteratorFast(receiver: GoPtr<
 export declare function Checker_getIterationTypesOfIteratorSlow(receiver: GoPtr<Checker>, t: GoPtr<Type>, r: GoPtr<IterationTypesResolver>, errorNode: GoPtr<Node>, diagnosticOutput: GoPtr<GoSlice<GoPtr<Diagnostic>>>): IterationTypes;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfMethod","kind":"method","status":"implemented","sigHash":"395240605c6668136a121a3733bd8ff6091399d510a909e96d3c1f791a7f3afb","bodyHash":"f1b3cec2253e1038a0c9ada5b48cdbef625cbeb38cc8def7f92de6fe3e7dcfee"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The same native protocol-symbol and mapper owner supplies iteration types and retained generator return-role binding evidence, without another protocol matcher or compiler state."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfMethod(t *Type, resolver *IterationTypesResolver, methodName string, errorNode *ast.Node, diagnosticOutput *[]*ast.Diagnostic) IterationTypes {
@@ -934,6 +935,12 @@ export declare function Checker_getIterationTypesOfMethod(receiver: GoPtr<Checke
  * }
  */
 export declare function Checker_getIterationTypesOfIteratorResult(receiver: GoPtr<Checker>, t: GoPtr<Type>): IterationTypes;
+export declare function getKnownIteratorMethodTypeParameterBindings(methodType: GoPtr<Type>, resolver: IterationTypesResolver, methodName: string, signatures: GoSlice<GoPtr<Signature>>): {
+    readonly yieldParameter: GoPtr<Type>;
+    readonly returnParameter: GoPtr<Type>;
+    readonly nextParameter: GoPtr<Type>;
+    readonly mapper: GoPtr<TypeMapper>;
+} | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOfExpression","kind":"method","status":"implemented","sigHash":"cb8c5ef58147a16d026eee278f23649ef67438dec7f2797964308f606784e71c","bodyHash":"0d4788e115716f7e3c46025eff9db5ee34e683e29fc78f755e162e8181aceb8c"}
  *
@@ -3960,6 +3967,7 @@ export declare function Checker_elaborateNeverIntersection(receiver: GoPtr<Check
  * }
  */
 export declare function Checker_instantiateType(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>): GoPtr<Type>;
+export declare function Checker_instantiateTypeWithCapture(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.couldContainTypeVariablesWorker","kind":"method","status":"implemented","sigHash":"405eb2040570f3d89f301f8e3525c6de4f3b4f4951add0bdc1c22919d7ef8e6c","bodyHash":"65928855ba655748223ef285abb5909109c282a393f18ff2f4ab4711e53fb35f"}
  *
@@ -4008,6 +4016,7 @@ export declare function Checker_couldContainTypeVariablesWorker(receiver: GoPtr<
 export declare function Checker_isNonGenericTopLevelType(receiver: GoPtr<Checker>, t: GoPtr<Type>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeWorker","kind":"method","status":"implemented","sigHash":"9238fda8f9365271bc3432994231d51417b7fe8d9f6a35cbd2d3e5293de04828","bodyHash":"dc6aeca6675a8f57fdca3b64149f05b2af553a45c4f55756a78c22cb47af9171"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The native entry delegates to the same worker with absent evidence. Explicit conditional queries pass their bounded capture through recursive instantiation without adding compiler state or another resolver."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeWorker(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
@@ -4090,6 +4099,7 @@ export declare function Checker_isNonGenericTopLevelType(receiver: GoPtr<Checker
  * }
  */
 export declare function Checker_instantiateTypeWorker(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
+export declare function Checker_instantiateTypeWorkerWithCapture(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateAnonymousType","kind":"method","status":"implemented","sigHash":"0f96dd463b356e114b7466778e800c407288d6452db6b0d39ec104cc10484144","bodyHash":"c57986ca23bf16818a067679587c8d9af7968ff4c82655b1bb5f59dff1f59c7c"}
  *
@@ -4341,6 +4351,7 @@ export declare function Checker_instantiateReverseMappedType(receiver: GoPtr<Che
  * }
  */
 export declare function Checker_instantiateTypes(receiver: GoPtr<Checker>, types: GoSlice<GoPtr<Type>>, m: GoPtr<TypeMapper>): GoSlice<GoPtr<Type>>;
+export declare function Checker_instantiateTypesWithCapture(receiver: GoPtr<Checker>, types: GoSlice<GoPtr<Type>>, m: GoPtr<TypeMapper>, capture: ExtensionConditionalCapture | undefined): GoSlice<GoPtr<Type>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.tryGetTypeFromTypeNode","kind":"method","status":"implemented","sigHash":"b5d143a72a6d57105e8935fa774894c3bcb0b92567c199a6d2340b96bcdbaee9","bodyHash":"b199346cec454596a948a05e587f18dfe4f1dde33de09463d49a611cd849406e"}
  *

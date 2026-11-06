@@ -9,7 +9,7 @@ import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";
 import type { SourceLiteralMemberCorrespondence } from "./types.js";
 import type { SourceStructuralMemberPair } from "../structural-members.js";
-import { createSourceTypeFlowTerms, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeFlowTerms, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
@@ -160,6 +160,63 @@ test("C2417 broad contextual callback returns do not replace their body's own re
         `callback ${index}: primitive and union destinations still own the literal's exact native arm`);
     }
   }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2425 generator return slots project their authored completion component, not the whole iterator", () => {
+  const current = fixture(`type Completed = Generator<int32, string, unknown>;
+    type Numeric<Result> = Generator<int32, Result, unknown>;
+    interface Inherited extends Generator<int32, float32, unknown> {}
+    function* words(): Generator<int32, string, unknown> { yield 1; return "done"; }
+    function* alias(): Completed { yield 1; return "alias"; }
+    function* numeric(): Generator<int32, float32, unknown> { yield 1; return 700123; }
+    function* numericAlias(): Numeric<float32> { yield 1; return 700123; }
+    function* inherited(): Inherited { yield 1; return 700123; }
+    async function* asyncNumeric(): AsyncGenerator<int32, float32, unknown> { yield 1; return 700123; }
+    function ordinary(): int32 { return 700123; }
+    void words; void alias; void numeric; void numericAlias; void inherited; void asyncNumeric; void ordinary;`);
+  const { ast } = current.source;
+  const returns = current.nodes.filter(node => ast.is.IsReturnStatement(node));
+  assert.equal(returns.length, 7);
+  for (const statement of returns) {
+    const value = ast.as.AsReturnStatement(statement)?.Expression;
+    const outcome = value === undefined ? undefined : current.source.effectiveTypes.get(value);
+    let owner = ast.parent(statement);
+    while (owner !== undefined && !ast.is.IsFunctionDeclaration(owner)) owner = ast.parent(owner);
+    const name = owner === undefined ? "missing" : ast.text(ast.name(owner));
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
+      (name === "words" || name === "alias" ? outcome.type.kind === "string" : outcome.type.kind === "primitive" &&
+        outcome.type.primitive === (name === "ordinary" ? "int32" : "float32")), true,
+    name + ": the original authored completion slot owns its literal");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2425 scalar rest arguments use the same declared element slot while spreads retain their sequence", () => {
+  const current = fixture(`type Words = int32[];
+    declare function direct(...values: int32[]): void;
+    declare function alias(...values: Words): void;
+    declare function narrow(...values: float32[]): void;
+    declare function tuple(...values: [int32, float32]): void;
+    function run(): void {
+      direct(700123); alias(700124); narrow(700125); tuple(700126, 700127);
+      const retained = 700128; direct(retained);
+      const spread: int32[] = [1, 2]; direct(...spread);
+    }`);
+  const { ast } = current.source;
+  const expected = new Map([["700123", "int32"], ["700124", "int32"], ["700125", "float32"],
+    ["700126", "int32"], ["700127", "float32"], ["700128", "int32"]]);
+  const values = current.nodes.filter(node => ast.is.IsNumericLiteral(node) && expected.has(ast.text(node)));
+  assert.equal(values.length, expected.size);
+  for (const value of values) {
+    const outcome = current.source.effectiveTypes.get(value);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+      outcome.type.primitive === expected.get(ast.text(value)), true, ast.text(value) + ": exact original element width");
+  }
+  const spread = current.source.effectiveTypes.get(current.declaration("spread"));
+  assert.equal(spread !== undefined && spread.kind !== "refused" && spread.type.kind === "array" &&
+    spread.type.element.kind === "primitive" && spread.type.element.primitive === "int32", true,
+  "the spread sequence keeps its full authored array contract");
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
@@ -4382,6 +4439,75 @@ test("C2421 contextual callback heads retain optional absence and defaulted head
     "a missing parameter head never fabricates a callable parameter");
   const plus = current.type("plus");
   assert.equal(plus.kind === "primitive" && plus.primitive === "int32", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2421 for-of patterns retain their original tuple, rest member and absence descriptors", () => {
+  const current = fixture(`type Item = { first: float32; second: int32 };
+    function run(rows: [float32, int32?][], objects: Item[]): void {
+      const [ordinaryFirst, ordinarySecond] = rows[0];
+      const { first: ordinaryHead, ...ordinaryRest } = objects[0];
+      for (const [left, right] of rows) { void left; void right; }
+      for (const [head, ...tupleTail] of rows) { void head; void tupleTail[0]; }
+      for (const { first: head, ...rest } of objects) { void head; void rest.second; }
+      for (const { first: emptyFirst, second: emptySecond, ...empty } of objects) { void emptyFirst; void emptySecond; void empty; }
+      void ordinaryFirst; void ordinarySecond; void ordinaryHead; void ordinaryRest;
+    }`);
+  const { ast } = current.source;
+  const elements = current.nodes.filter(node => ast.is.IsBindingElement(node));
+  for (const element of elements) {
+    const name = ast.name(element);
+    if (name === undefined || !ast.is.IsIdentifier(name)) continue;
+    const label = ast.text(name);
+    const outcome = current.source.effectiveTypes.get(element);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused", true, label + ": the canonical binding is published");
+    if (outcome === undefined || outcome.kind === "refused") throw new Error(label + ": the retained binding is required.");
+    if (["ordinaryFirst", "ordinaryHead", "left", "head", "emptyFirst"].includes(label)) {
+      assert.equal(outcome.type.kind === "primitive" && outcome.type.primitive === "float32", true, label + ": exact original float32");
+    } else if (["ordinarySecond", "right"].includes(label)) {
+      assert.equal(outcome.type.kind === "optional" && outcome.type.value.kind === "primitive" && outcome.type.value.primitive === "int32", true,
+        label + ": the optional tuple slot retains its one absence state");
+    } else if (["ordinaryRest", "rest", "empty"].includes(label)) {
+      const structure = sourceTypeDescriptorStructure(outcome.type);
+      assert.equal(structure.kind === "shape" && structure.members.length === (label === "empty" ? 0 : 1), true,
+        label + ": exact retained rest inventory, including the empty remainder");
+      if (label !== "empty") assert.equal(structure.kind === "shape" && structure.members[0]?.type.kind === "primitive" &&
+        structure.members[0].type.primitive === "int32" && structure.members[0].origin.kind === "declared" &&
+        ast.text(ast.name(structure.members[0].origin.declaration)!) === "second", true, label + ": exact original member and width");
+    } else if (label === "tupleTail") {
+      const value = outcome.type.kind === "tuple" ? sourceTypeDescriptorTupleValue(outcome.type, 0) : undefined;
+      assert.equal(outcome.type.kind === "tuple" && outcome.type.elements.length === 1 && outcome.type.elements[0]?.kind === "optional" &&
+        value?.kind === "optional" && value.value.kind === "primitive" && value.value.primitive === "int32", true,
+      "tuple rest retains the exact optional element, not a homogeneous approximation");
+    }
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2421 named function values and their aliases retain the callable, not its return annotation", () => {
+  const current = fixture(`declare function consume(callback: (value: int32) => int32): void;
+    function declared(value: int32): int32 { return value; }
+    function run(): void {
+      consume(function self(value: int32): int32 { const selfAlias = self; void selfAlias; return value; });
+      const declarationAlias = declared;
+      const arrow = (value: int32): int32 => value;
+      const arrowAlias = arrow;
+      void declarationAlias; void arrowAlias;
+    }`);
+  const { ast } = current.source;
+  for (const name of ["selfAlias", "declarationAlias", "arrowAlias"]) {
+    const declaration = current.declaration(name);
+    const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const selected = current.source.effectiveTypes.get(declaration);
+    const original = initializer === undefined ? undefined : current.source.effectiveTypes.get(initializer);
+    const descriptor = selected === undefined || selected.kind === "refused" ? undefined : sourceTypeDescriptorStructure(selected.type);
+    assert.equal(descriptor?.kind === "callable" && descriptor.calls.length === 1 && descriptor.calls[0]?.parameters.length === 1 &&
+      descriptor.calls[0].parameters[0]?.type.kind === "primitive" && descriptor.calls[0].parameters[0].type.primitive === "int32" &&
+      descriptor.calls[0].result.kind === "primitive" && descriptor.calls[0].result.primitive === "int32", true,
+    name + ": an authored return annotation describes only the callable result");
+    assert.equal(original !== undefined && original.kind !== "refused" && selected !== undefined && selected.kind !== "refused" &&
+      sourceTypeDescriptorsEqual(original.type, selected.type), true, name + ": the alias keeps its original callable producer");
+  }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 

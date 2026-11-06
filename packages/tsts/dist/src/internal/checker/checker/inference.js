@@ -14,6 +14,7 @@ import { getDeclarationsOfKind, isNodeDescendantOf, IsTypeAny, NewDiagnosticForN
 import { Checker_symbolToString, Checker_TypeToString } from "../printer.js";
 import { All_declarations_of_0_must_have_identical_constraints, Type_parameter_0_has_a_circular_constraint, Circularity_originates_in_type_at_this_location, Property_0_of_type_1_is_not_assignable_to_2_index_type_3, X_0_is_declared_here, X_infer_declarations_are_only_permitted_in_the_extends_clause_of_a_conditional_type, Type_0_has_no_signatures_for_which_the_type_argument_list_is_applicable } from "../../diagnostics/generated/messages.js";
 import { Checker_combineTypeMappers, prependTypeMapping, newTypeMapper, TypeMapper_Map } from "../mapper.js";
+import { Checker_isTypeIdenticalTo } from "../relater.js";
 import { Checker_getConditionalTypeWithCapture } from "./types.js";
 import { Checker_isMemberOfStringMapping, Checker_isTypeMatchedByTemplateLiteralType, getRecursionIdentity } from "../relater.js";
 import { TypeFlagsTypeParameter, TypeFlagsIndexedAccess, TypeFlagsConditional, TypeFlagsSubstitution, TypeFlagsAnyOrUnknown, TypeFlagsUnknown, TypeFlagsAny, TypeFlagsPrimitive, TypeFlagsNever, TypeFlagsUnionOrIntersection, TypeFlagsUnion, TypeFlagsIntersection, TypeFlagsTemplateLiteral, TypeFlagsStringMapping, TypeFlagsIndex, TypeFlagsObject, TypeFlagsInstantiableNonPrimitive, TypeFlagsInstantiable, TypeFlagsNullable, TypeFlagsUndefined, TypeFlagsString, TypeFlagsStringLiteral, TypeFlagsStringOrNumberLiteralOrUnique, TypeFlagsObjectFlagsType, TypeAlias_TypeArguments, Type_AsConditionalType, Type_AsSubstitutionType, Type_AsTypeParameter, Type_AsUnionOrIntersectionType, Type_AsTemplateLiteralType, Type_AsIndexedAccessType, Type_AsMappedType, Type_AsIndexType, Type_AsTypeReference, Type_AsInstantiationExpressionType, StructuredType_CallSignatures, StructuredType_ConstructSignatures, Type_TargetTupleType, Type_AsConstrainedType, Type_AsObjectType, Type_Target, Type_Mapper, Type_Types, ObjectFlagsReference, ObjectFlagsInterface, ObjectFlagsMapped, ObjectFlagsAnonymous, ObjectFlagsInstantiated, ObjectFlagsInstantiationExpressionType, ObjectFlagsNone, ObjectFlagsSingleSignatureType, ObjectFlagsCouldContainTypeVariablesComputed, ObjectFlagsCouldContainTypeVariables, ElementFlagsVariadic, IndexFlagsNone, AccessFlagsNone, } from "../types.js";
@@ -1030,7 +1031,8 @@ export function Checker_getConditionalTypeInstantiationWithCapture(receiver, t, 
     if (root.outerTypeParameters.length !== 0) {
         const typeArguments = Map(root.outerTypeParameters, (tp) => TypeMapper_Map(mapper, tp));
         const key = getConditionalTypeKey(typeArguments, alias, forConstraint);
-        let result = root.instantiations.get(key);
+        const cached = root.instantiations.get(key);
+        let result = cached;
         if (result === undefined || capture !== undefined) {
             const newMapper = newTypeMapper(root.outerTypeParameters, typeArguments);
             const checkType = root.checkType;
@@ -1052,6 +1054,9 @@ export function Checker_getConditionalTypeInstantiationWithCapture(receiver, t, 
             }
             if (capture === undefined)
                 root.instantiations.set(key, result);
+        }
+        if (capture !== undefined && cached !== undefined) {
+            return result !== undefined && Checker_isTypeIdenticalTo(receiver, result, cached) ? cached : undefined;
         }
         return result;
     }

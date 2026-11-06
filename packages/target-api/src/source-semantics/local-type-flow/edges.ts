@@ -17,6 +17,7 @@ import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedValue, sourceTy
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
@@ -794,8 +795,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const index = access?.ArgumentExpression;
       const name = index === undefined ? undefined : context.literal(index);
       const term = nodes.get(source.node)?.term;
+      const tuple = term?.kind === "tuple" ? term : structure?.kind === "tuple" ? structure : undefined;
       if (term?.kind === "shape" && name?.text !== undefined) part = { kind: "member", name: name.text };
-      else if (term?.kind === "tuple" && name?.integer !== undefined && name.integer >= 0n && name.integer < BigInt(term.elements.length)) {
+      else if (tuple !== undefined && name?.integer !== undefined && name.integer >= 0n && name.integer < BigInt(tuple.elements.length)) {
         part = { kind: "tuple", index: Number(name.integer) };
       } else part = { kind: "element" };
     }
@@ -824,18 +826,35 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 
   function pattern(node: Node, source: SourceTypeFlowVariable, site: Node): void {
+    const retained = terms.get(source);
+    if (retained?.kind === "fixed") {
+      declaredPattern(node, nodes.get(source.node)?.association?.component, semantics.forNode(node), retained.type);
+    }
+    const structure = retained?.kind === "fixed" ? sourceTypeDescriptorStructure(retained.type) : undefined;
     const arrayPattern = ast.is.IsArrayBindingPattern(node);
     const elements = ast.elements(node);
     for (const [index, element] of elements.entries()) {
       if (element === undefined || ast.is.IsOmittedExpression(element)) continue;
       const name = ast.name(element);
       if (name === undefined) continue;
+      if (BindingElement_IsRest(ast, element) && retained?.kind === "fixed") {
+        const result = nodes.get(element)?.variable;
+        const type = result === undefined ? undefined : terms.get(result);
+        const rest = type?.kind === "fixed" ? sourceTypeDescriptorStructure(type.type) : undefined;
+        if (result !== undefined && structure?.kind === "tuple" && rest?.kind === "tuple") rest.elements.forEach((_, offset) =>
+          link(project(source, { kind: "tuple", index: index + offset }), project(result, { kind: "tuple", index: offset }), site));
+        if (result !== undefined && structure?.kind === "shape" && rest?.kind === "shape") for (const member of rest.members) {
+          link(project(source, { kind: "member", name: member.name }), project(result, { kind: "member", name: member.name }), site);
+        }
+        continue;
+      }
       if (!arrayPattern && BindingElement_IsRest(ast, element)) { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element); continue; }
       const property = BindingElement_PropertyName(ast, element) ?? name;
       const term = nodes.get(source.node)?.term;
       let part: SourceTypeFlowPathPart;
       if (arrayPattern) {
-        part = term?.kind === "tuple" && index < term.elements.length ? { kind: "tuple", index } : { kind: "element" };
+        const tuple = term?.kind === "tuple" ? term : structure?.kind === "tuple" ? structure : undefined;
+        part = tuple !== undefined && index < tuple.elements.length ? { kind: "tuple", index } : { kind: "element" };
       } else {
         const selection = semantics.forNode(element).propertyNames.get(property);
         if (selection?.kind !== "resolved") { refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element); continue; }
@@ -865,7 +884,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (selected === undefined || source === undefined) return;
     const name = ast.name(selected);
     const element = project(source, { kind: "element" });
-    const result = record(selected, "read", undefined, selected);
+    const query = semantics.forNode(node);
+    const iteration = query.operations.iteration(node);
+    const sourceFile = ast.getSourceFile(selected);
+    const association = iteration?.subject.node !== node || sourceFile === undefined ? undefined
+      : Object.freeze({ occurrence: selected, sourceFile, component: Object.freeze({ selectedType: iteration.sourceElementType }) });
+    const result = record(selected, "read", undefined, selected, association);
     if (result === undefined) return;
     active.add(selected);
     link(element, result, node);
@@ -1207,6 +1231,17 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         }
         return;
       }
+      if (role === "result" && declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration)) {
+        const type = context.describe(occurrence, Object.freeze({ selectedType: formal, declaration }));
+        if (type?.kind === "declared" && type.declaration === declaration && type.typeArguments.length === 0) {
+          putTerm(variable, Object.freeze({ kind: "fixed", site: occurrence, type }));
+        } else refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence, declaration);
+        return;
+      }
+      if (role === "argument" && declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration)) {
+        const actual = formalQuery.types.expressionType(occurrence);
+        if (actual !== undefined && formalQuery.types.isIdentical(actual, formal)) return;
+      }
       if (declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)) {
         const application = formalQuery.types.aliasApplication(formal);
         const arguments_ = application?.declaration === declaration ? application.bindings.map(binding =>
@@ -1502,6 +1537,24 @@ export function sourceTypeFlowDeclaredPatternBindings(context: SourceTypeFlowAna
       let projected: SourceTypeDescriptor | undefined;
       if (arrayPattern && described?.kind === "array") projected = BindingElement_IsRest(ast, element) ? described : described.element;
       else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = sourceTypeDescriptorTupleValue(described, index);
+      else if (arrayPattern && described?.kind === "tuple" && BindingElement_IsRest(ast, element)) {
+        projected = { ...described, elements: described.elements.slice(index) };
+      } else if (!arrayPattern && BindingElement_IsRest(ast, element) && selectedType !== undefined && described !== undefined) {
+        const structure = sourceTypeDescriptorStructure(described);
+        if (structure.kind === "shape") {
+          const members = [];
+          let complete = query.types.indexInfos(selectedType).length === structure.indexes.length;
+          for (const property of query.types.propertyInfos(selectedType)) {
+            const origin = sourceTypeDescriptorMemberOrigin(context.source, query, property, selectedType);
+            const matches = origin?.kind !== "resolved" ? [] : structure.members.filter(member =>
+              sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
+            if (matches.length !== 1) { complete = false; break; }
+            members.push(matches[0]!);
+          }
+          if (!complete) { bindings.push({ kind: "refused", node: element }); continue; }
+          projected = { kind: "shape", members, indexes: structure.indexes, calls: [], constructs: [] };
+        }
+      }
       if (component !== undefined && !BindingElement_IsRest(ast, element)) {
         let slot: { readonly type: Type; readonly declaration?: Node } | undefined;
         if (arrayPattern) slot = tuple?.[index];

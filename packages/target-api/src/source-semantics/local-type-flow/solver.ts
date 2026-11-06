@@ -216,8 +216,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       baseGroup?.terms.every(term => term.kind === "fixed")
       ? baseGroup.terms.find(term => term.kind === "fixed" &&
         (source.ast.is.IsArrayLiteralExpression(term.site) || source.ast.is.IsObjectLiteralExpression(term.site))) : undefined;
+    const bodyResult = variable.path.every(part => part.kind !== "binder") && baseGroup !== undefined
+      ? bodyCallResults.get(baseGroup)?.call.node : undefined;
     const origin = baseGroup === undefined ? undefined : receiverProjections.get(baseGroup)?.[0]?.origin ??
-      bodyCallResults.get(baseGroup)?.call.node ?? aggregate?.site ?? (declaredMember ? variable.node : undefined);
+      bodyResult ?? aggregate?.site ?? (declaredMember ? variable.node : undefined);
     if (baseGroup === undefined || origin === undefined) { index += 1; continue; }
     retainReceiverProjection(variable, { source: baseGroup, origin,
       site: variable.node, path: variable.path, construction: false });
@@ -984,14 +986,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const storage = sourceTypeDescriptorStructure(destination.type);
       if (destination.authority === "declared" && storage.kind === "primitive") {
         scalarCalculations.set(term.site, freezeSourceTypeDescriptor(storage));
-      } else if (term.kind === "fixed" && scalarType(term.type) &&
-        !(term.type.kind === "intrinsic" && term.type.intrinsic === "bigint")) {
-        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
       } else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
         const creation = numericCreation(term.site);
         if (creation.literal === undefined) continue;
         const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal);
         if (arm.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor({ kind: "primitive", primitive: arm.primitive }));
+        else if (term.kind === "fixed" && scalarType(term.type)) scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
+      } else if (term.kind === "fixed" && scalarType(term.type)) {
+        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
       } else if (term.kind === "numeric") {
         const creation = numericCreation(term.site);
         const own = creation.literal === undefined ? undefined : sourceTypeFlowNumericLiteralKind(creation.literal);

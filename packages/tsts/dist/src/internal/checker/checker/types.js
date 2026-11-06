@@ -22,6 +22,8 @@ import { CombineSurrogatePairs } from "../../stringutil/util.js";
 import { ParseValidBigInt } from "../../jsnum/pseudobigint.js";
 import { AnyToString } from "../../evaluator/evaluator.js";
 import { IsExternalModuleNameRelative } from "../../tspath/path.js";
+import { Checker_instantiateTypeWithAliasAndCapture } from "./symbols.js";
+import { Checker_getConditionalTypeInstantiationWithCapture } from "./inference.js";
 import { TypeMapper_Map, appendTypeMapping, Checker_combineTypeMappers, newSimpleTypeMapper, prependTypeMapping } from "../mapper.js";
 import { Checker_createNormalizedTupleTypeEx, Checker_createTypeReferenceEx, Checker_addDiagnostic } from "../checker.js";
 import { AccessFlagsAllowMissing, AccessFlagsExpressionPosition, AccessFlagsNone, ElementFlagsNone, ElementFlagsNonRequired, ElementFlagsFixed, ElementFlagsVariadic, ElementFlagsRest, ElementFlagsRequired, ElementFlagsOptional as ElementFlagsOptionalFlag, ElementFlagsVariable, ObjectFlagsReference, ObjectFlagsObjectLiteral, ObjectFlagsObjectLiteralPatternWithComputedProperties, Type_Target, Type_TargetTupleType, TypeFlagsAny, TypeFlagsVoid, TypeFlagsNull, TypeFlagsUndefined, TypeFlagsNever, TypeFlagsUnion, TypeFlagsIntersection, TypeFlagsObject, TypeFlagsTypeParameter, TypeFlagsStringLiteral, TypeFlagsTemplateLiteral, TypeFlagsInstantiableNonPrimitive, TypeFlagsStringLike, TypeFlagsNonPrimitive, TypeFlagsIndex, TypeFlagsBooleanLike, TypeFlagsEnumLike, TypeFlagsUnionOrIntersection, Type_Types, SignatureKindCall, Type_AsInterfaceType, InterfaceType_TypeParameters, InterfaceType_LocalTypeParameters, InterfaceType_OuterTypeParameters, Type_Mapper, Type_AsIndexType, TypeFlagsBigIntLike, TypeFlagsAnyOrUnknown, TypeFlagsNumberLike, NodeCheckFlagsTypeChecked, NodeCheckFlagsContextChecked, NodeCheckFlagsInitializerIsUndefined, NodeCheckFlagsInitializerIsUndefinedComputed, TypeFlagsTypeVariable, TypeFlagsInstantiable, TypeFlagsStructuredOrInstantiable, TypeFlagsESSymbolLike, TypeFlagsEnumLiteral, ObjectFlagsClass, ObjectFlagsInterface, ObjectFlagsClassOrInterface, ObjectFlagsTuple, ObjectFlagsMembersResolved, ObjectFlagsCouldContainTypeVariablesComputed, ObjectFlagsCouldContainTypeVariables, ObjectFlagsInstantiationExpressionType, ObjectFlagsAnonymous, ObjectFlagsInstantiated, ObjectFlagsReverseMapped, ObjectFlagsContainsIntersections, ObjectFlagsIsNeverIntersectionComputed, ObjectFlagsIsNeverIntersection, ObjectFlagsIsGenericObjectType, Type_AsUnionType, StructuredType_Properties, StructuredType_CallSignatures, StructuredType_ConstructSignatures, Type_AsUnionOrIntersectionType, ObjectFlagsMapped, TypeFlagsUnknown, Type_AsMappedType, Type_AsIntersectionType, Type_AsTypeReference, Type_AsTypeParameter, TypeFlagsSubstitution, TypeFlagsIndexedAccess, Type_AsSubstitutionType, Type_AsIndexedAccessType, IndexedAccessType_ObjectType, IndexedAccessType_IndexType, SubstitutionType_BaseType, TypeFlagsNullable, TypeFlagsConditional, TypeFlagsNumberLiteral, Type_AsConditionalType, TypeFlagsStringOrNumberLiteral, TypeFlagsStringOrNumberLiteralOrUnique, ObjectFlagsNone, ObjectFlagsFromTypeNode, ObjectFlagsPrimitiveUnion, Type_Distributed, ContextFlagsNone, ContextFlagsNoConstraints, ContextFlagsSignature, ObjectFlagsPropagatingFlags, TypeFlagsNone, TypeFlagsString, TypeFlagsNumber, TypeFlagsBigInt, TypeFlagsStringMapping, TypeFlagsLiteral, Type_AsTemplateLiteralType, TypeFlagsBooleanLiteral, TypeFlagsBigIntLiteral, TypeFlagsEnum, Type_AsLiteralType, TypeFlagsFreshable, ObjectFlagsEvolvingArray, ObjectFlagsContainsWideningType, Type_AsIntrinsicType, Type_AsStructuredType, Type_AsObjectType, TypeFormatFlagsWriteArrayAsGenericType, TypeFlagsPrimitive, ObjectFlagsArrayLiteral, ObjectFlagsContainsObjectOrArrayLiteral, Type_AsTupleType, SignatureKindConstruct, SignatureFlagsIsNonInferrable, TypeFormatFlagsNoTypeReduction, ObjectFlagsIsUnknownLikeUnionComputed, ObjectFlagsIsUnknownLikeUnion, TypeFlagsSimplifiable, ContextFlagsSkipBindingPatterns, TypeFlagsUniqueESSymbol, TypeFlagsESSymbol, TypeFlagsIncludesMask, TypeFlagsIncludesInstantiable, TypeFlagsIncludesConstrainedTypeVariable, TypeFlagsIncludesWildcard, TypeFlagsIncludesError, TypeFlagsIncludesNonWideningType, TypeFlagsIncludesEmptyObject, TypeFlagsIncludesMissingType, TypeFlagsUnit, ObjectFlagsIsConstrainedTypeVariable, ObjectFlagsObjectRestType, TypeFlagsBoolean, ObjectFlagsFreshLiteral, TypeFlagsNotPrimitiveUnion, TypeFlagsDisjointDomains, TypeFlagsVoidLike, TypeFlagsDefinitelyNonNullable, ObjectFlagsUnresolvedMembers, IndexFlagsNone, ObjectFlagsIsGenericTypeComputed, ObjectFlagsIsGenericType, ObjectFlagsIsGenericIndexType, ObjectFlagsJSLiteral, ObjectFlagsNonInferrableType, ObjectFlagsRequiresWidening, Type_AsInstantiationExpressionType, Type_AsReverseMappedType, Type_AsStringMappingType, TypeAlias_Symbol, ObjectFlagsContainsSpread } from "../types.js";
@@ -1632,6 +1634,7 @@ export function Checker_getIterationTypesOfIteratorSlow(receiver, t, r, errorNod
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfMethod","kind":"method","status":"implemented","sigHash":"395240605c6668136a121a3733bd8ff6091399d510a909e96d3c1f791a7f3afb","bodyHash":"f1b3cec2253e1038a0c9ada5b48cdbef625cbeb38cc8def7f92de6fe3e7dcfee"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The same native protocol-symbol and mapper owner supplies iteration types and retained generator return-role binding evidence, without another protocol matcher or compiler state."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfMethod(t *Type, resolver *IterationTypesResolver, methodName string, errorNode *ast.Node, diagnosticOutput *[]*ast.Diagnostic) IterationTypes {
@@ -1765,20 +1768,11 @@ export function Checker_getIterationTypesOfMethod(receiver, t, resolver, methodN
         }
         return { yieldType: undefined, returnType: undefined, nextType: undefined };
     }
-    if (methodSignatures.length === 1 && methodType.symbol !== undefined) {
-        const globalGeneratorType = resolver.getGlobalGeneratorType();
-        const globalIteratorType = resolver.getGlobalIteratorType();
-        const isGeneratorMethod = globalGeneratorType.symbol !== undefined && globalGeneratorType.symbol.Members !== undefined && globalGeneratorType.symbol.Members.get(methodName) === methodType.symbol;
-        const isIteratorMethod = !isGeneratorMethod && globalIteratorType.symbol !== undefined && globalIteratorType.symbol.Members !== undefined && globalIteratorType.symbol.Members.get(methodName) === methodType.symbol;
-        if (isGeneratorMethod || isIteratorMethod) {
-            const typeParameters = InterfaceType_TypeParameters(Type_AsInterfaceType(core.IfElse(isGeneratorMethod, globalGeneratorType, globalIteratorType)));
-            const mapper = Type_Mapper(methodType);
-            let nextType;
-            if (methodName === "next") {
-                nextType = TypeMapper_Map(mapper, typeParameters[2]);
-            }
-            return { yieldType: TypeMapper_Map(mapper, typeParameters[0]), returnType: TypeMapper_Map(mapper, typeParameters[1]), nextType: nextType };
-        }
+    const bindings = getKnownIteratorMethodTypeParameterBindings(methodType, resolver, methodName, methodSignatures);
+    if (bindings !== undefined) {
+        const nextType = methodName === "next" ? TypeMapper_Map(bindings.mapper, bindings.nextParameter) : undefined;
+        return { yieldType: TypeMapper_Map(bindings.mapper, bindings.yieldParameter),
+            returnType: TypeMapper_Map(bindings.mapper, bindings.returnParameter), nextType };
     }
     let methodParameterTypes = [];
     let methodReturnTypes = [];
@@ -1890,6 +1884,19 @@ export function Checker_getIterationTypesOfIteratorResult(receiver, t) {
         return { yieldType: undefined, returnType: undefined, nextType: undefined };
     }
     return { yieldType: yieldType, returnType: core.OrElse(returnType, receiver.voidType), nextType: undefined };
+}
+export function getKnownIteratorMethodTypeParameterBindings(methodType, resolver, methodName, signatures) {
+    if (signatures.length !== 1 || methodType?.symbol === undefined)
+        return undefined;
+    const generator = resolver.getGlobalGeneratorType();
+    const iterator = resolver.getGlobalIteratorType();
+    const generatorMethod = generator?.symbol?.Members?.get(methodName) === methodType.symbol;
+    const iteratorMethod = !generatorMethod && iterator?.symbol?.Members?.get(methodName) === methodType.symbol;
+    if (!generatorMethod && !iteratorMethod)
+        return undefined;
+    const parameters = InterfaceType_TypeParameters(Type_AsInterfaceType(generatorMethod ? generator : iterator));
+    return { yieldParameter: parameters[0], returnParameter: parameters[1], nextParameter: parameters[2],
+        mapper: Type_Mapper(methodType) };
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOfExpression","kind":"method","status":"implemented","sigHash":"cb8c5ef58147a16d026eee278f23649ef67438dec7f2797964308f606784e71c","bodyHash":"0d4788e115716f7e3c46025eff9db5ee34e683e29fc78f755e162e8181aceb8c"}
@@ -7096,6 +7103,9 @@ export function Checker_elaborateNeverIntersection(receiver, chain, node, t) {
 export function Checker_instantiateType(receiver, t, m) {
     return Checker_instantiateTypeWithAlias(receiver, t, m, undefined);
 }
+export function Checker_instantiateTypeWithCapture(receiver, t, m, capture) {
+    return Checker_instantiateTypeWithAliasAndCapture(receiver, t, m, undefined, capture);
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.couldContainTypeVariablesWorker","kind":"method","status":"implemented","sigHash":"405eb2040570f3d89f301f8e3525c6de4f3b4f4951add0bdc1c22919d7ef8e6c","bodyHash":"65928855ba655748223ef285abb5909109c282a393f18ff2f4ab4711e53fb35f"}
  *
@@ -7181,6 +7191,7 @@ export function Checker_isNonGenericTopLevelType(receiver, t) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeWorker","kind":"method","status":"implemented","sigHash":"9238fda8f9365271bc3432994231d51417b7fe8d9f6a35cbd2d3e5293de04828","bodyHash":"dc6aeca6675a8f57fdca3b64149f05b2af553a45c4f55756a78c22cb47af9171"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The native entry delegates to the same worker with absent evidence. Explicit conditional queries pass their bounded capture through recursive instantiation without adding compiler state or another resolver."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeWorker(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
@@ -7263,6 +7274,9 @@ export function Checker_isNonGenericTopLevelType(receiver, t) {
  * }
  */
 export function Checker_instantiateTypeWorker(receiver, t, m, alias) {
+    return Checker_instantiateTypeWorkerWithCapture(receiver, t, m, alias, undefined);
+}
+export function Checker_instantiateTypeWorkerWithCapture(receiver, t, m, alias, capture) {
     const flags = t.flags;
     if ((flags & TypeFlagsTypeParameter) !== 0) {
         return TypeMapper_Map(m, t);
@@ -7272,7 +7286,7 @@ export function Checker_instantiateTypeWorker(receiver, t, m, alias) {
         if ((objectFlags & (ObjectFlagsReference | ObjectFlagsAnonymous | ObjectFlagsMapped)) !== 0) {
             if ((objectFlags & ObjectFlagsReference) !== 0 && Type_AsTypeReference(t).node === undefined) {
                 const resolvedTypeArguments = Type_AsTypeReference(t).resolvedTypeArguments;
-                const newTypeArguments = Checker_instantiateTypes(receiver, resolvedTypeArguments, m);
+                const newTypeArguments = Checker_instantiateTypesWithCapture(receiver, resolvedTypeArguments, m, capture);
                 if (core.Same(newTypeArguments, resolvedTypeArguments)) {
                     return t;
                 }
@@ -7294,7 +7308,7 @@ export function Checker_instantiateTypeWorker(receiver, t, m, alias) {
             }
         }
         const types = Type_Types(source);
-        const newTypes = Checker_instantiateTypes(receiver, types, m);
+        const newTypes = Checker_instantiateTypesWithCapture(receiver, types, m, capture);
         if (core.Same(newTypes, types) && TypeAlias_Symbol(alias) === TypeAlias_Symbol(t.alias)) {
             return t;
         }
@@ -7308,7 +7322,7 @@ export function Checker_instantiateTypeWorker(receiver, t, m, alias) {
         return Checker_getUnionTypeEx(receiver, newTypes, UnionReductionLiteral, newAlias, undefined);
     }
     if ((flags & TypeFlagsIndex) !== 0) {
-        return Checker_getIndexType(receiver, Checker_instantiateType(receiver, Type_Target(t), m));
+        return Checker_getIndexType(receiver, Checker_instantiateTypeWithCapture(receiver, Type_Target(t), m, capture));
     }
     if ((flags & TypeFlagsIndexedAccess) !== 0) {
         let newAlias = alias;
@@ -7316,24 +7330,26 @@ export function Checker_instantiateTypeWorker(receiver, t, m, alias) {
             newAlias = Checker_instantiateTypeAlias(receiver, t.alias, m);
         }
         const d = Type_AsIndexedAccessType(t);
-        return Checker_getIndexedAccessTypeEx(receiver, Checker_instantiateType(receiver, d.objectType, m), Checker_instantiateType(receiver, d.indexType, m), d.accessFlags, undefined, newAlias);
+        return Checker_getIndexedAccessTypeEx(receiver, Checker_instantiateTypeWithCapture(receiver, d.objectType, m, capture), Checker_instantiateTypeWithCapture(receiver, d.indexType, m, capture), d.accessFlags, undefined, newAlias);
     }
     if ((flags & TypeFlagsTemplateLiteral) !== 0) {
         const templateLiteral = Type_AsTemplateLiteralType(t);
-        return Checker_getTemplateLiteralType(receiver, templateLiteral.texts, Checker_instantiateTypes(receiver, templateLiteral.types, m));
+        return Checker_getTemplateLiteralType(receiver, templateLiteral.texts, Checker_instantiateTypesWithCapture(receiver, templateLiteral.types, m, capture));
     }
     if ((flags & TypeFlagsStringMapping) !== 0) {
-        return Checker_getStringMappingType(receiver, t.symbol, Checker_instantiateType(receiver, Type_AsStringMappingType(t).target, m));
+        return Checker_getStringMappingType(receiver, t.symbol, Checker_instantiateTypeWithCapture(receiver, Type_AsStringMappingType(t).target, m, capture));
     }
     if ((flags & TypeFlagsConditional) !== 0) {
-        return Checker_getConditionalTypeInstantiation(receiver, t, Checker_combineTypeMappers(receiver, Type_AsConditionalType(t).mapper, m), false, alias);
+        const mapper = Checker_combineTypeMappers(receiver, Type_AsConditionalType(t).mapper, m);
+        return capture === undefined ? Checker_getConditionalTypeInstantiation(receiver, t, mapper, false, alias)
+            : Checker_getConditionalTypeInstantiationWithCapture(receiver, t, mapper, false, alias, capture);
     }
     if ((flags & TypeFlagsSubstitution) !== 0) {
-        const newBaseType = Checker_instantiateType(receiver, Type_AsSubstitutionType(t).baseType, m);
+        const newBaseType = Checker_instantiateTypeWithCapture(receiver, Type_AsSubstitutionType(t).baseType, m, capture);
         if (Checker_isNoInferType(receiver, t)) {
             return Checker_getNoInferType(receiver, newBaseType);
         }
-        const newConstraint = Checker_instantiateType(receiver, Type_AsSubstitutionType(t).constraint, m);
+        const newConstraint = Checker_instantiateTypeWithCapture(receiver, Type_AsSubstitutionType(t).constraint, m, capture);
         if ((newBaseType.flags & TypeFlagsTypeVariable) !== 0 && Checker_isGenericType(receiver, newConstraint)) {
             return Checker_getSubstitutionType(receiver, newBaseType, newConstraint);
         }
@@ -7763,6 +7779,10 @@ export function Checker_instantiateReverseMappedType(receiver, t, m) {
  */
 export function Checker_instantiateTypes(receiver, types, m) {
     return instantiateList(receiver, types, m, Checker_instantiateType);
+}
+export function Checker_instantiateTypesWithCapture(receiver, types, m, capture) {
+    return capture === undefined ? Checker_instantiateTypes(receiver, types, m)
+        : instantiateList(receiver, types, m, (checker, type, mapper) => Checker_instantiateTypeWithCapture(checker, type, mapper, capture));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.tryGetTypeFromTypeNode","kind":"method","status":"implemented","sigHash":"b5d143a72a6d57105e8935fa774894c3bcb0b92567c199a6d2340b96bcdbaee9","bodyHash":"b199346cec454596a948a05e587f18dfe4f1dde33de09463d49a611cd849406e"}
@@ -9483,7 +9503,7 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
                         (inferredExtendsType.flags & TypeFlagsNever) === 0 &&
                         someType(Checker_getPermissiveInstantiation(receiver, inferredExtendsType), (t) => Checker_isTypeAssignableTo(receiver, t, Checker_getPermissiveInstantiation(receiver, checkType))))) {
                     capture?.record(root, "true", rootNode.TrueType, core.OrElse(combinedMapper, mapper));
-                    extraTypes = [...(extraTypes ?? []), Checker_instantiateType(receiver, Checker_getTypeFromTypeNode(receiver, rootNode.TrueType), core.OrElse(combinedMapper, mapper))];
+                    extraTypes = [...(extraTypes ?? []), Checker_instantiateTypeWithCapture(receiver, Checker_getTypeFromTypeNode(receiver, rootNode.TrueType), core.OrElse(combinedMapper, mapper), capture)];
                 }
                 capture?.record(root, "false", rootNode.FalseType, mapper);
                 const falseType = Checker_getTypeFromTypeNode(receiver, rootNode.FalseType);
@@ -9504,7 +9524,7 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
                         continue;
                     }
                 }
-                result = Checker_instantiateType(receiver, falseType, mapper);
+                result = Checker_instantiateTypeWithCapture(receiver, falseType, mapper, capture);
                 break;
             }
             if ((inferredExtendsType.flags & TypeFlagsAnyOrUnknown) !== 0 ||
@@ -9522,7 +9542,7 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
                     }
                     continue;
                 }
-                result = Checker_instantiateType(receiver, trueType, trueMapper);
+                result = Checker_instantiateTypeWithCapture(receiver, trueType, trueMapper, capture);
                 break;
             }
         }

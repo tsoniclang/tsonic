@@ -14,6 +14,11 @@ export interface ResolvedSourceGeneratorInfo {
     readonly generatorKind: "sync" | "async";
     readonly sourceReturnType: Type;
     readonly iterationTypes: ResolvedSourceIterationTypes;
+    readonly returnTypeBinding?: {
+        readonly declaration: Node;
+        readonly parameterType: Type;
+        readonly argumentType: Type;
+    };
 }
 export interface ResolvedSourceIterationTypes {
     readonly yieldType: Type;

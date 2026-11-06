@@ -1,3 +1,4 @@
+import { Checker_instantiateTypeWorkerWithCapture } from "./types.js";
 import { recordProviderStructuredTypeDemand } from "../../../extensions/provider-materialization-integration.js";
 import { callEvidenceWantedForCallee, retainElementCallCalleeEvidence, retainIdentifierCallCalleeEvidence, retainPropertyCallCalleeEvidence, } from "./call-evidence.js";
 import { NewGoStructMap } from "../../../go/compat.js";
@@ -14776,6 +14777,7 @@ export function Checker_isNamedMember(receiver, symbol_, id) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeWithAlias","kind":"method","status":"implemented","sigHash":"03de27e27a37380d5e378575dd89c7c31f0a1db41bdf3d4749703d9b7607f1ee","bodyHash":"e8004c6149bff2519a8014c28bef372f47b6c1b328ba70a150f121383073f0fa"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The native entry retains the same cache and depth owner with absent evidence. Explicit conditional capture replays that worker on cache hits, validates against the canonical result and never replaces its cached identity."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeWithAlias(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
@@ -14821,6 +14823,9 @@ export function Checker_isNamedMember(receiver, symbol_, id) {
  * }
  */
 export function Checker_instantiateTypeWithAlias(receiver, t, m, alias) {
+    return Checker_instantiateTypeWithAliasAndCapture(receiver, t, m, alias, undefined);
+}
+export function Checker_instantiateTypeWithAliasAndCapture(receiver, t, m, alias, capture) {
     if (t === undefined ||
         m === undefined ||
         !(receiver.couldContainTypeVariables(t) ||
@@ -14847,20 +14852,25 @@ export function Checker_instantiateTypeWithAlias(receiver, t, m, alias) {
     keyBuilder_writeAlias(b, alias);
     const key = keyBuilder_hash(b);
     const cache = receiver.activeTypeMappersCaches[index !== -1 ? index : receiver.activeTypeMappersCaches.length - 1];
-    if (cache.has(key)) {
+    if (capture === undefined && cache.has(key)) {
         return cache.get(key);
     }
+    const cached = capture === undefined ? undefined : cache.get(key);
     receiver.TotalInstantiationCount++;
     receiver.instantiationCount++;
     receiver.instantiationDepth++;
-    const result = Checker_instantiateTypeWorker(receiver, t, m, alias);
+    const result = capture === undefined ? Checker_instantiateTypeWorker(receiver, t, m, alias)
+        : Checker_instantiateTypeWorkerWithCapture(receiver, t, m, alias, capture);
     if (index === -1) {
         Checker_popActiveMapper(receiver);
     }
-    else {
+    else if (capture === undefined) {
         cache.set(key, result);
     }
     receiver.instantiationDepth--;
+    if (capture !== undefined && cached !== undefined) {
+        return result !== undefined && Checker_isTypeIdenticalTo(receiver, result, cached) ? cached : undefined;
+    }
     return result;
 }
 /**

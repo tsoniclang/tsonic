@@ -64,9 +64,7 @@ export function sourceTypeDescriptorConditionalDefinition(
       continue;
     }
     if (ast.is.IsTypeReferenceNode(selectedNode) || ast.is.IsImportTypeNode(selectedNode)) {
-      const reference = ast.is.IsTypeReferenceNode(selectedNode) ? ast.as.AsTypeReferenceNode(selectedNode)?.TypeName
-        : ast.as.AsImportTypeNode(selectedNode)?.Qualifier;
-      const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
+      const declaration = queries.declarations.authoredTypeDeclaration(selectedNode);
       const body = declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration) ? undefined : ast.typeNode(declaration);
       const next = application.conditionalSteps[index + 1];
       if (body !== undefined && ast.is.IsConditionalTypeNode(body) && next?.conditional === body) {

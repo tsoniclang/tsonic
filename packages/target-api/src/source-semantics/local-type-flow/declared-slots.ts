@@ -327,6 +327,33 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       ...(argument === undefined ? {} : { authoredTypeNode: argument }) };
   }
 
+  function generatorReturnType(node: Node, generator: NonNullable<ReturnType<SourceFileSemantics["operations"]["generator"]>>,
+    query: SourceFileSemantics): SourceTypeDescriptor | undefined {
+    const binding = generator.returnTypeBinding;
+    const original = binding === undefined ? undefined : query.declarations.declaredType(binding.declaration);
+    if (binding === undefined || original === undefined || !query.types.isIdentical(original, binding.parameterType)) return undefined;
+    const selected = component(generator.declaration, query);
+    let described = selected === undefined ? undefined : context.describe(node, selected);
+    const bindings = new Map<Node, SourceTypeDescriptor>();
+    const visited = new Set<SourceTypeDescriptor>();
+    while (described?.kind === "declared" && !visited.has(described)) {
+      visited.add(described);
+      const parameters = ast.typeParameters(described.declaration);
+      if (parameters.length !== described.typeArguments.length) return undefined;
+      for (const [index, parameter] of parameters.entries()) {
+        if (parameter === undefined) return undefined;
+        const value = described.typeArguments[index]!;
+        const previous = bindings.get(parameter);
+        if (previous !== undefined && !sourceTypeDescriptorsEqual(previous, value)) return undefined;
+        bindings.set(parameter, value);
+      }
+      const result = bindings.get(binding.declaration);
+      if (result !== undefined) return result;
+      described = described.definition;
+    }
+    return context.authoredInheritedBindings(generator.sourceReturnType, query, bindings).get(binding.declaration)?.value;
+  }
+
   function read(node: Node, query: SourceFileSemantics): SourceTypeFlowDeclaredSlot | undefined {
     const cached = cache.get(node);
     if (cached !== undefined) return cached ?? undefined;
@@ -431,6 +458,11 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       let owner: Node | undefined = ast.is.IsArrowFunction(parent) ? parent : ast.parent(parent);
       while (owner !== undefined && !callable(owner)) owner = ast.parent(owner);
       if (owner === undefined) return undefined;
+      const generator = query.operations.generator(owner);
+      if (generator?.declaration === owner) {
+        const type = generatorReturnType(node, generator, query);
+        return type === undefined ? undefined : projected(node, type, "declared");
+      }
       if (ast.typeNode(owner) === undefined) {
         const type = returned(owner, query);
         return type === undefined ? undefined : projected(node, type, "declared");
@@ -445,9 +477,17 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       if (index < 0) return undefined;
       const bindings = call.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === index);
       if (bindings.length !== 1) return undefined;
-      const parameter = call.sourceSelectedSignatureParameters[bindings[0]!.sourceParameterIndex];
+      const binding = bindings[0]!;
+      const parameter = call.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
       const declared = parameter?.parameterDeclaration === undefined ? undefined : component(parameter.parameterDeclaration, query);
       if (declared === undefined) return undefined;
+      if (binding.sourceParameterForm === "rest-element") {
+        const complete = selectSlot(parameter!.parameterDeclaration!, { ...declared, contextualCall: call }, true, parent);
+        const structure = complete?.type === undefined ? undefined : sourceTypeDescriptorStructure(complete.type);
+        const element = structure?.kind === "array" ? structure.element : structure?.kind === "tuple"
+          ? sourceTypeDescriptorTupleValue(structure, binding.effectiveArgumentIndex - binding.sourceParameterIndex) : undefined;
+        return element === undefined ? undefined : projected(node, element, "declared");
+      }
       return select(node, { ...declared, contextualCall: call }, true, parent);
     }
     if (ast.is.IsPropertyAssignment(parent) && Node_Initializer(ast, parent) === occurrence) {

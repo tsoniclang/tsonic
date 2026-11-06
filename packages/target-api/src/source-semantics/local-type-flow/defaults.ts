@@ -143,7 +143,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     if (ast.is.IsElementAccessExpression(node)) return semantics.forNode(node).operations.elementAccess(node)?.selectedDeclaration;
     const declaration = navigation.sourceReferenceFor(node)?.declaration;
-    if (declaration !== undefined && (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration) ||
+    if (declaration !== undefined && (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
+      ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration) ||
       ast.is.IsMethodSignatureDeclaration(declaration))) return undefined;
     return declaration ??
       (ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
