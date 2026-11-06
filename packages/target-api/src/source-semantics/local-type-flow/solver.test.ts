@@ -2595,6 +2595,93 @@ test("C2351 discarded captures retain a declared primitive demand through eligib
   assert.equal(fixed.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2351 closed declared member contracts do not demand an unrelated refused receiver binder", () => {
+  const current = fixture(`interface Readable<Element> { read(): Element; }
+    interface Published<Element> { readonly size: number; readonly value: Element; has(value: Element): boolean; }
+    interface Factory { new<Choice>(values?: readonly Choice[] | Readable<Choice>): Published<Choice>; }
+    declare const factory: Factory;
+    function accepted(narrow: float32): void { const values = [narrow]; const selected = new factory(values);
+      const count = selected.size; const payload = selected.value; const agrees = selected.size === 1;
+      void count; void payload; void agrees; }
+    function refused(signed: int32, unsigned: uint32): boolean {
+      const mixed = [signed, unsigned]; const rejected = new factory(mixed);
+      return rejected.has(mixed[1]) && rejected.size === 1;
+    }`);
+  const { ast } = current.source;
+  const selected = current.type("selected");
+  const structure = sourceTypeDescriptorStructure(selected);
+  const member = structure.kind === "shape" ? structure.members.find(member => member.name === "value") : undefined;
+  assert.equal(member !== undefined && current.type("payload") === member.type && member.type.kind === "primitive" &&
+    member.type.primitive === "float32", true, "a dependent field remains the same member of the solved nominal definition");
+  assertSameValue(current.type("count"), { kind: "primitive", primitive: "float64" });
+  assertSameValue(current.type("agrees"), { kind: "primitive", primitive: "bool" });
+  const issues = current.source.effectiveTypes.refusals();
+  const literal = ast.as.AsVariableDeclaration(current.declaration("mixed"))?.Initializer;
+  assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && issues[0].site === literal, true);
+  const sizes = current.nodes.filter(node => ast.is.IsPropertyAccessExpression(node) && ast.text(ast.name(node)) === "size");
+  assert.equal(sizes.length, 3);
+  for (const node of sizes) {
+    const outcome = current.source.effectiveTypes.get(node);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+      outcome.type.primitive === "float64", true, "the original closed property contract has no receiver-type-variable dependency");
+  }
+  const rejectedSize = sizes.find(node => {
+    const receiver = ast.as.AsPropertyAccessExpression(node)?.Expression;
+    return receiver !== undefined && ast.is.IsIdentifier(receiver) && ast.text(receiver) === "rejected";
+  });
+  const comparison = current.nodes.find(node => ast.is.IsBinaryExpression(node) &&
+    ast.operatorKindName(node) === "KindEqualsEqualsEqualsToken" && ast.as.AsBinaryExpression(node)?.Left === rejectedSize);
+  const compared = comparison === undefined ? undefined : current.source.effectiveTypes.get(comparison);
+  assert.equal(compared !== undefined && compared.kind !== "refused" && compared.type.kind === "primitive" &&
+    compared.type.primitive === "bool", true);
+  const has = current.nodes.find(node => {
+    const expression = ast.is.IsCallExpression(node) ? ast.as.AsCallExpression(node)?.Expression : undefined;
+    const property = expression !== undefined && ast.is.IsPropertyAccessExpression(expression)
+      ? ast.as.AsPropertyAccessExpression(expression) : undefined;
+    const receiver = property?.Expression;
+    return expression !== undefined && receiver !== undefined && ast.is.IsIdentifier(receiver) && ast.text(receiver) === "rejected" &&
+      ast.text(ast.name(expression)) === "has";
+  });
+  const called = has === undefined ? undefined : current.source.effectiveTypes.get(has);
+  assert.equal(called !== undefined && called.kind !== "refused" && called.type.kind === "primitive" &&
+    called.type.primitive === "bool", true, "the declared bool result does not need the method's receiver-dependent input binder");
+});
+
+test("C2351 closed declared union members retain occurrence narrowing and leave optional chains on their original path", () => {
+  const current = fixture(`interface Published<Element> { value: int32 | undefined; readonly exact: int32; }
+    function run(selected: Published<float32>): void {
+      const before = selected.value;
+      if (selected.value !== undefined) { const narrowed = selected.value; void narrowed; }
+      const after = selected.value; const chained = selected?.exact;
+      void before; void after; void chained;
+    }
+    function optional(selected?: Published<float32>): void { const absent = selected?.exact; void absent; }`);
+  const { ast } = current.source;
+  const optional: SourceTypeDescriptor = { kind: "optional", value: { kind: "primitive", primitive: "int32" } };
+  assertSameValue(current.type("before"), optional);
+  assertSameValue(current.type("after"), optional);
+  assertSameValue(current.type("absent"), optional);
+  assertSameValue(current.type("narrowed"), { kind: "primitive", primitive: "int32" });
+  assertSameValue(current.type("chained"), { kind: "primitive", primitive: "int32" });
+  const parameter = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.questionToken(node) === undefined &&
+    ast.text(ast.name(node)) === "selected");
+  const owner = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+  const structure = owner === undefined || owner.kind === "refused" ? undefined : sourceTypeDescriptorStructure(owner.type);
+  const member = structure?.kind === "shape" ? structure.members.find(member => member.name === "value") : undefined;
+  assert.equal(member !== undefined && sourceTypeDescriptorsEqual(member.type, optional), true,
+    "narrowing one read never replaces the original required optional-valued storage contract");
+  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
+  const chains = current.nodes.filter(node => ast.is.IsPropertyAccessExpression(node) &&
+    current.source.semantics.forNode(node).operations.propertyAccess(node)?.optionalChain === true);
+  assert.equal(chains.length, 2);
+  for (const node of chains) {
+    const record = graph.nodes.find(record => record.node === node);
+    assert.equal(record !== undefined && record.association?.component === undefined, true,
+      "a checked optional chain does not use the new closed original-declaration component producer");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C2330 recursive alias calls retain nominal argument widths without selecting a union arm", () => {
   const current = fixture(`type Tree<Value> = Value | readonly Tree<Value>[];
     function keep<Value>(tree: Tree<Value>): Tree<Value> { return tree; }

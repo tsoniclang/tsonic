@@ -274,7 +274,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     while (pending.length > 0) {
       const current = pending.pop()!;
       const selected = group(current);
-      if (seen.has(selected) || !selected.inference || selected.fills.length > 0 || selected.constructions.length > 0 ||
+      if (seen.has(selected) || selected.fills.length > 0 || selected.constructions.length > 0 ||
         selected.terms.some(term => term.kind === "fixed") || defaults.declaredSlots.get(current.node)?.authority === "declared" ||
         initialFills.get(selected)?.some(prior => prior !== fill)) return false;
       seen.add(selected);

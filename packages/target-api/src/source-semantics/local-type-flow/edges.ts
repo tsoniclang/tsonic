@@ -12,6 +12,7 @@ import { sourceTypeDescriptorIndexValue, sourceTypeFlowTypeDeclaration, sourceTy
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
@@ -784,6 +785,22 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const source = receiver === undefined ? undefined : value(receiver, false, depth);
     if (source === undefined || !active.has(source.node)) return fixed(node);
     const sourceTerm = terms.get(source);
+    if (!isWriteTarget(ast, node) && (sourceTerm?.kind === "declared" ||
+      sourceTerm?.kind === "fixed" && sourceTerm.type.kind === "declared")) {
+      const query = semantics.forNode(node);
+      const property = ast.is.IsPropertyAccessExpression(node) ? query.operations.propertyAccess(node) : undefined;
+      const element = ast.is.IsElementAccessExpression(node) ? query.operations.elementAccess(node) : undefined;
+      const declaration = property?.selectedReadDeclaration ?? property?.selectedDeclaration ?? element?.selectedDeclaration;
+      if ((property ?? element)?.optionalChain !== true && declaration !== undefined && ast.questionToken(declaration) === undefined &&
+        (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsPropertySignatureDeclaration(declaration) ||
+        ast.is.IsGetAccessorDeclaration(declaration))) {
+        const component = declaredComponent(declaration, query);
+        if (component?.authoredTypeNode !== undefined && !query.types.couldContainTypeVariables(component.selectedType)) {
+          const readComponent = referenceComponent(node, declaration);
+          if (readComponent !== undefined) return fixed(node, readComponent);
+        }
+      }
+    }
     const structure = sourceTerm?.kind === "fixed" ? sourceTypeDescriptorStructure(sourceTerm.type) : undefined;
     if (structure?.kind === "shape" && structure.indexes.length > 0) {
       const query = semantics.forNode(node);
@@ -1252,6 +1269,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           join(values[0]!, variable, occurrence, Object.freeze({ ...component, selectedType: values[0]! }), level, role);
           return;
         }
+        const arrayFormal = role === "argument" && formalQuery.types.isUnion(formal)
+          ? arrayArgumentFormal(values, variable, occurrence, component) : undefined;
+        if (arrayFormal !== undefined) {
+          const { authoredTypeNode, ...inputComponent } = component;
+          join(arrayFormal, variable, occurrence, Object.freeze({ ...inputComponent, selectedType: arrayFormal }), level + 1, role);
+          return;
+        }
         // Only a union that mentions one of this call's binders is a generic join; a closed union formal (its checker
         // type may still report "could contain type variables" for anonymous object members) is chosen by the one C30
         // kind selector at the construction (uses.ts), not refused here.
@@ -1346,6 +1370,39 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (mentionedBinders(formal, formalQuery.types, level).size > 0 || formalQuery.types.couldContainTypeVariables(formal)) {
         refuse("TSONIC_LOCAL_TYPE_GENERIC", occurrence);
       }
+    }
+
+    function arrayArgumentFormal(alternatives: readonly Type[], variable: SourceTypeFlowVariable, occurrence: Node,
+      component: SourceTypeComponentEvidence): Type | undefined {
+      const term = terms.get(variable);
+      if (term === undefined || !ast.is.IsArrayLiteralExpression(term.site) || !(term.kind === "array" ||
+        term.kind === "fixed" && sourceTypeDescriptorStructure(term.type).kind === "array")) return undefined;
+      if (alternatives.some(type => {
+        const declaration = sourceTypeFlowTypeDeclaration(context.source, query, type);
+        return query.types.isAny(type) || query.types.isUnknown(type) || query.types.isNonPrimitive(type) ||
+          declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration);
+      })) return undefined;
+      const arrays = alternatives.filter(type => query.types.isArrayLike(type) || query.types.isTuple(type));
+      if (arrays.length !== 1 || query.types.isTuple(arrays[0]!)) return undefined;
+      const descriptor = context.describe(occurrence, component);
+      if (descriptor === undefined) return undefined;
+      const pending = [descriptor];
+      const seen = new Set<SourceTypeDescriptor>();
+      while (pending.length > 0) {
+        const selected = pending.pop()!;
+        if (seen.has(selected)) continue;
+        seen.add(selected);
+        if (selected.kind === "declared") {
+          if (ast.is.IsTypeParameterDeclaration(selected.declaration)) return undefined;
+          if (selected.definition !== undefined) pending.push(selected.definition);
+        } else if (selected.kind === "optional") pending.push(selected.value);
+        else if (selected.kind === "union") pending.push(...selected.types);
+        else if (selected.kind === "intrinsic" && ["any", "unknown", "object"].includes(selected.intrinsic)) return undefined;
+        else if (selected.kind === "shape" && selected.members.length === 0 && selected.indexes.length === 0 &&
+          selected.calls.length === 0 && selected.constructs.length === 0) return undefined;
+      }
+      const slot = sourceTypeFlowConstructionSlot(ast, term.site, descriptor, "inferred");
+      return slot.type !== undefined && sourceTypeDescriptorStructure(slot.type).kind === "array" ? arrays[0] : undefined;
     }
 
     function mentionedBinders(type: Type, types: SourceFinalTypeQueries,

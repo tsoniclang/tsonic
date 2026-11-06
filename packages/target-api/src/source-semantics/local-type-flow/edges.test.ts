@@ -850,3 +850,74 @@ test("C2342 discarded selector wrappers retain their dependencies without a reco
   assert.equal(retained !== undefined && current.graph.nodes.some(record => record.node === retained), true);
   assert.equal(current.graph.refusals.length, 0);
 });
+
+test("C2351 structural array formal positions retain the exact constructor binder in either union order", () => {
+  const forms = ["Choice[]", "readonly Choice[]", "Elements<Choice>"].flatMap((array, index) => [
+    { name: `forward_${index}`, formal: `${array} | Readable<Choice>` },
+    { name: `reverse_${index}`, formal: `Readable<Choice> | ${array}` },
+  ]).concat([{ name: "alias_forward", formal: "Input<Choice>" }, { name: "alias_reverse", formal: "Reversed<Choice>" }]);
+  const current = fixture(`interface Readable<Element> { read(): Element; }
+    interface Published<Element> { readonly value: Element; }
+    type Elements<Element> = readonly Element[];
+    type Input<Element> = readonly Element[] | Readable<Element>;
+    type Reversed<Element> = Readable<Element> | readonly Element[];
+    ${forms.map(form => `declare const factory_${form.name}: {
+      new<Choice>(values?: ${form.formal}): Published<Choice>;
+    };`).join("\n")}
+    function run(value: word): void { const input = [value];
+      ${forms.map(form => `const selected_${form.name} = new factory_${form.name}(input); void selected_${form.name};`).join("\n")}
+    }`);
+  const { ast } = current.source;
+  const input = current.entry(current.declaration("input")).term;
+  assert.equal(input?.kind === "array", true);
+  if (input?.kind !== "array") throw new Error("The retained array element position is required.");
+  const calls = current.graph.calls.filter(call => ast.is.IsNewExpression(call.node));
+  assert.equal(calls.length, forms.length);
+  for (const call of calls) {
+    const parameter = call.source.sourceSelectedSignatureParameters[0];
+    const declaration = parameter?.parameterDeclaration;
+    const original = ast.typeNode(declaration);
+    const place = call.argumentPlaces[0];
+    const binder = call.method[0];
+    assert.equal(parameter !== undefined && declaration !== undefined && original !== undefined && parameter.authoredTypeNode === original &&
+      binder !== undefined && call.method.length === 1 && ast.parent(binder.declaration) === ast.parent(declaration), true,
+    "the exact selected parameter and constructor binder come from the same original signature");
+    assert.equal(call.argumentPlaces.length === 1 && place !== undefined && place.parameter === parameter &&
+      place.binding === call.source.sourceArgumentBindings[0] && place.binder === binder?.declaration &&
+      current.same(place.value, input.element) && binder !== undefined && current.same(place.value, binder.variable), true,
+    "formal array element unification retains the original binding without a checked-width fill");
+    const retained = binder === undefined ? [] : current.terms.group(binder.variable).terms.filter(term => term.kind === "fixed");
+    assert.equal(retained.length > 0 && retained.every(term => term.type.kind === "primitive" && term.type.primitive === "int32"), true,
+      "the original declared argument width is retained; checked number never seeds a foreign float64 binder");
+  }
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2351 array formal unification never chooses through a free, broad or competing aggregate arm", () => {
+  const forms = [
+    { name: "free", formal: "Choice | Choice[]", refused: true },
+    { name: "alias_free", formal: "Identity<Choice> | Choice[]", refused: true },
+    { name: "broad", formal: "object | Choice[]", refused: true },
+    { name: "empty", formal: "{} | Choice[]", refused: true },
+    { name: "arrays", formal: "Choice[] | readonly Choice[]", refused: true },
+    { name: "tuple", formal: "readonly [Choice] | Choice[]", refused: true },
+    { name: "unknown", formal: "unknown | Choice[]", refused: false },
+    { name: "any", formal: "any | Choice[]", refused: false },
+    { name: "numeric_arrays", formal: "number[] | string[]", refused: false },
+  ];
+  const current = fixture(`interface Published<Element> { readonly value: Element; }
+    type Identity<Element> = Element;
+    ${forms.map(form => `declare const factory_${form.name}: {
+      new<Choice>(values: ${form.formal}): Published<Choice>;
+    };`).join("\n")}
+    function run(value: word): void {
+      ${forms.map(form => `const input_${form.name} = [value];
+        const selected_${form.name} = new factory_${form.name}(input_${form.name}); void selected_${form.name};`).join("\n")}
+    }`);
+  for (const form of forms) {
+    const call = current.graph.calls.find(call => current.text(call.node) === `new factory_${form.name}(input_${form.name})`);
+    assert.equal(call !== undefined && call.argumentPlaces.length === 0, true, form.name);
+    if (form.refused) assert.equal(current.graph.refusals.some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_GENERIC" &&
+      current.text(refusal.site) === `input_${form.name}`), true, form.name);
+  }
+});
