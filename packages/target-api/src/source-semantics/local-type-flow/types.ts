@@ -1,8 +1,8 @@
-import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, SourcePrimitiveKind, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../../source-navigation/types.js";
 import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
-import type { SourceProgramSemantics, SourceTypeComponentEvidence } from "../types.js";
+import type { SourceFileSemantics, SourceProgramSemantics, SourceTypeComponentEvidence } from "../types.js";
 
 export type SourceTypeDescriptor =
   | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
@@ -165,6 +165,7 @@ export interface SourceEffectiveCallInstantiation {
   readonly call: ResolvedSourceCallInfo;
   readonly receiver: readonly SourceEffectiveTypeArgument[];
   readonly method: readonly SourceEffectiveTypeArgument[];
+  readonly parameters: readonly (SourceTypeDescriptor | undefined)[];
   readonly result?: SourceTypeDescriptor;
 }
 
@@ -189,10 +190,17 @@ export interface SourceTypeFlowOrder {
   readonly preorder: number;
 }
 
+export interface SourceTypeFlowInheritedBinding {
+  readonly value: SourceTypeDescriptor;
+  readonly authoredComponent?: SourceTypeComponentEvidence;
+}
+
 export interface SourceTypeFlowAnalysisContext {
   readonly source: SourceTypeFlowSource;
   describe(node: Node, component?: SourceTypeComponentEvidence,
     arguments_?: readonly SourceEffectiveTypeArgument[]): SourceTypeDescriptor | undefined;
+  authoredInheritedBindings(type: Type, queries: SourceFileSemantics, bindings: ReadonlyMap<Node, SourceTypeDescriptor>):
+    ReadonlyMap<Node, Required<SourceTypeFlowInheritedBinding>>;
   literal(node: Node): SourceLiteralValue | undefined;
   order(node: Node): SourceTypeFlowOrder;
 }

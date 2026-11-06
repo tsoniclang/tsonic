@@ -160,7 +160,8 @@ interface Array<T> extends Iterable<T> {
   lastIndexOf(searchElement: T, fromIndex?: int32): int32;
   includes(searchElement: T, fromIndex?: int32): boolean;
   reverse(): T[];
-  sort(compareFn?: (a: T, b: T) => number): T[];
+  sort<TResult extends number | bigint = number>(compareFn?: (a: T, b: T) => TResult): T[];
+  toSorted<TResult extends number | bigint = number>(compareFn?: (a: T, b: T) => TResult): T[];
   at(index: int32): T | undefined;
   forEach(callbackfn: (value: T, index: import("@tsonic/core/types.js").int32, array: T[]) => void): void;
   map<U>(callbackfn: (value: T, index: import("@tsonic/core/types.js").int32, array: T[]) => U): U[];
@@ -178,6 +179,7 @@ interface Array<T> extends Iterable<T> {
 }
 
 interface ReadonlyArray<T> extends Iterable<T> {
+  toSorted<TResult extends number | bigint = number>(compareFn?: (a: T, b: T) => TResult): T[];
   readonly length: int32;
   readonly [index: int32]: T;
   entries(): ArrayEntriesIterator<T>;

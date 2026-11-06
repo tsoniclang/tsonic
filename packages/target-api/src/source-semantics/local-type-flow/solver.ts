@@ -15,6 +15,7 @@ import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection, sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
+import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
 import { sourceTypeFlowScalarCalculationArm, type SourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
 import {
@@ -22,7 +23,7 @@ import {
   sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits, type SourcePrimitiveOperatorOperand, type SourcePrimitiveUnaryOperator,
 } from "./operator-decisions.js";
 import type {
-  SourceEffectiveCallInstantiation, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor, SourceLiteralMemberCorrespondence,
+  SourceEffectiveCallInstantiation, SourceEffectiveTypeArgument, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor, SourceLiteralMemberCorrespondence,
   SourceTypeFlowAssociation, SourceTypeFlowDerived, SourceTypeFlowGraph, SourceTypeFlowNode,
   SourceTypeFlowObligation, SourceTypeFlowPathPart, SourceTypeFlowRefusal, SourceTypeFlowSignature, SourceTypeFlowSource,
   SourceTypeFlowTerm, SourceTypeFlowUse, SourceTypeFlowVariable,
@@ -150,6 +151,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
   }
   for (const selected of terms.groups()) group(selected.variable);
+  function callParameters(call: ResolvedSourceCallInfo, receiver: readonly SourceEffectiveTypeArgument[],
+    method: readonly SourceEffectiveTypeArgument[]): readonly (SourceTypeDescriptor | undefined)[] {
+    return Object.freeze(call.sourceSelectedSignatureParameters.map(parameter => context.describe(call.call, {
+      selectedType: parameter.selectedType,
+      ...(parameter.parameterDeclaration === undefined ? {} : { declaration: parameter.parameterDeclaration }),
+      ...(parameter.authoredTypeNode === undefined ? {} : { authoredTypeNode: parameter.authoredTypeNode }),
+    }, [...receiver, ...method])));
+  }
   for (const call of graph.calls) {
     if (call.result === undefined || !source.ast.is.IsCallExpression(call.node)) continue;
     const queries = source.semantics.forNode(call.node);
@@ -975,13 +984,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const storage = sourceTypeDescriptorStructure(destination.type);
       if (destination.authority === "declared" && storage.kind === "primitive") {
         scalarCalculations.set(term.site, freezeSourceTypeDescriptor(storage));
+      } else if (term.kind === "fixed" && scalarType(term.type) &&
+        !(term.type.kind === "intrinsic" && term.type.intrinsic === "bigint")) {
+        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
       } else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
         const creation = numericCreation(term.site);
         if (creation.literal === undefined) continue;
         const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal);
         if (arm.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor({ kind: "primitive", primitive: arm.primitive }));
-      } else if (term.kind === "fixed" && scalarType(term.type)) {
-        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
       } else if (term.kind === "numeric") {
         const creation = numericCreation(term.site);
         const own = creation.literal === undefined ? undefined : sourceTypeFlowNumericLiteralKind(creation.literal);
@@ -1286,6 +1296,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (receiver.length !== call.receiver.length || method.length !== call.method.length) continue;
     const result = call.result === undefined ? undefined : group(call.result).type;
     calls.set(call.node, Object.freeze({ call: call.source, receiver: Object.freeze(receiver), method: Object.freeze(method),
+      parameters: callParameters(call.source, receiver, method),
       ...(result === undefined ? {} : { result }) }));
     for (const binder of [...call.receiver, ...call.method]) if (binder.constraint !== undefined) {
       const type = group(binder.variable).type;
@@ -1315,7 +1326,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(type) }));
     }
     if (method.length !== selected.length) continue;
-    calls.set(node, Object.freeze({ call, receiver: Object.freeze([]), method: Object.freeze(method) }));
+    calls.set(node, Object.freeze({ call, receiver: Object.freeze([]), method: Object.freeze(method),
+      parameters: callParameters(call, [], method) }));
   }
   for (const node of [...graph.nodes.filter(record => record.declaration === record.node).map(record => record.node), ...defaults.values]) {
     if (outcomes.has(node)) continue;

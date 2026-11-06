@@ -66,6 +66,7 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   ]);
   const context: SourceTypeFlowAnalysisContext = Object.freeze({
     source,
+    authoredInheritedBindings: () => new Map(),
     describe(node: Node, component?: SourceTypeComponentEvidence): SourceTypeDescriptor | undefined {
       described.push({ node, ...(component === undefined ? {} : { component }) });
       const authored = component?.authoredTypeNode;

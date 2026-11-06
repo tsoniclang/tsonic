@@ -13,7 +13,7 @@ import { isSourceCallableSignatureDeclaration } from "../../source-navigation/ca
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
-  SourceTypeFlowFixedRule, SourceTypeFlowRefusal, SourceTypeFlowSource,
+  SourceTypeFlowFixedRule, SourceTypeFlowInheritedBinding, SourceTypeFlowRefusal, SourceTypeFlowSource,
 } from "./types.js";
 
 export interface SourceTypeFlowDefaults {
@@ -213,14 +213,15 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       ? queries.operations.propertyAccess(node)?.receiver : ast.is.IsElementAccessExpression(node)
         ? queries.operations.elementAccess(node)?.receiver : undefined : call.sourceReceiver ?? call.sourceCallee;
     if (receiver !== undefined && receiver.expression !== node) {
-      const descriptor = describe(receiver.expression);
-      const arguments_ = descriptor?.kind === "declared" ? descriptor.typeArguments
-        : descriptor?.kind === "array" ? [descriptor.element] : [];
+      const receiverDescriptor = describe(receiver.expression);
+      const arguments_ = receiverDescriptor?.kind === "declared" ? receiverDescriptor.typeArguments
+        : receiverDescriptor?.kind === "array" ? [receiverDescriptor.element] : [];
       const declared = queries.types.typeArgumentBindings(receiver.type) ?? [];
       declared.forEach((binding, index) => {
         const value = arguments_[index] ?? describeType(binding.argumentType, queries, { selectedType: binding.argumentType });
         if (value !== undefined) bindings.set(binding.declaration, value);
       });
+      for (const [declaration, binding] of descriptor.inheritedBindings(receiver.type, queries, bindings)) bindings.set(declaration, binding.value);
     }
     for (const selected of call?.sourceSelectedMethodTypeArguments ?? []) {
       const declaration = typeDeclaration(selected.typeParameter, queries);
@@ -521,6 +522,15 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const context: SourceTypeFlowAnalysisContext = Object.freeze({ source,
     describe: (node: Node, component?: SourceTypeComponentEvidence, arguments_?: readonly SourceEffectiveTypeArgument[]) =>
       describe(node, component, 0, undefined, arguments_),
+    authoredInheritedBindings: (type: Type, queries: SourceFileSemantics, bindings: ReadonlyMap<Node, SourceTypeDescriptor>) => {
+      const selected = new Map<Node, Required<SourceTypeFlowInheritedBinding>>();
+      for (const [declaration, binding] of descriptor.inheritedBindings(type, queries, bindings, bindings)) {
+        if (binding.authoredComponent !== undefined) selected.set(declaration, Object.freeze({
+          value: freezeSourceTypeDescriptor(binding.value), authoredComponent: binding.authoredComponent,
+        }));
+      }
+      return selected;
+    },
     literal: (node: Node) => literals.get(node),
     order: (node: Node) => {
       const range = ast.authoredRange(node);

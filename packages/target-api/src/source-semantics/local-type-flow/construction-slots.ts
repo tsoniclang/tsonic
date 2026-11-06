@@ -26,6 +26,9 @@ export function sourceTypeFlowScalarCalculationArm(
     fixed = fixed.kind === "declared" ? fixed.definition : fixed.kind === "optional" ? fixed.value : undefined;
   }
   const candidates = new Set<SourcePrimitiveKind>();
+  const numericKinds = new Set<SourcePrimitiveKind>();
+  const numeric = literal.form !== "array" && (literal.number !== undefined || literal.integer !== undefined ||
+    literal.integerConstant !== undefined || literal.numeric !== undefined);
   const pending = [type];
   seen.clear();
   while (pending.length > 0) {
@@ -35,14 +38,16 @@ export function sourceTypeFlowScalarCalculationArm(
     if (selected.kind === "declared" && selected.definition !== undefined) pending.push(selected.definition);
     else if (selected.kind === "optional") pending.push(selected.value);
     else if (selected.kind === "union") pending.push(...selected.types);
-    else if (selected.kind === "primitive" && sourcePrimitiveOperatorLiteralFits(literal, selected.primitive)) {
-      candidates.add(selected.primitive);
+    else if (selected.kind === "primitive") {
+      if (numeric && selected.primitive !== "bool" && selected.primitive !== "char") numericKinds.add(selected.primitive);
+      if (sourcePrimitiveOperatorLiteralFits(literal, selected.primitive)) candidates.add(selected.primitive);
     }
   }
   let primitive: SourcePrimitiveKind | undefined;
   for (const candidate of candidates) {
     if (primitive === undefined || wholeLiteralUnionArmPriority[candidate] < wholeLiteralUnionArmPriority[primitive]) primitive = candidate;
   }
+  if (primitive === undefined && numericKinds.size === 1) primitive = numericKinds.values().next().value;
   return primitive === undefined ? Object.freeze({ kind: "unfitted" }) : Object.freeze({ kind: "resolved", primitive });
 }
 

@@ -41,6 +41,7 @@ function fixture(text: string) {
   visit(file);
   const context: SourceTypeFlowAnalysisContext = {
     source,
+    authoredInheritedBindings: () => new Map(),
     describe: () => undefined,
     literal: () => undefined,
     order: node => ({ start: source.ast.pos(node), preorder: preorder.get(node)! }),

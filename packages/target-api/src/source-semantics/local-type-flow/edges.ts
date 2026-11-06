@@ -1015,6 +1015,12 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     }
     for (const declaration of receiverArguments) {
       if (receiver === undefined) break;
+      const authored = declaredSlots.authoredBinding(node, new Set([declaration]))?.get(declaration);
+      if (authored !== undefined) {
+        putTerm(binders.get(declaration)!, Object.freeze({ kind: "fixed", site: node, type: authored.type }));
+        seeds.add(declaration);
+        continue;
+      }
       const inherited = inheritedReceiverArguments.get(declaration);
       if (inherited !== undefined) {
         const destination = binders.get(declaration)!;
@@ -1062,6 +1068,14 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const formal = binding.sourceParameterForm === "rest-element" || binding.sourceParameterForm === "rest-sequence"
         ? query.types.typeArguments(component.selectedType)[0] ?? component.selectedType
         : component.selectedType;
+      const actual = terms.get(input);
+      const absence = actual?.kind === "fixed" && actual.type.kind === "intrinsic" && actual.type.intrinsic === "absence";
+      if (absence && (parameter.acceptsOmission || query.types.isNullish(formal) || query.types.isUnion(formal) &&
+        query.types.unionOrIntersectionTypes(formal).some(type => query.types.isNullish(type)))) {
+        argumentPlace = undefined;
+        receiverOnly = false;
+        continue;
+      }
       join(formal, input, selected.expression, Object.freeze({ ...component, selectedType: formal }), 0, "argument");
       argumentPlace = undefined;
       receiverOnly = false;

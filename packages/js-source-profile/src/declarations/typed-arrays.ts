@@ -17,7 +17,7 @@ interface TypedArray<TArray, TElement> extends ArrayBufferView, Iterable<TElemen
   reverse(): TArray;
   set<TValue extends number | bigint>(array: ArrayLike<TValue>, offset?: int32): void;
   slice(start?: int32, end?: int32): TArray;
-  sort(compareFn?: (left: TElement, right: TElement) => number): TArray;
+  sort<TResult extends number | bigint = number>(compareFn?: (left: TElement, right: TElement) => TResult): TArray;
   subarray(begin?: int32, end?: int32): TArray;
 }
 interface TypedArrayConstructor<TArray> {

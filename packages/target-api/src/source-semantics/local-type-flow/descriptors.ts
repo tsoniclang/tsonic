@@ -1,13 +1,13 @@
 import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type, type TypeAliasApplicationInfo } from "@tsonic/tsts";
 import { sourceArrayElementType } from "../array-types.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
-import { sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
+import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descriptors.js";
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowSource } from "./types.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "./types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
@@ -209,7 +209,8 @@ export function createSourceTypeDescriptorReader(
 
   function members(selectedType: Type, queries: SourceFileSemantics, depth: number,
     bindings: Bindings): readonly SourceTypeDescriptorMember[] | undefined {
-    const inherited = inheritedBindings(selectedType, queries, depth, bindings);
+    const inherited = new Map([...inheritedBindings(selectedType, queries, depth, bindings)]
+      .map(([declaration, binding]) => [declaration, binding.value]));
     const result: SourceTypeDescriptorMember[] = [];
     for (const property of queries.types.propertyInfos(selectedType)) {
       const selectedOrigin = sourceTypeDescriptorMemberOrigin(source, queries, property, selectedType);
@@ -249,8 +250,11 @@ export function createSourceTypeDescriptorReader(
     return result;
   }
 
-  function inheritedBindings(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings): Bindings {
+  function inheritedBindings(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
+    authoredBindings: Bindings = empty): ReadonlyMap<Node, SourceTypeFlowInheritedBinding> {
     const result = new Map(bindings);
+    const authored = new Map(authoredBindings);
+    const components = new Map<Node, SourceTypeComponentEvidence>();
     const application = queries.types.aliasApplication(selectedType);
     if (application?.kind === "direct" && application.bindings.length === 1 &&
       sourceTypeFlowHomomorphicInput(source, queries, selectedType) !== undefined) {
@@ -271,6 +275,23 @@ export function createSourceTypeDescriptorReader(
       const current = pending.shift()!;
       if (seen.has(current.type)) continue;
       seen.add(current.type);
+      const owner = declarationFor(current.type, queries);
+      const heritage = owner === undefined ? undefined : source.navigation.declaredHeritage(owner);
+      if (heritage?.kind === "resolved") for (const edge of heritage.edges) {
+        parametersFor(edge.target.declaration).forEach((parameter, index) => {
+          if (result.has(parameter)) return;
+          const node = edge.typeArguments[index];
+          const declared = node === undefined ? undefined : syntax(node, queries, depth + 1, authored);
+          const proven = declared !== undefined && !sourceTypeDescriptorHasTypeVariables(ast, declared);
+          const argument = proven ? declared : node === undefined ? undefined : syntax(node, queries, depth + 1, result);
+          if (argument !== undefined) result.set(parameter, argument);
+          const selectedType = proven && node !== undefined ? queries.types.authoredType(node) : undefined;
+          if (proven && selectedType !== undefined) {
+            authored.set(parameter, declared);
+            components.set(parameter, Object.freeze({ selectedType, authoredTypeNode: node! }));
+          }
+        });
+      }
       for (const binding of queries.types.typeArgumentBindings(current.type) ?? []) {
         if (result.has(binding.declaration)) continue;
         const argument = type(binding.argumentType, queries, { selectedType: binding.argumentType }, depth + 1, result);
@@ -278,7 +299,8 @@ export function createSourceTypeDescriptorReader(
       }
       for (const base of queries.types.instantiatedBaseTypes(current.type) ?? []) pending.push({ type: base, depth: current.depth + 1 });
     }
-    return result;
+    return new Map([...result].map(([declaration, value]) => [declaration, Object.freeze({ value,
+      ...(components.has(declaration) ? { authoredComponent: components.get(declaration)! } : {}) })]));
   }
 
   function indexes(selectedType: Type, queries: SourceFileSemantics, depth: number,
@@ -527,6 +549,8 @@ export function createSourceTypeDescriptorReader(
   }
 
   return Object.freeze({
+    inheritedBindings: (selectedType: Type, queries: SourceFileSemantics, bindings: Bindings, authoredBindings: Bindings = empty) =>
+      inheritedBindings(selectedType, queries, 0, bindings, authoredBindings),
     syntax: (node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty) =>
       capture(() => syntax(node, queries, depth, bindings)),
     type: (selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,

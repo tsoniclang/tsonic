@@ -15,7 +15,7 @@ import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
-import { sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
+import { decideSourcePrimitiveBinaryOperator, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 
 function fixture(text: string) {
@@ -209,6 +209,86 @@ test("C2417 callback parameter enrollment retains concrete authored binders with
     assert.equal(index === 0 ? method?.type.kind === "string"
       : method?.type.kind === "primitive" && method.type.primitive === "int32", true,
       `callback ${index}: the exact original declared method binder remains independent`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2418 inherited authored callback heads do not borrow a self-inferred result default", () => {
+  const current = fixture(`declare class Base<Element> {
+      order<Result extends number | bigint = number>(compare?: (left: Element, right: Element) => Result): this;
+    }
+    declare class Middle<Element> extends Base<Element> {}
+    declare class Single extends Middle<float32> {}
+    interface Unsigned extends Base<uint32> {}
+    declare class Signed extends Base<int32> {}
+    type SignedAlias = Signed;
+    function single(values: Single): void { values.order((left, right) => left - right); }
+    function unsigned(values: Unsigned): void { values.order((left, right) => left - right); }
+    function signed(values: SignedAlias): void { values.order((left, right) => left - right); }
+    function generic(values: Middle<float32>): void { values.order((left, right) => left - right); }`);
+  const { ast } = current.source;
+  const slots = createSourceTypeFlowDeclaredSlotReader(createSourceTypeFlowAnalysisContext(current.source).context);
+  const arrows = current.nodes.filter(node => ast.is.IsArrowFunction(node));
+  assert.equal(arrows.length, 4);
+  for (const [index, arrow] of arrows.entries()) {
+    const primitive = (["float32", "uint32", "int32", "float32"] as const)[index]!;
+    const parameters = ast.parameters(arrow);
+    for (const parameter of parameters) {
+      if (parameter === undefined) throw new Error("Each original callback parameter is required.");
+      const projected = slots.parameter(parameter, current.source.semantics.forNode(parameter));
+      const selected = current.source.effectiveTypes.get(parameter);
+      const actual = selected === undefined ? "absent" : selected.kind === "refused" ? "refused"
+        : selected.type.kind === "primitive" ? selected.type.primitive : selected.type.kind;
+      assert.equal(projected?.kind === "primitive" && projected.primitive === primitive && selected !== undefined &&
+        selected.kind !== "refused" && selected.type.kind === "primitive" && selected.type.primitive === primitive, true,
+        `callback ${index}: actual ${actual}, expected the authored ${primitive} head independently of Result`);
+    }
+    const body = ast.body(arrow);
+    const selected = body === undefined ? undefined : current.source.effectiveTypes.get(body);
+    const decision = decideSourcePrimitiveBinaryOperator("subtract", { kind: "fixed", primitive }, { kind: "fixed", primitive });
+    const instance = current.source.effectiveTypes.callInstantiation(ast.parent(arrow)!);
+    const required = instance?.parameters[0];
+    const callable = required?.kind === "optional" ? required.value : required;
+    assert.equal(callable?.kind === "callable" && callable.calls[0]?.parameters.length === 2 &&
+      callable.calls[0].parameters.every(parameter => parameter.type.kind === "primitive" && parameter.type.primitive === primitive), true,
+      `callback ${index}: the same invocation's declared heads agree with its actual parameters`);
+    assert.equal(decision.kind === "resolved" && selected !== undefined && selected.kind !== "refused" &&
+      selected.type.kind === "primitive" && selected.type.primitive === decision.result &&
+      instance?.method[0]?.type.kind === "primitive" && instance.method[0].type.primitive === decision.result, true,
+      `callback ${index}: the one arithmetic table, body and method result retain the same native kind`);
+    assert.equal(body !== undefined && slots.get(body) === undefined, true,
+      `callback ${index}: an inferred Result default is not an authored return destination`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2418 checked inherited arguments and defaults never authorize a callback head or retarget an annotation", () => {
+  const current = fixture(`declare class Base<Element> {
+      order<Result extends number | bigint = number>(compare?: (left: Element, right: Element) => Result): this;
+    }
+    declare class Open<Element> extends Base<Element> { constructor(value: Element); }
+    function inferred(): void { const values = new Open(0.5); values.order((left, right) => 1); }
+    function fixed(values: Open<int32>): void { values.order((left: float32, right: float32) => left - right); }`);
+  const { ast } = current.source;
+  const slots = createSourceTypeFlowDeclaredSlotReader(createSourceTypeFlowAnalysisContext(current.source).context);
+  const arrows = current.nodes.filter(node => ast.is.IsArrowFunction(node));
+  assert.equal(arrows.length, 2);
+  for (const [index, arrow] of arrows.entries()) {
+    for (const parameter of ast.parameters(arrow)) {
+      if (parameter === undefined) throw new Error("Each original callback head is required.");
+      assert.equal(slots.parameter(parameter, current.source.semantics.forNode(parameter)) === undefined, true,
+        `callback ${index}: neither a checked inherited argument nor a fixed annotation is a contextual destination`);
+      if (index === 1) {
+        const selected = current.source.effectiveTypes.get(parameter);
+        assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "primitive" &&
+          selected.type.primitive === "float32", true, "the original authored float32 is not retargeted to the receiver's int32");
+      }
+    }
+    const body = ast.body(arrow);
+    const selected = body === undefined ? undefined : current.source.effectiveTypes.get(body);
+    assert.equal(body !== undefined && slots.get(body) === undefined && selected !== undefined && selected.kind !== "refused" &&
+      selected.type.kind === "primitive" && selected.type.primitive === (index === 0 ? "int64" : "float32"), true,
+      `callback ${index}: the body retains its own integer or exact authored arithmetic result`);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
@@ -3223,6 +3303,28 @@ test("C2337 the canonical scalar calculation-arm reader preserves fixed nonfits 
   }
 });
 
+test("C2421 scalar constructions retain strings and unique numeric kinds before native range validation", () => {
+  const current = fixture(`function text(): string | undefined { return "text"; }
+    function small(): int8 | boolean { return 128; }
+    function floating(): float32 | boolean { return 1e39; }
+    function wide(): int64 | boolean { return 9223372036854775808n; }`);
+  const { ast } = current.source;
+  const values = current.nodes.filter(node => {
+    const parent = ast.parent(node);
+    return parent !== undefined && ast.is.IsReturnStatement(parent) &&
+      (ast.is.IsStringLiteral(node) || ast.is.IsNumericLiteral(node) || ast.is.IsBigIntLiteral(node));
+  });
+  assert.equal(values.length, 4);
+  for (const [index, value] of values.entries()) {
+    const outcome = current.source.effectiveTypes.get(value);
+    const physical = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.construction;
+    assert.equal(index === 0 ? physical?.kind === "string" : physical?.kind === "primitive" &&
+      physical.primitive === (["string", "int8", "float32", "int64"] as const)[index], true,
+      `construction ${index}: exact kind publication does not suppress the target's range check`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C2337 signed literal calculation arms do not replace the published scalar union or its spelling child", () => {
   for (const [width, token] of [["int32", "-2147483648"], ["float32", "-1.5"], ["number", "-9007199254740993"]] as const) {
     const current = fixture(`function run(): (string | ${width})[] { return ["marker", ${token}]; }`);
@@ -4243,6 +4345,44 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
     "the three original numeric children retain distinct canonical groups");
   const issues = current.source.effectiveTypes.refusals();
   assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; ").slice(0, 2048));
+});
+
+test("C2421 contextual callback heads retain optional absence and defaulted heads retain their present value", () => {
+  const current = fixture(`declare function consume(callback: (required: string, optional?: string) => void): void;
+    class Base<Value> { consume(callback: (required: Value, optional?: Value) => void): void { void callback; } }
+    class Inherited extends Base<string> {}
+    const direct: (required: string, optional?: string) => void = (required, optional) => { void required; void optional; };
+    const defaulted: (value?: int32) => void = (value = 1) => { const plus = value + 1; void plus; };
+    const absentDefault: (absent?: string) => void = (absent = undefined) => { void absent; };
+    const unionDefault: (mixed?: string | int32) => void = (mixed = "text") => { void mixed; };
+    function run(): void { consume((required, optional) => { void required; void optional; });
+      new Inherited().consume((required, optional) => { void required; void optional; }); }
+    void direct; void defaulted; void absentDefault; void unionDefault;`);
+  const { ast } = current.source;
+  const reader = createSourceTypeFlowDeclaredSlotReader(createSourceTypeFlowAnalysisContext(current.source).context);
+  const arrows = current.nodes.filter(node => ast.is.IsArrowFunction(node));
+  assert.equal(arrows.length, 6);
+  for (const arrow of arrows) {
+    for (const parameter of ast.parameters(arrow)) {
+      if (parameter === undefined) throw new Error("The original callback parameter is required.");
+      const name = ast.text(ast.name(parameter)!);
+      const selected = reader.parameter(parameter, current.source.semantics.forNode(parameter));
+      const outcome = current.source.effectiveTypes.get(parameter);
+      const descriptor = selected === undefined ? undefined : sourceTypeDescriptorStructure(selected);
+      assert.equal(name === "optional" || name === "absent" ? descriptor?.kind === "optional" && descriptor.value.kind === "string"
+        : name === "value" ? descriptor?.kind === "primitive" && descriptor.primitive === "int32"
+        : name === "mixed" ? descriptor?.kind === "union" && descriptor.types.length === 2 &&
+          descriptor.types.some(type => type.kind === "string") && descriptor.types.some(type => type.kind === "primitive" && type.primitive === "int32")
+        : descriptor?.kind === "string", true, name + ": the contextual head retains its exact presence and authored width");
+      assert.equal(outcome !== undefined && outcome.kind !== "refused" && selected !== undefined &&
+        sourceTypeDescriptorsEqual(outcome.type, selected), true, name + ": the publication consumes the same projected contract");
+    }
+  }
+  assert.equal(reader.parameter(current.declaration("direct"), current.source.semantics.forNode(current.declaration("direct"))) === undefined, true,
+    "a missing parameter head never fabricates a callable parameter");
+  const plus = current.type("plus");
+  assert.equal(plus.kind === "primitive" && plus.primitive === "int32", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("C2388 receiver writes keep the retained fixed argument's binder path", () => {

@@ -69,5 +69,5 @@ test("native split counts, timer handles and BigInt widths are declared once at 
   ]) assert.equal(jsSurfaceSourceProfileDeclarations.split(signature).length - 1, 1, signature);
   assert.equal(jsSurfaceSourceProfileDeclarations.includes("limit?: number"), false);
   assert.equal(jsSurfaceSourceProfileDeclarations.includes("asIntN(bits: number"), false);
-  assert.equal(jsSurfaceSourceProfileDeclarations.includes("sort(compareFn?: (a: T, b: T) => number)"), true, "Q15 retains the current comparator contract");
+  assert.equal(jsSurfaceSourceProfileDeclarations.includes("sort<TResult extends number | bigint = number>(compareFn?: (a: T, b: T) => TResult)"), true, "Q15 infers the actual native numeric result without a fixed floating ABI");
 });
