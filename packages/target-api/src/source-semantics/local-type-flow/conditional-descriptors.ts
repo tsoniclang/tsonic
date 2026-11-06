@@ -20,7 +20,6 @@ export function sourceTypeDescriptorConditionalDefinition(
   for (const [index, step] of application.conditionalSteps.entries()) {
     if (step.branch === "deferred" || step.selectedNode === undefined || step.selectedType === undefined) return undefined;
     const base = retained.get(step.conditional) ?? original;
-    retained.delete(step.conditional);
     const selected = new Map(base.values);
     const checked = new Map(base.types);
     const inferred = new Map<Node, SourceTypeDescriptor>();

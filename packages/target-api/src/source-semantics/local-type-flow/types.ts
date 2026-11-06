@@ -269,7 +269,7 @@ export type SourceTypeFlowOperator =
   | "add" | "subtract" | "multiply" | "divide" | "remainder" | "power"
   | "bit-and" | "bit-or" | "bit-xor" | "shift-left" | "shift-right" | "shift-right-unsigned"
   | "negate" | "positive" | "bit-not" | "logical-not"
-  | "identity" | "sequence" | "conditional" | "logical-and" | "logical-or" | "coalesce"
+  | "identity" | "await" | "sequence" | "conditional" | "logical-and" | "logical-or" | "coalesce"
   | "less" | "less-equal" | "greater" | "greater-equal" | "equal" | "not-equal";
 
 export interface SourceTypeFlowDerived {

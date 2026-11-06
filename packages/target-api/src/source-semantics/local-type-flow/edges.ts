@@ -18,7 +18,6 @@ import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
-import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
   SourceTypeFlowBinder, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
@@ -400,64 +399,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
   function declaredPattern(node: Node, component: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics,
     described: SourceTypeDescriptor | undefined, initializer?: Node): void {
-    const arrayPattern = ast.is.IsArrayBindingPattern(node);
-    const tuple = component !== undefined && query.types.isTuple(component.selectedType)
-      ? query.types.tupleElementInfos(component.selectedType) : undefined;
-    const elements = ast.elements(node);
-    for (const [index, element] of elements.entries()) {
-      if (element === undefined || ast.is.IsOmittedExpression(element)) continue;
-      const name = ast.name(element);
-      if (name === undefined) continue;
-      let selected = declaredComponent(element, query);
-      let projected: SourceTypeDescriptor | undefined;
-      if (arrayPattern && described?.kind === "array") projected = BindingElement_IsRest(ast, element) ? described : described.element;
-      else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = sourceTypeDescriptorTupleValue(described, index);
-      if (component !== undefined && !BindingElement_IsRest(ast, element)) {
-        let slot: { readonly type: Type; readonly declaration?: Node } | undefined;
-        if (arrayPattern) slot = tuple?.[index];
-        else {
-          const propertyName = BindingElement_PropertyName(ast, element) ?? name;
-          const selection = query.propertyNames.get(propertyName);
-          if (selection?.kind !== "resolved") {
-            refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", element);
-            continue;
-          }
-          const property = selection?.kind === "resolved"
-            ? query.types.propertyInfos(component.selectedType).find(property => property.name === selection.name) : undefined;
-          const structure = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
-          if (selection?.kind === "resolved" && structure?.kind === "shape") {
-            projected = structure.members.find(member => member.name === selection.name)?.type;
-          }
-          // An unannotated never-open pattern over an object literal binds each member to that member's own
-          // initializer value (B3 literal defaults), not to the checker's widened member type.
-          const assignment = selection?.kind === "resolved" && initializer !== undefined && ast.is.IsObjectLiteralExpression(initializer)
-            ? ast.properties(initializer).find(candidate => candidate !== undefined && ast.is.IsPropertyAssignment(candidate) &&
-              query.propertyNames.get(ast.name(candidate)!)?.kind === "resolved" &&
-              (query.propertyNames.get(ast.name(candidate)!) as { readonly name: string }).name === selection.name) : undefined;
-          const memberValue = assignment === undefined ? undefined : ast.as.AsPropertyAssignment(assignment)?.Initializer;
-          const valueDescriptor = memberValue === undefined ? undefined : context.describe(memberValue);
-          if (valueDescriptor !== undefined) projected = valueDescriptor;
-          if (property !== undefined) {
-            const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
-            slot = { type: property.type, ...(declaration === undefined ? {} : { declaration }) };
-          }
-        }
-        if (slot !== undefined) {
-          const method = slot.declaration !== undefined &&
-            (ast.is.IsMethodDeclaration(slot.declaration) || ast.is.IsMethodSignatureDeclaration(slot.declaration));
-          const annotation = slot.declaration === undefined || method ? undefined : isTypeSyntaxNode(ast, slot.declaration)
-            ? slot.declaration : ast.typeNode(slot.declaration);
-          selected = Object.freeze({ selectedType: selected?.selectedType ?? slot.type,
-            ...(slot.declaration === undefined || method ? {} : { declaration: slot.declaration }),
-            ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
-        }
-      }
-      if (projected?.kind === "optional" && Node_Initializer(ast, element) !== undefined && selected !== undefined && !query.types.isUnion(selected.selectedType) &&
-        !query.types.isNullish(selected.selectedType)) projected = projected.value;
-      fixed(element, selected, projected);
-      if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
-        declaredPattern(name, selected, query, projected ?? (selected === undefined ? undefined : context.describe(element, selected)));
-      }
+    for (const binding of sourceTypeFlowDeclaredPatternBindings(context, node, component, query, described, initializer)) {
+      if (binding.kind === "refused") refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", binding.node);
+      else fixed(binding.node, binding.component, binding.type);
     }
   }
 
@@ -576,13 +520,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       return result;
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) return read(node, depth);
-    // An await's value is the awaited payload, not its operand's task: it is not a transparent wrapper. The operand
-    // keeps its own records; the await node is fixed by its checked awaited type.
     if (ast.is.IsAwaitExpression(node)) {
       const operand = Node_Expression(ast, node);
-      if (operand !== undefined) value(operand, false, depth);
-      return fixed(node, undefined, operand === undefined ? undefined
-        : sourceTypeFlowAwaitedPayload(semantics.forNode(operand), operand, context.describe(operand)));
+      return operand === undefined ? undefined : operationNode(node, "await", [operand], initializer, depth);
     }
     if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) ||
       ast.is.IsAsExpression(node) || ast.is.IsSatisfiesExpression(node) || ast.is.IsTypeAssertion(node)) {
@@ -784,10 +724,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   function read(node: Node, depth: number): SourceTypeFlowVariable | undefined {
     const receiver = Node_Expression(ast, node);
     const source = receiver === undefined ? undefined : value(receiver, false, depth);
-    if (source === undefined || !active.has(source.node)) return fixed(node);
-    const sourceTerm = terms.get(source);
-    if (!isWriteTarget(ast, node) && (sourceTerm?.kind === "declared" ||
-      sourceTerm?.kind === "fixed" && sourceTerm.type.kind === "declared")) {
+    if (!isWriteTarget(ast, node)) {
       const query = semantics.forNode(node);
       const property = ast.is.IsPropertyAccessExpression(node) ? query.operations.propertyAccess(node) : undefined;
       const element = ast.is.IsElementAccessExpression(node) ? query.operations.elementAccess(node) : undefined;
@@ -802,6 +739,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         }
       }
     }
+    if (source === undefined || !active.has(source.node)) return fixed(node);
+    const sourceTerm = terms.get(source);
     const structure = sourceTerm?.kind === "fixed" ? sourceTypeDescriptorStructure(sourceTerm.type) : undefined;
     if (structure?.kind === "shape" && structure.indexes.length > 0) {
       const query = semantics.forNode(node);
@@ -904,16 +843,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const declarations = ast.as.AsVariableDeclarationList(initializer)?.Declarations?.Nodes;
     const selected = declarations?.length === 1 ? declarations[0] : undefined;
     const source = value(expression);
-    if (selected === undefined || source === undefined || !active.has(source.node)) return;
+    if (selected === undefined || source === undefined) return;
     const name = ast.name(selected);
     const element = project(source, { kind: "element" });
-    if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) pattern(name, element, node);
-    else {
-      const result = record(selected, "read", undefined, selected);
-      active.add(selected);
-      link(element, result, node);
-      if (name !== undefined) link(result, record(name, "read", undefined, selected), name);
-    }
+    const result = record(selected, "read", undefined, selected);
+    if (result === undefined) return;
+    active.add(selected);
+    link(element, result, node);
+    if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) pattern(name, result, node);
+    else if (name !== undefined) link(result, record(name, "read", undefined, selected), name);
   }
 
   function operationNode(node: Node, operator: SourceTypeFlowOperator, operands: readonly Node[], required: boolean,
@@ -1034,6 +972,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const argumentPlaces: SourceTypeFlowArgumentPlace[] = [];
     const binders = new Map<Node, SourceTypeFlowVariable>();
     const seeds = new Set<Node>();
+    const authoredBinders = new Set<Node>();
     const inheritedReceiverArguments = new Map<Node, Type>();
     let argumentPlace: Pick<SourceTypeFlowArgumentPlace, "binding" | "parameter"> | undefined;
     let receiverOnly = false;
@@ -1047,6 +986,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       }
       const variable = addBinder(declaration, methodBinders);
       if (selected.explicitTypeNode !== undefined) {
+        authoredBinders.add(declaration);
         const type = query.types.authoredType(selected.explicitTypeNode);
         const component = type === undefined ? undefined : Object.freeze({ selectedType: type, authoredTypeNode: selected.explicitTypeNode });
         const explicit = component === undefined ? undefined : fixed(selected.explicitTypeNode, component);
@@ -1225,7 +1165,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         if (role === "argument" && argumentPlace !== undefined && declaration !== undefined) {
           argumentPlaces.push(Object.freeze({ ...argumentPlace, binder: declaration, value: variable }));
         }
-        if (role !== "argument" || !receiverOnly) link(variable, binder, occurrence);
+        if (role === "result" || !authoredBinders.has(declaration!) && (role !== "argument" || !receiverOnly)) link(variable, binder, occurrence);
         const operation = derived.get(variable.node);
         if (role === "callback" && operation !== undefined && declaration !== undefined && seeds.has(declaration)) {
           derived.set(operation.node, Object.freeze({ ...operation, accumulator: binder, required: true }));
@@ -1496,6 +1436,74 @@ function numericLeaves(ast: AstReader, root: Node): boolean {
     } else return false;
   }
   return true;
+}
+
+export function sourceTypeFlowDeclaredPatternBindings(context: SourceTypeFlowAnalysisContext, node: Node,
+  component: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics, described: SourceTypeDescriptor | undefined,
+  initializer?: Node): readonly ({ readonly kind: "resolved"; readonly node: Node; readonly component?: SourceTypeComponentEvidence;
+    readonly type?: SourceTypeDescriptor } | { readonly kind: "refused"; readonly node: Node })[] {
+  const { ast } = context.source;
+  const bindings: ({ readonly kind: "resolved"; readonly node: Node; readonly component?: SourceTypeComponentEvidence;
+    readonly type?: SourceTypeDescriptor } | { readonly kind: "refused"; readonly node: Node })[] = [];
+  visit(node, component, described, initializer);
+  return bindings;
+
+  function visit(pattern: Node, component: SourceTypeComponentEvidence | undefined, described: SourceTypeDescriptor | undefined,
+    initializer?: Node): void {
+    const arrayPattern = ast.is.IsArrayBindingPattern(pattern);
+    const tuple = component !== undefined && query.types.isTuple(component.selectedType)
+      ? query.types.tupleElementInfos(component.selectedType) : undefined;
+    const elements = ast.elements(pattern);
+    for (const [index, element] of elements.entries()) {
+      if (element === undefined || ast.is.IsOmittedExpression(element)) continue;
+      const name = ast.name(element);
+      if (name === undefined) continue;
+      const selectedType = query.declarations.declaredValueType(element);
+      let selected: SourceTypeComponentEvidence | undefined = selectedType === undefined ? undefined : { selectedType, declaration: element };
+      let projected: SourceTypeDescriptor | undefined;
+      if (arrayPattern && described?.kind === "array") projected = BindingElement_IsRest(ast, element) ? described : described.element;
+      else if (arrayPattern && described?.kind === "tuple" && !BindingElement_IsRest(ast, element)) projected = sourceTypeDescriptorTupleValue(described, index);
+      if (component !== undefined && !BindingElement_IsRest(ast, element)) {
+        let slot: { readonly type: Type; readonly declaration?: Node } | undefined;
+        if (arrayPattern) slot = tuple?.[index];
+        else {
+          const propertyName = BindingElement_PropertyName(ast, element) ?? name;
+          const selection = query.propertyNames.get(propertyName);
+          if (selection?.kind !== "resolved") { bindings.push({ kind: "refused", node: element }); continue; }
+          const property = query.types.propertyInfos(component.selectedType).find(property => property.name === selection.name);
+          const structure = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
+          if (structure?.kind === "shape") projected = structure.members.find(member => member.name === selection.name)?.type;
+          const assignment = initializer !== undefined && ast.is.IsObjectLiteralExpression(initializer)
+            ? ast.properties(initializer).find(candidate => candidate !== undefined && ast.is.IsPropertyAssignment(candidate) &&
+              query.propertyNames.get(ast.name(candidate)!)?.kind === "resolved" &&
+              (query.propertyNames.get(ast.name(candidate)!) as { readonly name: string }).name === selection.name) : undefined;
+          const memberValue = assignment === undefined ? undefined : ast.as.AsPropertyAssignment(assignment)?.Initializer;
+          const valueDescriptor = memberValue === undefined ? undefined : context.describe(memberValue);
+          if (valueDescriptor !== undefined) projected = valueDescriptor;
+          if (property !== undefined) {
+            const declaration = query.declarations.primarySymbolDeclaration(property.symbol);
+            slot = { type: property.type, ...(declaration === undefined ? {} : { declaration }) };
+          }
+        }
+        if (slot !== undefined) {
+          const method = slot.declaration !== undefined &&
+            (ast.is.IsMethodDeclaration(slot.declaration) || ast.is.IsMethodSignatureDeclaration(slot.declaration));
+          const annotation = slot.declaration === undefined || method ? undefined : isTypeSyntaxNode(ast, slot.declaration)
+            ? slot.declaration : ast.typeNode(slot.declaration);
+          selected = Object.freeze({ selectedType: selected?.selectedType ?? slot.type,
+            ...(slot.declaration === undefined || method ? {} : { declaration: slot.declaration }),
+            ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
+        }
+      }
+      if (projected?.kind === "optional" && Node_Initializer(ast, element) !== undefined && selected !== undefined &&
+        !query.types.isUnion(selected.selectedType) && !query.types.isNullish(selected.selectedType)) projected = projected.value;
+      bindings.push({ kind: "resolved", node: element, ...(selected === undefined ? {} : { component: selected }),
+        ...(projected === undefined ? {} : { type: projected }) });
+      if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
+        visit(name, selected, projected ?? (selected === undefined ? undefined : context.describe(element, selected)));
+      }
+    }
+  }
 }
 
 export function sourceTypeFlowDescriptorPart(context: SourceTypeFlowAnalysisContext, site: Node, type: SourceTypeDescriptor, part: SourceTypeFlowPathPart): SourceTypeDescriptor | undefined {

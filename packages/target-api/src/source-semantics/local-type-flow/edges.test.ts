@@ -102,6 +102,37 @@ function fixture(program: string, excludedFiles: Readonly<Record<string, string>
   return { checked, file: file!, source, context, graph, terms, syntax, text, node, entry, variable, same, declaration };
 }
 
+test("for-of scalar and destructured heads retain the same principal element producer", () => {
+  const current = fixture(`function run(values: word[], tuples: [word, word][], objects: { field: word }[]): void {
+    for (const value of values) void value;
+    for (const [left, right] of tuples) { void left; void right; }
+    for (const { field } of objects) void field;
+  }`);
+  const ast = current.source.ast;
+  const loops = current.syntax.filter(node => ast.is.IsForOfStatement(node));
+  assert.equal(loops.length, 3);
+  for (const loop of loops) {
+    const iteration = ast.as.AsForInOrOfStatement(loop)!;
+    const head = ast.as.AsVariableDeclarationList(iteration.Initializer!)?.Declarations?.Nodes[0];
+    assert.equal(head !== undefined, true, "one exact loop declaration");
+    const principal = current.entry(head!);
+    assert.equal(principal.publish && principal.variable.node === head, true, "all head forms publish their principal declaration");
+    assert.equal(current.graph.links.some(link => link.site === loop &&
+      lastPath(link.source)?.kind === "element" && current.same(link.target, principal.variable)), true,
+    "the principal comes from the retained iterable element, not a checked read");
+    const name = ast.name(head!);
+    if (name === undefined || ast.is.IsIdentifier(name)) continue;
+    for (const element of ast.elements(name)) {
+      if (element === undefined) continue;
+      const binding = current.entry(element);
+      assert.equal(current.graph.links.some(link => link.site === loop && link.source.node === head &&
+        link.source.path.length === principal.variable.path.length + 1 && current.same(link.target, binding.variable)), true,
+      "destructured bindings project the same principal declaration");
+    }
+  }
+  assert.equal(current.graph.refusals.length, 0);
+});
+
 test("excluded declaration owners retain the included consumer query context", () => {
   const current = fixture(`import { Native } from "./native.js";
     export function read(value: Native): number { return value.field; }`, {

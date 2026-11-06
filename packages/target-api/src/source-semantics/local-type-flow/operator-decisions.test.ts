@@ -325,7 +325,9 @@ test("D-A folded floating fit leaves integer bounds, fixed operand widths and sh
     const fixedWidth = decideSourcePrimitiveBinaryOperator("add", fixed("float64"), operand, "int32");
     assert.equal(fixedWidth.kind === "resolved" && fixedWidth.left === "float64" && fixedWidth.result === "float64", true, row.expression);
   }
-  for (const primitive of ["uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
+  assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed("int64"), "int32").kind, "resolved",
+    "Q3 admits the unchanged int64 count through the existing checked Native index conversion");
+  for (const primitive of ["uint32", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
     assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed(primitive), "int32").kind, "refused", primitive);
   }
 });

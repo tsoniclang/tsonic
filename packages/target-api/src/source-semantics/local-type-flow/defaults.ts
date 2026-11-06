@@ -2,13 +2,14 @@ import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Sour
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowRefusal, SourceTypeFlowSource,
@@ -21,8 +22,17 @@ export interface SourceTypeFlowDefaults {
   readonly signatureRefusals: ReadonlyMap<Node, SourceTypeFlowRefusal>;
   readonly descriptorRefusals: ReadonlyMap<Node, SourceTypeFlowRefusal>;
   readonly declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
+  numericCreationRefusal(site: Node, reason: string): SourceTypeFlowRefusal;
   fixedRule(node: Node): SourceTypeFlowFixedRule | undefined;
   hasDeclaredSourceType(node: Node): boolean;
+}
+
+export function sourceTypeFlowCallResultType(queries: SourceFileSemantics, call: ResolvedSourceCallInfo,
+  type: SourceTypeDescriptor): SourceTypeDescriptor {
+  return call.optionalChain === true && sourceTypeDescriptorStructure(type).kind !== "optional" &&
+    queries.types.isUnion(call.sourceResultType) && queries.types.unionOrIntersectionTypes(call.sourceResultType)
+      .some(member => queries.types.isNullish(member))
+    ? sourceTypeDescriptorUnion([type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
 }
 
 export function sourceTypeFlowTypeDeclaration(
@@ -96,6 +106,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
   const signatureRefusals = sourceTypeFlowRecursiveSignatures(source, nodes);
   const descriptorRefusals = new Map<Node, SourceTypeFlowRefusal>();
+  function numericCreationRefusal(site: Node, reason: string): SourceTypeFlowRefusal {
+    const existing = descriptorRefusals.get(site);
+    if (existing !== undefined) return existing;
+    const refusal = Object.freeze({ ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", site), reason });
+    descriptorRefusals.set(site, refusal);
+    return refusal;
+  }
   const describing: Node[] = [];
   const active = new Set<Node>();
   let declaredSlots: ReturnType<typeof createSourceTypeFlowDeclaredSlotReader>;
@@ -266,12 +283,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (literal?.form === "true" || literal?.form === "false") return { kind: "primitive", primitive: "bool" };
     if (literal?.form === "string" || literal?.form === "template") return { kind: "string" };
     if (ast.is.IsArrayLiteralExpression(node)) {
-      let selected: SourceTypeDescriptor | undefined;
+      const elements: SourceTypeDescriptor[] = [];
       for (const element of ast.elements(node)) {
         const value = element === undefined ? undefined : describe(element, undefined, depth + 1);
-        if (value === undefined || selected !== undefined && !sourceTypeDescriptorsEqual(selected, value)) return undefined;
-        selected = value;
+        if (value === undefined) return undefined;
+        elements.push(value);
       }
+      const selected = sourceTypeDescriptorUnion(elements);
       return selected === undefined ? undefined : { kind: "array", readonly: false, element: selected };
     }
     if (ast.is.IsObjectLiteralExpression(node)) {
@@ -434,9 +452,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         }
         if (declaration !== undefined && initializerOf(declaration) !== undefined &&
           (ast.is.IsPropertyDeclaration(declaration) || enclosing !== undefined && ast.is.IsSourceFile(enclosing))) {
-          const refusal = descriptorRefusals.get(declaration) ?? Object.freeze({
-            ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", producer), reason: failure.reason,
-          });
+          const refusal = descriptorRefusals.get(declaration) ?? numericCreationRefusal(producer, failure.reason);
           descriptorRefusals.set(declaration, refusal);
           descriptorRefusals.set(producer, refusal);
           descriptorRefusals.set(node, refusal);
@@ -451,6 +467,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         (declaration === undefined ? undefined : queries.declarations.declaredValueType(declaration));
       if (type !== undefined) result = describeType(type, queries, component ?? { selectedType: type,
         ...(declaration === undefined ? {} : { declaration }) }, depth, bindings);
+    }
+    if (result !== undefined && ast.is.IsCallExpression(node)) {
+      const call = component?.contextualCall ?? (component === undefined ? queries.operations.call(node) : undefined);
+      if (call?.call === node) result = sourceTypeFlowCallResultType(queries, call, result);
     }
     // A declared alias whose definition already carries absence (type T = U | undefined) is not wrapped again.
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
@@ -502,7 +522,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     } });
   declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
   return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots,
-    fixedRule, hasDeclaredSourceType });
+    fixedRule, hasDeclaredSourceType, numericCreationRefusal });
 }
 
 export type SourceTypeFlowNumericLiteralDecision =

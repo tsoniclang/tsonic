@@ -127,6 +127,29 @@ test("conditional distribution selects retained presence and absence without era
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2373 distributed callback inference retains its lexical scope through every sibling and recursive tail", () => {
+  const current = fixture(`type Unwrap<Value> = Value extends { then(callback: infer Callback): void }
+      ? Callback extends ((value: infer Inner) => void) ? Unwrap<Inner> : never : Value;
+    interface Layer<Value> { then(callback?: ((value: Value) => void) | null): void; }
+    declare const first: Unwrap<Layer<Layer<int32>>>;
+    declare const second: Unwrap<Layer<float32>>;
+    declare const nested: Awaited<Promise<Promise<float32>>>;
+    declare const sibling: int32;
+    interface NativeIndex { readonly [key: int32]: float32; }
+    declare const indexed: NativeIndex;`);
+  for (const [name, primitive] of [["first", "int32"], ["second", "float32"], ["nested", "float32"], ["sibling", "int32"]] as const) {
+    const type = current.defaults.context.describe(current.declaration(name));
+    const value = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+    assert.equal(value?.kind === "primitive" && value.primitive === primitive, true, name + ": the actual inferred width survives each captured branch");
+  }
+  const indexed = current.defaults.context.describe(current.declaration("indexed"));
+  const shape = indexed === undefined ? undefined : sourceTypeDescriptorStructure(indexed);
+  assert.equal(shape?.kind === "shape" && shape.indexes.length === 1 && shape.indexes[0]?.key.kind === "primitive" &&
+    shape.indexes[0].key.primitive === "int32" && shape.indexes[0]?.value.kind === "primitive" && shape.indexes[0].value.primitive === "float32", true,
+  "an authored native index retains its exact key and value kinds");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
   for (const alias of [false, true]) {
     const current = fixture(`type Input = readonly (string | float32)[] | { readonly marker: string; readonly value: float32 };
@@ -383,10 +406,10 @@ test("literal defaults select checked member symbols only from their own retaine
   const integer = descriptor.members[0]?.type;
   const boolean = descriptor.members[1]?.type;
   const nested = descriptor.members[2]?.type;
-  assert.equal(integer?.kind === "primitive" && integer.primitive === "int32", true);
+  assert.equal(integer?.kind === "primitive" && integer.primitive === "int64", true);
   assert.equal(boolean?.kind === "primitive" && boolean.primitive === "bool", true);
   assert.equal(nested?.kind === "shape" && nested.members[0]?.type.kind === "primitive" &&
-    nested.members[0].type.primitive === "int32", true);
+    nested.members[0].type.primitive === "int64", true);
 });
 
 test("normalised intersection aliases preserve the underlying nominal declaration instead of a false self-recursion cut", () => {
@@ -570,7 +593,7 @@ test("expanding alias recursion uses the shared declared resource budget rather 
 
 test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
   const current = fixture("export const integer = 1; export const fractional = 1.0; export const exponent = 1e3; export const radix = 0xff;");
-  for (const name of ["integer", "radix"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int32" });
+  for (const name of ["integer", "radix"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
   for (const name of ["fractional", "exponent"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
 });
 
@@ -580,10 +603,10 @@ test("authored array syntax preserves the element source fact instead of erasing
   assertSameValue(current.defaults.context.describe(current.declaration("singles")), { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float32" } });
 });
 
-test("never-open folded arithmetic keeps its checked type rather than a local integer-constant default", () => {
+test("never-open folded integer arithmetic retains its native int64 creation default", () => {
   const current = fixture("export const quotient = 7 / 2; export const sum = 1 + 2;");
   for (const name of ["quotient", "sum"]) {
-    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
+    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
   }
 });
 

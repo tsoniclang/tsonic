@@ -302,7 +302,7 @@ export function createSourceTypeDescriptorReader(
       const value = valueNode === undefined ? type(index.valueType, queries, { selectedType: index.valueType }, depth + 1, bindings)
         : syntax(valueNode, queries, depth + 1, bindings);
       if (key === undefined || value === undefined || key.kind !== "string" &&
-        !(key.kind === "primitive" && key.primitive === "float64") &&
+        !(key.kind === "primitive" && key.primitive !== "bool") &&
         !(key.kind === "intrinsic" && key.intrinsic === "symbol")) return undefined;
       result.push({ declaration, key, value, readonly: index.readonly });
     }
