@@ -777,6 +777,27 @@ test("a seeded accumulator is checked once against its non-cyclic type", () => {
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2434 a retained seed precedes nested callback operations without borrowing their result", () => {
+  const declarations = `interface Values<Value> {
+    accumulate<Accumulator>(callback: (sum: Accumulator, value: Value, index: int32) => Accumulator,
+      seed: Accumulator): Accumulator;
+  }`;
+  const current = fixture(`${declarations}
+    function run(values: Values<int32>): void {
+      const total = values.accumulate((sum, value, index) => sum + value + index, 0);
+      void total;
+    }`);
+  assertSameValue(current.type("total"), { kind: "primitive", primitive: "int64" });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const fractional = fixture(`${declarations}
+    function run(values: Values<int32>): void {
+      const total = values.accumulate((sum, value, index) => sum + 0.5 + value + index, 0);
+      void total;
+    }`);
+  assert.equal(fractional.source.effectiveTypes.refusals().some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true,
+    "a computed floating callback cannot widen the actual retained integer seed");
+});
+
 test("inline callable construction publishes one callable type consistent with its chosen parameter and result", () => {
   const current = fixture("function run(): void { const values = [1, 2]; const mapped = values.map(value => value * 2); }");
   assertSameValue(current.type("mapped"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int64" } });
@@ -1241,6 +1262,21 @@ test("a C8 fixed heterogeneous construction keeps its scalar child at the comple
   if (selected === undefined || selected.kind === "refused") throw new Error("The original numeric value publication is required.");
   assert.equal(sourceTypeDescriptorsEqual(selected.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "int64" }] }), true);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2436 broad heterogeneous arrays retain independent scalar calculation groups", () => {
+  const current = fixture(`function run(input: any, left: number, right: number): unknown {
+    const sum = input + 1; const less = left < right;
+    const values = [1, true, sum, less, -left]; return values;
+  }`);
+  assertSameValue(current.type("sum"), { kind: "intrinsic", intrinsic: "any" });
+  assertSameValue(current.type("less"), { kind: "primitive", primitive: "bool" });
+  assertSameValue(current.type("values"), { kind: "array", readonly: false,
+    element: { kind: "union", types: [{ kind: "primitive", primitive: "int64" },
+      { kind: "primitive", primitive: "bool" }, { kind: "intrinsic", intrinsic: "any" },
+      { kind: "primitive", primitive: "float64" }] } });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0,
+    "a broad aggregate element cannot make its authored bool and any calculations one equality group");
 });
 
 test("C2232 scalar tokens retain the entire declared union instead of selecting a physical arm", () => {

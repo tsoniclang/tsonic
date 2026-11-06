@@ -645,10 +645,17 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         type.primitive !== "bool" && type.primitive !== "char");
     })) return false;
     const query = semantics.forNode(node);
-    const type = query.types.expressionType(node);
-    const element = type === undefined ? undefined : sourceArrayElementType(type, query);
-    const pending = type !== undefined && query.types.isTuple(type) ? [...query.types.tupleElementTypes(type)]
-      : element === undefined ? [] : [element];
+    const pending = elements.flatMap(element => {
+      if (element === undefined) return [];
+      const spread = ast.is.IsSpreadElement(element);
+      const operand = spread ? Node_Expression(ast, element) : element;
+      const type = operand === undefined ? undefined : query.types.expressionType(operand);
+      if (type === undefined) return [];
+      if (!spread) return [type];
+      if (query.types.isTuple(type)) return [...query.types.tupleElementTypes(type)];
+      const selected = sourceArrayElementType(type, query);
+      return selected === undefined ? [] : [selected];
+    });
     if (pending.length === 0) return false;
     const kinds = new Set<string | Type>();
     while (pending.length !== 0) {

@@ -457,6 +457,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
     }
   }
+  const accumulatorGroups = new Set([...groups.values()].filter(selected => selected.derived.length > 0 &&
+    selected.derived.every(derived => derived.accumulator !== undefined && group(derived.accumulator) === selected)));
+  const accumulatorDependencies = new Map<Group, Set<Group>>();
+  const deferredAccumulators = new Map<Group, boolean>();
   for (const selected of groups.values()) {
     selected.fills.sort((left, right) => compare(left.site, right.site));
     const locals = selected.nodes.filter(node => node.kind === "open-local" || node.kind === "derived-local");
@@ -468,10 +472,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     for (const term of selected.terms) for (const child of children(term)) selected.dependencies.add(group(child));
     for (const derived of selected.derived) {
-      for (const operand of derived.operands) selected.dependencies.add(group(operand));
+      let dependencies = selected.dependencies;
+      if (accumulatorGroups.has(selected)) {
+        dependencies = accumulatorDependencies.get(selected) ?? new Set<Group>();
+        accumulatorDependencies.set(selected, dependencies);
+      }
+      for (const operand of derived.operands) dependencies.add(group(operand));
       const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
       const variable = condition === undefined ? undefined : retainedVariables.get(condition);
-      if (variable !== undefined) selected.dependencies.add(group(variable));
+      if (variable !== undefined) dependencies.add(group(variable));
     }
     for (const receiver of receiverProjections.get(selected) ?? []) selected.dependencies.add(receiver.source);
     const body = bodyCallResults.get(selected);
@@ -1039,6 +1048,23 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
       selected.defaulted = selected.type !== undefined;
     }
+    if (accumulator) {
+      if (selected.refused === undefined && selected.type === undefined) {
+        refuse(selected, "TSONIC_LOCAL_TYPE_ACCUMULATOR", selected.derived[0]!.node);
+      }
+      if (selected.type !== undefined) selected.type = freezeSourceTypeDescriptor(selected.type);
+      deferredAccumulators.set(selected, scalarStorage);
+      selected.solved = true;
+      return;
+    }
+    completeDerived(selected, false, scalarStorage);
+  }
+
+  function completeDerived(selected: Group, accumulator: boolean, scalarStorage: boolean): void {
+    if (accumulator) for (const dependency of accumulatorDependencies.get(selected) ?? []) {
+      if (dependency.refused !== undefined) { selected.refused ??= dependency.refused; break; }
+    }
+    if (selected.refused !== undefined) { selected.solved = true; return; }
     for (const derived of selected.derived) {
       const type = derivedType(derived);
       if (type === undefined) selected.refused ??= createSourceTypeFlowRefusal(
@@ -1065,9 +1091,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   while (ready.length > 0) {
     ready.sort((left, right) => compare(left.variable.node, right.variable.node));
     const selected = ready.shift()!;
-    const selfDerived = selected.derived.some(derived => derived.operands.some(operand => group(operand) === selected));
-    const accumulator = selfDerived && selected.derived.every(derived => derived.accumulator !== undefined && group(derived.accumulator) === selected);
-    solve(selected, accumulator);
+    solve(selected, accumulatorGroups.has(selected));
     selected.solved = true;
     for (const dependent of selected.dependents) {
       const count = remaining.get(dependent)! - 1;
@@ -1080,6 +1104,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       selected.refused ??= createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node);
     } else refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node);
   }
+  for (const [selected, scalarStorage] of deferredAccumulators) completeDerived(selected, true, scalarStorage);
 
   const conditionRefusals: SourceTypeFlowRefusal[] = [];
   const derivedNodes = new Set(graph.derived.map(derived => derived.node));
