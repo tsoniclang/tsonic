@@ -238,8 +238,9 @@ export function createSourceTypeDescriptorReader(
         ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration);
       const annotation = signature ? undefined : ast.is.IsSetAccessorDeclaration(declaration)
         ? ast.typeNode(ast.parameters(declaration)[0]) : ast.typeNode(declaration);
-      let value = annotation === undefined && ast.is.IsPropertyDeclaration(declaration) &&
-        ast.as.AsPropertyDeclaration(declaration)?.Initializer !== undefined ? declaredValue(declaration, queries, inherited)
+      const initializer = ast.is.IsPropertyDeclaration(declaration) ? ast.as.AsPropertyDeclaration(declaration)?.Initializer
+        : ast.is.IsPropertyAssignment(declaration) ? ast.as.AsPropertyAssignment(declaration)?.Initializer : undefined;
+      let value = annotation === undefined && initializer !== undefined ? declaredValue(declaration, queries, inherited)
         : annotation === undefined ? type(property.type, queries, { selectedType: property.type, declaration }, depth + 1, inherited)
         : syntax(annotation, queries, depth + 1, inherited);
       if (value === undefined) return undefined;

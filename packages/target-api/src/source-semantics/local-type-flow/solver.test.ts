@@ -803,6 +803,28 @@ test("a fractional accumulator return cannot retype an integer seed", () => {
   assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true);
 });
 
+test("C2432 compound literal locals consume the same solved arithmetic peer without retargeting fixed storage", () => {
+  const current = fixture(`function run(left: number, right: number): void {
+    let total = 0;
+    total += left + right;
+    const selected = total;
+    void selected;
+  }`);
+  assertSameValue(current.type("total"), { kind: "primitive", primitive: "float64" });
+  assertSameValue(current.type("selected"), { kind: "primitive", primitive: "float64" });
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const fixed = fixture(`function run(left: number, right: number): void {
+    let total: int32 = 0;
+    total += left + right;
+    void total;
+  }`);
+  assertSameValue(fixed.type("total"), { kind: "primitive", primitive: "int32" });
+  assert.equal(fixed.source.effectiveTypes.obligations().some(obligation => obligation.kind === "write-fit" &&
+    obligation.type.kind === "primitive" && obligation.type.primitive === "int32" &&
+    obligation.valueType?.kind === "primitive" && obligation.valueType.primitive === "float64"), true,
+  "an originally declared integer storage keeps its exact write-fit obligation");
+});
+
 test("declared optional aliases preserve the leaf width and checker narrowing", () => {
   const current = fixture("declare let input: int32 | undefined; function run(): void { if (input !== undefined) { const narrowed = input; } }");
   assertSameValue(current.type("input"), { kind: "optional", value: { kind: "primitive", primitive: "int32" } });
@@ -4571,6 +4593,99 @@ test("C2424 optional generic result positions retain the authored present compon
     const read = reference === undefined ? undefined : current.source.effectiveTypes.get(reference);
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && read !== undefined && read.kind !== "refused" &&
       read.type === outcome.type, true, name + ": the original occurrence keeps its identical directed present result");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2429 recursive collection slots resolve the original alias and exact retained arguments", () => {
+  const current = fixture(`type Tree<Value> = Value | readonly Tree<Value>[];
+    declare function numeric(value: Tree<number>): void;
+    declare function narrow(value: Tree<int32>): void;
+    declare function text(value: Tree<string>): void;
+    declare function optional(value: Tree<number> | undefined): void;
+    function run(): void {
+      numeric([2, [3, 4]]); narrow([5, [6]]); text(["left", ["right"]]); optional([7, [8]]); optional(undefined);
+    }`);
+  const { ast } = current.source;
+  const literals = current.nodes.filter(node => ast.is.IsNumericLiteral(node));
+  assert.equal(literals.length, 7);
+  for (const node of literals) {
+    let call: Node | undefined = ast.parent(node);
+    while (call !== undefined && !ast.is.IsCallExpression(call)) call = ast.parent(call);
+    const callee = call === undefined ? undefined : ast.as.AsCallExpression(call)?.Expression;
+    const expected = callee !== undefined && ast.is.IsIdentifier(callee) && ast.text(callee) === "narrow" ? "int32" : "float64";
+    const outcome = current.source.effectiveTypes.get(node);
+    const physical = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.construction ?? outcome.type;
+    assert.equal(physical?.kind === "primitive" && physical.primitive === expected, true,
+      ast.pos(node) + ": the original recursive alias argument owns the scalar, not an erased backing or own default");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2429 Boolean union presence removes only the absence excluded at the original read", () => {
+  const current = fixture(`function read(input: { off?: boolean; maybe?: boolean }, fallback: boolean | undefined,
+      pair: [boolean?]): void {
+    const { off = false } = input; const objectRead = off;
+    const { maybe = fallback } = input; const optionalRead = maybe;
+    const [first = false] = pair; const tupleRead = first;
+    const before = input.off;
+    if (input.off !== undefined) { const guarded = input.off; void guarded; }
+    const after = input.off; void objectRead; void optionalRead; void tupleRead; void before; void after;
+  }`);
+  for (const name of ["objectRead", "tupleRead", "guarded"]) {
+    const type = sourceTypeDescriptorStructure(current.type(name));
+    assert.equal(type.kind === "primitive" && type.primitive === "bool", true,
+      name + ": a Boolean literal union is present without becoming a different storage type");
+  }
+  for (const name of ["optionalRead", "before", "after"]) {
+    const type = sourceTypeDescriptorStructure(current.type(name));
+    assert.equal(type.kind === "optional" && type.value.kind === "primitive" && type.value.primitive === "bool", true,
+      name + ": absence remains when the original occurrence or fallback still admits it");
+  }
+  const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) &&
+    current.source.ast.name(node) !== undefined && current.source.ast.text(current.source.ast.name(node)!) === "input");
+  const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
+  const type = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+  assert.equal(type?.kind === "shape" && type.members.every(member => member.type.kind === "optional"), true,
+    "occurrence presence never rewrites the original optional property declarations");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2430 guarded generic accessor reads project the solved present payload without changing storage", () => {
+  const current = fixture(`type Maybe<Value> = Value | null | undefined;
+    class Item { count: int64; constructor(count: int64) { this.count = count; } }
+    class Holder<Value> {
+      value: Maybe<Value>;
+      constructor(value: Maybe<Value>) { this.value = value; }
+      get current(): Maybe<Value> { return this.value; }
+      set current(value: Maybe<Value>) { this.value = value; }
+    }
+    function read(instance: Item): void {
+      const classHolder = new Holder<Item>(instance);
+      const alias = classHolder.current;
+      if (alias === undefined || alias === null) return;
+      const classRead = alias; alias.count = 11n;
+      const shape = { value: 3n as int64 };
+      const shapeHolder = new Holder<{ value: int64 }>(shape);
+      const shapeAlias = shapeHolder.current;
+      if (shapeAlias === null || shapeAlias === undefined) return;
+      const shapeRead = shapeAlias; shapeAlias.value = 13n;
+      const stillOptional = shapeHolder.current; void classRead; void shapeRead; void stillOptional;
+    }`);
+  const { ast } = current.source;
+  const item = current.nodes.find(node => ast.is.IsClassDeclaration(node) && ast.text(ast.name(node)) === "Item");
+  const classType = current.type("classRead");
+  const classShape = sourceTypeDescriptorStructure(classType);
+  assert.equal(classType.kind === "declared" && classType.declaration === item && classShape.kind === "shape" &&
+    classShape.members.find(member => member.name === "count")?.type.kind === "primitive" &&
+    classShape.members.some(member => member.name === "count" && member.type.kind === "primitive" && member.type.primitive === "int64"), true,
+    "the actual guard projects the original class identity and authored member width");
+  const shape = sourceTypeDescriptorStructure(current.type("shapeRead"));
+  assert.equal(shape.kind === "shape" && shape.members[0]?.type.kind === "primitive" && shape.members[0].type.primitive === "int64", true,
+    "the same directed read retains a type-literal argument's exact authored member");
+  for (const name of ["alias", "shapeAlias", "stillOptional"]) {
+    assert.equal(sourceTypeDescriptorStructure(current.type(name)).kind === "optional", true,
+      name + ": the guard never removes absence from the original declaration or another accessor call");
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });

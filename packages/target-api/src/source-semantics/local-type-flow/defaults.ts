@@ -2,7 +2,7 @@ import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import { getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
+import { getSourceCallTypeParameterDeclaration, getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -35,6 +35,11 @@ export function sourceTypeFlowCallResultType(queries: SourceFileSemantics, call:
     queries.types.isUnion(call.sourceResultType) && queries.types.unionOrIntersectionTypes(call.sourceResultType)
       .some(member => queries.types.isNullish(member))
     ? sourceTypeDescriptorUnion([type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
+}
+
+export function sourceTypeFlowTypeIsPresent(types: SourceFileSemantics["types"], type: Type | undefined): boolean {
+  return type !== undefined && !types.isNullish(type) && (!types.isUnion(type) ||
+    !types.unionOrIntersectionTypes(type).some(member => types.isNullish(member)));
 }
 
 export function sourceTypeFlowNominalReadComponent(source: SourceTypeFlowSource,
@@ -242,7 +247,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       for (const [declaration, binding] of descriptor.inheritedBindings(receiver.type, queries, bindings)) bindings.set(declaration, binding.value);
     }
     for (const selected of call?.sourceSelectedMethodTypeArguments ?? []) {
-      const declaration = typeDeclaration(selected.typeParameter, queries);
+      const declaration = call === undefined ? undefined :
+        getSourceCallTypeParameterDeclaration(ast, queries, node, call, selected);
       const component = getSourceMethodTypeArgumentComponent(selected);
       const descriptor = component.authoredTypeNode === undefined
         ? describeType(selected.selectedType, queries, component, 0, bindings)
@@ -503,7 +509,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     // A declared alias whose definition already carries absence (type T = U | undefined) is not wrapped again.
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node);
-      if (node === declaration || type !== undefined && queries.types.isUnion(type)) result = { kind: "optional", value: result };
+      if (node === declaration || type !== undefined && !sourceTypeFlowTypeIsPresent(queries.types, type)) result = { kind: "optional", value: result };
     }
     // An optional-chain read (a?.b, a?.[i], a?.f()) is absent when its chain short-circuits: its value carries absence
     // even though the selected member's own declared type does not.
@@ -522,7 +528,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (structure?.kind === "optional" && declaration !== undefined && node !== declaration &&
       declaration === declarationFor(node)) {
       const selected = component?.selectedType ?? queries.types.expressionType(node);
-      if (selected !== undefined && !queries.types.isUnion(selected) && !queries.types.isNullish(selected)) result = structure.value;
+      if (sourceTypeFlowTypeIsPresent(queries.types, selected)) result = structure.value;
     }
     active.delete(node);
     describing.pop();

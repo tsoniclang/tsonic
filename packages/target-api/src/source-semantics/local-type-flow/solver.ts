@@ -487,7 +487,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (derived.operands.length !== 2 || !(sourcePrimitiveBinaryOperators.some(operator => operator === derived.operator) ||
       derived.operator === "conditional" || derived.operator === "coalesce")) continue;
     if (derived.operator === "shift-left" || derived.operator === "shift-right" || derived.operator === "shift-right-unsigned") continue;
-    for (const [index, variable] of derived.operands.entries()) {
+    for (const [index, operand] of derived.operands.entries()) {
+      let variable = operand;
+      if (index === 0 && source.ast.as.AsBinaryExpression(derived.node)?.Left === operand.node && isWriteTarget(source.ast, operand.node)) {
+        const selected = group(operand);
+        const numeric = selected.terms.filter(term => term.kind === "numeric");
+        const original = numeric.length === 1 ? valueVariables.get(numeric[0]!.site) : undefined;
+        if (original !== undefined && group(original) === selected) variable = original;
+      }
       const literal = unboundNumericLiteral(variable);
       const peer = derived.operands[1 - index]!;
       if (literal === undefined || unboundNumericLiteral(peer) !== undefined) continue;

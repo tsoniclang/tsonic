@@ -8,7 +8,7 @@ import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
-import { sourceTypeDescriptorStructure } from "./terms.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 
 function fixture(text: string, noImplicitAny = true) {
@@ -29,6 +29,29 @@ function fixture(text: string, noImplicitAny = true) {
   };
   return { source, defaults, declaration };
 }
+
+test("C2428 aliased generic method callbacks publish the original selected binder's exact argument", () => {
+  const current = fixture(`export function run<Value>(values: Value[]): Value[] {
+    const mapper = (value: Value): Value => value;
+    const alias = mapper;
+    const mapped = values.map(alias);
+    return mapped;
+  }`);
+  const { ast } = current.source;
+  const call = current.defaults.nodes.find(node => ast.is.IsCallExpression(node));
+  const outcome = call === undefined ? undefined : current.source.effectiveTypes.get(call);
+  const selected = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+  const owner = current.defaults.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "run");
+  const parameter = owner === undefined ? undefined : ast.typeParameters(owner)[0];
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
+    outcome.type.element.kind === "declared" && outcome.type.element.declaration === parameter, true,
+  "the result contains the project's original generic parameter, never the uninstantiated library method parameter");
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
+    selected?.method.length === 1 && selected.method[0]?.type.kind === "declared" &&
+    selected.method[0].type.declaration === parameter && sourceTypeDescriptorsEqual(outcome.type.element, selected.method[0].type), true,
+  "the result and the same call's method argument retain the identical original declaration and full descriptor");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
 
 test("C2429 only a published winning default contributes its original authored primitive component", () => {
   const current = fixture(`declare function create<Value = int32>(): Value;
@@ -56,6 +79,23 @@ test("C2429 only a published winning default contributes its original authored p
       selected.method[0].type.primitive === primitive, true, name + ": value and same-call binder retain the original Source primitive");
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2431 typeof object members retain their original authored value producers", () => {
+  const current = fixture(`declare function produced<Value>(): Value;
+    const original = { exact: produced<int32>(), floating: produced<number>(), integer: 7 };
+    type Snapshot = typeof original;
+    declare const selected: Snapshot;`);
+  const type = current.defaults.context.describe(current.declaration("selected"));
+  const shape = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+  assert.equal(shape?.kind === "shape", true, "the original object's alias has one canonical member inventory");
+  if (shape?.kind !== "shape") throw new Error("The retained original member inventory is required.");
+  for (const [name, expected] of [["exact", "int32"], ["floating", "float64"], ["integer", "int64"]] as const) {
+    const selectedMember: SourceTypeDescriptorMember | undefined = shape.members.find(candidate => candidate.name === name);
+    assert.equal(selectedMember?.type.kind === "primitive" && selectedMember.type.primitive === expected &&
+      selectedMember.origin.kind === "declared" && current.source.ast.is.IsPropertyAssignment(selectedMember.origin.declaration), true,
+    name + ": the original member initializer owns its native type without reopening its backing Type");
+  }
 });
 
 test("an unresolved foreign conditional alias is not an identity-only nominal cut", () => {

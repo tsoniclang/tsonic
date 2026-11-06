@@ -2,7 +2,64 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { getEffectiveSourceTypeArguments } from "../source-navigation/type-arguments.js";
-import { getSourceTypeArgumentBindings } from "./type-arguments.js";
+import { getSourceCallTypeParameterDeclaration, getSourceTypeArgumentBindings } from "./type-arguments.js";
+import { createTargetSourceProgram } from "./target-source-program.js";
+import type { ResolvedSourceCallInfo } from "../source-navigation/call-info.js";
+
+test("an instantiated method binder retains only the selected signature's authored declaration", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `export {};
+      interface View<Value> { map<Result>(read: (value: Value) => Result): Result[]; }
+      interface Foreign<Value> { map<Result>(read: (value: Value) => Result): Result[]; }
+      declare const values: View<string>;
+      function run<Value>(value: Value): Value[] { return values.map(() => value); }
+      class Box<Value> { constructor(readonly value: Value) {} }
+      class Empty<Value> { value?: Value; }
+      class Closed extends Empty<string> {}
+      const box = new Box<string>("text"); const empty = new Empty<string>(); const closed = new Closed();`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The exact checked file is required.");
+  const query = source.semantics.forFile(file);
+  const nodes: Node[] = [];
+  const visit = (node: Node): void => { nodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
+  visit(file);
+  const foreign = nodes.find(node => source.ast.is.IsInterfaceDeclaration(node) && source.ast.text(source.ast.name(node)) === "Foreign");
+  const foreignMethod = foreign === undefined ? undefined : source.ast.members(foreign).find(member => member !== undefined && source.ast.is.IsMethodSignatureDeclaration(member));
+  const foreignParameter = foreignMethod === undefined ? undefined : source.ast.typeParameters(foreignMethod)[0];
+  const foreignType = foreignParameter === undefined ? undefined : query.declarations.declaredType(foreignParameter);
+  let observed = 0;
+  for (const node of nodes) {
+    if (!(source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node))) continue;
+    const call = query.operations.call(node);
+    if (call === undefined) throw new Error("The selected checked invocation is required.");
+    for (const argument of call.sourceSelectedMethodTypeArguments ?? []) {
+      const declaration = getSourceCallTypeParameterDeclaration(source.ast, query, node, call, argument);
+      const owner = query.declarations.signatureDeclaration(call.selectedSignature);
+      const scope = owner === undefined ? undefined : source.ast.is.IsConstructorDeclaration(owner) ? source.ast.parent(owner) : owner;
+      const parent = declaration === undefined ? undefined : source.ast.parent(declaration);
+      const classOwned = source.ast.is.IsNewExpression(node) && parent !== undefined && source.ast.is.IsClassDeclaration(parent);
+      const declared = declaration === undefined ? undefined : query.declarations.declaredType(declaration);
+      assert.equal(declaration !== undefined && (classOwned ? declared !== undefined && query.types.isIdentical(declared, argument.typeParameter)
+        : scope !== undefined && source.ast.typeParameters(scope).includes(declaration)), true,
+      "class constructors retain canonical declared-Type identity; methods retain their authored signature parameter");
+      assert.equal(foreignType !== undefined && getSourceCallTypeParameterDeclaration(source.ast, query, node, call,
+        { ...argument, typeParameter: foreignType }) === undefined, true, "a same-named foreign binder has no selected-signature evidence");
+      if (foreignType === undefined) throw new Error("The exact checked foreign binder is required.");
+      const foreignArgument = { ...argument, typeParameter: foreignType };
+      const foreignCall: ResolvedSourceCallInfo = { ...call, sourceSelectedMethodTypeArguments: [foreignArgument] };
+      assert.equal(getSourceCallTypeParameterDeclaration(source.ast, query, node, foreignCall, foreignArgument) === undefined, true,
+        "even a retained vector entry cannot substitute another signature's original binder");
+      assert.equal(getSourceCallTypeParameterDeclaration(source.ast, { ...query,
+        declarations: { ...query.declarations, typeSymbol: () => undefined } }, node, call, argument) === undefined, true,
+      "missing exact symbol evidence never guesses a parameter");
+      observed += 1;
+    }
+  }
+  assert.equal(observed, 4);
+});
 
 test("merged generic declarations retain their actual canonical checked binder", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {

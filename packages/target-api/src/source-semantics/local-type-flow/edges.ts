@@ -7,8 +7,9 @@ import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.j
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import { sourceArrayElementType } from "../array-types.js";
+import { getSourceCallTypeParameterDeclaration } from "../type-arguments.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceTypeComponentEvidence } from "../types.js";
-import { sourceTypeDescriptorIndexValue, sourceTypeFlowNominalReadComponent, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { sourceTypeDescriptorIndexValue, sourceTypeFlowNominalReadComponent, sourceTypeFlowTypeDeclaration, sourceTypeFlowTypeIsPresent, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
@@ -485,8 +486,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const type = selectedNode.term.type;
         const structure = sourceTypeDescriptorStructure(type);
         const narrowed = nominal !== undefined ? context.describe(node, nominal) : structure.kind === "optional" && component !== undefined &&
-          !semantics.forNode(node).types.isUnion(component.selectedType) &&
-          !semantics.forNode(node).types.isNullish(component.selectedType) ? structure.value : type;
+          sourceTypeFlowTypeIsPresent(semantics.forNode(node).types, component.selectedType) ? structure.value : type;
         if (narrowed !== type || !(ast.is.IsArrayLiteralExpression(selectedNode.term.site) ||
           ast.is.IsObjectLiteralExpression(selectedNode.term.site))) {
           const result = fixed(node, component, narrowed);
@@ -821,12 +821,13 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const term = terms.get(source);
     const query = semantics.forNode(occurrence);
     const types = query.types;
-    const declared = term?.kind === "declared" ? query.declarations.declaredType(term.declaration) : undefined;
+    const refinement = semantics.selectValueTypeRefinement(occurrence);
+    const declared = refinement.kind === "resolved" ? refinement.declaredType
+      : term?.kind === "declared" ? query.declarations.declaredType(term.declaration) : undefined;
     if (term?.kind !== "optional" && (declared === undefined || !types.isUnion(declared) ||
       !types.unionOrIntersectionTypes(declared).some(member => types.isNullish(member)))) return source;
-    const selected = types.expressionType(occurrence);
-    if (selected === undefined || types.isNullish(selected) || types.isUnion(selected) &&
-      types.unionOrIntersectionTypes(selected).some(member => types.isNullish(member))) return source;
+    const selected = refinement.kind === "resolved" ? refinement.selectedType : types.expressionType(occurrence);
+    if (!sourceTypeFlowTypeIsPresent(types, selected)) return source;
     return term?.kind === "optional" ? term.value : project(source, optionalValuePart);
   }
 
@@ -962,7 +963,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const declaration = sourceTypeFlowTypeDeclaration(context.source, query, formal);
       return declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration) &&
         (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
-          sourceTypeFlowTypeDeclaration(context.source, query, argument.typeParameter) === declaration);
+          getSourceCallTypeParameterDeclaration(ast, query, node, source, argument) === declaration);
     });
     const inlineArgument = source.sourceArguments.some(argument => inlineCallable(ast, argument.expression) !== undefined);
     if (!bodyResult && !genericConstruction && !genericAggregate && !inlineArgument && directCallee === undefined && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
@@ -1028,9 +1029,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const receiverArguments = receiverParameters(source);
     for (const declaration of receiverArguments) addBinder(declaration, receiverBinders);
     for (const selected of source.sourceSelectedMethodTypeArguments ?? []) {
-      const symbol = query.declarations.typeSymbol(selected.typeParameter);
-      const declaration = symbol === undefined ? undefined : query.declarations.primarySymbolDeclaration(symbol);
-      if (declaration === undefined || !ast.is.IsTypeParameterDeclaration(declaration)) {
+      const declaration = getSourceCallTypeParameterDeclaration(ast, query, node, source, selected);
+      if (declaration === undefined) {
         refuse("TSONIC_LOCAL_TYPE_GENERIC", node); continue;
       }
       const variable = addBinder(declaration, methodBinders);
@@ -1398,6 +1398,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
 
     function presentFormalComponent(type: Type, component: SourceTypeComponentEvidence,
       queries: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
+      const parameter = sourceTypeFlowTypeDeclaration(context.source, queries, type);
+      if (parameter !== undefined && binders.has(parameter)) return Object.freeze({ selectedType: type, declaration: parameter });
       const annotation = component.authoredTypeNode ?? (component.declaration === undefined ? undefined : ast.typeNode(component.declaration));
       const selection = annotation === undefined ? undefined : queries.types.authoredSelection(annotation, type);
       if (annotation !== undefined && (selection?.kind !== "authored-members" || selection.nodes.length !== 1 ||
@@ -1609,7 +1611,7 @@ export function sourceTypeFlowDeclaredPatternBindings(context: SourceTypeFlowAna
         }
       }
       if (projected?.kind === "optional" && Node_Initializer(ast, element) !== undefined && selected !== undefined &&
-        !query.types.isUnion(selected.selectedType) && !query.types.isNullish(selected.selectedType)) projected = projected.value;
+        sourceTypeFlowTypeIsPresent(query.types, selected.selectedType)) projected = projected.value;
       bindings.push({ kind: "resolved", node: element, ...(selected === undefined ? {} : { component: selected }),
         ...(projected === undefined ? {} : { type: projected }) });
       if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
