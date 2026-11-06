@@ -89,6 +89,38 @@ test("C32 unbound constructions retain ordinary exact call fills and C24 signatu
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2404 generic array binders project the same solved aggregate used by every argument", () => {
+  const current = fixture(`function accept<T>(value: T[]): T[] { return value; }
+    function pair<T>(first: T[], second: T[]): T[] { void second; return first; }
+    function callbacks<T>(first: () => T[], second: () => T[]): T[] { void second; return first(); }
+    function plain(): void { const plainValue = ["text", 9007199254740993]; void accept(plainValue); }
+    function aliased(): void { const original = ["text", 9007199254740993]; const alias = original; void pair(original, alias); }
+    function captured(): void { const shared = ["text", 9007199254740993]; void callbacks(() => shared, () => shared); }`);
+  const { ast } = current.source;
+  const arrays = current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node));
+  assert.equal(arrays.length, 3);
+  for (const literal of arrays) {
+    const outcome = current.source.effectiveTypes.get(literal);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array", true);
+    if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "array") {
+      throw new Error("The actual array allocation must have its solved element descriptor.");
+    }
+    let owner = ast.parent(literal);
+    while (owner !== undefined && !ast.is.IsFunctionDeclaration(owner)) owner = ast.parent(owner);
+    const call = current.nodes.find(node => {
+      if (!ast.is.IsCallExpression(node)) return false;
+      let callable = ast.parent(node);
+      while (callable !== undefined && !ast.is.IsFunctionDeclaration(callable)) callable = ast.parent(callable);
+      return callable === owner;
+    });
+    const instance = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+    assert.equal(instance !== undefined && instance.method.length === 1 && instance.method[0]?.type === outcome.type.element &&
+      instance.result?.kind === "array" && instance.result.element === outcome.type.element, true,
+      "the canonical element object is shared by the allocation, method binder and call result");
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C32 never opens an annotated or module construction or a scalar literal", () => {
   const current = fixture(`export const moduleValue: {} = {};
     function run(): number[] { const declared: {} = {}; return []; }

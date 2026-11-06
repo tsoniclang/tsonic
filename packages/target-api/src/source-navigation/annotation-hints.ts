@@ -7,6 +7,7 @@ import { sourceEnclosingCallable } from "./callable-invocations.js";
 export interface SourceAnnotationHintBindings {
   readonly ast: AstReader;
   readonly navigation: Pick<SourceProgramNavigation, "referenceFor">;
+  readonly annotationType?: string;
   call(node: Node): ResolvedSourceCallInfo | undefined;
 }
 
@@ -63,7 +64,7 @@ export function sourceAnnotationHint(
   const annotationFile = ast.getSourceFile(annotation);
   const initializerFile = ast.getSourceFile(initializer);
   if (annotationFile === undefined || initializerFile === undefined) return undefined;
-  const annotationText = String(ast.getSourceText(annotationFile)).slice(ast.pos(annotation), ast.end(annotation))
+  const annotationText = bindings.annotationType ?? String(ast.getSourceText(annotationFile)).slice(ast.pos(annotation), ast.end(annotation))
     .trim().replace(/^readonly\s+(?=.+\[\]$)/u, "");
   const initializerText = String(ast.getSourceText(initializerFile)).slice(ast.pos(initializer), ast.end(initializer)).trim();
   if (annotationText.length > 120 || initializerText.length > 120) return undefined;

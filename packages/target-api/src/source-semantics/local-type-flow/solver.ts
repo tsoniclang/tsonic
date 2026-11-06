@@ -203,8 +203,12 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       baseGroup?.terms.some(term => term.kind === "declared" ||
         term.kind === "fixed" && term.type.kind === "declared") &&
       group(variable) !== baseGroup;
+    const aggregate = variable.path.every(part => part.kind !== "binder") && group(variable) !== baseGroup &&
+      baseGroup?.terms.every(term => term.kind === "fixed")
+      ? baseGroup.terms.find(term => term.kind === "fixed" &&
+        (source.ast.is.IsArrayLiteralExpression(term.site) || source.ast.is.IsObjectLiteralExpression(term.site))) : undefined;
     const origin = baseGroup === undefined ? undefined : receiverProjections.get(baseGroup)?.[0]?.origin ??
-      bodyCallResults.get(baseGroup)?.call.node ?? (declaredMember ? variable.node : undefined);
+      bodyCallResults.get(baseGroup)?.call.node ?? aggregate?.site ?? (declaredMember ? variable.node : undefined);
     if (baseGroup === undefined || origin === undefined) { index += 1; continue; }
     retainReceiverProjection(variable, { source: baseGroup, origin,
       site: variable.node, path: variable.path, construction: false });

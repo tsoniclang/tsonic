@@ -50,6 +50,12 @@ test("Source assignment hints use the original unannotated slot and exact author
   assert.equal(sourceAnnotationHint(input!, current.bindings), "Annotate `let selected: Native[] = [1, 2]`.");
 });
 
+test("Source annotation hints retain an exact published annotation instead of erased declaration spelling", () => {
+  const current = fixture("declare function take(value: number): void; function run(): void { const selected = 1; take(selected); }");
+  assert.equal(sourceAnnotationHint(current.selected[0]!, { ...current.bindings, annotationType: "int32" }),
+    "Annotate `const selected: int32 = 1`.");
+});
+
 test("Source annotation hints never transplant a foreign generic binder into the proposed declaration", () => {
   const foreign = fixture("class Box<Value> { value!: Value; } class Receiver<Value> { take(value: Box<Value>): void {} } function run(): void { const selected = new Box<number>(); const receiver = new Receiver<number>(); receiver.take(selected); }");
   assert.equal(sourceAnnotationHint(foreign.selected[0]!, foreign.bindings), undefined);
