@@ -14,8 +14,8 @@ interface String {
   replaceAll(searchValue: { [Symbol.replace](string: string, replacer: RegExpReplaceCallback): string }, replacer: RegExpReplaceCallback): string;
   search(regexp: string | RegExp): int32;
   search(searcher: { [Symbol.search](string: string): int32 }): int32;
-  split(separator: string, limit?: number): string[];
-  split(separator: RegExp, limit?: number): (string | undefined)[];
-  split<T extends string | undefined>(splitter: { [Symbol.split](string: string, limit?: number): T[] }, limit?: number): T[];
+  split(separator: string, limit?: int32): string[];
+  split(separator: RegExp, limit?: int32): (string | undefined)[];
+  split<T extends string | undefined>(splitter: { [Symbol.split](string: string, limit?: int32): T[] }, limit?: int32): T[];
 }
 `.trim();

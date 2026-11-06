@@ -103,6 +103,7 @@ export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
 }
 
 export interface SourceSelectedDeclarationQueries extends SourceNavigationDeclarationQueries {
+  authoredTypeDeclaration(node: Node): Node | undefined;
   isDefaultLibraryDeclaration(node: Node): boolean;
   declaredType(declaration: Node): Type | undefined;
   typeSymbol(type: Type): Symbol | undefined;

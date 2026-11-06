@@ -42,6 +42,8 @@ export {
   sourceSymbolsEqual,
 } from "./identity.js";
 export { sourceBindingWriteAtReference } from "./references-usage.js";
+export { sourceAnnotationHint } from "./annotation-hints.js";
+export type { SourceAnnotationHintBindings } from "./annotation-hints.js";
 export { referenceQueryNode } from "./syntax.js";
 export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";

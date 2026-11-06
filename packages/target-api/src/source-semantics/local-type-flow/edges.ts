@@ -322,6 +322,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (root === undefined) return undefined;
     const query = semantics.forNode(node);
     if (building.has(node)) { refuse("TSONIC_LOCAL_TYPE_SELF_REFERENCE", node); return undefined; }
+    if (ast.is.IsParameterDeclaration(node)) {
+      const owner = ast.parent(node);
+      if (owner === undefined || ast.body(owner) === undefined) return undefined;
+    }
     if (ast.is.IsBindingElement(node)) {
       let owner = ast.parent(node);
       while (owner !== undefined && (ast.is.IsArrayBindingPattern(owner) || ast.is.IsObjectBindingPattern(owner) ||
@@ -1208,7 +1212,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const members = formalQuery.types.unionOrIntersectionTypes(formal);
         const values = members.filter(member => !formalQuery.types.isNullish(member));
         if (role === "result" && formalQuery.types.isUnion(formal) && values.length === 1 && values.length < members.length) {
-          if (receiver !== undefined && openValues.has(receiver.node)) { refuse("TSONIC_LOCAL_TYPE_UNION", occurrence); return; }
+          if (receiver !== undefined && openValues.has(receiver.node) && terms.get(receiver)?.kind !== "declared") {
+            refuse("TSONIC_LOCAL_TYPE_UNION", occurrence); return;
+          }
           const valueType = values[0]!;
           const child = project(variable, optionalValuePart);
           putTerm(variable, Object.freeze({ kind: "optional", site: occurrence, value: child, source: component }));

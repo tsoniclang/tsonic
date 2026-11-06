@@ -121,6 +121,111 @@ test("declared readonly array returns and their conditional branches retain the 
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+
+test("C2396 awaited finite nominal unions retain their own payload objects and one absence state", () => {
+  const current = fixture(`async function forward(pending: Promise<int32> | Promise<float32>): Promise<int32 | float32> {
+      const forwardResult = await pending; return forwardResult;
+    }
+    async function reverse(pending: Promise<float32> | Promise<int32>): Promise<int32 | float32> {
+      const reverseResult = await pending; return reverseResult;
+    }
+    async function optional(pending: Promise<int32> | undefined): Promise<int32 | undefined> {
+      return await pending;
+    }
+    async function unchanged(value: int32 | float32): Promise<int32 | float32> {
+      const unchangedResult = await value; return unchangedResult;
+    }`);
+  const { ast } = current.source;
+  const awaits = current.nodes.filter(node => ast.is.IsAwaitExpression(node));
+  assert.equal(awaits.length, 4);
+  for (const node of awaits) {
+    const operand = ast.as.AsAwaitExpression(node)?.Expression;
+    const input = operand === undefined ? undefined : current.source.effectiveTypes.get(operand);
+    const output = current.source.effectiveTypes.get(node);
+    assert.equal(input !== undefined && input.kind !== "refused" && output !== undefined && output.kind !== "refused", true,
+      `the same await operand and result are published at ${ast.pos(node)}: input ${input?.kind}, output ${output?.kind}${
+        output?.kind === "refused" ? ` ${output.code}: ${output.reason}` : ""}`);
+    if (input === undefined || input.kind === "refused" || output === undefined || output.kind === "refused") continue;
+    const original = input.type.kind === "optional" ? [input.type.value]
+      : input.type.kind === "union" ? input.type.types : [input.type];
+    const payloads = original.map(member => member.kind === "declared" ? member.typeArguments[0] : member);
+    const present = output.type.kind === "optional" ? output.type.value : output.type;
+    const results = present.kind === "union" ? present.types : [present];
+    assert.equal(payloads.length === results.length && payloads.every(payload => results.includes(payload!)), true,
+      "union order and checked numeric collapse cannot replace a solved payload object or its authored width");
+    assert.equal((input.type.kind === "optional") === (output.type.kind === "optional"), true);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const unbound = fixture(`async function optional(pending: Promise<int32> | undefined): Promise<int32 | undefined> {
+    const selected = await pending; return selected;
+  }`);
+  assert.equal(unbound.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true,
+    "a newly inferred optional local keeps the original union-fill refusal rather than borrowing await's payload relation");
+});
+test("C2392 a retained nominal receiver publishes its original optional member result", () => {
+  const current = fixture(`class Store<Value> { value: Value;
+      constructor(value: Value) { this.value = value; } get(): Value | undefined { return this.value; } }
+    function run(): boolean { const selected = new Store("a"); return selected.get() === "a"; }
+    function openArray(): void { const values = [1, 2]; const found = values.find(value => value > 0); void found; }`);
+  const { ast } = current.source;
+  const stored = current.type("selected");
+  const call = current.nodes.find(node => ast.is.IsCallExpression(node) && (() => {
+    const callee = ast.as.AsCallExpression(node)?.Expression;
+    return callee !== undefined && ast.is.IsPropertyAccessExpression(callee) && ast.text(ast.name(callee)!) === "get";
+  })());
+  const result = call === undefined ? undefined : current.source.effectiveTypes.get(call);
+  const comparison = current.nodes.find(node => ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindEqualsEqualsEqualsToken");
+  const selected = comparison === undefined ? undefined : current.source.effectiveTypes.get(comparison);
+  assert.equal(stored.kind === "declared" && stored.typeArguments.length === 1 && stored.typeArguments[0]?.kind === "string", true);
+  assert.equal(stored.kind === "declared" && result !== undefined && result.kind !== "refused" && result.type.kind === "optional" &&
+    result.type.value === stored.typeArguments[0], true, "the original receiver binder supplies the exact present member object");
+  assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "primitive" && selected.type.primitive === "bool", true);
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNION" && ast.is.IsCallExpression(issues[0].site), true,
+    "an open array result retains its original union-inference refusal independently of the completed nominal receiver");
+});
+
+test("C2392 authored global primitive aliases retain their exact declaration through containers", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
+    "/src/node_modules/@test/words/index.d.ts": "export type int32 = number;",
+    "/src/node_modules/@test/plain/package.json": JSON.stringify({ name: "@test/plain", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
+    "/src/node_modules/@test/plain/index.d.ts": "export type int32 = number;",
+    "/src/globals.d.ts": `type NativeWord = import("@test/words").int32;
+      type WordArray = NativeWord[]; type WordBox = { value: NativeWord }; type ForeignWord = import("@test/plain").int32;`,
+    "/src/index.ts": `function run(input: NativeWord, values: WordArray, box: WordBox, foreign: ForeignWord): void {
+      const direct = input; const element = values[0]; const member = box.value; void direct; void element; void member; void foreign;
+    }
+    function shadow(): number { type NativeWord = number; const local: NativeWord = 1.5; return local; }`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/words", packageName: "@test/words",
+    exports: [sourcePrimitive("int32", "int32", "number", true, 32)] }] })] } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The original alias-reference source is required.");
+  const nodes: Node[] = [];
+  const pending: Node[] = [file];
+  while (pending.length > 0) { const node = pending.pop()!; nodes.push(node); pending.push(...source.ast.children(node).filter((child): child is Node => child !== undefined)); }
+  for (const [name, expected] of [["direct", "int32"], ["element", "int32"], ["member", "int32"], ["foreign", "float64"], ["local", "float64"]]) {
+    const declaration = nodes.find(node => (source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsParameterDeclaration(node)) &&
+      source.ast.name(node) !== undefined && source.ast.is.IsIdentifier(source.ast.name(node)) && source.ast.text(source.ast.name(node)!) === name);
+    const outcome = declaration === undefined ? undefined : source.effectiveTypes.get(declaration);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === expected, true,
+      `${name}: only the exact configured declaration supplies primitive width`);
+  }
+  const parameter = nodes.find(node => source.ast.is.IsParameterDeclaration(node) && source.ast.text(source.ast.name(node)!) === "input");
+  const annotation = parameter === undefined ? undefined : source.ast.typeNode(parameter);
+  const reference = annotation === undefined ? undefined : source.ast.as.AsTypeReferenceNode(annotation)?.TypeName;
+  const declaration = annotation === undefined ? undefined : source.semantics.forNode(parameter!).declarations.authoredTypeDeclaration(annotation);
+  const body = declaration === undefined ? undefined : source.ast.typeNode(declaration);
+  const qualifier = body === undefined ? undefined : source.ast.as.AsImportTypeNode(body)?.Qualifier;
+  assert.equal(reference !== undefined && qualifier !== undefined && source.navigation.sourceReferenceFor(qualifier) === undefined && declaration !== undefined &&
+    source.ast.is.IsTypeAliasDeclaration(declaration) && source.ast.getSourceFile(declaration) === checked.getSourceFile("/src/globals.d.ts"), true,
+    "semantic declaration evidence reaches the original global alias without expanding project navigation");
+  assert.equal(source.effectiveTypes.refusals().length, 0);
+});
+
 test("an empty inferred literal consumed through a generic call keeps only its real construction refusal", () => {
   const current = fixture("declare function identity<T>(value: T): T; function run(): void { const value = {}; void identity(value); }");
   const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
@@ -2838,7 +2943,8 @@ test("C2337 assignment-pattern RHS retains every heterogeneous checked tuple ele
   );
   assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "tuple" &&
     selected.type.elements.length === 4 && selected.type.elements[0]?.type.kind === "string" &&
-    selected.type.elements.slice(1).every(element => element.type.kind === "primitive" && element.type.primitive === "float64"), true);
+    selected.type.elements.slice(1).every((element, index) => element.type.kind === "primitive" &&
+      element.type.primitive === (index < 2 ? "int64" : "float64")), true);
   assert.equal(selected !== undefined && selected.kind !== "refused" && admissions.length === 1 &&
     admissions[0]?.authority === "inferred" && admissions[0].type === selected.type, true);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);

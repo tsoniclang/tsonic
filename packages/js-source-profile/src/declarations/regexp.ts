@@ -32,8 +32,8 @@ interface RegExp {
   [Symbol.replace](string: import("@tsonic/js/types.js").JsString, replacer: JsRegExpReplaceCallback): import("@tsonic/js/types.js").JsString;
   [Symbol.search](string: string): int32;
   [Symbol.search](string: import("@tsonic/js/types.js").JsString): int32;
-  [Symbol.split](string: string, limit?: number): (string | undefined)[];
-  [Symbol.split](string: import("@tsonic/js/types.js").JsString, limit?: number): (import("@tsonic/js/types.js").JsString | undefined)[];
+  [Symbol.split](string: string, limit?: int32): (string | undefined)[];
+  [Symbol.split](string: import("@tsonic/js/types.js").JsString, limit?: int32): (import("@tsonic/js/types.js").JsString | undefined)[];
 }
 
 interface RegExpConstructor {

@@ -43,12 +43,8 @@ export function sourceTypeFlowTypeDeclaration(
   authoredTypeNode?: Node,
   excludedDeclarations?: ReadonlySet<Node>,
 ): Node | undefined {
-  const { ast, navigation } = source;
-  const reference = authoredTypeNode !== undefined && ast.is.IsTypeReferenceNode(authoredTypeNode)
-    ? ast.as.AsTypeReferenceNode(authoredTypeNode)?.TypeName
-    : authoredTypeNode !== undefined && ast.is.IsImportTypeNode(authoredTypeNode)
-      ? ast.as.AsImportTypeNode(authoredTypeNode)?.Qualifier : undefined;
-  const authored = reference === undefined ? undefined : navigation.sourceReferenceFor(reference)?.declaration;
+  const { ast } = source;
+  const authored = authoredTypeNode === undefined ? undefined : queries.declarations.authoredTypeDeclaration(authoredTypeNode);
   if (authored !== undefined && (ast.is.IsTypeAliasDeclaration(authored) || ast.is.IsClassDeclaration(authored) ||
     ast.is.IsInterfaceDeclaration(authored) || ast.is.IsEnumDeclaration(authored) || ast.is.IsTypeParameterDeclaration(authored))) return authored;
   const symbols = [...new Set([queries.declarations.typeAliasSymbol(type), queries.declarations.typeSymbol(type)])];
@@ -289,6 +285,15 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
         const value = element === undefined ? undefined : describe(element, undefined, depth + 1);
         if (value === undefined) return undefined;
         elements.push(value);
+      }
+      const queries = semantics.forNode(node);
+      const actual = queries.types.expressionType(node);
+      if (actual !== undefined && queries.types.isTuple(actual)) {
+        const positions = queries.types.tupleElementInfos(actual);
+        if (positions.length !== elements.length) return undefined;
+        return { kind: "tuple", readonly: queries.types.indexInfos(actual).some(index => index.readonly),
+          elements: positions.map((position, index) => ({ kind: position.elementKind === "variadic" ? "rest" : position.elementKind,
+            type: elements[index]!, ...(position.declaration === undefined ? {} : { declaration: position.declaration }) })) };
       }
       const selected = sourceTypeDescriptorUnion(elements);
       return selected === undefined ? undefined : { kind: "array", readonly: false, element: selected };

@@ -10,15 +10,21 @@ export const nativeV8HeapSource = `
 import { getHeapStatistics } from "node:v8";
 import { getHeapStatistics as aliasedHeap } from "v8";
 import type { HeapInfo } from "node:v8";
+import type { int64 } from "@tsonic/core/types.js";
 
 let attempts = 0;
 let continued = 0;
 
-function sum(info: HeapInfo): number {
-  return ${nativeV8HeapFields.map(name => `info.${name}`).join(" + ")};
+function sum(info: HeapInfo): int64 {
+  const bytes: int64 = ${nativeV8HeapFields.filter(name => !["does_zap_garbage", "number_of_native_contexts", "number_of_detached_contexts"].includes(name)).map(name => `info.${name}`).join(" + ")};
+  const contexts = info.number_of_native_contexts + info.number_of_detached_contexts;
+  const zap = info.does_zap_garbage;
+  void contexts;
+  void zap;
+  return bytes;
 }
 
-function request(): number {
+function request(): int64 {
   attempts += 1;
   const result = getHeapStatistics();
   continued += 1;

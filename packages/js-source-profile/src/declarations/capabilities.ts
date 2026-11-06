@@ -287,7 +287,7 @@ interface Console {
 }
 
 declare function setTimeout(callback: () => void, delay?: int32): int32;
-declare function clearTimeout(id: int32): void;
+declare function clearTimeout(id?: int32): void;
 declare function setInterval(callback: () => void, delay?: int32): int32;
-declare function clearInterval(id: int32): void;
+declare function clearInterval(id?: int32): void;
 `.trim();

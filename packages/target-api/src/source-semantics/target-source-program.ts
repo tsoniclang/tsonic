@@ -1,5 +1,6 @@
 import type { CheckedSourceProgram, Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
 import { createSourceProgramNavigation } from "../source-navigation/index.js";
+import { aliasedSymbol, referenceDeclarationForMeaning, symbolAtReferenceNode } from "../source-navigation/syntax.js";
 import { authoredSourceTypeFactDependencies, authoredSourceTypeFactNodes } from "./authored-type-facts.js";
 import { selectAuthoredSourceType } from "./authored-type-selection.js";
 import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
@@ -91,6 +92,13 @@ export function createTargetSourceProgram(
       },
     });
     const declarations = Object.freeze({
+      authoredTypeDeclaration(node: Node) {
+        const reference = source.ast.is.IsTypeReferenceNode(node) ? source.ast.as.AsTypeReferenceNode(node)?.TypeName
+          : source.ast.is.IsImportTypeNode(node) ? source.ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
+        const symbol = reference === undefined ? undefined : symbolAtReferenceNode(source.ast, queries.checker, reference);
+        return referenceDeclarationForMeaning(source.ast, queries.checker,
+          aliasedSymbol(source.ast, queries.checker, symbol) ?? symbol, "type");
+      },
       isDefaultLibraryDeclaration: queries.checker.isDefaultLibraryDeclaration,
       declaredValueType(declaration: Node) {
         if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);

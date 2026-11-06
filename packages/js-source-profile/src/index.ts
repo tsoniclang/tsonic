@@ -1,3 +1,4 @@
+export { sourceNoLibBaseDeclarations } from "./declarations/base.js";
 export { jsRegExpSourceProfileDeclarations, jsStandardSourceProfileDeclarations } from "./declarations/composition.js";
 export { jsRegExpObjectDeclarations } from "./declarations/regexp.js";
 export { jsRegExpResultDeclarations } from "./declarations/regexp-results.js";
