@@ -94,7 +94,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return type === undefined ? undefined : { type, ...(selected === undefined ? {} : { component: selected }) };
   }
 
-  function checkedBinding(callNode: Node | undefined, variables: ReadonlySet<Node>): ReadonlyMap<Node, AuthoredBinding> | undefined {
+  function authoredBinding(callNode: Node | undefined, variables: ReadonlySet<Node>): ReadonlyMap<Node, AuthoredBinding> | undefined {
     if (variables.size === 0) return new Map();
     const query = callNode === undefined ? undefined : semantics.forNode(callNode);
     const call = callNode === undefined ? undefined : query?.operations.call(callNode);
@@ -192,7 +192,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     } : selected;
     const unbound = context.describe(node, formal);
     const bindings = unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound)
-      ? checkedBinding(callNode, typeVariables(unbound)) : undefined;
+      ? authoredBinding(callNode, typeVariables(unbound)) : undefined;
     if (unbound !== undefined && concrete && sourceTypeDescriptorHasTypeVariables(ast, unbound) && bindings === undefined) return undefined;
     const described = formal === selected ? unbound : context.describe(node, selected,
       bindings === undefined ? undefined : [...bindings].map(([declaration, value]) => ({ declaration, type: value.type })));
@@ -252,10 +252,12 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (ast.is.IsSetAccessorDeclaration(node)) return { kind: "intrinsic", intrinsic: "void" };
     const signature = declaredCallable(node, query);
     if (signature === undefined) return undefined;
-    if (!ast.hasModifierKind(node, "async")) return signature.signature.result;
-    if (signature.signature.declaration === undefined) return undefined;
-    const selected = awaited(component(signature.signature.declaration, query), query);
-    return selected === undefined ? undefined : context.describe(node, selected);
+    const selected = ast.hasModifierKind(node, "async") && signature.signature.declaration !== undefined
+      ? awaited(component(signature.signature.declaration, query), query) : undefined;
+    const type = ast.hasModifierKind(node, "async")
+      ? selected === undefined ? undefined : context.describe(node, selected) : signature.signature.result;
+    const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+    return structure?.kind === "intrinsic" && ["unknown", "object", "any"].includes(structure.intrinsic) ? undefined : type;
   }
 
   function awaited(selected: SourceTypeComponentEvidence | undefined, query: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
@@ -415,7 +417,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     return undefined;
   }
 
-  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), checkedBinding,
+  return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), authoredBinding,
     callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
     component?: SourceTypeComponentEvidence): void {
     if (read(node, semantics.forNode(node)) !== undefined) return;

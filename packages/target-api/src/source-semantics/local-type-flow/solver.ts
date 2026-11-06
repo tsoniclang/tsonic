@@ -1459,10 +1459,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const owner = ast.parent(declaration);
       const selected = owner === undefined ? undefined : queries.declarations.declaredType(owner);
       if (owner !== undefined && selected !== undefined) type = context.describe(owner, { selectedType: selected, declaration: owner });
-    } else if (contextual !== undefined || requiredResult !== undefined) {
+    } else if (requiredResult !== undefined) {
       type = contextual?.signature.result ?? requiredResult;
       const requiredType = requiredResult;
-      if (requiredType === undefined) throw new Error("A declared callable return requires its exact Source result descriptor.");
       const returnedValues = file !== undefined && source.semantics.includes(file)
         ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
       for (const returned of returnedValues) {

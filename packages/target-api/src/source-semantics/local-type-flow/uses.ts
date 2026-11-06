@@ -307,7 +307,7 @@ export function collectSourceTypeFlowUses(
       const component = association.component!;
       if (retained?.argumentPlaces.some(place => place.binding === binding)) {
         const binders = new Set(retained.argumentPlaces.filter(place => place.binding === binding).map(place => place.binder));
-        return (declaredSlots.checkedBinding(node, binders) ? declaredSlotFill(record, node, association) : undefined) ??
+        return (declaredSlots.authoredBinding(node, binders) ? declaredSlotFill(record, node, association) : undefined) ??
           Object.freeze({ kind: "none", site: node, variable: record.variable, association });
       }
       if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) {

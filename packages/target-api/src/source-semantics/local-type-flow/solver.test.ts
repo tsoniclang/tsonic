@@ -122,6 +122,97 @@ test("C2404 generic array binders project the same solved aggregate used by ever
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2417 broad contextual callback returns do not replace their body's own result", () => {
+  const current = fixture(`class Datum { value: int32 = 1; }
+    declare function opaque(callback: (value: int32, index: int32) => unknown): void;
+    declare function dynamic(callback: (value: int32, index: int32) => any): void;
+    declare function reference(callback: () => object): void;
+    declare function concrete(callback: () => float32): void;
+    declare function union(callback: () => string | float32): void;
+    function run(): void {
+      opaque((value, index) => value > index);
+      dynamic((value, index) => value > index);
+      reference(() => new Datum());
+      concrete(() => 7);
+      union(() => 7);
+    }`);
+  const { ast } = current.source;
+  const reader = createSourceTypeFlowDeclaredSlotReader(createSourceTypeFlowAnalysisContext(current.source).context);
+  const arrows = current.nodes.filter(node => ast.is.IsArrowFunction(node));
+  assert.equal(arrows.length, 5);
+  for (const [index, arrow] of arrows.entries()) {
+    const body = ast.body(arrow);
+    const returned = current.source.effectiveTypes.callableReturn(arrow);
+    const outcome = current.source.effectiveTypes.get(arrow);
+    assert.equal(body !== undefined && returned !== undefined && returned.kind !== "refused" && outcome !== undefined &&
+      outcome.kind !== "refused" && outcome.type.kind === "callable" && outcome.type.calls[0]?.result === returned.type, true,
+      `callback ${index}: the canonical callable result retains its solved original descriptor`);
+    if (body === undefined || returned === undefined || returned.kind === "refused") throw new Error("The original callback result is required.");
+    if (index < 3) {
+      assert.equal(reader.returned(arrow, current.source.semantics.forNode(arrow)) === undefined && reader.get(body) === undefined, true,
+        `callback ${index}: a broad contract is a check, never a creation destination`);
+      assert.equal(index < 2 ? returned.type.kind === "primitive" && returned.type.primitive === "bool" : returned.type.kind === "declared", true,
+        `callback ${index}: the exact bool or class creation is preserved`);
+    } else {
+      const selected = current.source.effectiveTypes.get(body);
+      const physical = selected === undefined || selected.kind === "refused" ? undefined : selected.construction ?? selected.type;
+      assert.equal(reader.get(body)?.authority === "declared" && physical?.kind === "primitive" && physical.primitive === "float32", true,
+        `callback ${index}: primitive and union destinations still own the literal's exact native arm`);
+    }
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2417 inactive concrete callbacks publish every original parameter through the selected invocation", () => {
+  const current = fixture(`interface Request { readonly value: int32; }
+    interface Response { send(value: int32): void; }
+    declare function connect(callback: (request: Request, response: Response) => void): void;
+    function run(): void { connect((request, response) => {}); }`);
+  const { ast } = current.source;
+  const arrow = current.nodes.find(node => ast.is.IsArrowFunction(node));
+  if (arrow === undefined) throw new Error("The original inline callback is required.");
+  const selected = current.source.effectiveTypes.get(arrow);
+  const signature = selected === undefined || selected.kind === "refused" || selected.type.kind !== "callable" ? undefined : selected.type.calls[0];
+  const parameters = ast.parameters(arrow);
+  assert.equal(parameters.length, 2);
+  for (const [index, parameter] of parameters.entries()) {
+    if (parameter === undefined) throw new Error("Each original callback parameter is required.");
+    const outcome = current.source.effectiveTypes.get(parameter);
+    const name = ast.name(parameter);
+    const named = name === undefined ? undefined : current.source.effectiveTypes.get(name);
+    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+      named !== undefined && named.kind !== "refused" && named.type === outcome.type && signature?.parameters[index]?.type === outcome.type, true,
+      `parameter ${index}: the declaration, name and callable retain one concrete originating descriptor`);
+  }
+  assert.equal(signature?.result.kind === "intrinsic" && signature.result.intrinsic === "void", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2417 callback parameter enrollment retains concrete authored binders without retargeting fixed annotations", () => {
+  const current = fixture(`declare function receive<Value>(callback: (value: Value) => void): void;
+    function run(): void {
+      receive<string>(value => {});
+      receive<int32>((value: float32) => {});
+    }`);
+  const { ast } = current.source;
+  const arrows = current.nodes.filter(node => ast.is.IsArrowFunction(node));
+  assert.equal(arrows.length, 2);
+  for (const [index, arrow] of arrows.entries()) {
+    const parameter = ast.parameters(arrow)[0];
+    if (parameter === undefined) throw new Error("The original callback parameter is required.");
+    const selected = current.source.effectiveTypes.get(parameter);
+    const call = ast.parent(arrow);
+    const method = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call)?.method[0];
+    assert.equal(selected !== undefined && selected.kind !== "refused" && (index === 0 ? selected.type.kind === "string"
+      : selected.type.kind === "primitive" && selected.type.primitive === "float32"), true,
+      `callback ${index}: the concrete contextual parameter is published, but an authored annotation is never retargeted`);
+    assert.equal(index === 0 ? method?.type.kind === "string"
+      : method?.type.kind === "primitive" && method.type.primitive === "int32", true,
+      `callback ${index}: the exact original declared method binder remains independent`);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C2408 every formal shape retains authored binding provenance and exact native aliases", () => {
   const forms = [
     { name: "array", type: "(string | T)[]", value: '["text", 9007199254740993]' },
@@ -164,7 +255,7 @@ test("C2408 every formal shape retains authored binding provenance and exact nat
     const declaration = selected === undefined ? undefined : query?.declarations.signatureDeclaration(selected.selectedSignature);
     const binderOwner = declaration !== undefined && ast.is.IsMethodDeclaration(declaration) ? ast.parent(declaration) : declaration;
     const binder = binderOwner === undefined ? undefined : ast.typeParameters(binderOwner)[0];
-    const bindings = binder === undefined ? undefined : slots.checkedBinding(call, new Set([binder]));
+    const bindings = binder === undefined ? undefined : slots.authoredBinding(call, new Set([binder]));
     const authored = !label.startsWith("inferred_");
     assert.equal(bindings !== undefined, authored, label + ": only an actual authored binder creates a destination");
     if (authored) {

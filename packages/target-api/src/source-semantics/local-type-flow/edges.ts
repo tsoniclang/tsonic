@@ -935,7 +935,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         (source.sourceSelectedMethodTypeArguments ?? []).some(argument =>
           sourceTypeFlowTypeDeclaration(context.source, query, argument.typeParameter) === declaration);
     });
-    if (!bodyResult && !genericConstruction && !genericAggregate && directCallee === undefined && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
+    const inlineArgument = source.sourceArguments.some(argument => inlineCallable(ast, argument.expression) !== undefined);
+    if (!bodyResult && !genericConstruction && !genericAggregate && !inlineArgument && directCallee === undefined && !arguments_.some(argument => argument !== undefined && active.has(argument.node)) &&
       (receiver === undefined || !active.has(receiver.node))) {
       const result = query.operations.callResult(source);
       const declaration = query.declarations.signatureDeclaration(source.selectedSignature);
@@ -1283,7 +1284,9 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           if (parameterVariable === undefined) continue;
           const parameterSymbol = formalQuery.declarations.typeSymbol(parameter.type);
           const parameterDeclaration = parameterSymbol === undefined ? undefined : formalQuery.declarations.primarySymbolDeclaration(parameterSymbol);
-          if (parameterDeclaration !== undefined && binders.has(parameterDeclaration)) active.add(actual);
+          const projected = declaredSlots.parameter(actual, query);
+          if (projected !== undefined) replace(actual, { term: Object.freeze({ kind: "fixed", site: actual, type: projected }) });
+          else if (parameterDeclaration !== undefined && binders.has(parameterDeclaration)) active.add(actual);
           else {
             const actualType = ast.typeNode(actual) === undefined ? association : declaredComponent(actual, query) ?? association;
             const type = context.describe(actual, actualType);
