@@ -111,7 +111,7 @@ function rawPointerOperationDeclaration(
       return functionDeclaration(exportName, {
         id: tsonicPointerMarkerSignatureIds.hashRawPointer,
         parameters: [{ name: "pointer", type: optionalRawPointer }],
-        returnType: { kind: "number" },
+        returnType: { kind: "source-primitive", name: "uint32" },
       });
   }
 }
@@ -179,7 +179,7 @@ function pointerOperationDeclaration(
         return {
           id: tsonicPointerMarkerSignatureIds.hashPointer,
           parameters: [{ name: "pointer", type: optionalPointer }],
-          returnType: { kind: "number" as const },
+          returnType: { kind: "source-primitive" as const, name: "uint32" as const },
         };
       case "bind-pointer":
         return {

@@ -1,7 +1,9 @@
+import { jsTypedArraySourceDeclarations } from "./typed-arrays.js";
+
 export const jsCapabilitySourceProfileDeclarations = `
 interface ArrayLike<T> {
-  readonly length: number;
-  readonly [index: number]: T;
+  readonly length: int32;
+  readonly [index: int32]: T;
 }
 
 interface SymbolConstructor {
@@ -37,139 +39,45 @@ interface WeakSetConstructor {
 declare var WeakSet: WeakSetConstructor;
 
 interface ArrayBuffer {
-  readonly byteLength: number;
-  slice(begin?: number, end?: number): ArrayBuffer;
+  readonly byteLength: int32;
+  slice(begin?: int32, end?: int32): ArrayBuffer;
 }
 interface ArrayBufferConstructor {
-  new (byteLength: number): ArrayBuffer;
+  new (byteLength: int32): ArrayBuffer;
   readonly prototype: ArrayBuffer;
 }
 declare var ArrayBuffer: ArrayBufferConstructor;
 
 interface ArrayBufferView {
   readonly buffer: ArrayBuffer;
-  readonly byteLength: number;
-  readonly byteOffset: number;
+  readonly byteLength: int32;
+  readonly byteOffset: int32;
 }
 
 interface DataView extends ArrayBufferView {
-  getInt8(byteOffset: number): number;
-  getUint8(byteOffset: number): number;
-  getInt16(byteOffset: number, littleEndian?: boolean): number;
-  getUint16(byteOffset: number, littleEndian?: boolean): number;
-  getInt32(byteOffset: number, littleEndian?: boolean): number;
-  getUint32(byteOffset: number, littleEndian?: boolean): number;
-  getFloat32(byteOffset: number, littleEndian?: boolean): number;
-  getFloat64(byteOffset: number, littleEndian?: boolean): number;
-  setInt8(byteOffset: number, value: number): void;
-  setUint8(byteOffset: number, value: number): void;
-  setInt16(byteOffset: number, value: number, littleEndian?: boolean): void;
-  setUint16(byteOffset: number, value: number, littleEndian?: boolean): void;
-  setInt32(byteOffset: number, value: number, littleEndian?: boolean): void;
-  setUint32(byteOffset: number, value: number, littleEndian?: boolean): void;
-  setFloat32(byteOffset: number, value: number, littleEndian?: boolean): void;
-  setFloat64(byteOffset: number, value: number, littleEndian?: boolean): void;
+  getInt8(byteOffset: int32): int8;
+  getUint8(byteOffset: int32): uint8;
+  getInt16(byteOffset: int32, littleEndian?: boolean): int16;
+  getUint16(byteOffset: int32, littleEndian?: boolean): uint16;
+  getInt32(byteOffset: int32, littleEndian?: boolean): int32;
+  getUint32(byteOffset: int32, littleEndian?: boolean): uint32;
+  getFloat32(byteOffset: int32, littleEndian?: boolean): float32;
+  getFloat64(byteOffset: int32, littleEndian?: boolean): float64;
+  setInt8<TValue extends number | bigint>(byteOffset: int32, value: TValue): void;
+  setUint8<TValue extends number | bigint>(byteOffset: int32, value: TValue): void;
+  setInt16<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
+  setUint16<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
+  setInt32<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
+  setUint32<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
+  setFloat32<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
+  setFloat64<TValue extends number | bigint>(byteOffset: int32, value: TValue, littleEndian?: boolean): void;
 }
 interface DataViewConstructor {
-  new (buffer: ArrayBuffer, byteOffset?: number, byteLength?: number): DataView;
+  new (buffer: ArrayBuffer, byteOffset?: int32, byteLength?: int32): DataView;
 }
 declare var DataView: DataViewConstructor;
 
-interface TypedArray<TArray> extends ArrayBufferView, Iterable<number> {
-  readonly BYTES_PER_ELEMENT: number;
-  readonly length: number;
-  [index: number]: number;
-  at(index: number): number | undefined;
-  fill(value: number, start?: number, end?: number): TArray;
-  includes(searchElement: number, fromIndex?: number): boolean;
-  indexOf(searchElement: number, fromIndex?: number): number;
-  join(separator?: string): string;
-  reverse(): TArray;
-  set(array: ArrayLike<number>, offset?: number): void;
-  slice(start?: number, end?: number): TArray;
-  sort(compareFn?: (left: number, right: number) => number): TArray;
-  subarray(begin?: number, end?: number): TArray;
-}
-
-interface Int8Array extends TypedArray<Int8Array> {}
-interface Uint8Array extends TypedArray<Uint8Array> {}
-interface Uint8ClampedArray extends TypedArray<Uint8ClampedArray> {}
-interface Int16Array extends TypedArray<Int16Array> {}
-interface Uint16Array extends TypedArray<Uint16Array> {}
-interface Int32Array extends TypedArray<Int32Array> {}
-interface Uint32Array extends TypedArray<Uint32Array> {}
-interface Float32Array extends TypedArray<Float32Array> {}
-interface Float64Array extends TypedArray<Float64Array> {}
-
-interface TypedArrayConstructor<TArray extends TypedArray<TArray>> {
-  new (length: number): TArray;
-  new (array: ArrayLike<number> | Iterable<number>): TArray;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): TArray;
-  readonly BYTES_PER_ELEMENT: number;
-}
-interface Int8ArrayConstructor extends TypedArrayConstructor<Int8Array> {
-  new (length: number): Int8Array;
-  new (array: ArrayLike<number> | Iterable<number>): Int8Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Int8Array;
-  readonly BYTES_PER_ELEMENT: 1;
-}
-interface Uint8ArrayConstructor extends TypedArrayConstructor<Uint8Array> {
-  new (length: number): Uint8Array;
-  new (array: ArrayLike<number> | Iterable<number>): Uint8Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Uint8Array;
-  readonly BYTES_PER_ELEMENT: 1;
-}
-interface Uint8ClampedArrayConstructor extends TypedArrayConstructor<Uint8ClampedArray> {
-  new (length: number): Uint8ClampedArray;
-  new (array: ArrayLike<number> | Iterable<number>): Uint8ClampedArray;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Uint8ClampedArray;
-  readonly BYTES_PER_ELEMENT: 1;
-}
-interface Int16ArrayConstructor extends TypedArrayConstructor<Int16Array> {
-  new (length: number): Int16Array;
-  new (array: ArrayLike<number> | Iterable<number>): Int16Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Int16Array;
-  readonly BYTES_PER_ELEMENT: 2;
-}
-interface Uint16ArrayConstructor extends TypedArrayConstructor<Uint16Array> {
-  new (length: number): Uint16Array;
-  new (array: ArrayLike<number> | Iterable<number>): Uint16Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Uint16Array;
-  readonly BYTES_PER_ELEMENT: 2;
-}
-interface Int32ArrayConstructor extends TypedArrayConstructor<Int32Array> {
-  new (length: number): Int32Array;
-  new (array: ArrayLike<number> | Iterable<number>): Int32Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Int32Array;
-  readonly BYTES_PER_ELEMENT: 4;
-}
-interface Uint32ArrayConstructor extends TypedArrayConstructor<Uint32Array> {
-  new (length: number): Uint32Array;
-  new (array: ArrayLike<number> | Iterable<number>): Uint32Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Uint32Array;
-  readonly BYTES_PER_ELEMENT: 4;
-}
-interface Float32ArrayConstructor extends TypedArrayConstructor<Float32Array> {
-  new (length: number): Float32Array;
-  new (array: ArrayLike<number> | Iterable<number>): Float32Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Float32Array;
-  readonly BYTES_PER_ELEMENT: 4;
-}
-interface Float64ArrayConstructor extends TypedArrayConstructor<Float64Array> {
-  new (length: number): Float64Array;
-  new (array: ArrayLike<number> | Iterable<number>): Float64Array;
-  new (buffer: ArrayBuffer, byteOffset?: number, length?: number): Float64Array;
-  readonly BYTES_PER_ELEMENT: 8;
-}
-declare var Int8Array: Int8ArrayConstructor;
-declare var Uint8Array: Uint8ArrayConstructor;
-declare var Uint8ClampedArray: Uint8ClampedArrayConstructor;
-declare var Int16Array: Int16ArrayConstructor;
-declare var Uint16Array: Uint16ArrayConstructor;
-declare var Int32Array: Int32ArrayConstructor;
-declare var Uint32Array: Uint32ArrayConstructor;
-declare var Float32Array: Float32ArrayConstructor;
-declare var Float64Array: Float64ArrayConstructor;
+${jsTypedArraySourceDeclarations}
 
 interface PromiseFulfilledResult<T> {
   status: "fulfilled";
@@ -211,10 +119,10 @@ interface IntlDateTimeFormatOptions {
   hour12?: boolean;
 }
 interface IntlResolvedDateTimeFormatOptions {
-  locale: string;
-  calendar: string;
-  numberingSystem: string;
-  timeZone: string;
+  readonly locale: string;
+  readonly calendar: string;
+  readonly numberingSystem: string;
+  readonly timeZone: string;
 }
 interface IntlDateTimeFormatConstructor {
   new (locales?: string | readonly string[], options?: IntlDateTimeFormatOptions): IntlDateTimeFormat;
@@ -242,45 +150,45 @@ interface IntlNumberFormatOptions {
   compactDisplay?: "short" | "long";
   signDisplay?: "auto" | "never" | "always" | "exceptZero" | "negative";
   useGrouping?: boolean | "auto" | "always" | "min2";
-  minimumIntegerDigits?: number;
-  minimumFractionDigits?: number;
-  maximumFractionDigits?: number;
-  minimumSignificantDigits?: number;
-  maximumSignificantDigits?: number;
+  minimumIntegerDigits?: int32;
+  minimumFractionDigits?: int32;
+  maximumFractionDigits?: int32;
+  minimumSignificantDigits?: int32;
+  maximumSignificantDigits?: int32;
   roundingPriority?: "auto" | "morePrecision" | "lessPrecision";
-  roundingIncrement?: number;
+  roundingIncrement?: int32;
   roundingMode?: "ceil" | "floor" | "expand" | "trunc" | "halfCeil" | "halfFloor" | "halfExpand" | "halfTrunc" | "halfEven";
   trailingZeroDisplay?: "auto" | "stripIfInteger";
 }
 interface IntlResolvedNumberFormatOptions {
-  locale: string;
-  numberingSystem: string;
-  style: string;
-  minimumIntegerDigits: number;
-  minimumFractionDigits?: number;
-  maximumFractionDigits?: number;
-  minimumSignificantDigits?: number;
-  maximumSignificantDigits?: number;
-  useGrouping: false | "auto" | "always" | "min2";
-  currency?: string;
-  currencyDisplay?: string;
-  currencySign?: string;
-  unit?: string;
-  unitDisplay?: string;
-  notation: string;
-  compactDisplay?: string;
-  signDisplay: string;
-  roundingPriority: string;
-  roundingIncrement: number;
-  roundingMode: string;
-  trailingZeroDisplay: string;
+  readonly locale: string;
+  readonly numberingSystem: string;
+  readonly style: string;
+  readonly minimumIntegerDigits: int32;
+  readonly minimumFractionDigits: int32 | undefined;
+  readonly maximumFractionDigits: int32 | undefined;
+  readonly minimumSignificantDigits: int32 | undefined;
+  readonly maximumSignificantDigits: int32 | undefined;
+  readonly useGrouping: false | "auto" | "always" | "min2";
+  readonly currency: string | undefined;
+  readonly currencyDisplay: string | undefined;
+  readonly currencySign: string | undefined;
+  readonly unit: string | undefined;
+  readonly unitDisplay: string | undefined;
+  readonly notation: string;
+  readonly compactDisplay: string | undefined;
+  readonly signDisplay: string;
+  readonly roundingPriority: string;
+  readonly roundingIncrement: int32;
+  readonly roundingMode: string;
+  readonly trailingZeroDisplay: string;
 }
 interface IntlNumberFormatConstructor {
   new (locales?: string | readonly string[], options?: IntlNumberFormatOptions): IntlNumberFormat;
 }
 
 interface IntlCollator {
-  compare(left: string, right: string): number;
+  compare(left: string, right: string): int32;
   resolvedOptions(): IntlResolvedCollatorOptions;
 }
 interface IntlCollatorOptions {
@@ -292,13 +200,13 @@ interface IntlCollatorOptions {
   caseFirst?: "upper" | "lower" | "false";
 }
 interface IntlResolvedCollatorOptions {
-  locale: string;
-  usage: string;
-  sensitivity: string;
-  ignorePunctuation: boolean;
-  collation: string;
-  numeric: boolean;
-  caseFirst: string;
+  readonly locale: string;
+  readonly usage: string;
+  readonly sensitivity: string;
+  readonly ignorePunctuation: boolean;
+  readonly collation: string;
+  readonly numeric: boolean;
+  readonly caseFirst: string;
 }
 interface IntlCollatorConstructor {
   new (locales?: string | readonly string[], options?: IntlCollatorOptions): IntlCollator;
@@ -378,8 +286,8 @@ interface Console {
   warn(...data: unknown[]): void;
 }
 
-declare function setTimeout(callback: () => void, delay?: number): number;
-declare function clearTimeout(id: number): void;
-declare function setInterval(callback: () => void, delay?: number): number;
-declare function clearInterval(id: number): void;
+declare function setTimeout(callback: () => void, delay?: int32): int32;
+declare function clearTimeout(id: int32): void;
+declare function setInterval(callback: () => void, delay?: int32): int32;
+declare function clearInterval(id: int32): void;
 `.trim();

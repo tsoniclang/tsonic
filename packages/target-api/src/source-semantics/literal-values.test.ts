@@ -96,6 +96,39 @@ test("unary signs and parentheses preserve exact provenance while casts and bina
   assert.equal(values.literalValue.get(initializers[3]!)?.numeric === undefined, true, "cast does not retarget an authored token");
 });
 
+test("signs retain actual folded integer receipts through parentheses without authored numeric provenance", () => {
+  const cases = [
+    ["-(7 / 2)", -3n], ["+(7 / 2)", 3n], ["-((1 + 2))", -3n],
+    ["-(-(7 / 2))", 3n], ["+(1 - 1)", 0n], ["-(9223372036854775807 + 1)", -9223372036854775808n],
+  ] as const;
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": cases.map(([expression], index) => `export const value${index} = ${expression};`).join("\n"),
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const values = analyzeSourceLiteralValues(source.ast, [file]);
+  const initializers: Node[] = [];
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+      if (initializer !== undefined) initializers.push(initializer);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(initializers.length, cases.length);
+  for (const [index, node] of initializers.entries()) {
+    const receipt = values.literalValue.get(node);
+    assert.equal(receipt?.form, "prefix-unary", cases[index]![0]);
+    assert.equal(receipt?.integerConstant, cases[index]![1], cases[index]![0]);
+    assert.equal(receipt !== undefined && receipt.numeric === undefined && receipt.number === undefined && receipt.integer === undefined, true,
+      "the actual constant does not manufacture a numeric token or checked value");
+    assert.equal(values.literalValue.get(node) === receipt && Object.isFrozen(receipt), true);
+  }
+});
+
 test("synthetic numeric facts are actual checked float64 values, never authored fallbacks", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts":
     `export const value = ${float32Midpoint};`,

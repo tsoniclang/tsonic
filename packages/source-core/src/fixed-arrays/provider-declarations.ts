@@ -5,7 +5,6 @@ export function fixedArrayTypeMarkerDeclaration(
   exportName: string,
 ): ProviderExportDeclaration {
   const elementType = { kind: "type-parameter" as const, name: "T" };
-  const lengthType = { kind: "type-parameter" as const, name: "TLength" };
   return {
     id: exportName,
     name: exportName,
@@ -21,7 +20,7 @@ export function fixedArrayTypeMarkerDeclaration(
         kind: "indexer",
         signatures: [{
           id: tsonicFixedArrayProviderIds.indexSignatureId,
-          parameters: [{ name: "index", type: { kind: "number" } }],
+          parameters: [{ name: "index", type: { kind: "source-primitive", name: "int32" } }],
           returnType: elementType,
         }],
       },
@@ -30,7 +29,7 @@ export function fixedArrayTypeMarkerDeclaration(
         name: "length",
         kind: "property",
         readonly: true,
-        type: lengthType,
+        type: { kind: "source-primitive", name: "int32" },
       },
       {
         id: tsonicFixedArrayProviderIds.iteratorMemberId,

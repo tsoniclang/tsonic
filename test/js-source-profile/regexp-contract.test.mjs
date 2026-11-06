@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createTsonicCoreSourceExtension,
+  tsonicCoreSourceSemanticsModules,
+} from "../../packages/source-core/dist/public/index.js";
+import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
   getBundledLibraryClosure,
@@ -12,6 +16,7 @@ import {
   jsRegExpSourceProfileIdentity,
   jsSourceSemanticsModules,
   jsRegExpTypeLibraryContract,
+  sourcePrimitiveProfileDeclarations,
 } from "../../packages/js-source-profile/dist/index.js";
 
 const contractExercise = String.raw`
@@ -89,7 +94,7 @@ declare var Symbol: SymbolConstructor;
 
 test("canonical JS RegExp profile type-checks the complete declaration contract", () => {
   const diagnostics = checkFiles({
-    "/src/profile.d.ts": `${minimalProfileFoundation}\n${jsRegExpSourceProfileDeclarations}`,
+    "/src/profile.d.ts": `${minimalProfileFoundation}\n${sourcePrimitiveProfileDeclarations}\n${jsRegExpSourceProfileDeclarations}`,
     "/src/index.ts": `${contractExercise}\n${String.raw`
       import { jsstr } from "@tsonic/js/lang.js";
       const exactEscaped: string = RegExp.escape(jsstr("😀").charAt(0));
@@ -100,7 +105,8 @@ test("canonical JS RegExp profile type-checks the complete declaration contract"
     `}`,
   }, ["/src/profile.d.ts", "/src/index.ts"], {
     extensions: [
-      createSourceSemanticsExtension({ modules: jsSourceSemanticsModules() }),
+      createSourceSemanticsExtension({ modules: [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()] }),
+      createTsonicCoreSourceExtension(),
       createJsSourceSemanticsExtension(),
     ],
   });

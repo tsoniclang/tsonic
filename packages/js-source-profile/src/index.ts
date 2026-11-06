@@ -17,6 +17,9 @@ export { createJsSourceVirtualModulesProvider } from "./extension/source-virtual
 export { jsRegExpTypeLibraryContract } from "./type-library-contract.js";
 export { jsArrayMemberEffect } from "./identities/array-effects.js";
 export { sourceErrorDeclarations } from "./declarations/errors.js";
+export { sourcePrimitiveProfileDeclarations } from "./declarations/primitives.js";
+export { jsSurfaceSourceProfileDeclarations } from "./declarations/globals.js";
+export { jsTypedArrayElementKinds } from "./declarations/typed-arrays.js";
 export { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage } from "./identities/storage-effects.js";
 export type { JsSourceStorageOperationIdentity } from "./identities/storage-effects.js";
 export { jsSourceInvocationOnlyCallableParameters, jsSourceCallableParameterEffects, jsSourceNativeStorageOperation,

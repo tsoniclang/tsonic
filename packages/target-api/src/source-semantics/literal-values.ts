@@ -64,11 +64,12 @@ export function analyzeSourceLiteralValues(
       const signed = operand !== undefined && (operator === "KindPlusToken" || operator === "KindMinusToken")
         ? values.get(operand) : undefined;
       const literal = signed?.form === "numeric" || signed?.form === "bigint" || signed?.form === "prefix-unary" ||
-        signed?.number !== undefined || signed?.integer !== undefined;
+        signed?.number !== undefined || signed?.integer !== undefined || signed?.integerConstant !== undefined;
       const negative = operator === "KindMinusToken";
       return !literal ? undefined : scalar("prefix-unary", {
         number: signed?.number === undefined ? undefined : negative ? -signed.number : signed.number,
         integer: signed?.integer === undefined ? undefined : negative ? -signed.integer : signed.integer,
+        integerConstant: signed?.integerConstant === undefined ? undefined : integerConstantOf(node),
         numeric: signed?.numeric === undefined ? undefined : !negative ? signed.numeric : negate(signed.numeric),
       });
     }

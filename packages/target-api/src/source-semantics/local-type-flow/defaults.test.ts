@@ -108,6 +108,25 @@ test("conditional structural infer patterns retain exact member callback widths 
   }
 });
 
+test("conditional distribution selects retained presence and absence without erasing exact primitive widths", () => {
+  const current = fixture(`type Split<Value> = Value extends null | undefined ? int32 : Value;
+    type Keep<Value> = Value extends null | undefined ? Value : Value;
+    declare const split: Split<float32 | null | undefined>;
+    declare const kept: Keep<float32 | null | undefined>;`);
+  const split = current.defaults.context.describe(current.declaration("split"));
+  const result = split === undefined ? undefined : sourceTypeDescriptorStructure(split);
+  assert.equal(result?.kind === "union" && result.types.length === 2 &&
+    result.types.every(type => type.kind === "primitive") &&
+    result.types.some(type => type.kind === "primitive" && type.primitive === "int32") &&
+    result.types.some(type => type.kind === "primitive" && type.primitive === "float32"), true,
+  "a checked numeric union cannot erase either authored Source primitive");
+  const kept = current.defaults.context.describe(current.declaration("kept"));
+  const optional = kept === undefined ? undefined : sourceTypeDescriptorStructure(kept);
+  assert.equal(optional?.kind === "optional" && optional.value.kind === "primitive" && optional.value.primitive === "float32", true,
+    "both checked nullish branches retain the one native absence and original present descriptor");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
   for (const alias of [false, true]) {
     const current = fixture(`type Input = readonly (string | float32)[] | { readonly marker: string; readonly value: float32 };
@@ -168,6 +187,25 @@ test("normalized mapped definitions exclude all enclosing alias metadata but ret
   assert.equal(target?.kind === "declared" && target.cut === "recursion" && target.declaration ===
     (recursive?.kind === "declared" ? recursive.declaration : undefined), true,
     "a separate authored recursive member retains its real nominal cut");
+});
+
+test("generic recursive aliases publish their original exact template separately from concrete occurrences", () => {
+  const current = fixture(`type Tree<Value> = Value | readonly Tree<Value>[];
+    declare const selected: Tree<float32>;`);
+  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Tree");
+  const parameter = declaration === undefined ? undefined : current.source.ast.typeParameters(declaration)[0];
+  const template = declaration === undefined ? undefined : current.source.effectiveTypes.get(declaration);
+  const concrete = current.source.effectiveTypes.get(current.declaration("selected"));
+  assert.equal(template?.kind === "resolved" && template.type.kind === "declared" && template.type.declaration === declaration &&
+    template.type.typeArguments.length === 1 && template.type.typeArguments[0]?.kind === "declared" &&
+    template.type.typeArguments[0].declaration === parameter && template.type.definition?.kind === "union", true,
+  "the actual alias declaration owns its complete generic arm definition");
+  assert.equal(concrete !== undefined && concrete.kind !== "refused" && concrete.type.kind === "declared" &&
+    concrete.type.declaration === declaration && concrete.type.typeArguments[0]?.kind === "primitive" &&
+    concrete.type.typeArguments[0].primitive === "float32", true,
+  "a concrete occurrence never replaces the declaration template or its original binder identity");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("inferred local-class call results use the solved body and exact call binders before member reads", () => {
@@ -694,24 +732,24 @@ test("range admission distinguishes signed, unsigned, floating and decimal domai
   assert.equal(sourceTypeFlowIntegerFits(79228162514264337593543950336n, "decimal"), false);
 });
 
-test("negative zero keeps the floating leaf default without changing ordinary zero", () => {
+test("negative zero keeps the same integer creation default as ordinary zero", () => {
   const current = fixture("function run(): void { const negative = -0; const ordinary = 0; } export const exported = -0;");
   for (const name of ["negative", "exported"]) {
-    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
+    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
   }
-  assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int32" });
+  assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int64" });
 });
 
-test("the one integer default owner checks signed 32-bit bounds for local, module and exported literals", () => {
+test("the one integer default owner retains signed 64-bit creation for local, module and exported literals", () => {
   const cases = [
-    ["positive_boundary", "2147483647", "int32"],
-    ["positive_overflow", "2147483648", "float64"],
-    ["positive_above", "2147483649", "float64"],
-    ["negative_boundary", "-2147483648", "int32"],
-    ["negative_overflow", "-2147483649", "float64"],
-    ["wrapped_overflow", "(2147483648)", "float64"],
-    ["positive_zero", "0", "int32"],
-    ["negative_zero", "-0", "float64"],
+    ["positive_boundary", "2147483647", "int64"],
+    ["positive_overflow", "2147483648", "int64"],
+    ["positive_above", "2147483649", "int64"],
+    ["negative_boundary", "-2147483648", "int64"],
+    ["negative_overflow", "-2147483649", "int64"],
+    ["wrapped_overflow", "(2147483648)", "int64"],
+    ["positive_zero", "0", "int64"],
+    ["negative_zero", "-0", "int64"],
     ["fractional", "1.5", "float64"],
     ["exponent", "1e2", "float64"],
   ] as const;
@@ -724,6 +762,25 @@ test("the one integer default owner checks signed 32-bit bounds for local, modul
     assert.equal(selected?.kind === "primitive" && selected.primitive === primitive, true, `${scope}_${name}`);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("integer creation describes the signed whole minimum and refuses values beyond int64 without a float fallback", () => {
+  const cases = [
+    ["maximum", "9223372036854775807", true],
+    ["minimum", "-9223372036854775808", true],
+    ["wrapped_minimum", "-(9223372036854775808)", true],
+    ["positive_overflow", "9223372036854775808", false],
+    ["negative_overflow", "-9223372036854775809", false],
+    ["transport_overflow", "1000000000000000000000000000000000000000000", false],
+  ] as const;
+  const current = fixture(cases.map(([name, literal]) =>
+    `const module_${name} = ${literal}; export const exported_${name} = ${literal};`
+  ).join("\n") + `\nfunction run(): void { ${cases.map(([name, literal]) => `const local_${name} = ${literal};`).join("\n")} }`);
+  for (const scope of ["local", "module", "exported"]) for (const [name, _literal, admitted] of cases) {
+    const selected = current.defaults.context.describe(current.declaration(`${scope}_${name}`));
+    assert.equal(admitted ? selected?.kind === "primitive" && selected.primitive === "int64" : selected === undefined, true,
+      `${scope}_${name}: the exact whole literal owns its creation kind`);
+  }
 });
 
 test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {

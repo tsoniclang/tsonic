@@ -80,7 +80,7 @@ const smallIntegrals: ReadonlySet<SourcePrimitiveKind> = new Set(["char", "int8"
 const integrals: ReadonlySet<SourcePrimitiveKind> = new Set([
   ...smallIntegrals, "int32", "uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128",
 ]);
-const shiftCounts: ReadonlySet<SourcePrimitiveKind> = new Set([...smallIntegrals, "int32"]);
+const shiftCounts: ReadonlySet<SourcePrimitiveKind> = new Set([...smallIntegrals, "int32", "int64"]);
 const comparisonOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set([
   "less", "less-equal", "greater", "greater-equal", "equal", "not-equal",
 ]);
@@ -142,6 +142,11 @@ export function decideSourcePrimitiveUnaryOperator(
   if (operator === "bit-not") return integrals.has(operand)
     ? { kind: "resolved", result: operand, operand }
     : refusal("Bitwise complement requires an integral operand.");
+  if (operator === "negate") {
+    if (operand === "uint64" || operand === "native-uint") return refusal(`Unary minus has no native signed result for '${operand}'.`);
+    if (operand === "uint8" || operand === "uint16") return { kind: "resolved", result: "int32", operand: "int32" };
+    if (operand === "uint32") return { kind: "resolved", result: "int64", operand: "int64" };
+  }
   return operand === "bool" || operand === "char"
     ? refusal(`Unary operator '${operator}' requires a numeric operand.`)
     : { kind: "resolved", result: operand, operand };

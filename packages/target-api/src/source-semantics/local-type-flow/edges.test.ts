@@ -7,7 +7,7 @@ import {
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
-import { createSourceTypeFlowTerms } from "./terms.js";
+import { createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
@@ -638,7 +638,7 @@ test("never-open module and var patterns keep the Host literal defaults without 
   for (const binding of current.syntax.filter(node => current.source.ast.is.IsBindingElement(node))) {
     const entry = current.graph.nodes.find(entry => entry.node === binding);
     assert.equal(entry?.kind, "fixed");
-    assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int32", true);
+    assert.equal(entry?.term?.kind === "fixed" && entry.term.type.kind === "primitive" && entry.term.type.primitive === "int64", true);
   }
   assert.equal(current.graph.nodes.some(entry => entry.kind === "open-local"), false);
   assert.equal(current.graph.refusals.length, 0);
@@ -920,4 +920,69 @@ test("C2351 array formal unification never chooses through a free, broad or comp
     if (form.refused) assert.equal(current.graph.refusals.some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_GENERIC" &&
       current.text(refusal.site) === `input_${form.name}`), true, form.name);
   }
+});
+
+test("C2357 annotated array positions join the original selected formal without a literal-site requirement", () => {
+  const inputs = [
+    { name: "mutable", annotation: "word[]", readonly: false },
+    { name: "readonly", annotation: "readonly word[]", readonly: true },
+    { name: "alias", annotation: "Words", readonly: true },
+    { name: "union", annotation: "(word | number)[]", readonly: false },
+  ];
+  const formals = ["Choice[] | Readable<Choice>", "Readable<Choice> | readonly Choice[]", "Input<Choice>"];
+  const current = fixture(`interface Readable<Element> { read(): Element; }
+    interface Published<Element> { readonly value: Element; }
+    type Words = readonly word[];
+    type Input<Element> = readonly Element[] | Readable<Element>;
+    ${formals.map((formal, index) => `declare const factory_${index}: {
+      new<Choice>(values?: ${formal}): Published<Choice>;
+    };`).join("\n")}
+    function run(value: word): void {
+      ${inputs.map(input => `const input_${input.name}: ${input.annotation} = [value];
+        ${formals.flatMap((_, index) => input.readonly && index === 0 ? [] : [`const selected_${input.name}_${index} = new factory_${index}(input_${input.name});
+          void selected_${input.name}_${index};`]).join("\n")}`).join("\n")}
+    }`);
+  const { ast } = current.source;
+  const calls = current.graph.calls.filter(call => ast.is.IsNewExpression(call.node));
+  assert.equal(calls.length, 10);
+  for (const input of inputs) {
+    const term = current.entry(current.declaration(`input_${input.name}`)).term;
+    const descriptor = term?.kind === "fixed" ? sourceTypeDescriptorStructure(term.type) : undefined;
+    assert.equal(descriptor?.kind === "array", true, input.name + ": existing declared array contract");
+    if (descriptor?.kind !== "array") throw new Error("The original annotated array contract is required.");
+    for (const index of formals.keys()) {
+      if (input.readonly && index === 0) continue;
+      const call = calls.find(candidate => current.text(candidate.node) === `new factory_${index}(input_${input.name})`);
+      const parameter = call?.source.sourceSelectedSignatureParameters[0];
+      const binder = call?.method[0];
+      const place = call?.argumentPlaces[0];
+      assert.equal(call !== undefined && call.argumentPlaces.length === 1 && parameter !== undefined && binder !== undefined &&
+        place !== undefined && place.parameter === parameter && place.binding === call.source.sourceArgumentBindings[0] &&
+        place.binder === binder.declaration && place.value.node === call.source.sourceArguments[0]?.expression &&
+        lastPath(place.value)?.kind === "element" && current.same(place.value, binder.variable), true,
+      input.name + ": exact selected parameter, binder and original element position");
+      const retained = binder === undefined ? [] : current.terms.group(binder.variable).terms.filter(candidate => candidate.kind === "fixed");
+      assert.equal(retained.some(candidate => candidate.type === descriptor.element), true,
+        input.name + ": the same authored element object, never a checked number replacement");
+    }
+  }
+  assert.equal(current.graph.refusals.length, 0);
+});
+
+test("C2357 fixed array inputs do not resolve free, broad or competing formal alternatives", () => {
+  const forms = ["Choice | readonly Choice[]", "Identity<Choice> | readonly Choice[]", "object | readonly Choice[]", "{} | readonly Choice[]",
+    "Choice[] | readonly Choice[]", "readonly [Choice] | readonly Choice[]", "readonly number[] | readonly string[]"];
+  const current = fixture(`interface Published<Element> { readonly value: Element; }
+    type Identity<Element> = Element;
+    ${forms.map((formal, index) => `declare const factory_${index}: {
+      new<Choice>(values: ${formal}): Published<Choice>;
+    };`).join("\n")}
+    function run(value: word): void { const mutable: word[] = [value]; const readonly: readonly word[] = [value];
+      ${forms.map((_, index) => `const mutable_${index} = new factory_${index}(mutable);
+        const readonly_${index} = new factory_${index}(readonly); void mutable_${index}; void readonly_${index};`).join("\n")}
+    }`);
+  const calls = current.graph.calls.filter(call => current.source.ast.is.IsNewExpression(call.node));
+  assert.equal(calls.length, forms.length * 2);
+  assert.equal(calls.every(call => call.argumentPlaces.length === 0), true,
+    "an existing array value does not prove an ambiguous generic formal position");
 });

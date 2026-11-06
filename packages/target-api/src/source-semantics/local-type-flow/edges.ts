@@ -674,6 +674,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       if (element === undefined) return false;
       const spread = ast.is.IsSpreadElement(element);
       const operand = spread ? Node_Expression(ast, element) : element;
+      if (!spread && operand !== undefined && context.literal(operand) !== undefined && numericLeaves(ast, operand)) return true;
       const descriptor = operand === undefined ? undefined : context.describe(operand);
       const contributions = !spread ? descriptor === undefined ? [] : [descriptor]
         : descriptor?.kind === "array" ? [descriptor.element]
@@ -1375,7 +1376,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     function arrayArgumentFormal(alternatives: readonly Type[], variable: SourceTypeFlowVariable, occurrence: Node,
       component: SourceTypeComponentEvidence): Type | undefined {
       const term = terms.get(variable);
-      if (term === undefined || !ast.is.IsArrayLiteralExpression(term.site) || !(term.kind === "array" ||
+      if (term === undefined || !(term.kind === "array" ||
         term.kind === "fixed" && sourceTypeDescriptorStructure(term.type).kind === "array")) return undefined;
       if (alternatives.some(type => {
         const declaration = sourceTypeFlowTypeDeclaration(context.source, query, type);
@@ -1401,6 +1402,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         else if (selected.kind === "shape" && selected.members.length === 0 && selected.indexes.length === 0 &&
           selected.calls.length === 0 && selected.constructs.length === 0) return undefined;
       }
+      if (!ast.is.IsArrayLiteralExpression(term.site)) return arrays[0];
       const slot = sourceTypeFlowConstructionSlot(ast, term.site, descriptor, "inferred");
       return slot.type !== undefined && sourceTypeDescriptorStructure(slot.type).kind === "array" ? arrays[0] : undefined;
     }

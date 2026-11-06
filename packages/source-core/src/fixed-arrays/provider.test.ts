@@ -36,7 +36,7 @@ test("fixed-array selection requires the complete canonical provider type identi
   }
 });
 
-test("fixed-array declaration keeps selected length type and existing member identities", () => {
+test("fixed-array declaration keeps the native int32 length type and existing member identities", () => {
   const declaration = fixedArrayTypeMarkerDeclaration("FixedArray");
   assert.equal(declaration.kind, "interface");
   if (declaration.kind !== "interface") return;
@@ -54,5 +54,5 @@ test("fixed-array declaration keeps selected length type and existing member ide
   assert.equal(length?.kind, "property");
   if (length?.kind !== "property") return;
   assert.equal(length.readonly, true);
-  assert.deepEqual(length.type, { kind: "type-parameter", name: "TLength" });
+  assert.deepEqual(length.type, { kind: "source-primitive", name: "int32" });
 });

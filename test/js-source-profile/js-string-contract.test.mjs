@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createTsonicCoreSourceExtension,
+  tsonicCoreSourceSemanticsModules,
+} from "../../packages/source-core/dist/public/index.js";
+import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
   formatDiagnostics,
@@ -11,6 +15,7 @@ import {
   createJsSourceVirtualModulesProvider,
   jsRegExpSourceProfileDeclarations,
   jsSourceSemanticsModules,
+  sourcePrimitiveProfileDeclarations,
 } from "../../packages/js-source-profile/dist/index.js";
 
 const profileFoundation = `
@@ -29,6 +34,7 @@ interface Iterable<T> { [Symbol.iterator](): Iterator<T>; }
 interface IterableIterator<T> extends Iterator<T>, Iterable<T> {}
 interface SymbolConstructor { readonly iterator: unique symbol; }
 declare var Symbol: SymbolConstructor;
+${sourcePrimitiveProfileDeclarations}
 ${jsRegExpSourceProfileDeclarations}
 `;
 
@@ -92,7 +98,8 @@ function check(source) {
     },
     extensionHostOptions: {
       extensions: [
-        createSourceSemanticsExtension({ modules: jsSourceSemanticsModules() }),
+        createSourceSemanticsExtension({ modules: [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()] }),
+        createTsonicCoreSourceExtension(),
         createJsSourceSemanticsExtension(),
       ],
     },

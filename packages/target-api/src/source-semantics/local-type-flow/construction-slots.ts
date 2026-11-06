@@ -9,11 +9,10 @@ export type SourceTypeFlowScalarCalculationArm =
   | { readonly kind: "resolved"; readonly primitive: SourcePrimitiveKind }
   | { readonly kind: "unfitted" };
 
-// equals the tag's canonical C# layout order (C-2339); pending maintainer Q8
+// C-2360 Q5 / C-2361 Q12: fitting int64 first, then narrowest integer, signed before unsigned, fixed before platform, then C-2339 floats.
 const wholeLiteralUnionArmPriority: Readonly<Record<SourcePrimitiveKind, number>> = Object.freeze({
-  bool: 0, char: 1, decimal: 2, float16: 3, float32: 4, float64: 5,
-  int128: 6, int16: 7, int32: 8, int64: 9, int8: 10, "native-int": 11, "native-uint": 12,
-  uint128: 13, uint16: 14, uint32: 15, uint64: 16, uint8: 17,
+  bool: 0, char: 1, int64: 2, int8: 3, uint8: 4, int16: 5, uint16: 6, int32: 7, "native-int": 8, uint32: 9,
+  "native-uint": 10, uint64: 11, int128: 12, uint128: 13, decimal: 14, float16: 15, float32: 16, float64: 17,
 });
 
 export function sourceTypeFlowScalarCalculationArm(

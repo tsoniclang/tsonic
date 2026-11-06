@@ -8,6 +8,7 @@ import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowRefusal, SourceTypeFlowSource,
@@ -227,6 +228,25 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return bindings;
   }
 
+  function numericCreationLiteral(node: Node): SourceLiteralValue | undefined {
+    let selected = node;
+    let literal = literals.get(selected);
+    if (literal?.form !== "numeric" && literal?.form !== "prefix-unary" &&
+      literal?.form !== "parenthesized" && literal?.form !== "binary") return undefined;
+    for (;;) {
+      const parent = ast.parent(selected);
+      const operator = parent === undefined ? undefined : ast.operatorKindName(parent);
+      const encloses = parent !== undefined && (ast.is.IsParenthesizedExpression(parent) &&
+        ast.as.AsParenthesizedExpression(parent)?.Expression === selected ||
+        ast.is.IsPrefixUnaryExpression(parent) && (operator === "KindPlusToken" || operator === "KindMinusToken") &&
+        ast.as.AsPrefixUnaryExpression(parent)?.Operand === selected);
+      const enclosing = !encloses || parent === undefined ? undefined : literals.get(parent);
+      if (parent === undefined || enclosing === undefined) return literal;
+      selected = parent;
+      literal = enclosing;
+    }
+  }
+
   function ownLiteral(node: Node, depth: number): SourceTypeDescriptor | undefined {
     if (depth > 4) return undefined;
     if (ast.is.IsNewExpression(node)) {
@@ -237,7 +257,10 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     const literal = literals.get(node);
     if (literal?.form === "numeric" || literal?.form === "prefix-unary" || literal?.form === "parenthesized" || literal?.form === "binary") {
-      if (literal.numeric?.kind === "authored") return { kind: "primitive", primitive: sourceTypeFlowNumericLiteralKind(literal) };
+      if (literal.numeric?.kind === "authored" || literal.integerConstant !== undefined) {
+        const decision = sourceTypeFlowNumericLiteralKind(numericCreationLiteral(node) ?? literal);
+        return decision.kind === "resolved" ? { kind: "primitive", primitive: decision.primitive } : undefined;
+      }
       if (literal.numeric?.kind === "checked-float64") return { kind: "primitive", primitive: "float64" };
     }
     if (literal?.form === "true" || literal?.form === "false") return { kind: "primitive", primitive: "bool" };
@@ -323,6 +346,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       result = { kind: "primitive", primitive: "int64" };
     }
     const declaration = component?.declaration ?? declarationFor(node);
+    if (result === undefined && component?.declaration === node && ast.is.IsTypeAliasDeclaration(node)) {
+      result = describeType(component.selectedType, queries, component, depth, bindings);
+    }
     if (result === undefined && component === undefined && (ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) ||
       ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node))) {
       const selectedType = queries.types.expressionType(node) ?? queries.declarations.declaredValueType(node);
@@ -383,6 +409,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const includedDeclaration = declarationFile !== undefined && semantics.includes(declarationFile);
     if (result === undefined && component === undefined && declaration !== undefined && declaration !== node && includedDeclaration) {
       result = describe(declaration, undefined, depth, queries);
+      const refusal = descriptorRefusals.get(declaration);
+      if (refusal !== undefined) descriptorRefusals.set(node, refusal);
     }
     if (result === undefined && component === undefined) {
       const initializer = initializerOf(node);
@@ -393,6 +421,30 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       component.declaration === declarationFor(node) && includedDeclaration) {
       const initializer = initializerOf(component.declaration);
       if (initializer !== undefined) result = describe(initializer, undefined, depth, queries);
+    }
+    if (result === undefined && annotation === undefined && component === undefined) {
+      const producer = initializerOf(declaration ?? node) ?? node;
+      const literal = numericCreationLiteral(producer);
+      const creation = literal === undefined ? undefined : sourceTypeFlowNumericLiteralKind(literal);
+      const failure = creation?.kind === "refused" ? creation : undefined;
+      if (failure !== undefined) {
+        let enclosing = declaration === undefined ? undefined : ast.parent(declaration);
+        while (enclosing !== undefined && !ast.is.IsSourceFile(enclosing) && !isSourceCallableSignatureDeclaration(ast, enclosing)) {
+          enclosing = ast.parent(enclosing);
+        }
+        if (declaration !== undefined && initializerOf(declaration) !== undefined &&
+          (ast.is.IsPropertyDeclaration(declaration) || enclosing !== undefined && ast.is.IsSourceFile(enclosing))) {
+          const refusal = descriptorRefusals.get(declaration) ?? Object.freeze({
+            ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", producer), reason: failure.reason,
+          });
+          descriptorRefusals.set(declaration, refusal);
+          descriptorRefusals.set(producer, refusal);
+          descriptorRefusals.set(node, refusal);
+        }
+        active.delete(node);
+        describing.pop();
+        return undefined;
+      }
     }
     if (result === undefined) {
       const type = component?.selectedType ?? queries.types.expressionType(node) ??
@@ -453,13 +505,21 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     fixedRule, hasDeclaredSourceType });
 }
 
-export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): "int32" | "float64" {
+export type SourceTypeFlowNumericLiteralDecision =
+  | { readonly kind: "resolved"; readonly primitive: "int64" | "float64" }
+  | { readonly kind: "refused"; readonly reason: string };
+
+export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): SourceTypeFlowNumericLiteralDecision {
   const numeric = literal.numeric;
   const integer = literal.integerConstant ?? literal.integer;
-  return numeric?.kind === "checked-float64" || numeric?.kind === "authored" &&
-    (numeric.token.negative && numeric.token.coefficient === 0n || /[.eE]/u.test(numeric.token.decimalText)) ||
-    integer !== undefined && !sourceTypeFlowIntegerFits(integer, "int32")
-    ? "float64" : "int32";
+  if (numeric?.kind === "checked-float64" || numeric?.kind === "authored" && /[.eE]/u.test(numeric.token.decimalText)) {
+    return Object.freeze({ kind: "resolved", primitive: "float64" });
+  }
+  if (integer !== undefined && sourceTypeFlowIntegerFits(integer, "int64")) {
+    return Object.freeze({ kind: "resolved", primitive: "int64" });
+  }
+  return Object.freeze({ kind: "refused",
+    reason: "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint." });
 }
 
 export function sourceTypeFlowIntegerFits(value: bigint, kind: SourcePrimitiveKind): boolean {

@@ -1,30 +1,30 @@
 export const jsRegExpResultDeclarations = `
 interface RegExpNamedGroups {
-  [key: string]: string | undefined;
+  readonly [key: string]: string | undefined;
 }
 
 interface RegExpNamedIndices {
-  [key: string]: [number, number] | undefined;
+  readonly [key: string]: [int32, int32] | undefined;
 }
 
 interface RegExpMatchArray extends Array<string | undefined> {
-  index?: number;
-  input?: string;
-  groups?: RegExpNamedGroups;
-  indices?: RegExpIndicesArray;
+  readonly index: int32 | undefined;
+  readonly input: string | undefined;
+  readonly groups: RegExpNamedGroups | undefined;
+  readonly indices: RegExpIndicesArray | undefined;
   0: string;
 }
 
 interface RegExpExecArray extends Array<string | undefined> {
-  index: number;
-  input: string;
-  groups?: RegExpNamedGroups;
-  indices?: RegExpIndicesArray;
+  readonly index: int32;
+  readonly input: string;
+  readonly groups: RegExpNamedGroups | undefined;
+  readonly indices: RegExpIndicesArray | undefined;
   0: string;
 }
 
-interface RegExpIndicesArray extends Array<[number, number] | undefined> {
-  groups?: RegExpNamedIndices;
+interface RegExpIndicesArray extends Array<[int32, int32] | undefined> {
+  readonly groups: RegExpNamedIndices | undefined;
 }
 
 interface RegExpStringIterator<T> extends IterableIterator<T> {
@@ -32,31 +32,31 @@ interface RegExpStringIterator<T> extends IterableIterator<T> {
 }
 
 interface JsRegExpNamedGroups {
-  [key: string]: import("@tsonic/js/types.js").JsString | undefined;
+  readonly [key: string]: import("@tsonic/js/types.js").JsString | undefined;
 }
 
 interface JsRegExpNamedIndices {
-  [key: string]: [number, number] | undefined;
+  readonly [key: string]: [int32, int32] | undefined;
 }
 
 interface JsRegExpMatchArray extends Array<import("@tsonic/js/types.js").JsString | undefined> {
-  index?: number;
-  input?: import("@tsonic/js/types.js").JsString;
-  groups?: JsRegExpNamedGroups;
-  indices?: JsRegExpIndicesArray;
+  readonly index: int32 | undefined;
+  readonly input: import("@tsonic/js/types.js").JsString | undefined;
+  readonly groups: JsRegExpNamedGroups | undefined;
+  readonly indices: JsRegExpIndicesArray | undefined;
   0: import("@tsonic/js/types.js").JsString;
 }
 
 interface JsRegExpExecArray extends Array<import("@tsonic/js/types.js").JsString | undefined> {
-  index: number;
-  input: import("@tsonic/js/types.js").JsString;
-  groups?: JsRegExpNamedGroups;
-  indices?: JsRegExpIndicesArray;
+  readonly index: int32;
+  readonly input: import("@tsonic/js/types.js").JsString;
+  readonly groups: JsRegExpNamedGroups | undefined;
+  readonly indices: JsRegExpIndicesArray | undefined;
   0: import("@tsonic/js/types.js").JsString;
 }
 
-interface JsRegExpIndicesArray extends Array<[number, number] | undefined> {
-  groups?: JsRegExpNamedIndices;
+interface JsRegExpIndicesArray extends Array<[int32, int32] | undefined> {
+  readonly groups: JsRegExpNamedIndices | undefined;
 }
 
 interface JsRegExpStringIterator<T> extends IterableIterator<T> {

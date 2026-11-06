@@ -40,12 +40,15 @@ export function sourceTypeDescriptorConditionalDefinition(
       })) continue;
       const parameter = application.bindings.find(candidate => candidate.parameter === binding.applicationParameter);
       const checkedArgument = parameter === undefined ? undefined : base.types.get(parameter.declaration);
-      if (checkedArgument !== undefined && !queries.types.isIdentical(checkedArgument, binding.argument)) return undefined;
-      const argument = parameter === undefined ? undefined : base.values.get(parameter.declaration);
+      const retainedArgument = parameter === undefined ? undefined : base.values.get(parameter.declaration);
+      const argument = checkedArgument === undefined || retainedArgument === undefined ? undefined
+        : selectedBinding(checkedArgument, retainedArgument, binding.argument);
+      if (checkedArgument !== undefined && argument === undefined) return undefined;
       for (const declaration of binding.declarations) {
         const previous = checked.get(declaration);
-        const value = argument ?? inferred.get(declaration) ?? (previous !== undefined &&
-          queries.types.isIdentical(previous, binding.argument) ? selected.get(declaration) : undefined);
+        const retainedValue = selected.get(declaration);
+        const value = argument ?? inferred.get(declaration) ?? (previous !== undefined && retainedValue !== undefined
+          ? selectedBinding(previous, retainedValue, binding.argument) : undefined);
         if (value === undefined) return undefined;
         selected.set(declaration, value);
         checked.set(declaration, binding.argument);
@@ -94,6 +97,16 @@ export function sourceTypeDescriptorConditionalDefinition(
     return structure.kind !== "intrinsic" || structure.intrinsic !== "never";
   });
   return results.length === 0 ? undefined : sourceTypeDescriptorUnion(inhabited.length === 0 ? results : inhabited);
+
+  function selectedBinding(previous: Type, value: SourceTypeDescriptor, selected: Type): SourceTypeDescriptor | undefined {
+    if (queries.types.isIdentical(previous, selected)) return value;
+    const structure = sourceTypeDescriptorStructure(value);
+    if (structure.kind !== "optional" || !queries.types.isUnion(previous)) return undefined;
+    if (queries.types.isNullish(selected) && queries.types.unionOrIntersectionTypes(previous).some(member =>
+      queries.types.isIdentical(member, selected))) return { kind: "intrinsic", intrinsic: "absence" };
+    const present = queries.types.nonNullableType(previous);
+    return present !== undefined && queries.types.isIdentical(present, selected) ? structure.value : undefined;
+  }
 
   function project(pattern: Node, actual: SourceTypeDescriptor, inferred: Map<Node, SourceTypeDescriptor>): boolean {
     if (ast.is.IsInferTypeNode(pattern)) {

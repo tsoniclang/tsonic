@@ -21,7 +21,7 @@ interface RegExp {
   readonly sticky: boolean;
   readonly unicode: boolean;
   readonly unicodeSets: boolean;
-  lastIndex: number;
+  lastIndex: int32;
   [Symbol.match](string: string): RegExpMatchArray | null;
   [Symbol.match](string: import("@tsonic/js/types.js").JsString): JsRegExpMatchArray | null;
   [Symbol.matchAll](string: string): RegExpStringIterator<RegExpExecArray>;
@@ -30,8 +30,8 @@ interface RegExp {
   [Symbol.replace](string: string, replacer: RegExpReplaceCallback): string;
   [Symbol.replace](string: import("@tsonic/js/types.js").JsString, replaceValue: import("@tsonic/js/types.js").JsString): import("@tsonic/js/types.js").JsString;
   [Symbol.replace](string: import("@tsonic/js/types.js").JsString, replacer: JsRegExpReplaceCallback): import("@tsonic/js/types.js").JsString;
-  [Symbol.search](string: string): number;
-  [Symbol.search](string: import("@tsonic/js/types.js").JsString): number;
+  [Symbol.search](string: string): int32;
+  [Symbol.search](string: import("@tsonic/js/types.js").JsString): int32;
   [Symbol.split](string: string, limit?: number): (string | undefined)[];
   [Symbol.split](string: import("@tsonic/js/types.js").JsString, limit?: number): (import("@tsonic/js/types.js").JsString | undefined)[];
 }

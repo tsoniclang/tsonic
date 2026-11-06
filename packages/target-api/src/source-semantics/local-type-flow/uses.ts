@@ -229,10 +229,6 @@ export function collectSourceTypeFlowUses(
     }
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
-      if (shifts.has(operator) && binary?.Right === value) {
-        return [Object.freeze({ kind: "fill", site: parent, variable: record.variable,
-          type: Object.freeze({ kind: "primitive", primitive: "int32" }), association: sourceAssociation(context, record.node) })];
-      }
       if (assignments.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
         if (binary.Left === value) {
           if (shifts.has(operator) || fixed && operator !== "KindEqualsToken") return [write(record, parent, parent, value)];

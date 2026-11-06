@@ -182,8 +182,7 @@ export function createSourceTypeDescriptorReader(
         }
         const body = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
         const referenceOnly = body !== undefined && (ast.is.IsUnionTypeNode(body) || ast.is.IsMappedTypeNode(body) ||
-          ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body) || ast.is.IsTypeLiteralNode(body) &&
-            ast.members(body).some(member => member !== undefined && ast.is.IsIndexSignatureDeclaration(member)));
+          ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body) || ast.is.IsTypeLiteralNode(body));
         if (referenceOnly) return nominal(selectedType, declaration, arguments_, queries, {
           selectedType, declaration, authoredTypeNode: node,
         }, depth, instantiated, application);

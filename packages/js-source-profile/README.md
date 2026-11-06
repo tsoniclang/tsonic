@@ -9,3 +9,14 @@ Native TypeScript `string` remains the default source string. The explicit
 code-unit domain, and `jsstr` from `@tsonic/js/lang.js` is the sole authored
 native-to-`JsString` conversion marker. Targets must not infer this lane from a
 string literal, selected surface, API spelling, or target carrier.
+
+`jsSurfaceSourceProfileDeclarations` is the single complete JS global
+inventory shared by target packs. It includes the union of supported target
+members; unsupported operations are refused by the selected target's binding
+layer, not removed from the declarations.
+
+Primitive width aliases refer to the existing source-core primitive identities.
+Native lengths, sizes, indexes and offsets are `int32`; typed-array elements
+and DataView getters retain their exact primitive widths. Nullable native
+results use one `undefined` absence state, and read-only native members remain
+read-only in Source.

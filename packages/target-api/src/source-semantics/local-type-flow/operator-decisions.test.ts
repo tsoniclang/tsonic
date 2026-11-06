@@ -15,7 +15,7 @@ import {
 const fixed = (primitive: SourcePrimitiveKind): SourcePrimitiveOperatorOperand => ({ kind: "fixed", primitive });
 const small = new Set<SourcePrimitiveKind>(["char", "int8", "uint8", "int16", "uint16"]);
 const integral = new Set<SourcePrimitiveKind>([...small, "int32", "uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128"]);
-const shiftCount = new Set<SourcePrimitiveKind>([...small, "int32"]);
+const shiftCount = new Set<SourcePrimitiveKind>([...small, "int32", "int64"]);
 const nonMixing = new Set<SourcePrimitiveKind>(["float16", "native-int", "native-uint", "int128", "uint128"]);
 const decimalIntegral = new Set<SourcePrimitiveKind>([...small, "int32", "uint32", "int64", "uint64"]);
 const comparisons = new Set<SourcePrimitiveBinaryOperator>(["less", "less-equal", "greater", "greater-equal", "equal", "not-equal"]);
@@ -73,21 +73,42 @@ test("the integral boundary shares the operator owner's exact finite classificat
   }
 });
 
-test("D-A every unary operator classifies all primitive kinds without promoting non-update operands", () => {
+test("D-A every unary operator classifies all primitive kinds with the ruled unsigned negation", () => {
   for (const operator of sourcePrimitiveUnaryOperators) {
     let classified = 0;
     for (const primitive of sourcePrimitiveOperatorKinds) {
       const selected = decideSourcePrimitiveUnaryOperator(operator, primitive);
       const admitted = operator === "logical-not" ? primitive === "bool"
-        : operator === "bit-not" ? integral.has(primitive) : primitive !== "bool" && primitive !== "char";
+        : operator === "bit-not" ? integral.has(primitive)
+        : primitive !== "bool" && primitive !== "char" &&
+          !(operator === "negate" && (primitive === "uint64" || primitive === "native-uint"));
       assert.equal(selected.kind === "resolved", admitted, `${operator}: ${primitive}`);
       if (selected.kind === "resolved") {
-        assert.equal(selected.result, primitive, `${operator}: ${primitive} preserves its operand kind`);
-        assert.equal(selected.operand, primitive);
+        const expected = operator === "negate" && (primitive === "uint8" || primitive === "uint16") ? "int32"
+          : operator === "negate" && primitive === "uint32" ? "int64" : primitive;
+        assert.equal(selected.result, expected, `${operator}: ${primitive} has its exact ruled result`);
+        assert.equal(selected.operand, expected);
       } else assert.equal(selected.reason.length > 0, true);
       classified += 1;
     }
     assert.equal(classified, 18, operator);
+  }
+});
+
+test("Q10 unsigned negation has signed results without changing positive, complement or updates", () => {
+  for (const [operand, result] of [["uint8", "int32"], ["uint16", "int32"], ["uint32", "int64"]] as const) {
+    const selected = decideSourcePrimitiveUnaryOperator("negate", operand);
+    assert.equal(selected.kind === "resolved" && selected.result === result && selected.operand === result, true, operand);
+  }
+  for (const operand of ["uint64", "native-uint"] as const) {
+    const refused = decideSourcePrimitiveUnaryOperator("negate", operand);
+    assert.equal(refused.kind === "refused" && refused.reason === `Unary minus has no native signed result for '${operand}'.`, true);
+  }
+  for (const operator of ["positive", "bit-not", "increment", "decrement"] as const) {
+    for (const operand of ["uint8", "uint16", "uint32", "uint64", "native-uint"] as const) {
+      const selected = decideSourcePrimitiveUnaryOperator(operator, operand);
+      assert.equal(selected.kind === "resolved" && selected.result === operand && selected.operand === operand, true, `${operator}: ${operand}`);
+    }
   }
 });
 
@@ -112,14 +133,14 @@ test("D-A numeric promotion and operator admission are different decisions", () 
   assert.equal(decideSourcePrimitiveBinaryOperator("less", fixed("bool"), fixed("bool")).kind, "refused");
 });
 
-test("D-A shifts admit only implicit 32-bit counts and promote only the left carrier", () => {
+test("D-A shifts admit narrow counts and checked int64 counts and promote only the left carrier", () => {
   for (const left of sourcePrimitiveOperatorKinds) for (const right of sourcePrimitiveOperatorKinds) {
     const selected = decideSourcePrimitiveBinaryOperator("shift-left", fixed(left), fixed(right), "int64");
     if (integral.has(left) && shiftCount.has(right)) {
       assert.equal(selected.kind === "resolved" && selected.right === right && selected.result === (small.has(left) ? "int32" : left), true, `${left}, ${right}`);
     } else assert.equal(selected.kind, "refused", `${left}, ${right}`);
   }
-  for (const primitive of ["uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
+  for (const primitive of ["uint32", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
     const selected = decideSourcePrimitiveBinaryOperator("shift-right", fixed("int64"), fixed(primitive));
     assert.equal(selected.kind === "refused" && selected.reason === "A shift count must be a 32-bit integer or narrower.", true, primitive);
   }

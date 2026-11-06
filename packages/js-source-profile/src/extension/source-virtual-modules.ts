@@ -25,7 +25,8 @@ const jsStringType: ProviderTypeExpression = Object.freeze({
   exportName: jsSourceSemanticsIdentity.typeExport,
 });
 const nativeStringType: ProviderTypeExpression = Object.freeze({ kind: "string" });
-const numberType: ProviderTypeExpression = Object.freeze({ kind: "number" });
+const int32Type: ProviderTypeExpression = Object.freeze({ kind: "source-primitive", name: "int32" });
+const splitLimitType: ProviderTypeExpression = Object.freeze({ kind: "number" });
 const booleanType: ProviderTypeExpression = Object.freeze({ kind: "boolean" });
 const undefinedType: ProviderTypeExpression = Object.freeze({ kind: "undefined" });
 const jsStringOrUndefinedType: ProviderTypeExpression = Object.freeze({
@@ -110,54 +111,54 @@ function jsStringDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     members: [
       readonlyProperty("__tsonicJsStringIdentity", { kind: "never" }),
-      readonlyProperty("length", numberType),
+      readonlyProperty("length", int32Type),
       indexer(jsStringType),
-      method("at", [parameter("index", numberType)], jsStringOrUndefinedType),
-      method("charAt", [parameter("index", numberType)], jsStringType),
-      method("charCodeAt", [parameter("index", numberType)], numberType),
-      method("codePointAt", [parameter("pos", numberType)], union(numberType, undefinedType)),
+      method("at", [parameter("index", int32Type)], jsStringOrUndefinedType),
+      method("charAt", [parameter("index", int32Type)], jsStringType),
+      method("charCodeAt", [parameter("index", int32Type)], int32Type),
+      method("codePointAt", [parameter("pos", int32Type)], union(int32Type, undefinedType)),
       method("concat", [restParameter("strings", jsStringType)], jsStringType),
       method("endsWith", [
         parameter("searchString", jsStringType),
-        optionalParameter("endPosition", numberType),
+        optionalParameter("endPosition", int32Type),
       ], booleanType),
       method("includes", [
         parameter("searchString", jsStringType),
-        optionalParameter("position", numberType),
+        optionalParameter("position", int32Type),
       ], booleanType),
       method("indexOf", [
         parameter("searchString", jsStringType),
-        optionalParameter("position", numberType),
-      ], numberType),
+        optionalParameter("position", int32Type),
+      ], int32Type),
       method("lastIndexOf", [
         parameter("searchString", jsStringType),
-        optionalParameter("position", numberType),
-      ], numberType),
+        optionalParameter("position", int32Type),
+      ], int32Type),
       method("normalize", [optionalParameter("form", nativeStringType)], jsStringType),
       method("padEnd", [
-        parameter("maxLength", numberType),
+        parameter("maxLength", int32Type),
         optionalParameter("fillString", jsStringType),
       ], jsStringType),
       method("padStart", [
-        parameter("maxLength", numberType),
+        parameter("maxLength", int32Type),
         optionalParameter("fillString", jsStringType),
       ], jsStringType),
-      method("repeat", [parameter("count", numberType)], jsStringType),
+      method("repeat", [parameter("count", int32Type)], jsStringType),
       method("slice", [
-        optionalParameter("start", numberType),
-        optionalParameter("end", numberType),
+        optionalParameter("start", int32Type),
+        optionalParameter("end", int32Type),
       ], jsStringType),
       method("startsWith", [
         parameter("searchString", jsStringType),
-        optionalParameter("position", numberType),
+        optionalParameter("position", int32Type),
       ], booleanType),
       method("substring", [
-        parameter("start", numberType),
-        optionalParameter("end", numberType),
+        parameter("start", int32Type),
+        optionalParameter("end", int32Type),
       ], jsStringType),
       method("substr", [
-        parameter("from", numberType),
-        optionalParameter("length", numberType),
+        parameter("from", int32Type),
+        optionalParameter("length", int32Type),
       ], jsStringType),
       method("toLowerCase", [], jsStringType),
       method("toUpperCase", [], jsStringType),
@@ -190,15 +191,15 @@ function jsStringDeclaration(): ProviderExportDeclaration {
           parameter("replacer", jsRegExpReplaceCallbackType),
         ], jsStringType),
       ]),
-      method("search", [parameter("regexp", regExpType)], numberType),
+      method("search", [parameter("regexp", regExpType)], int32Type),
       overloadedMethod("split", [
         signature("split(separator,limit)", [
           parameter("separator", jsStringType),
-          optionalParameter("limit", numberType),
+          optionalParameter("limit", splitLimitType),
         ], jsStringArrayType),
         signature("split(regexp,limit)", [
           parameter("separator", regExpType),
-          optionalParameter("limit", numberType),
+          optionalParameter("limit", splitLimitType),
         ], { kind: "array", elementType: jsStringOrUndefinedType }),
       ]),
     ],
@@ -233,7 +234,7 @@ function indexer(type: ProviderTypeExpression): ProviderMemberDeclaration {
     readonly: true,
     signatures: [Object.freeze({
       id: "index(index)",
-      parameters: [parameter("index", numberType)],
+      parameters: [parameter("index", int32Type)],
       returnType: type,
     })],
   });
