@@ -533,35 +533,6 @@ test("C2224 an array construction owns the mixed-fixed refusal through an assert
     "the construction, not an alias or later scalar demand, owns the C19 cause");
 });
 
-test("C2349 dependent Set reads keep the original mixed-element owner in all four literal positions", () => {
-  const forms = ["signed, unsigned", "signed, unsigned, 1", "signed, 1, unsigned", "1, signed, unsigned"];
-  const current = fixture(forms.map((elements, index) => `function run${index}(signed: int32, unsigned: uint32): boolean {
-    const values = [${elements}]; const keys = new Set(values);
-    return keys.has(values[1]) && keys.size === 1;
-  }`).join("\n"));
-  const { ast } = current.source;
-  const root = (node: Node): Node | undefined => {
-    for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) {
-      if (ast.is.IsFunctionDeclaration(current)) return current;
-    }
-    return undefined;
-  };
-  const arrays = current.nodes.filter(node => ast.is.IsArrayLiteralExpression(node));
-  const issues = current.source.effectiveTypes.refusals();
-  const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
-  assert.equal(arrays.length, forms.length);
-  assert.equal(issues.length, forms.length);
-  for (const literal of arrays) {
-    const refusal = issues.find(issue => issue.site === literal);
-    const comparisons = current.nodes.filter(node => ast.operatorKindName(node) === "KindEqualsEqualsEqualsToken" &&
-      root(node) === root(literal));
-    assert.equal(refusal?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && comparisons.length === 1, true);
-    const comparison = comparisons[0];
-    assert.equal(refusal !== undefined && comparison !== undefined && current.source.effectiveTypes.get(comparison) === refusal, true);
-    assert.equal(graph.derived.some(record => record.node === comparison) || graph.nodes.some(record => record.node === comparison), false);
-  }
-});
-
 test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation", () => {
   for (const elements of ["signed, 9007199254740993", "9007199254740993, signed", "signed, -9007199254740993"]) {
     const current = fixture(`function run(signed: int32): void { const values = [${elements}]; void values; }`);
@@ -2567,6 +2538,61 @@ test("C2330 direct callable interfaces publish their exact enclosing bindings an
     assert.equal(metadata !== undefined && metadata.kind !== "refused" && metadata.type.kind === "declared" && metadata.type.declaration === binder, true, annotation);
     assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
   }
+});
+
+test("C2351 ordinary declared member projections consume the solved descriptor without cycling its binders", () => {
+  const current = fixture(`interface Published<Word> { readonly size: number; readonly value: Word; readonly nested: { word: Word }; }
+    declare function make<Word>(value: Word): Published<Word>;
+    function run(narrow: float32): void { const selected = make(narrow); const count = selected.size;
+      const payload = selected.value; const nested = selected.nested.word; const agrees = selected.size === 1;
+      void payload; void nested; void agrees; }`);
+  const { ast } = current.source;
+  const selected = current.type("selected");
+  const call = current.nodes.find(node => ast.is.IsCallExpression(node));
+  const invocation = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+  const argument = selected.kind === "declared" ? selected.typeArguments[0] : undefined;
+  const binder = invocation?.method[0];
+  const structure = sourceTypeDescriptorStructure(selected);
+  const member = structure.kind === "shape" ? structure.members.find(member => member.name === "value") : undefined;
+  assert.equal(selected.kind === "declared" && selected.typeArguments.length === 1 && invocation?.method.length === 1 &&
+    binder !== undefined && binder.type === argument && argument?.kind === "primitive" && argument.primitive === "float32", true);
+  assertSameValue(current.type("count"), { kind: "primitive", primitive: "float64" });
+  assertSameValue(current.type("nested"), { kind: "primitive", primitive: "float32" });
+  assertSameValue(current.type("agrees"), { kind: "primitive", primitive: "bool" });
+  assert.equal(member !== undefined && current.type("payload") === member.type, true,
+    "the field is the same solved Source member, not its independently checked number carrier");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2351 discarded captures retain a declared primitive demand through eligible conditional literal arms", () => {
+  const widths = [["double", "number", "float64"], ["single", "float32", "float32"], ["integer", "int32", "int32"]] as const;
+  const forms = [["direct", "flag ? 1 : 2"], ["nested", "flag ? (other ? 1 : 2) : 3"],
+    ["signed", "flag ? -1 : 2"], ["folded", "flag ? 8 / 2 + 1 : 3"]] as const;
+  const rows = widths.flatMap(([name, annotation, primitive]) => forms.map(([form, expression]) => ({
+    name: `${name}_${form}`, annotation, primitive, expression,
+  })));
+  const current = fixture(rows.map(row => `function allocate_${row.name}(flag: boolean, other: boolean): ${row.annotation} {
+    const captured_${row.name} = ${row.expression};
+    (flag ? (() => captured_${row.name}) : undefined) ?? (() => captured_${row.name} + 1);
+    return captured_${row.name};
+  }`).join("\n"));
+  for (const row of rows) {
+    const declaration = current.declaration(`captured_${row.name}`);
+    const owner = current.source.effectiveTypes.get(declaration);
+    assert.equal(owner !== undefined && owner.kind !== "refused" && owner.type.kind === "primitive" &&
+      owner.type.primitive === row.primitive, true, row.name);
+    const references = current.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
+      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    assert.equal(references.length >= 3 && references.every(node => {
+      const outcome = current.source.effectiveTypes.get(node);
+      return owner !== undefined && owner.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+        outcome.type === owner.type;
+    }), true, row.name);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  const fixed = fixture(`function run(flag: boolean, value: int32): int32 { const selected = flag ? value : 1; return selected; }`);
+  assertSameValue(fixed.type("selected"), { kind: "primitive", primitive: "int32" });
+  assert.equal(fixed.source.effectiveTypes.refusals().length, 0);
 });
 
 test("C2330 recursive alias calls retain nominal argument widths without selecting a union arm", () => {

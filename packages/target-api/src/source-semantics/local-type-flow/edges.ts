@@ -473,8 +473,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (!rootOf.has(node) || typeOnly.has(node)) return undefined;
     if (refusedOperations.has(node)) return undefined;
     if (sourceTypeFlowDiscardedValue(context.source, node)) {
-      const conditional = ast.as.AsConditionalExpression(node);
-      const binary = ast.as.AsBinaryExpression(node);
+      const conditional = ast.is.IsConditionalExpression(node) ? ast.as.AsConditionalExpression(node) : undefined;
+      const binary = ast.is.IsBinaryExpression(node) ? ast.as.AsBinaryExpression(node) : undefined;
       const wrapped = sourceTransparentExpressionOperand(ast, node);
       for (const operand of wrapped !== undefined ? [wrapped] : conditional === undefined ? [binary?.Left, binary?.Right]
         : [conditional.Condition, conditional.WhenTrue, conditional.WhenFalse]) {
@@ -904,8 +904,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const inputs = selected.filter((operand): operand is SourceTypeFlowVariable => operand !== undefined);
     if (inputs.length !== selected.length) {
       const refusal = operands.map(operand => refusedOperations.get(operand)).find(issue => issue !== undefined);
-      if (refusal === undefined) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node,
-        operands[selected.findIndex(operand => operand === undefined)]);
+      if (refusal === undefined) refuse("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
       else refusedOperations.set(node, refusal);
       return undefined;
     }
