@@ -12,6 +12,7 @@ import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import { publishSourceLiteralMetadata, sourceLiteralMemberCorrespondence } from "./literal-publication.js";
+import { publishSourceStructMemberCorrespondence } from "./struct-publication.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection, sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
@@ -1634,6 +1635,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const variable = valueVariables.get(node);
     return variable === undefined ? undefined : group(variable).chosenFill?.component;
   }, node => defaults.descriptorRefusals.get(node));
+  publishSourceStructMemberCorrespondence(context, defaults.nodes, outcomes);
   validateSelectionConditions();
   for (const refusal of conditionRefusals) {
     if (!sourceTypeFlowDiscardedValue(source, refusal.site)) outcomes.set(refusal.site, refusal);
