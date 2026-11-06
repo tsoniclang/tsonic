@@ -485,7 +485,8 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         const component = nominal ?? referenceComponent(node, selected);
         const type = selectedNode.term.type;
         const structure = sourceTypeDescriptorStructure(type);
-        const refinement = structure.kind === "union" ? semantics.selectValueTypeRefinement(node) : undefined;
+        const refinement = structure.kind === "union" || structure.kind === "optional" &&
+          sourceTypeDescriptorStructure(structure.value).kind === "union" ? semantics.selectValueTypeRefinement(node) : undefined;
         const projected = refinement?.kind === "resolved" && !semantics.forNode(node).types.isIdentical(
           refinement.declaredType, refinement.selectedType);
         const narrowed = nominal !== undefined || projected ? context.describe(node, component) : structure.kind === "optional" && component !== undefined &&

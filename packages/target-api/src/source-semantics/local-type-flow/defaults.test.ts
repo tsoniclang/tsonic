@@ -112,6 +112,20 @@ test("C2446 union occurrence projection preserves subsets and refuses to guess e
     value.calls[0].parameters[0].type.primitive === "int32" && value.calls[0].result.kind === "primitive" &&
     value.calls[0].result.primitive === "int32", true,
   "a checked callable-and-absence subset retains its original callable and one absence state");
+  const outcome = current.source.effectiveTypes.get(current.declaration("optional"));
+  const published = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
+  const publishedValue = published?.kind === "optional" ? sourceTypeDescriptorStructure(published.value) : undefined;
+  assert.equal(publishedValue?.kind === "callable" && value?.kind === "callable" &&
+    sourceTypeDescriptorsEqual(publishedValue, value) && publishedValue.calls[0]?.declaration === value.calls[0]?.declaration, true,
+    "the same optional subset, original callable and native widths reach the canonical value publication");
+  const partial = current.defaults.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "partial");
+  const storage = partial === undefined ? undefined : current.source.effectiveTypes.get(partial);
+  const stored = storage === undefined || storage.kind === "refused" ? undefined : sourceTypeDescriptorStructure(storage.type);
+  const storedValue = stored?.kind === "optional" ? sourceTypeDescriptorStructure(stored.value) : undefined;
+  assert.equal(storedValue?.kind === "union" && storedValue.types.length === 2 &&
+    storedValue.types.some(member => member.kind === "string") && storedValue.types.some(member => member.kind === "callable"), true,
+  "the original parameter remains absence-capable storage with both authored present branches");
 });
 
 test("C2429 only a published winning default contributes its original authored primitive component", () => {
