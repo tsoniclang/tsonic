@@ -269,6 +269,25 @@ test("D-A large folded integers keep every source digit while an explicit float6
   }
 });
 
+test("H2 prefix integer constants use the sole literal fit owner without losing their signed whole receipt", () => {
+  const cases = [
+    { expression: "-(7 / 2)", integer: -3n, fits: true },
+    { expression: "+(-(7 / 2))", integer: -3n, fits: true },
+    { expression: "-(-(7 / 2))", integer: 3n, fits: true },
+    { expression: "-(9223372036854775808 + 0)", integer: -(1n << 63n), fits: true },
+    { expression: "-(9223372036854775809 + 0)", integer: -(1n << 63n) - 1n, fits: false },
+    { expression: "+((9223372036854775807 + 0))", integer: (1n << 63n) - 1n, fits: true },
+    { expression: "+((9223372036854775808 + 0))", integer: 1n << 63n, fits: false },
+  ];
+  const literals = operatorLiteralFacts(cases.map(row => row.expression));
+  for (const [index, row] of cases.entries()) {
+    const literal = literals[index]!;
+    assert.equal(literal.integerConstant === row.integer && Object.isFrozen(literal), true, row.expression);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "int64"), row.fits, row.expression);
+    assert.equal(literal.integerConstant, row.integer, "admission never replaces or rounds the original receipt");
+  }
+});
+
 test("D-A float64 native rounding never admits an infinite authored value or fabricates an oversized folded receipt", () => {
   const midpoint = (1n << 1024n) - (1n << 970n);
   const cases = [-1n, 0n, 1n].flatMap(offset => [-1n, 1n].flatMap(sign =>

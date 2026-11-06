@@ -3,7 +3,8 @@ import test from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
-import { createSourceTypeFlowAnalysisContext, sourceTypeFlowIntegerFits } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
@@ -745,14 +746,23 @@ test("source order uses exact authored starts and one preorder tie breaker", () 
 });
 
 test("range admission distinguishes signed, unsigned, floating and decimal domains", () => {
-  assert.equal(sourceTypeFlowIntegerFits(2147483647n, "int32"), true);
-  assert.equal(sourceTypeFlowIntegerFits(2147483648n, "int32"), false);
-  assert.equal(sourceTypeFlowIntegerFits(-1n, "uint32"), false);
-  assert.equal(sourceTypeFlowIntegerFits(18446744073709551615n, "uint64"), true);
-  assert.equal(sourceTypeFlowIntegerFits(18446744073709551616n, "uint64"), false);
-  assert.equal(sourceTypeFlowIntegerFits(10n ** 40n, "float32"), false);
-  assert.equal(sourceTypeFlowIntegerFits(10n ** 400n, "float64"), false);
-  assert.equal(sourceTypeFlowIntegerFits(79228162514264337593543950336n, "decimal"), false);
+  const values = [2147483647n, 2147483648n, -1n, 18446744073709551615n, 18446744073709551616n,
+    10n ** 40n, 10n ** 400n, 79228162514264337593543950336n];
+  const current = fixture(values.map((value, index) => `const range${index} = ${value};`).join("\n"));
+  const literals = values.map((_, index) => {
+    const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration(`range${index}`))?.Initializer;
+    const literal = initializer === undefined ? undefined : current.defaults.context.literal(initializer);
+    if (literal === undefined) throw new Error("The original range-test Source literal receipt is required.");
+    return literal;
+  });
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[0]!, "int32"), true);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[1]!, "int32"), false);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[2]!, "uint32"), false);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[3]!, "uint64"), true);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[4]!, "uint64"), false);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[5]!, "float32"), false);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[6]!, "float64"), false);
+  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[7]!, "decimal"), false);
 });
 
 test("negative zero keeps the same integer creation default as ordinary zero", () => {

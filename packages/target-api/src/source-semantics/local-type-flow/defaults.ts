@@ -1,4 +1,4 @@
-import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type SourcePrimitiveKind, type Type } from "@tsonic/tsts";
+import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
@@ -8,6 +8,7 @@ import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
+import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import type {
@@ -531,32 +532,14 @@ export type SourceTypeFlowNumericLiteralDecision =
 
 export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): SourceTypeFlowNumericLiteralDecision {
   const numeric = literal.numeric;
-  const integer = literal.integerConstant ?? literal.integer;
   if (numeric?.kind === "checked-float64" || numeric?.kind === "authored" && /[.eE]/u.test(numeric.token.decimalText)) {
     return Object.freeze({ kind: "resolved", primitive: "float64" });
   }
-  if (integer !== undefined && sourceTypeFlowIntegerFits(integer, "int64")) {
+  if (sourcePrimitiveOperatorLiteralFits(literal, "int64")) {
     return Object.freeze({ kind: "resolved", primitive: "int64" });
   }
   return Object.freeze({ kind: "refused",
     reason: "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint." });
-}
-
-export function sourceTypeFlowIntegerFits(value: bigint, kind: SourcePrimitiveKind): boolean {
-  switch (kind) {
-    case "int8": return value >= -128n && value <= 127n;
-    case "uint8": return value >= 0n && value <= 255n;
-    case "int16": return value >= -32768n && value <= 32767n;
-    case "uint16": case "char": return value >= 0n && value <= 65535n;
-    case "int32": return value >= -2147483648n && value <= 2147483647n;
-    case "uint32": return value >= 0n && value <= 4294967295n;
-    case "int64": return value >= -9223372036854775808n && value <= 9223372036854775807n;
-    case "uint64": return value >= 0n && value <= 18446744073709551615n;
-    case "float32": return Number.isFinite(Math.fround(Number(value)));
-    case "float64": return Number.isFinite(Number(value));
-    case "decimal": return value >= -79228162514264337593543950335n && value <= 79228162514264337593543950335n;
-    default: return false;
-  }
 }
 
 // An index read takes the value of the one index signature whose key kind accepts the key: a number key reads a

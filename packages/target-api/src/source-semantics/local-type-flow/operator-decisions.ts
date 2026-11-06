@@ -165,11 +165,13 @@ const decimalOverflowThresholdTwice = (((1n << 96n) - 1n) << 1n) + 1n;
 export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind): boolean {
   if (literal.form === "array") return false;
   const bounds = integerBounds[primitive];
-  const constant = literal.form === "binary" || literal.form === "parenthesized" ? literal.integerConstant : undefined;
-  if (constant !== undefined && bounds !== undefined && constant >= bounds[0] && constant <= bounds[1]) return true;
+  const constant = literal.integerConstant;
   if (primitive === "bool") return literal.form === "true" || literal.form === "false";
   if (primitive === "char") return (literal.form === "string" || literal.form === "template") && literal.text.length === 1;
-  if (bounds !== undefined) return literal.integer !== undefined && literal.integer >= bounds[0] && literal.integer <= bounds[1];
+  if (bounds !== undefined) {
+    const integer = constant ?? literal.integer;
+    return integer !== undefined && integer >= bounds[0] && integer <= bounds[1];
+  }
   if (constant !== undefined && literal.numeric === undefined) {
     const magnitude = { coefficient: constant < 0n ? -constant : constant, exponent: 0n };
     if (primitive === "float64") return compareSourceNumericLiteralMagnitude(magnitude, (1n << 1024n) - (1n << 970n)) < 0;

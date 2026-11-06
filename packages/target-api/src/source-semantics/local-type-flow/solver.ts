@@ -785,13 +785,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
 
   function primitiveOperand(variable: SourceTypeFlowVariable): SourcePrimitiveOperatorOperand | undefined {
     const selected = group(variable);
-    const literal = context.literal(variable.node);
     const type = selected.type === undefined ? undefined : sourceTypeDescriptorStructure(selected.type);
-    if (type?.kind === "primitive") return literal !== undefined && selected.filledBy === undefined &&
-      selected.fills.length === 0 && selected.terms.some(term => term.kind === "numeric") &&
-      defaults.declaredSlots.get(variable.node)?.authority !== "declared"
-      ? { kind: "unbound-literal", primitive: type.primitive, literal }
-      : { kind: "fixed", primitive: type.primitive };
+    if (type?.kind === "primitive") {
+      const literal = unboundNumericLiteral(variable);
+      return literal === undefined ? { kind: "fixed", primitive: type.primitive }
+        : { kind: "unbound-literal", primitive: type.primitive, literal };
+    }
+    const literal = context.literal(variable.node);
     return type?.kind === "intrinsic" && type.intrinsic === "bigint" && literal?.form === "bigint" &&
       (selected.filledBy === undefined || selected.filledBy === variable.node) && selected.fills.length > 0 &&
       selected.fills.every(fill => fill.fixed && fill.site === variable.node && fill.authority !== "declared" &&
