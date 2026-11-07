@@ -138,13 +138,14 @@ export function createSourceStorageDomainInitialization(input: {
         const passing = source.sourceFacts.getFact(expression, argumentPassingFactKey);
         const flow = source.sourceFacts.getFact(expression, flowStateFactKey);
         const pointer = source.sourceFacts.getFact(expression, pointerOperationFactKey);
-        const storage = passing?.storageExpression ?? (pointer?.operation === "address-of" ? pointer.storageExpression : undefined);
+        const storage = passing?.kind === "argument" ? passing.storageExpression
+          : pointer?.operation === "address-of" ? pointer.storageExpression : undefined;
         const file = storage === undefined ? undefined : ast.getSourceFile(storage);
         if (storage !== undefined && (file === undefined || !semantics.includes(file))) {
           budget.reject("Source storage exposure requires its exact checked storage expression.");
           return;
         }
-        if (passing !== undefined && passing.mode !== "by-value" && passing.mode !== "byref-readonly" && passing.mode !== "borrow-shared" ||
+        if (passing?.kind === "argument" && passing.mode !== "by-value" && passing.mode !== "byref-readonly" && passing.mode !== "borrow-shared" ||
           pointer?.operation === "address-of" || flow?.state === "borrowed-mut")
           add(transport.locationFor(storage ?? expression), "opaque-write", boundary.invocation);
       }

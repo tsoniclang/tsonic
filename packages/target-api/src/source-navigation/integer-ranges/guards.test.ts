@@ -70,7 +70,7 @@ test("mutable passing and address exposure invalidate source guards", () => {
   const call = current.calls[0]!;
   for (const mode of ["by-value", "byref-readonly", "borrow-shared", "borrow-mut", "byref", "out"] as const) {
     const sourceFacts = { getFact(subject: Node, key: unknown) {
-      return subject === call && key === argumentPassingFactKey ? { mode } : undefined;
+      return subject === call && key === argumentPassingFactKey ? { kind: "declaration", mode } : undefined;
     } } as unknown as ReadonlySourceFactResolver;
     assert.deepEqual(current.proved(sourceFacts), [mode === "by-value" || mode === "byref-readonly" || mode === "borrow-shared"]);
   }

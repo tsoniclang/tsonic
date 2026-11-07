@@ -121,7 +121,7 @@ test("native flow selection rejects mutable passing and address exposure through
   assert.ok(call);
   for (const mode of ["by-value", "borrow-shared", "byref-readonly", "borrow-mut", "byref", "out"] as const) {
     const sourceFacts = { getFact(subject: Node, key: unknown) {
-      return subject === call && key === argumentPassingFactKey ? { mode } : undefined;
+      return subject === call && key === argumentPassingFactKey ? { kind: "declaration", mode } : undefined;
     } } as unknown as ReadonlySourceFactResolver;
     assert.deepEqual(current.select(undefined, sourceFacts),
       [mode === "by-value" || mode === "borrow-shared" || mode === "byref-readonly" ? ["array"] : undefined], mode);
