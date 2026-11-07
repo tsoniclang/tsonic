@@ -7,16 +7,9 @@ import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descrip
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import type { SourceNullishAdmission, SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "./types.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "./types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
-
-export interface SourceTypeofInput {
-  readonly operation: Node;
-  readonly operand: Node;
-  readonly selectedType: Type;
-  readonly admission: SourceNullishAdmission;
-}
 
 export interface SourceTypeDescriptorReadFailure {
   readonly kind: "refused";
@@ -91,35 +84,6 @@ export function createSourceTypeDescriptorReader(
     return undefined;
   }
 
-  function typeofInput(operation: Node, queries: SourceFileSemantics): SourceTypeofInput | undefined {
-    const operand = ast.as.AsTypeOfExpression(operation)?.Expression;
-    const selectedType = operand === undefined ? undefined : queries.types.expressionType(operand);
-    if (operand === undefined || selectedType === undefined) return undefined;
-    const pending = [selectedType];
-    const seen = new Set<Type>();
-    let admitsNull = false;
-    let admitsUndefined = false;
-    let unavailable = false;
-    while (pending.length > 0) {
-      const type = pending.pop()!;
-      if (seen.has(type)) continue;
-      seen.add(type);
-      if (queries.types.isUnion(type)) {
-        pending.push(...queries.types.unionOrIntersectionTypes(type));
-        continue;
-      }
-      const flags = queries.types.intrinsicNullishFlags(type);
-      admitsNull ||= flags.null;
-      admitsUndefined ||= flags.undefined;
-      const declaration = declarationFor(type, queries);
-      unavailable ||= queries.types.isUnknown(type) || queries.types.isAny(type) ||
-        declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration);
-    }
-    const admission: SourceNullishAdmission = unavailable ? "unavailable" : admitsNull
-      ? admitsUndefined ? "both" : "null-only" : admitsUndefined ? "undefined-only" : "none";
-    return Object.freeze({ operation, operand, selectedType, admission });
-  }
-
   function syntax(node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
     if (ast.is.IsUnionTypeNode(node) && bindings.size > 0) {
@@ -166,7 +130,7 @@ export function createSourceTypeDescriptorReader(
         if (value === undefined) return undefined;
         types.push(value);
       }
-      return sourceTypeDescriptorUnion(unions, types, node, bindings);
+      return sourceTypeDescriptorUnion(unions, types, { kind: "authored", node }, bindings);
     }
     if (ast.is.IsTypeLiteralNode(node)) return structure(selectedType, queries, depth, bindings);
     if (ast.is.IsMappedTypeNode(node)) return structure(selectedType, queries, depth, bindings, node);
@@ -599,7 +563,6 @@ export function createSourceTypeDescriptorReader(
   }
 
   return Object.freeze({
-    typeofInput,
     inheritedBindings: (selectedType: Type, queries: SourceFileSemantics, bindings: Bindings, authoredBindings: Bindings = empty) =>
       inheritedBindings(selectedType, queries, 0, bindings, authoredBindings),
     syntax: (node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty) =>

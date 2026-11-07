@@ -67,6 +67,7 @@ export interface SourceTypeDescriptorUnions {
 
 interface SourceUnionFamily {
   readonly node: Node;
+  readonly origin: "authored" | "inferred";
   readonly parameters: readonly Node[];
   readonly roles: readonly SourceTypeDescriptor[];
   readonly applications: Map<string, SourceUnionApplication>;
@@ -98,15 +99,22 @@ export function sealSourceTypeDescriptorUnions(owner: SourceTypeDescriptorUnions
   if (registry !== undefined) registry.sealed = true;
 }
 
-export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, types: readonly SourceTypeDescriptor[], authored?: Node,
+export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, types: readonly SourceTypeDescriptor[],
+  origin?: { readonly kind: "authored" | "inferred"; readonly node: Node },
   bindings: ReadonlyMap<Node, SourceTypeDescriptor> = new Map()): SourceTypeDescriptor | undefined {
   const { ast } = owner;
   const registry = unionRegistries.get(owner);
   if (registry === undefined) return undefined;
-  if (authored !== undefined) {
-    const file = ast.getSourceFile(authored);
+  if (origin === undefined && types.length === 1 && types[0]?.kind === "intrinsic" && types[0].intrinsic === "void") return types[0];
+  if (origin !== undefined) {
+    const file = ast.getSourceFile(origin.node);
     if (file === undefined || !registry.files.has(file)) return undefined;
   }
+  if ((origin === undefined || origin.kind === "inferred") && types.length === 1) {
+    const application = sumApplications.get(types[0]!);
+    if (application !== undefined) return application.registry === registry ? types[0] : undefined;
+  }
+  const authored = origin?.kind === "authored" ? origin.node : undefined;
   const identityOf = descriptorIdentity(ast, registry);
   const members: SourceTypeDescriptor[] = [];
   const keys: number[] = [];
@@ -117,7 +125,7 @@ export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, typ
     const selected = pending.shift()!;
     if (selected.kind === "union") pending.unshift(...selected.types);
     else if (selected.kind === "optional") { absent = true; pending.unshift(selected.value); }
-    else if (selected.kind === "intrinsic" && selected.intrinsic === "absence") absent = true;
+    else if (selected.kind === "intrinsic" && (selected.intrinsic === "absence" || selected.intrinsic === "void")) absent = true;
     else {
       const key = identityOf(selected);
       if (key === undefined) return undefined;
@@ -151,8 +159,8 @@ export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, typ
     : members.length === 1 ? members[0] : { kind: "union", types: members };
   const descriptor: SourceTypeDescriptor | undefined = absent
     ? value === undefined ? { kind: "intrinsic", intrinsic: "absence" } : { kind: "optional", value } : value;
-  if (descriptor === undefined || authored === undefined) return descriptor;
-  let family = registry.families.get(authored);
+  if (descriptor === undefined || origin === undefined) return descriptor;
+  let family = registry.families.get(origin.node);
   if (family === undefined) {
     if (registry.sealed) return descriptor.kind === "union" ? undefined : descriptor;
     const roles = sourceUnionArms(descriptor);
@@ -162,9 +170,9 @@ export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, typ
       const rightFile = ast.getSourceFile(right)!;
       return registry.files.get(leftFile)! - registry.files.get(rightFile)! || ast.pos(left) - ast.pos(right);
     });
-    family = { node: authored, parameters: Object.freeze(parameters), roles: Object.freeze(roles),
+    family = { node: origin.node, origin: origin.kind, parameters: Object.freeze(parameters), roles: Object.freeze(roles),
       applications: new Map(), records: new Map() };
-    registry.families.set(authored, family);
+    registry.families.set(origin.node, family);
   }
   const arguments_ = family.parameters.map(parameter => bindings.get(parameter) ??
     { kind: "declared" as const, declaration: parameter, typeArguments: [] });
@@ -174,7 +182,9 @@ export function sourceTypeDescriptorUnion(owner: SourceTypeDescriptorUnions, typ
   const project = createSourceTypeDescriptorNormalizer(owner, bindings);
   const roles = family.roles.map(project);
   if (!roles.every((role): role is SourceTypeDescriptor => role !== undefined)) return undefined;
-  const owned: SourceTypeDescriptor = descriptor.kind === "union" || descriptor.kind === "optional" ? { ...descriptor } : descriptor;
+  const retained = origin.kind === "inferred" && types.length === 1 &&
+    (types[0]?.kind === "union" || types[0]?.kind === "optional") ? types[0] : undefined;
+  const owned: SourceTypeDescriptor = retained ?? (descriptor.kind === "union" || descriptor.kind === "optional" ? { ...descriptor } : descriptor);
   const application: SourceUnionApplication = { registry, family, arguments: arguments_, roles, descriptor: owned };
   if (owned !== descriptor) sumApplications.set(owned, application);
   if (!registry.sealed) family.applications.set(key, application);
@@ -190,7 +200,8 @@ function sourceUnionApplicationKey(ast: AstReader, registry: SourceUnionRegistry
 
 function sourceUnionArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
   return type.kind === "union" ? type.types : type.kind === "optional"
-    ? [...sourceUnionArms(type.value), { kind: "intrinsic", intrinsic: "absence" }] : [type];
+    ? [...sourceUnionArms(type.value), { kind: "intrinsic", intrinsic: "absence" }]
+    : type.kind === "intrinsic" && type.intrinsic === "void" ? [{ kind: "intrinsic", intrinsic: "absence" }] : [type];
 }
 
 export function createSourceClosedSumQuery(owner: SourceTypeDescriptorUnions,
@@ -375,7 +386,7 @@ function substituteDescriptor(owner: SourceTypeDescriptorUnions, type: SourceTyp
       const members = vector(type.kind === "union" ? type.types : type.kind === "optional"
         ? [type.value, { kind: "intrinsic", intrinsic: "absence" }] : [type]);
       if (arguments_ === undefined || members === undefined) return undefined;
-      const result = sourceTypeDescriptorUnion(owner, members, application.family.node,
+      const result = sourceTypeDescriptorUnion(owner, members, { kind: application.family.origin, node: application.family.node },
         new Map(application.family.parameters.map((parameter, index) => [parameter, arguments_[index]!])));
       if (result === undefined) return undefined;
       const same = type.kind === "union" && result.kind === "union" && type.types.length === result.types.length
@@ -632,11 +643,12 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
     return selected;
   }
   function children(slot: TermSlot): readonly TermSlot[] {
-    return slot.structures.flatMap(term => term.kind === "array" ? [intern(term.element)]
+    return [...slot.structures.flatMap(term => term.kind === "array" ? [intern(term.element)]
       : term.kind === "optional" ? [intern(term.value)]
       : term.kind === "tuple" ? term.elements.map(element => intern(element.variable))
       : term.kind === "shape" ? term.members.map(member => intern(member.variable))
-      : term.kind === "declared" ? term.typeArguments.map(intern) : []);
+      : term.kind === "declared" ? term.typeArguments.map(intern) : []),
+      ...slot.terms.flatMap(term => term.kind === "template" ? term.bindings.map(binding => intern(binding.variable)) : [])];
   }
   function contains(from: TermSlot, target: TermSlot): boolean {
     const pending = [...children(from)];
@@ -741,6 +753,10 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   for (const link of graph.links) {
     if (!conversionPositions.has(intern(link.target))) union(intern(link.source), intern(link.target), link.site);
   }
+  for (const input of graph.inferenceInputs) {
+    intern(input.source);
+    intern(input.target);
+  }
   const declaredRoots = new Set([...constructions].map(root));
   const unboundConstructions = new Set(graph.nodes.filter(node => {
     if (node.kind === "fixed" || node.variable.path.length !== 0 || ast.is.IsSourceFile(node.root) ||
@@ -777,6 +793,7 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   for (const derived of graph.derived) {
     for (const operand of derived.operands) connect(intern(operand), intern(derived.result));
   }
+  for (const input of graph.inferenceInputs) connect(intern(input.source), intern(input.target));
   const pendingInference = [...inference];
   for (let index = 0; index < pendingInference.length; index += 1) {
     for (const next of successors.get(pendingInference[index]!) ?? []) {

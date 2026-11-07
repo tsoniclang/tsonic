@@ -87,7 +87,6 @@ export type SourceTypeFlowRefusalCode =
   | "TSONIC_LOCAL_TYPE_ADDRESS"
   | "TSONIC_LOCAL_TYPE_LIMIT"
   | "TSONIC_LOCAL_TYPE_GENERIC"
-  | "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT"
   | "TSONIC_LOCAL_TYPE_UNSUPPORTED";
 
 export interface SourceTypeFlowRefusal {
@@ -103,6 +102,10 @@ export interface SourceEffectiveTypeProvenance {
   readonly group: Node;
   readonly occurrence: Node;
   readonly sourceFile: SourceFile;
+  readonly principal?: {
+    readonly declaration: Node;
+    readonly initializer: Node;
+  };
   readonly filledBy?: Node;
   readonly component?: {
     readonly declaration?: Node;
@@ -188,22 +191,6 @@ export interface SourceDeclaredSlot {
   readonly broad: boolean;
 }
 
-export type SourceNullishAdmission = "none" | "undefined-only" | "null-only" | "both" | "unavailable";
-
-export type SourceSlotAdmission =
-  | {
-      readonly kind: "admitted";
-      readonly use: Node;
-      readonly slot: Node;
-      readonly value: SourceTypeDescriptor;
-      readonly destination: SourceTypeDescriptor;
-      readonly permission: "identity" | "widening";
-      readonly conversion:
-        | { readonly kind: "identity" }
-        | { readonly kind: "exact-number-erasure"; readonly origin: Node; readonly result: SourceTypeDescriptor };
-    }
-  | { readonly kind: "refused"; readonly use: Node; readonly slot: Node; readonly refusal: SourceTypeFlowRefusal };
-
 export interface SourceMethodValueUse {
   readonly occurrence: Node;
   readonly read: Node;
@@ -223,7 +210,6 @@ export interface SourceEffectiveTypes {
   get(node: Node): SourceEffectiveTypeOutcome | undefined;
   declaredSlot(slot: Node): SourceDeclaredSlot | undefined;
   methodValueUse(occurrence: Node): SourceMethodValueUse | undefined;
-  slotAdmission(use: Node): SourceSlotAdmission | undefined;
   callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined;
   callInstantiation(call: Node): SourceEffectiveCallInstantiation | undefined;
   obligations(): readonly SourceTypeFlowObligation[];
@@ -274,6 +260,8 @@ export interface SourceTypeFlowVariable {
 export type SourceTypeFlowTerm =
   | { readonly kind: "numeric"; readonly site: Node; readonly form: "integer" | "fractional"; readonly literal: SourceLiteralValue }
   | { readonly kind: "fixed"; readonly site: Node; readonly type: SourceTypeDescriptor }
+  | { readonly kind: "template"; readonly site: Node; readonly type: SourceTypeDescriptor;
+      readonly bindings: readonly { readonly declaration: Node; readonly variable: SourceTypeFlowVariable }[] }
   | { readonly kind: "array"; readonly site: Node; readonly element: SourceTypeFlowVariable; readonly readonly: boolean }
   | { readonly kind: "optional"; readonly site: Node; readonly value: SourceTypeFlowVariable; readonly source: SourceTypeComponentEvidence }
   | { readonly kind: "tuple"; readonly site: Node; readonly elements: readonly {
@@ -369,6 +357,7 @@ export interface SourceTypeFlowGraph {
   readonly roots: readonly Node[];
   readonly nodes: readonly SourceTypeFlowNode[];
   readonly links: readonly SourceTypeFlowLink[];
+  readonly inferenceInputs: readonly SourceTypeFlowLink[];
   readonly derived: readonly SourceTypeFlowDerived[];
   readonly calls: readonly SourceTypeFlowCall[];
   readonly refusals: readonly SourceTypeFlowRefusal[];

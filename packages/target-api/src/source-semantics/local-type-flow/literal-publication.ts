@@ -5,70 +5,10 @@ import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceTypeComponentEvidence } from "../types.js";
-import type { SourceLiteralValue } from "../literal-values-model.js";
-import { sourceIntegerConstantIsExactlyRepresentableAsBinaryFloat, sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "../literal-token.js";
-import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
-import { sourceTypeFlowBroadSlotKind } from "./uses.js";
 import type {
-  SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceMethodValueUse, SourceSlotAdmission, SourceTypeDescriptor,
+  SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceMethodValueUse, SourceTypeDescriptor,
   SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal,
 } from "./types.js";
-
-export interface SourceNumberOrigin {
-  readonly origin: Node;
-  readonly literal?: SourceLiteralValue;
-}
-
-export function createSourceSlotAdmissions(context: SourceTypeFlowAnalysisContext,
-  uses: readonly { readonly site: Node; readonly association?: { readonly occurrence: Node; readonly component?: SourceTypeComponentEvidence } }[],
-  outcomes: Map<Node, SourceEffectiveTypeOutcome>,
-  declaredSlot: (use: Node) => SourceTypeFlowDeclaredSlot | undefined,
-  numberOrigin: (value: Node) => SourceNumberOrigin | undefined,
-  normalize: (type: SourceTypeDescriptor) => SourceTypeDescriptor,
-): { readonly admissions: ReadonlyMap<Node, SourceSlotAdmission>; readonly refusals: readonly SourceTypeFlowRefusal[] } {
-  const admissions = new Map<Node, SourceSlotAdmission>();
-  const refusals: SourceTypeFlowRefusal[] = [];
-  for (const entry of uses) {
-    const use = entry.association?.occurrence;
-    if (use === undefined || admissions.has(use)) continue;
-    const selected = declaredSlot(use);
-    const component = selected?.component ?? entry.association?.component;
-    const described = selected?.type ?? (component === undefined ? undefined : context.describe(use, component));
-    const broad = described === undefined ? undefined : sourceTypeFlowBroadSlotKind(described);
-    if (described === undefined || broad === undefined) continue;
-    const destination = normalize(described);
-    const slot = component?.declaration ?? component?.authoredTypeNode ?? entry.site;
-    const outcome = outcomes.get(use);
-    if (outcome === undefined) continue;
-    if (outcome.kind === "refused") {
-      admissions.set(use, Object.freeze({ kind: "refused", use, slot, refusal: outcome }));
-      continue;
-    }
-    const value = outcome.construction ?? outcome.type;
-    const erasesNumber = broad === "unknown" || broad === "object";
-    const origin = erasesNumber ? numberOrigin(use) : undefined;
-    let conversion: Extract<SourceSlotAdmission, { readonly kind: "admitted" }>["conversion"] = Object.freeze({ kind: "identity" });
-    if (origin !== undefined && value.kind === "primitive" && value.primitive === "int64") {
-      const numeric = origin.literal?.numeric;
-      const integer = origin.literal?.integerConstant ?? origin.literal?.integer;
-      const exact = numeric?.kind === "authored"
-        ? sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat(numeric.token, "float64")
-        : integer !== undefined && sourceIntegerConstantIsExactlyRepresentableAsBinaryFloat(integer, "float64");
-      if (!exact) {
-        const refusal = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT", use, origin.origin);
-        refusals.push(refusal);
-        outcomes.set(use, refusal);
-        admissions.set(use, Object.freeze({ kind: "refused", use, slot, refusal }));
-        continue;
-      }
-      conversion = Object.freeze({ kind: "exact-number-erasure", origin: origin.origin,
-        result: normalize({ kind: "primitive", primitive: "float64" }) });
-    }
-    admissions.set(use, Object.freeze({ kind: "admitted", use, slot, value, destination,
-      permission: sourceTypeDescriptorsEqual(value, destination) ? "identity" : "widening", conversion }));
-  }
-  return Object.freeze({ admissions, refusals: Object.freeze(refusals) });
-}
 
 export function createSourceMethodValueUses(context: SourceTypeFlowAnalysisContext, nodes: readonly Node[],
   outcomes: ReadonlyMap<Node, SourceEffectiveTypeOutcome>): ReadonlyMap<Node, SourceMethodValueUse> {
@@ -273,9 +213,14 @@ export function publishSourceLiteralMetadata(
     if (produced?.kind === "refused") { outcomes.set(node, produced); return produced; }
     const construction = produced === undefined || sourceTypeDescriptorsEqual(produced, type) ? undefined : produced;
     const memberCorrespondence = sourceLiteralMemberCorrespondence(context, node, type, retainedFill(node));
+    const owner = ast.parent(node);
+    const principal = ast.is.IsObjectLiteralExpression(node) && owner !== undefined && ast.is.IsVariableDeclaration(owner) &&
+      Node_Initializer(ast, owner) === node && ast.typeNode(owner) === undefined
+      ? Object.freeze({ declaration: owner, initializer: node }) : undefined;
     const selected = Object.freeze({ ...outcome,
       ...(construction === undefined ? {} : { construction: freezeSourceTypeDescriptor(construction) }),
       ...(memberCorrespondence === undefined ? {} : { memberCorrespondence }),
+      ...(principal === undefined ? {} : { provenance: Object.freeze({ ...outcome.provenance, principal }) }),
     });
     outcomes.set(node, selected);
     return selected;

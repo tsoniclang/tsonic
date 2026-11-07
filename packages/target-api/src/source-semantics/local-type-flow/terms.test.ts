@@ -25,10 +25,143 @@ function fixture() {
     node: value.node, root: file, variable: value, kind: "value", publish: true, ...(term === undefined ? {} : { term }),
   });
   const graph = (values: readonly SourceTypeFlowNode[], links: SourceTypeFlowGraph["links"] = []): SourceTypeFlowGraph => ({
-    roots: [file], nodes: values, links, derived: [], calls: [], refusals: [],
+    roots: [file], nodes: values, links, inferenceInputs: [], derived: [], calls: [], refusals: [],
   });
   return { ast: checked.ast, unions, file, nodes, variable, entry, graph };
 }
+
+test("G4 winning inputs activate only directed dependencies without copying producer terms or destinations", () => {
+  const current = fixture();
+  const source = current.variable(0);
+  const binder = current.variable(1);
+  const next = current.variable(2);
+  const type: SourceTypeDescriptor = { kind: "primitive", primitive: "int64" };
+  const destination: SourceTypeDescriptor = { kind: "union", types: [{ kind: "string" }, type] };
+  const term: SourceTypeFlowTerm = { kind: "fixed", site: source.node, type };
+  const original = { ...current.entry(source, term), kind: "open-local" as const, declaredType: destination };
+  const graph: SourceTypeFlowGraph = { ...current.graph([original, current.entry(binder), current.entry(next)]),
+    inferenceInputs: [{ source, target: binder, site: source.node }, { source: binder, target: next, site: binder.node }] };
+  const terms = createSourceTypeFlowTerms(current.ast, graph);
+  const producer = terms.group(source);
+  const selected = terms.group(binder);
+  const forwarded = terms.group(next);
+  assert.equal(producer !== selected && selected !== forwarded && producer !== forwarded, true);
+  assert.equal(selected.terms.length === 0 && forwarded.terms.length === 0 && producer.terms[0] === term &&
+    terms.isInference(source) && terms.isInference(binder) && terms.isInference(next), true,
+    "the original producer solves once before its directed consumers, without a copied numeric/default path");
+  assert.equal(selected.nodes.every(node => node.declaredType === undefined) &&
+    producer.nodes[0]?.declaredType === destination && original.declaredType === destination, true,
+    "later logical destination provenance stays on its original group");
+});
+
+test("C2533 void closure retains the canonical absence role without changing a whole void descriptor", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "type Family<T> = T | void; function inferred<T>(value:T,flag:boolean){return flag?value:undefined;}",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const { ast } = checked;
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The original void union family is required.");
+  const owner = ast.statements(file)[0]!;
+  const binder = ast.typeParameters(owner)[0]!;
+  const family = ast.typeNode(owner)!;
+  const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
+  const parameter: SourceTypeDescriptor = { kind: "declared", declaration: binder, typeArguments: [] };
+  const completion: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "void" };
+  const text: SourceTypeDescriptor = { kind: "string" };
+  assert.equal(sourceTypeDescriptorUnion(unions, [completion]) === completion, true);
+  const open = sourceTypeDescriptorUnion(unions, [parameter, completion], { kind: "authored", node: family });
+  assert.equal(open?.kind === "optional" && open.value === parameter, true);
+  if (open === undefined) throw new Error("The exact original optional family is required.");
+  const projected = substituteSourceTypeDescriptor(ast, open, new Map([[binder, completion]]));
+  assert.equal(projected?.kind === "intrinsic" && projected.intrinsic === "absence", true,
+    "a bound void union role uses the same absence as the explicit void arm");
+  const inferredOwner = ast.statements(file)[1]!;
+  const inferred = sourceTypeDescriptorUnion(unions, [text, completion], { kind: "inferred", node: inferredOwner });
+  assert.equal(inferred?.kind === "optional" && inferred.value === text, true,
+    "inferred and authored union arms use the same canonical admission");
+  sealSourceTypeDescriptorUnions(unions);
+  const normalizer = createSourceTypeDescriptorNormalizer(unions, new Map());
+  const normalize = (type: SourceTypeDescriptor): SourceTypeDescriptor => {
+    const value = normalizer(type);
+    if (value === undefined) throw new Error("The exact void application must normalize.");
+    return freezeSourceTypeDescriptor(value);
+  };
+  const query = createSourceClosedSumQuery(unions, normalize);
+  const record = query({ family, application: [completion] });
+  assert.equal(record?.arms.length === 1 && record.arms[0]?.type.kind === "intrinsic" &&
+    record.arms[0].type.intrinsic === "absence" && record.roles.length === 2 &&
+    record.roles.every(role => role.arms.length === 1 && role.arms[0] === 0), true,
+    "coincident original roles point to one absence arm, never a void payload or a second nullish state");
+  assert.equal(normalize(completion).kind === "intrinsic" && normalize(completion) !== projected, true);
+});
+
+test("C2529 inferred families preserve authored preference, original binders and independent coincident applications", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": 'function first<T>(value:T,flag:boolean){return flag?value:"s";} function second<T>(value:T,flag:boolean){return flag?value:"s";} type Later = number | string;',
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const { ast } = checked;
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The exact original family file is required.");
+  const [first, second, later] = ast.statements(file);
+  if (first === undefined || second === undefined || later === undefined) throw new Error("All original family owners are required.");
+  const conditional = (owner: Node): Node => {
+    const body = ast.body(owner);
+    const returned = body === undefined ? undefined : ast.statements(body)[0];
+    const selected = returned === undefined ? undefined : ast.as.AsReturnStatement(returned)?.Expression;
+    if (selected === undefined) throw new Error("The original conditional producer is required.");
+    return selected;
+  };
+  const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
+  const text: SourceTypeDescriptor = { kind: "string" };
+  const floating: SourceTypeDescriptor = { kind: "primitive", primitive: "float64" };
+  const open = (owner: Node): SourceTypeDescriptor => {
+    const binder = ast.typeParameters(owner)[0];
+    if (binder === undefined) throw new Error("The exact original free binder is required.");
+    const value = sourceTypeDescriptorUnion(unions, [text, { kind: "declared", declaration: binder, typeArguments: [] }],
+      { kind: "inferred", node: conditional(owner) });
+    if (value === undefined) throw new Error("The original inferred family is required.");
+    return value;
+  };
+  const firstOpen = open(first);
+  const secondOpen = open(second);
+  const firstBinder = ast.typeParameters(first)[0]!;
+  const secondBinder = ast.typeParameters(second)[0]!;
+  const firstClosed = substituteSourceTypeDescriptor(ast, firstOpen, new Map([[firstBinder, floating]]));
+  assert.equal(firstClosed?.kind === "union" && firstClosed.types[0] === text && firstClosed.types[1] === floating, true);
+  const authored = ast.typeNode(later);
+  if (authored === undefined) throw new Error("The later authored declaration is required.");
+  sourceTypeDescriptorUnion(unions, [floating, text], { kind: "authored", node: authored });
+  const firstCoincident = substituteSourceTypeDescriptor(ast, firstOpen, new Map([[firstBinder, text]]));
+  const secondCoincident = substituteSourceTypeDescriptor(ast, secondOpen, new Map([[secondBinder, text]]));
+  assert.equal(firstCoincident === text && secondCoincident === text, true,
+    "metadata never clones a scalar merely to distinguish coincident families");
+  sealSourceTypeDescriptorUnions(unions);
+  const normalizer = createSourceTypeDescriptorNormalizer(unions, new Map());
+  const normalize = (type: SourceTypeDescriptor): SourceTypeDescriptor => {
+    const selected = normalizer(type);
+    if (selected === undefined) throw new Error("The existing sealed application must normalize.");
+    return freezeSourceTypeDescriptor(selected);
+  };
+  const query = createSourceClosedSumQuery(unions, normalize);
+  const firstRecord = query({ family: conditional(first), application: [floating] });
+  assert.equal(firstRecord?.arms[0]?.type.kind === "primitive" && firstRecord.arms[0].type.primitive === "float64" &&
+    firstRecord.arms[1]?.type.kind === "string", true,
+  "the later authored order supersedes encounter order; inferred metadata never registers authored preference");
+  const firstCollapsed = query({ family: conditional(first), application: [text] });
+  const secondCollapsed = query({ family: conditional(second), application: [text] });
+  assert.equal(firstCollapsed !== undefined && secondCollapsed !== undefined && firstCollapsed !== secondCollapsed &&
+    firstCollapsed.roles.every(role => role.arms.length === 1 && role.arms[0] === 0) &&
+    secondCollapsed.roles.every(role => role.arms.length === 1 && role.arms[0] === 0), true);
+  const frozen = normalize(firstOpen);
+  assert.equal(substituteSourceTypeDescriptor(ast, frozen, new Map([[firstBinder, { kind: "primitive", primitive: "uint32" }]])) === undefined, true,
+    "an unseen inferred application remains unavailable after seal");
+  assert.equal(substituteSourceTypeDescriptor(ast, frozen, new Map([[secondBinder, floating]])) === frozen, true,
+    "a distinct original binder cannot bind the first family");
+  assert.equal(sourceTypeDescriptorSum(ast, text) === undefined, true,
+    "coincident scalar lookup cannot choose either family");
+});
 
 test("C2501 nested open family roles are the canonical irreducible Source arm vector before application", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -46,8 +179,8 @@ test("C2501 nested open family roles are the canonical irreducible Source arm ve
   const integer: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
   const parameter: SourceTypeDescriptor = { kind: "declared", declaration: binder, typeArguments: [] };
   const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
-  const nested = sourceTypeDescriptorUnion(unions, [parameter, numeric], inner)!;
-  const open = sourceTypeDescriptorUnion(unions, [text, nested], family)!;
+  const nested = sourceTypeDescriptorUnion(unions, [parameter, numeric], { kind: "authored", node: inner })!;
+  const open = sourceTypeDescriptorUnion(unions, [text, nested], { kind: "authored", node: family })!;
   const closed = substituteSourceTypeDescriptor(ast, open, new Map([[binder, integer]]))!;
   const coincident = substituteSourceTypeDescriptor(ast, open, new Map([[binder, text]]))!;
   sealSourceTypeDescriptorUnions(unions);
@@ -87,7 +220,7 @@ test("C2501 initial duplicate roles deduplicate once and generic coincidence ret
   const absence: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "absence" };
   const parameter: SourceTypeDescriptor = { kind: "declared", declaration: binder, typeArguments: [] };
   const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
-  const open = sourceTypeDescriptorUnion(unions, [text, parameter, text, absence], family)!;
+  const open = sourceTypeDescriptorUnion(unions, [text, parameter, text, absence], { kind: "authored", node: family })!;
   const coincident = substituteSourceTypeDescriptor(ast, open, new Map([[binder, text]]))!;
   sealSourceTypeDescriptorUnions(unions);
   const normalizer = createSourceTypeDescriptorNormalizer(unions, new Map());
@@ -132,10 +265,10 @@ test("C2501 sealed Source sums retain two coincident families and partial origin
   const numeric: SourceTypeDescriptor = { kind: "primitive", primitive: "float64" };
   const integer: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" };
   const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
-  const firstOpen = sourceTypeDescriptorUnion(unions, [text, parameter(firstParameter)], firstFamily)!;
-  const secondOpen = sourceTypeDescriptorUnion(unions, [text, parameter(secondParameter)], secondFamily)!;
-  const partialOpen = sourceTypeDescriptorUnion(unions, [numeric, parameter(partialParameter)], partialFamily)!;
-  const concreteOpen = sourceTypeDescriptorUnion(unions, [text, numeric], concreteFamily)!;
+  const firstOpen = sourceTypeDescriptorUnion(unions, [text, parameter(firstParameter)], { kind: "authored", node: firstFamily })!;
+  const secondOpen = sourceTypeDescriptorUnion(unions, [text, parameter(secondParameter)], { kind: "authored", node: secondFamily })!;
+  const partialOpen = sourceTypeDescriptorUnion(unions, [numeric, parameter(partialParameter)], { kind: "authored", node: partialFamily })!;
+  const concreteOpen = sourceTypeDescriptorUnion(unions, [text, numeric], { kind: "authored", node: concreteFamily })!;
   const firstScalar = substituteSourceTypeDescriptor(ast, firstOpen, new Map([[firstParameter, text]]))!;
   const secondScalar = substituteSourceTypeDescriptor(ast, secondOpen, new Map([[secondParameter, text]]))!;
   const firstClosed = substituteSourceTypeDescriptor(ast, firstOpen, new Map([[firstParameter, numeric]]))!;
@@ -204,7 +337,7 @@ test("C2459 sealed sum identities reject a different program's same-span origina
   const other: SourceTypeDescriptor = { kind: "declared", declaration: foreign.binder, typeArguments: [] };
   assert.equal(sourceTypeDescriptorsEqual(parameter, other), false);
   const unions = createSourceTypeDescriptorUnions(ast, current.checked.programSourceFiles);
-  const open = sourceTypeDescriptorUnion(unions, [{ kind: "string" }, parameter], current.authored);
+  const open = sourceTypeDescriptorUnion(unions, [{ kind: "string" }, parameter], { kind: "authored", node: current.authored });
   if (open === undefined) throw new Error("The original authored sum is required.");
   sealSourceTypeDescriptorUnions(unions);
   assert.equal(substituteSourceTypeDescriptor(ast, open, new Map([[current.binder, other]])) === undefined, true,
@@ -333,7 +466,7 @@ test("C2459 symbolic sums retain authored order through exact original binder su
   const unions = createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles);
   const authored = checked.ast.typeNode(checked.ast.parameters(declarations[0]!)[0]!);
   assert.equal(authored !== undefined && checked.ast.is.IsUnionTypeNode(authored), true);
-  const open = sourceTypeDescriptorUnion(unions, [text, parameter], authored);
+  const open = sourceTypeDescriptorUnion(unions, [text, parameter], authored === undefined ? undefined : { kind: "authored", node: authored });
   assert.equal(open?.kind === "union" && open.types[0] === text && open.types[1] === parameter, true);
   if (open === undefined) throw new Error("The original symbolic sum is required.");
   const closed = substituteSourceTypeDescriptor(checked.ast, open, new Map([[first, floating]]));
@@ -397,10 +530,10 @@ test("C2459 sealing normalizes late earlier families across shared graphs withou
   const floating: SourceTypeDescriptor = { kind: "primitive", primitive: "float64" };
   const parameter: SourceTypeDescriptor = { kind: "declared", declaration: binder, typeArguments: [] };
   const unions = createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles);
-  const late = sourceTypeDescriptorUnion(unions, [floating, text], laterNode);
+  const late = sourceTypeDescriptorUnion(unions, [floating, text], { kind: "authored", node: laterNode });
   if (late === undefined) throw new Error("The later authored union is required.");
   const before = freezeSourceTypeDescriptor(late);
-  const open = sourceTypeDescriptorUnion(unions, [text, parameter], earlierNode);
+  const open = sourceTypeDescriptorUnion(unions, [text, parameter], { kind: "authored", node: earlierNode });
   if (open === undefined) throw new Error("The original earlier symbolic family is required.");
   const bound = substituteSourceTypeDescriptor(checked.ast, open, new Map([[binder, floating]]));
   assert.equal(bound?.kind === "union" && bound.types[0] === text && bound.types[1] === floating, true);

@@ -32,19 +32,12 @@ const shifts = new Set([
 ]);
 
 export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
-  return sourceTypeFlowBroadSlotKind(type) !== undefined;
-}
-
-export function sourceTypeFlowBroadSlotKind(type: SourceTypeDescriptor): "unknown" | "any" | "object" | "void" | undefined {
-  const broad = (type: SourceTypeDescriptor, absorbing: boolean): "unknown" | "any" | "object" | "void" | undefined => {
+  const broad = (type: SourceTypeDescriptor, absorbing: boolean): boolean => {
     const selected = sourceTypeDescriptorStructure(type);
     if (selected.kind === "optional") return broad(selected.value, absorbing);
-    if (selected.kind === "union") {
-      const members = selected.types.map(member => broad(member, true));
-      return members.includes("any") ? "any" : members.includes("unknown") ? "unknown" : undefined;
-    }
+    if (selected.kind === "union") return selected.types.some(member => broad(member, true));
     return selected.kind === "intrinsic" && (selected.intrinsic === "unknown" || selected.intrinsic === "any" ||
-      !absorbing && (selected.intrinsic === "object" || selected.intrinsic === "void")) ? selected.intrinsic : undefined;
+      !absorbing && (selected.intrinsic === "object" || selected.intrinsic === "void"));
   };
   return broad(type, false);
 }

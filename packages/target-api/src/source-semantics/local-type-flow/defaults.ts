@@ -5,7 +5,7 @@ import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.
 import { getSourceCallTypeParameterDeclaration, getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import type { SourceTypeDescriptorUnions } from "./terms.js";
-import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult, type SourceTypeofInput } from "./descriptors.js";
+import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
@@ -20,8 +20,6 @@ import type {
 
 export interface SourceTypeFlowDefaults {
   readonly unionComponents: ReadonlyMap<Node, SourceTypeDescriptor>;
-  readonly numberOrigins: ReadonlyMap<Node, SourceLiteralValue>;
-  readonly typeofInputs: ReadonlyMap<Node, SourceTypeofInput>;
   readonly context: SourceTypeFlowAnalysisContext;
   readonly nodes: readonly Node[];
   readonly values: readonly Node[];
@@ -126,11 +124,6 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (child !== undefined) pending.push({ node: child, typeOnly });
     }
   }
-  const numberOrigins = new Map<Node, SourceLiteralValue>();
-  for (const node of nodes) {
-    const literal = literals.get(node);
-    if (literal?.numeric !== undefined) numberOrigins.set(node, literal);
-  }
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
   const signatureRefusals = sourceTypeFlowRecursiveSignatures(source, nodes);
   const descriptorRefusals = new Map<Node, SourceTypeFlowRefusal>();
@@ -216,12 +209,6 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     declaration => sourceTypeFlowTypeParameters(ast, declaration), (declaration, queries, bindings) =>
       describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))),
     declaration => signatureRefusals.has(declaration));
-  const typeofInputs = new Map<Node, SourceTypeofInput>();
-  for (const node of nodes) {
-    if (!ast.is.IsTypeOfExpression(node)) continue;
-    const input = descriptor.typeofInput(node, semantics.forNode(node));
-    if (input !== undefined) typeofInputs.set(node, input);
-  }
 
   function descriptorValue(result: SourceTypeDescriptorReadResult): SourceTypeDescriptor | undefined {
     if (result.kind === "resolved") return result.type;
@@ -608,7 +595,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const children = ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) if (children[index] !== undefined) syntaxNodes.push(children[index]!);
   }
-  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots, unionComponents, numberOrigins, typeofInputs,
+  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots, unionComponents,
     fixedRule, hasDeclaredSourceType, numericCreationRefusal });
 }
 

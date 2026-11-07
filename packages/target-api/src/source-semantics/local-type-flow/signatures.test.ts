@@ -76,7 +76,7 @@ function graph(
   calls: readonly SourceTypeFlowCall[] = [],
 ): SourceTypeFlowGraph {
   return Object.freeze({ roots: Object.freeze(roots), nodes: Object.freeze(nodes),
-    links: Object.freeze(links), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
+    links: Object.freeze(links), inferenceInputs: Object.freeze([]), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
 }
 
 function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariable): boolean {

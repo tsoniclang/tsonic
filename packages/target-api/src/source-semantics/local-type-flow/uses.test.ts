@@ -150,7 +150,7 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   }
   function graph(): SourceTypeFlowGraph {
     return Object.freeze({ roots: Object.freeze([root!]), nodes: Object.freeze([...nodes]), calls: Object.freeze([...calls]),
-      links: Object.freeze([...links]), derived: Object.freeze([]), refusals: Object.freeze([]) });
+      links: Object.freeze([...links]), inferenceInputs: Object.freeze([]), derived: Object.freeze([]), refusals: Object.freeze([]) });
   }
   function link(source: SourceTypeFlowVariable, target: SourceTypeFlowVariable, site: Node): void {
     links.push(Object.freeze({ source, target, site }));

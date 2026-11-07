@@ -73,6 +73,204 @@ for (const [expression, code, reason] of [
   });
 }
 
+for (const [name, body, select] of [
+  ["multi-return", 'function f<T>(x:T,b:boolean){if(b)return x;return "s";}', "return"],
+  ["array literal elements and defaults326", 'function f<T>(x:T){return [x,"s"];}', "array"],
+  ["nested array defaults326", 'function f<T>(x:T){const values=[x,"s"];const box={values};return box;}', "array"],
+  ["anonymous selected union descriptors535", 'function f<T>(x:T){const values=[x,"s"];return values[0];}', "return"],
+  ["optional input descriptors535", 'function f<T>(x?:T){return x;}', "return"],
+  ["closed await payload awaited60", 'async function f(x:Promise<number>|Promise<string>){return await x;}', "await"],
+  ["broad object array construction literal158", 'function f<T>(x:T):object{return [x,"s"];}', "construction"],
+  ["broad unknown array construction literal158", 'function f<T>(x:T):unknown{return [x,"s"];}', "construction"],
+] as const) {
+  test(`C2534 inferred producer ${name} preserves the baseline open Source family`, () => {
+    const current = fixture(body);
+    const { ast } = current.source;
+    const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "f");
+    if (owner === undefined) throw new Error("The original inferred callable is required.");
+    const array = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+    const returned = current.source.effectiveTypes.callableReturn(owner);
+    const arrayOutcome = array === undefined ? undefined : current.source.effectiveTypes.get(array);
+    const awaited = current.nodes.find(node => ast.is.IsAwaitExpression(node));
+    const payload = awaited === undefined ? undefined : current.source.effectiveTypes.get(awaited);
+    const type = select === "construction" ? arrayOutcome !== undefined && arrayOutcome.kind !== "refused" && arrayOutcome.construction?.kind === "array"
+      ? arrayOutcome.construction.element : undefined : select === "array" ? arrayOutcome !== undefined && arrayOutcome.kind !== "refused" && arrayOutcome.type.kind === "array"
+      ? arrayOutcome.type.element : undefined : select === "await" ? payload !== undefined && payload.kind !== "refused" ? payload.type : undefined
+      : returned !== undefined && returned.kind !== "refused" ? returned.type : undefined;
+    const sum = type === undefined ? undefined : sourceTypeDescriptorSum(ast, type);
+    const parameter = ast.typeParameters(owner)[0];
+    assert.equal(sum !== undefined && current.source.effectiveTypes.sum(sum.identity) === sum &&
+      (parameter === undefined ? sum.identity.application.length === 0 : sum.identity.application.length === 1 &&
+      sum.identity.application[0]?.kind === "declared" && sum.identity.application[0].declaration === parameter), true,
+    `${name}: the same solved original generic component publishes its authenticated open family`);
+    if (select === "construction") assert.equal(arrayOutcome !== undefined && arrayOutcome.kind !== "refused" &&
+      arrayOutcome.type.kind === "intrinsic" && (arrayOutcome.type.intrinsic === "object" || arrayOutcome.type.intrinsic === "unknown"), true,
+    "the physical component family does not replace its broad logical destination");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("C2534 discarded selection checks do not publish an invented result family", () => {
+  const current = fixture("function f<T>(x:T|undefined,y:T|string):void{x??y;}");
+  const { ast } = current.source;
+  const selected = current.nodes.find(node => ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindQuestionQuestionToken");
+  if (selected === undefined) throw new Error("The original discarded selection is required.");
+  assert.equal(current.source.effectiveTypes.get(selected) === undefined, true,
+    "the admission-only join is not published as a new value or result descriptor");
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+for (const [name, body] of [
+  ["annotated", "interface View<T> { accept?(next:T):T; }"],
+  ["inferred", 'class View<T> { accept?(next:T,flag:boolean){if(flag)return next;return "s";} }'],
+] as const) {
+  test(`C2534 ${name} optional method value and completion keep distinct original sum components`, () => {
+    const current = fixture(body);
+    const { ast } = current.source;
+    const declaration = current.nodes.find(node => (ast.kindName(node) === "KindMethodSignature" || ast.is.IsMethodDeclaration(node)) &&
+      ast.text(ast.name(node)) === "accept");
+    if (declaration === undefined) throw new Error("The exact optional method declaration is required.");
+    const value = current.source.effectiveTypes.get(declaration);
+    const returned = current.source.effectiveTypes.callableReturn(declaration);
+    const valueSum = value === undefined || value.kind === "refused" ? undefined : sourceTypeDescriptorSum(ast, value.type);
+    const returnSum = returned === undefined || returned.kind === "refused" ? undefined : sourceTypeDescriptorSum(ast, returned.type);
+    assert.equal(value !== undefined && value.kind !== "refused" && value.type.kind === "optional" &&
+      value.type.value.kind === "callable" && valueSum === undefined && returnSum !== undefined &&
+      current.source.effectiveTypes.sum(returnSum.identity) === returnSum, true,
+    "the declared optional callable head is not a new inferred value producer beside its original completion family");
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("C2534 an inferred array family is formed after the actual later declared destination", () => {
+  const current = fixture(`declare function take<T>(values:(number|T)[]):void;
+    function f<T>(x:T){const values=[x,1];take<T>(values);return values;}`);
+  const { ast } = current.source;
+  const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
+  const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
+  const element = outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" ? outcome.type.element : undefined;
+  const sum = element === undefined ? undefined : sourceTypeDescriptorSum(ast, element);
+  const declaredFamily = current.nodes.find(node => ast.is.IsUnionTypeNode(node));
+  assert.equal(sum !== undefined && sum.identity.family === declaredFamily && sum.arms.some(arm => arm.type.kind === "primitive" &&
+    arm.type.primitive === "float64") && !sum.arms.some(arm => arm.type.kind === "primitive" && arm.type.primitive === "int64"), true,
+  `metadata retains the actual declared-use result, never an earlier provisional integer default: ${JSON.stringify({
+    present: sum !== undefined, literalFamily: sum?.identity.family === literal,
+    family: sum === undefined ? undefined : ast.kindName(sum.identity.family),
+    arms: sum?.arms.map(arm => arm.type.kind === "primitive" ? arm.type.primitive : arm.type.kind),
+    issues: current.source.effectiveTypes.refusals().map(issue => ({ code: issue.code, start: ast.pos(issue.site) })),
+  })}`);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2529 inferred sum family preserves the original generic producer and its actual applications", () => {
+  const current = fixture(`function f<T>(x:T,flag:boolean){const y=flag?x:"s";return y;}
+    function numeric(value: int32, flag: boolean) { return f(value, flag); }
+    function coincident(value: string, flag: boolean) { return f(value, flag); }`);
+  const { ast } = current.source;
+  const producer = current.nodes.find(node => ast.is.IsConditionalExpression(node));
+  const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "f");
+  const outcome = producer === undefined ? undefined : current.source.effectiveTypes.get(producer);
+  const returned = owner === undefined ? undefined : current.source.effectiveTypes.callableReturn(owner);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "union", true);
+  if (outcome === undefined || outcome.kind === "refused" || owner === undefined) throw new Error("The exact inferred producer is required.");
+  const record = sourceTypeDescriptorSum(ast, outcome.type);
+  const parameter = ast.typeParameters(owner)[0];
+  assert.equal(record !== undefined && record.identity.family === producer && record.identity.application.length === 1 &&
+    record.identity.application[0]?.kind === "declared" && record.identity.application[0].declaration === parameter &&
+    current.source.effectiveTypes.sum(record.identity) === record, true,
+  "an inferred family carries its actual producer and original free binder without an authored-order preference");
+  assert.equal(returned !== undefined && returned.kind !== "refused" &&
+    sourceTypeDescriptorSum(ast, returned.type) === record && sourceTypeDescriptorSum(ast, current.type("y")) === record, true,
+  "the one-input return and original local retain the same producer family");
+  const calls = current.nodes.filter(node => ast.is.IsCallExpression(node));
+  assert.equal(calls.length, 2);
+  for (const [index, call] of calls.entries()) {
+    const selected = current.source.effectiveTypes.callInstantiation(call);
+    const binding = selected?.method[0];
+    assert.equal(binding?.declaration === parameter, true);
+    if (binding === undefined || producer === undefined) throw new Error("The original same-call application is required.");
+    const closed = current.source.effectiveTypes.sum({ family: producer, application: [binding.type] });
+    assert.equal(closed !== undefined && closed.identity.family === producer && closed.arms.length === (index === 0 ? 2 : 1), true,
+    "actual numeric and coincident applications are sealed before any Native consumer");
+    const projected = substituteSourceTypeDescriptor(ast, outcome.type, new Map([[binding.declaration, binding.type]]));
+    assert.equal(projected !== undefined && selected?.result !== undefined && sourceTypeDescriptorsEqual(projected, selected.result), true);
+  }
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("C2529 union receiver call preserves every original member declaration", () => {
+  const current = fixture(`interface Left { invoke(value: number): string | number; }
+    interface Right { invoke(value: number): number | string; }
+    function run(receiver: Left | Right) { return receiver.invoke(1); }`);
+  const { ast } = current.source;
+  const originals = current.nodes.filter(node => ast.is.IsMethodSignatureDeclaration(node));
+  const read = current.nodes.find(node => ast.is.IsPropertyAccessExpression(node));
+  const receiver = read === undefined ? undefined : ast.as.AsPropertyAccessExpression(read)?.Expression;
+  const outcome = receiver === undefined ? undefined : current.source.effectiveTypes.get(receiver);
+  assert.equal(originals.length, 2);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "union", true);
+  if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "union") throw new Error("The actual union receiver is required.");
+  const members = outcome.type.types.map(type => sourceTypeDescriptorStructure(type)).flatMap(type => type.kind === "shape" ? type.members : []);
+  assert.equal(members.length, 2);
+  assert.equal(originals.every(declaration => members.some(member => member.origin.kind === "declared" &&
+    member.origin.declaration === declaration)), true,
+  "same-named members keep both distinct original declarations rather than merging by physical shape");
+  for (const member of members) {
+    const callable = sourceTypeDescriptorStructure(member.type);
+    const result = callable.kind === "callable" ? callable.calls[0]?.result : undefined;
+    const sum = result === undefined ? undefined : sourceTypeDescriptorSum(ast, result);
+    assert.equal(sum !== undefined && current.source.effectiveTypes.sum(sum.identity) === sum && sum.arms.length === 2, true,
+    "each original member result carries its own authenticated declared family");
+  }
+  const invocation = current.nodes.find(node => ast.is.IsCallExpression(node));
+  const issues = current.source.effectiveTypes.refusals();
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0]?.site === invocation && issues[0]?.code === "TSONIC_LOCAL_TYPE_GENERIC" &&
+    issues[0].reason === "The pinned generic declaration cannot establish one exact source instantiation. Annotate the arguments or provide explicit type arguments.", true,
+  "both exact member facts survive the existing union-call result refusal; this is not a claim of call admission");
+});
+
+test("C2529 profile rest and optional sum parameter retains original component", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/profile.d.ts": "export declare function collect<T>(first?: string | T, ...rest: (T | string)[]): string | T;",
+    "/src/index.ts": 'import { collect } from "./profile.js"; export function run(value: number) { return collect<number>(undefined, value); }',
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
+  const source = createTargetSourceProgram(checked);
+  const profile = checked.getSourceFile("/src/profile.d.ts");
+  const file = checked.getSourceFile("/src/index.ts");
+  if (profile === undefined || file === undefined) throw new Error("The exact profile and project files are required.");
+  const nodes: Node[] = [];
+  const pending: Node[] = [profile, file];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    nodes.push(node);
+    pending.push(...source.ast.children(node).filter((child): child is Node => child !== undefined));
+  }
+  const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.getSourceFile(node) === profile);
+  const parameters = owner === undefined ? [] : source.ast.parameters(owner);
+  assert.equal(parameters.length, 2);
+  const invocation = nodes.find(node => source.ast.is.IsCallExpression(node));
+  const selected = invocation === undefined ? undefined : source.effectiveTypes.callInstantiation(invocation);
+  const signature = selected?.call.sourceSelectedSignatureParameters;
+  assert.equal(signature?.[0]?.acceptsOmission === true && signature[0].rest === false && signature[1]?.rest === true &&
+    signature.every((parameter, index) => parameter.parameterDeclaration === parameters[index]) && selected?.parameters.length === 2, true,
+  "the profile's optionality/rest roles retain their exact original parameter declarations");
+  const sums = nodes.filter(node => source.ast.is.IsUnionTypeNode(node));
+  assert.equal(sums.length, 3);
+  for (const node of sums) {
+    const outcome = source.effectiveTypes.get(node);
+    const record = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorSum(source.ast, outcome.type);
+    assert.equal(record?.identity.family === node && record.identity.application.length === 1 &&
+      record.identity.application[0]?.kind === "declared" && owner !== undefined &&
+      record.identity.application[0].declaration === source.ast.typeParameters(owner)[0] && record.arms.length === 2 &&
+      source.effectiveTypes.sum(record.identity) === record && outcome !== undefined && outcome.kind !== "refused" &&
+      outcome.provenance.component?.authoredTypeNode === node && outcome.construction === undefined, true,
+    "each original profile component is published as declaration evidence, never reconstructed from a call's backing Type");
+  }
+  assert.equal(source.effectiveTypes.refusals().length, 0);
+});
+
 test("C32 unbound constructions retain ordinary exact call fills and C24 signature closure", () => {
   const current = fixture(`declare function arrays(value: number[]): void;
     declare function fields(value: { count: number }): void;
@@ -5306,171 +5504,100 @@ test("F3 original explicit union arguments retain their already published declar
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("C2520 typeof inputs retain original nullish constituents through aliases, calls and narrowed reads", () => {
-  const current = fixture(`function through(value: number | null | undefined): number | null | undefined { return value; }
-    function generic<T>(value: T): string { return typeof value; }
-    function run(value: number | null | undefined, missing: undefined, empty: null, opaque: unknown): void {
-      void typeof missing;
-      void typeof empty;
-      void typeof value;
-      const alias = value; void typeof alias;
-      void typeof through(value);
-      if (value !== undefined) { void typeof value; }
-      if (value != null) { void typeof value; }
-      void typeof opaque;
-    }`);
-  const { ast } = current.source;
-  const defaults = createSourceTypeFlowAnalysisContext(current.source, current.unions);
-  const inputs = [...defaults.typeofInputs.values()];
-  assert.deepEqual(inputs.map(input => input.admission), ["unavailable", "undefined-only", "null-only", "both",
-    "both", "both", "null-only", "none", "unavailable"]);
-  assert.equal(inputs.every(input => Object.isFrozen(input) && ast.is.IsTypeOfExpression(input.operation) &&
-    ast.as.AsTypeOfExpression(input.operation)?.Expression === input.operand &&
-    current.source.semantics.forNode(input.operation).types.expressionType(input.operand) === input.selectedType), true,
-  "the one pre-erasure owner keeps exact original operation, operand and factual selected type");
-  const missing = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)!) === "missing");
-  const empty = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)!) === "empty");
-  const absent = missing === undefined ? undefined : current.source.effectiveTypes.get(missing);
-  const nullish = empty === undefined ? undefined : current.source.effectiveTypes.get(empty);
-  assert.equal(absent !== undefined && absent.kind !== "refused" && nullish !== undefined && nullish.kind !== "refused" &&
-    absent.type.kind === "intrinsic" && absent.type.intrinsic === "absence" &&
-    sourceTypeDescriptorsEqual(absent.type, nullish.type), true,
-  "original nullish admission never creates a second logical/native absence carrier");
-});
-
-test("C2503 typeof publication is operation-owned before scalar, sum and nullish erasure", () => {
-  const current = fixture(`type Authored = string | number;
-    function scalar(): string { const own = 1; return typeof own; }
-    function authored(value: Authored): string { return typeof value; }
-    function inferred(flag: boolean): string { const selected = flag ? 1 : "text"; return typeof selected; }
-    function nullish(value: number | null | undefined): string { return typeof value; }
-    type Expanded<T> = boolean | T;
-    function expanded(value: Expanded<string | number>): string { return typeof value; }`);
-  const { ast } = current.source;
-  const operations = current.nodes.filter(node => ast.is.IsTypeOfExpression(node));
-  assert.equal(operations.length, 5);
-  const observations = operations.map(operation => {
-    const operand = ast.as.AsTypeOfExpression(operation)!.Expression!;
-    const outcome = current.source.effectiveTypes.get(operand);
-    const type = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
-    const sum = type === undefined ? undefined : sourceTypeDescriptorSum(ast, type);
-    return { kind: outcome?.kind, type: type?.kind, sum: sum !== undefined, roles: sum?.roles.length,
-      arms: sum?.arms.length, relation: sum?.roles.map(role => ({ role: role.role, arms: role.arms })) };
-  });
-  assert.equal("typeofCategory" in current.source.effectiveTypes, true,
-    `the Host publishes the original operation and pre-erasure provenance: ${JSON.stringify(observations)}`);
-});
-
-test("C2505 number erasure uses the same absorbing broad-slot classifier through aliases", () => {
-  for (const [spelling, integer, refused] of [
-    ["unknown | string", "9007199254740993", true],
-    ["unknown | string", "1152921504606846976", false],
-    ["unknown | undefined", "9007199254740993", true],
-    ["unknown | undefined", "1152921504606846976", false],
-  ] as const) {
-    const current = fixture(`type Broad = ${spelling}; function run(): void {
-      const original = ${integer}; const erased: Broad = original; void erased;
-    }`);
-    const { ast } = current.source;
-    const declaration = current.declaration("erased");
-    const original = current.declaration("original");
-    const initializer = ast.as.AsVariableDeclaration(declaration)!.Initializer!;
-    const fact = current.source.effectiveTypes.slotAdmission(initializer);
-    const retained = current.source.effectiveTypes.get(original);
-    assert.equal(retained !== undefined && retained.kind !== "refused" && retained.type.kind === "primitive" &&
-      retained.type.primitive === "int64", true, "the native producer never follows an erasure destination");
-    assert.equal(refused ? fact?.kind === "refused" && fact.refusal.code === "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT"
-      : fact?.kind === "admitted" && fact.conversion.kind === "exact-number-erasure" &&
-        fact.conversion.result.kind === "primitive" && fact.conversion.result.primitive === "float64", true,
-    `${spelling}/${integer}: absorption is a slot property, not a descriptor rewrite`);
-    assert.equal(current.source.effectiveTypes.refusals().length, refused ? 1 : 0);
-  }
-});
-
-test("C2503 number erasure refuses the inexact original alias use without retargeting its native binding", () => {
+test("C2504 object construction publishes only its actual unannotated initializer principal", () => {
   const current = fixture(`function run(): void {
-    const original = 9007199254740993;
-    const alias = original;
-    const erased: unknown = alias;
-    void erased;
+    const direct = { value: 1 };
+    const annotated: { value: number } = { value: 1 };
+    const outer = { nested: { value: 1 } };
+    const unrelated = direct;
+    void direct; void annotated; void outer; void unrelated;
   }`);
+  const direct = current.declaration("direct");
+  const literal = current.source.ast.as.AsVariableDeclaration(direct)!.Initializer!;
+  const outcome = current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && "principal" in outcome.provenance, true,
+    "the Host publishes the exact literal-to-unannotated-principal relation, not Native AST gating");
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.principal?.declaration === direct &&
+    outcome.provenance.principal.initializer === literal && Object.isFrozen(outcome.provenance.principal), true);
   const { ast } = current.source;
-  const erased = current.declaration("erased");
-  const read = ast.as.AsVariableDeclaration(erased)!.Initializer!;
-  const issues = current.source.effectiveTypes.refusals();
-  assert.equal(issues.some(issue => String(issue.code) === "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT" && issue.site === read), true,
-    "the exact erasure occurrence requires the Host's original integer exactness proof");
-  for (const name of ["original", "alias"]) {
-    const type = current.type(name);
-    assert.equal(type.kind === "primitive" && type.primitive === "int64", true,
-      `${name}: erasure admission cannot retype the retained native integer binding`);
+  const annotated = ast.as.AsVariableDeclaration(current.declaration("annotated"))!.Initializer!;
+  const nested = current.nodes.find(node => ast.is.IsObjectLiteralExpression(node) &&
+    ast.parent(node) !== undefined && ast.is.IsPropertyAssignment(ast.parent(node)!));
+  const unrelated = ast.as.AsVariableDeclaration(current.declaration("unrelated"))!.Initializer!;
+  for (const node of [annotated, nested, unrelated]) {
+    const selected = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(selected !== undefined && selected.kind !== "refused" && selected.provenance.principal === undefined, true,
+      "an authored destination, nested literal or unrelated alias cannot acquire the direct principal association");
   }
-});
-
-test("C2503 exact number erasure is occurrence-bound and preserves explicit wide and native hot-path identities", () => {
-  const current = fixture(`declare function opaque(value: unknown): void;
-    function run(): void {
-      const original = 1152921504606846976;
-      const alias = original;
-      const erased: unknown = alias;
-      opaque(alias);
-      const negative = -1152921504606846976;
-      const erasedNegative: unknown = negative;
-      const zero = -0;
-      const erasedZero: unknown = zero;
-      const wide: int64 = 9007199254740993n;
-      const erasedWide: unknown = wide;
-      const fraction = 1.25;
-      const erasedFraction: unknown = fraction;
-      const retained = 9007199254740993;
-      void erased; void erasedNegative; void erasedZero; void erasedWide; void erasedFraction; void retained;
-    }`);
-  const { ast } = current.source;
-  for (const [name, producer] of [["erased", "original"], ["erasedNegative", "negative"], ["erasedZero", "zero"]]) {
-    const declaration = current.declaration(name!);
-    const read = ast.as.AsVariableDeclaration(declaration)!.Initializer!;
-    const origin = ast.as.AsVariableDeclaration(current.declaration(producer!))!.Initializer!;
-    const fact = current.source.effectiveTypes.slotAdmission(read);
-    assert.equal(fact?.kind === "admitted" && fact.use === read && fact.slot === declaration &&
-      fact.value.kind === "primitive" && fact.value.primitive === "int64" &&
-      fact.conversion.kind === "exact-number-erasure" && fact.conversion.origin === origin &&
-      fact.conversion.result.kind === "primitive" && fact.conversion.result.primitive === "float64" &&
-      Object.isFrozen(fact) && Object.isFrozen(fact.conversion), true,
-    `${name}: exact original integer evidence permits only this use's float64 erasure`);
-  }
-  for (const name of ["erasedWide", "erasedFraction"]) {
-    const read = ast.as.AsVariableDeclaration(current.declaration(name))!.Initializer!;
-    const fact = current.source.effectiveTypes.slotAdmission(read);
-    assert.equal(fact?.kind === "admitted" && fact.conversion.kind === "identity", true,
-      `${name}: an explicit bigint-origin or existing float64 value requires no erasure transform`);
-  }
-  const call = current.nodes.find(node => ast.is.IsCallExpression(node));
-  const argument = call === undefined ? undefined : ast.arguments(call)[0];
-  assert.equal(argument !== undefined && current.source.effectiveTypes.slotAdmission(argument)?.kind === "admitted", true,
-    "ordinary argument admission uses the same canonical slot publication");
-  for (const name of ["original", "alias", "negative", "zero", "retained", "wide"]) {
-    const type = current.type(name);
-    assert.equal(type.kind === "primitive" && type.primitive === "int64", true,
-      `${name}: neither an exact erasure nor the unavailable erasure case rewrites native storage`);
-  }
+  const foreign = fixture("const direct = { value: 1 }; void direct;");
+  const foreignLiteral = foreign.source.ast.as.AsVariableDeclaration(foreign.declaration("direct"))!.Initializer!;
+  assert.equal(current.source.effectiveTypes.get(foreignLiteral) === undefined, true,
+    "same-spelled foreign Nodes carry no principal association in this program");
+  const principal = current.source.effectiveTypes.get(direct);
+  assert.equal(principal !== undefined && principal.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+    sourceTypeDescriptorsEqual(principal.type, outcome.type), true);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("C2503 nonconstant number erasure refuses instead of adding a hidden runtime exactness test", () => {
-  const current = fixture(`function run(): void {
-    let original = 1; original += 1;
-    const erased: unknown = original;
-    void erased;
-  }`);
-  const declaration = current.declaration("erased");
-  const read = current.source.ast.as.AsVariableDeclaration(declaration)!.Initializer!;
-  const fact = current.source.effectiveTypes.slotAdmission(read);
-  const issue = current.source.effectiveTypes.refusals().find(issue => issue.site === read);
-  assert.equal(issue?.code === "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT" && fact?.kind === "refused" &&
-    fact.refusal === issue && fact.slot === declaration && current.source.effectiveTypes.get(read) === issue, true,
-  "the same precise Source refusal owns the exact use and admission record");
-  const type = current.type("original");
-  assert.equal(type.kind === "primitive" && type.primitive === "int64", true);
+for (const [name, body] of [
+  ["argument", `function accept<T>(values: (string | T)[]): (string | T)[] { return values; }
+    export function run() { const values = ["text", 9007199254740993]; return accept(values); }`],
+  ["callback", `function call<T>(make: () => (string | T)[]): (string | T)[] { return make(); }
+    export function run() { return call(() => { const values = ["text", 9007199254740993]; return values; }); }`],
+] as const) {
+  test(`C2504 winning ${name} contributions link original aggregate subjects without a checked-width seed`, () => {
+    const current = fixture(body);
+    const { ast } = current.source;
+    const call = current.nodes.find(node => ast.is.IsCallExpression(node) && ast.typeArguments(node).length === 0 &&
+      ast.arguments(node).length > 0);
+    if (call === undefined) throw new Error("The original value-producing invocation is required.");
+    const evidence = current.source.semantics.forNode(call).operations.call(call)?.sourceInferenceContributions;
+    assert.equal(evidence?.kind === "available" && evidence.contributions.length > 0, true,
+      "the exact winning Legacy transaction supplies a complete factual contribution vector");
+    const instance = current.source.effectiveTypes.callInstantiation(call);
+    assert.equal(instance?.method.length === 1 && instance.method[0]?.type.kind === "primitive" &&
+      instance.method[0].type.primitive === "int64", true,
+    `${name}: the actual Source integer component, not selected checker number, supplies original T`);
+    const array = current.source.effectiveTypes.get(current.declaration("values"));
+    const retained = array === undefined || array.kind === "refused" ? undefined : sourceTypeDescriptorStructure(array.type);
+    const result = instance?.result === undefined ? undefined : sourceTypeDescriptorStructure(instance.result);
+    const element = retained?.kind === "array" ? sourceTypeDescriptorStructure(retained.element) : undefined;
+    const returned = result?.kind === "array" ? sourceTypeDescriptorStructure(result.element) : undefined;
+    const exact = (type: SourceTypeDescriptor | undefined): boolean => type?.kind === "union" && type.types.length === 2 &&
+      type.types.some(member => member.kind === "string") &&
+      type.types.some(member => member.kind === "primitive" && member.primitive === "int64");
+    assert.equal(exact(element) && exact(returned), true,
+      `${name}: same actual allocation and call result close together: ${JSON.stringify({
+        allocation: element?.kind === "union" ? element.types.map(member => member.kind === "primitive" ? member.primitive : member.kind) : element?.kind,
+        result: returned?.kind === "union" ? returned.types.map(member => member.kind === "primitive" ? member.primitive : member.kind) : returned?.kind,
+      })}`);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  });
+}
+
+test("G4 winning inputs preserve authored arguments, declared producers and canonical fixed-peer guards", () => {
+  for (const [name, body, expected] of [
+    ["declared number", "const values: (string | number)[] = [\"text\", 1]; return accept(values);", "float64"],
+    ["declared native", "const value: int32 = 1; const values = [\"text\", value]; return accept(values);", "int32"],
+    ["explicit native", "const values = [\"text\", 1]; return accept<int32>(values);", "int32"],
+    ["written float", "const values = [\"text\", 1.5]; return accept(values);", "float64"],
+    ["later declared use", "const values = [\"text\", 1]; needNumber(values); return accept(values);", "float64"],
+  ] as const) {
+    const current = fixture(`declare function needNumber(values: (string | number)[]): void;
+      function accept<T>(values: (string | T)[]): (string | T)[] { return values; }
+      function run() { ${body} }`);
+    const { ast } = current.source;
+    const call = current.nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node)?.Expression) === "accept");
+    const instance = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
+    assert.equal(instance?.method.length === 1 && instance.method[0]?.type.kind === "primitive" &&
+      instance.method[0].type.primitive === expected, true, `${name}: the exact actual source authority survives`);
+    const published = call === undefined ? undefined : current.source.effectiveTypes.get(call);
+    const result = published === undefined || published.kind === "refused" ? undefined : sourceTypeDescriptorStructure(published.type);
+    assert.equal(result?.kind === "array" && result.element.kind === "union" &&
+      result.element.types.some(member => member.kind === "primitive" && member.primitive === expected), true,
+      `${name}: the original value-demanded call publishes its exact closed Source result`);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  }
 });
 
 test("C2503 method values publish the exact occurrence, selected method and proven alias principal", () => {
