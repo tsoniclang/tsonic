@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Expression, ObjectLiteralProperty_Value } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/ast.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
@@ -158,9 +158,14 @@ export function publishSourceLiteralMetadata(
     const construction = !broad ? undefined : ast.is.IsObjectLiteralExpression(node) ? object(node) : array(node);
     if (construction?.kind === "refused") { outcomes.set(node, construction); return construction; }
     const memberCorrespondence = sourceLiteralMemberCorrespondence(context, node, type, retainedFill(node));
+    const owner = ast.parent(node);
+    const principal = ast.is.IsObjectLiteralExpression(node) && owner !== undefined && ast.is.IsVariableDeclaration(owner) &&
+      Node_Initializer(ast, owner) === node && ast.typeNode(owner) === undefined
+      ? Object.freeze({ declaration: owner, initializer: node }) : undefined;
     const selected = Object.freeze({ ...outcome,
       ...(construction === undefined ? {} : { construction: freezeSourceTypeDescriptor(construction) }),
       ...(memberCorrespondence === undefined ? {} : { memberCorrespondence }),
+      ...(principal === undefined ? {} : { provenance: Object.freeze({ ...outcome.provenance, principal }) }),
     });
     outcomes.set(node, selected);
     return selected;

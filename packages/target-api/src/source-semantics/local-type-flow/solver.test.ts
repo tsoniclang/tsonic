@@ -4868,6 +4868,41 @@ test("C2388 receiver writes keep the retained fixed argument's binder path", () 
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
+test("C2504 object construction publishes only its actual unannotated initializer principal", () => {
+  const current = fixture(`function run(): void {
+    const direct = { value: 1 };
+    const annotated: { value: number } = { value: 1 };
+    const outer = { nested: { value: 1 } };
+    const unrelated = direct;
+    void direct; void annotated; void outer; void unrelated;
+  }`);
+  const direct = current.declaration("direct");
+  const literal = current.source.ast.as.AsVariableDeclaration(direct)!.Initializer!;
+  const outcome = current.source.effectiveTypes.get(literal);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && "principal" in outcome.provenance, true,
+    "the Host publishes the exact literal-to-unannotated-principal relation, not Native AST gating");
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.principal?.declaration === direct &&
+    outcome.provenance.principal.initializer === literal && Object.isFrozen(outcome.provenance.principal), true);
+  const { ast } = current.source;
+  const annotated = ast.as.AsVariableDeclaration(current.declaration("annotated"))!.Initializer!;
+  const nested = current.nodes.find(node => ast.is.IsObjectLiteralExpression(node) &&
+    ast.parent(node) !== undefined && ast.is.IsPropertyAssignment(ast.parent(node)!));
+  const unrelated = ast.as.AsVariableDeclaration(current.declaration("unrelated"))!.Initializer!;
+  for (const node of [annotated, nested, unrelated]) {
+    const selected = node === undefined ? undefined : current.source.effectiveTypes.get(node);
+    assert.equal(selected !== undefined && selected.kind !== "refused" && selected.provenance.principal === undefined, true,
+      "an authored destination, nested literal or unrelated alias cannot acquire the direct principal association");
+  }
+  const foreign = fixture("const direct = { value: 1 }; void direct;");
+  const foreignLiteral = foreign.source.ast.as.AsVariableDeclaration(foreign.declaration("direct"))!.Initializer!;
+  assert.equal(current.source.effectiveTypes.get(foreignLiteral) === undefined, true,
+    "same-spelled foreign Nodes carry no principal association in this program");
+  const principal = current.source.effectiveTypes.get(direct);
+  assert.equal(principal !== undefined && principal.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+    sourceTypeDescriptorsEqual(principal.type, outcome.type), true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
 test("C2388 parameter names publish their already solved declaration descriptor", () => {
   const current = fixture(`declare function map(values: number[], callback: (value: number, index: int32) => number): number[];
     function run(offset: number): number[] { return map([1, 2], (value, index) => index + offset); }`);

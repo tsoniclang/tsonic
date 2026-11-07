@@ -51,6 +51,10 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isNonPrimitive: (type) => hasFlags(type, TypeFlagsNonPrimitive),
         isVoidLike: (type) => hasFlags(type, TypeFlagsVoidLike) || hasFlags(type, TypeFlagsVoid),
         isNullish: (type) => hasFlags(type, TypeFlagsNull) || hasFlags(type, TypeFlagsUndefined),
+        intrinsicNullishFlags: (type) => Object.freeze({
+            null: hasFlags(type, TypeFlagsNull),
+            undefined: hasFlags(type, TypeFlagsUndefined),
+        }),
         isStringLike: (type) => hasFlags(type, TypeFlagsStringLike),
         isNumberLike: (type) => hasFlags(type, TypeFlagsNumberLike),
         isBooleanLike: (type) => hasFlags(type, TypeFlagsBooleanLike),

@@ -101,6 +101,10 @@ export interface SourceEffectiveTypeProvenance {
   readonly group: Node;
   readonly occurrence: Node;
   readonly sourceFile: SourceFile;
+  readonly principal?: {
+    readonly declaration: Node;
+    readonly initializer: Node;
+  };
   readonly filledBy?: Node;
   readonly component?: {
     readonly declaration?: Node;

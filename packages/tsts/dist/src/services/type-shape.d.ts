@@ -60,6 +60,10 @@ export interface CreateTypeShapeQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
 }
+export interface TypeIntrinsicNullishFlags {
+    readonly null: boolean;
+    readonly undefined: boolean;
+}
 export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
@@ -75,6 +79,7 @@ export interface TypeShapeQueries {
     readonly isNonPrimitive: (type: GoPtr<Type>) => boolean;
     readonly isVoidLike: (type: GoPtr<Type>) => boolean;
     readonly isNullish: (type: GoPtr<Type>) => boolean;
+    readonly intrinsicNullishFlags: (type: GoPtr<Type>) => TypeIntrinsicNullishFlags;
     readonly isStringLike: (type: GoPtr<Type>) => boolean;
     readonly isNumberLike: (type: GoPtr<Type>) => boolean;
     readonly isBooleanLike: (type: GoPtr<Type>) => boolean;
