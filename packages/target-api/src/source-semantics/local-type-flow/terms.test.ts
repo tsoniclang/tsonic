@@ -711,3 +711,36 @@ for (const kind of ["array", "shape"] as const) {
     assert.equal(open.isInference(container), true);
   });
 }
+
+test("member literals keep otherwise-equal shapes apart through equality, union dedup, freezing and substitution (D-2, R6)", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "type Step<V> = { kind: \"done\"; value: V };",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const { ast } = checked;
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The original generic family is required.");
+  const owner = ast.statements(file)[0]!;
+  const binder = ast.typeParameters(owner)[0]!;
+  const unions = createSourceTypeDescriptorUnions(ast, checked.programSourceFiles);
+  const shape = (literals: readonly string[] | undefined, value: SourceTypeDescriptor = { kind: "primitive", primitive: "int32" }): SourceTypeDescriptor => ({
+    kind: "shape", indexes: [], calls: [], constructs: [], members: [
+      { name: "kind", optional: false, type: { kind: "string" }, origin: { kind: "declared", declaration: owner },
+        ...(literals === undefined ? {} : { literals: literals.map(text => ({ kind: "string" as const, value: text })) }) },
+      { name: "value", optional: false, type: value, origin: { kind: "declared", declaration: owner } }] });
+  const left = shape(["left"]), right = shape(["right"]), again = shape(["left"]), erased = shape(undefined);
+  assert.equal(sourceTypeDescriptorsEqual(left, right), false, "different discriminator literals");
+  assert.equal(sourceTypeDescriptorsEqual(left, erased), false, "a literal member is not its erased base");
+  assert.equal(sourceTypeDescriptorsEqual(left, again), true);
+  assert.equal(sourceTypeDescriptorsEqual(shape(["a", "b"]), shape(["b", "a"])), true, "a literal set, not a sequence");
+  const union = sourceTypeDescriptorUnion(unions, [left, right, again]);
+  assert.equal(union?.kind === "union" && union.types.length === 2 && union.types[0] === left && union.types[1] === right, true,
+    "the canonical dedup keeps both literal arms in encounter order and folds the genuine duplicate");
+  const frozen = freezeSourceTypeDescriptor(unions, left);
+  const member = frozen.kind === "shape" ? frozen.members[0] : undefined;
+  assert.equal(Object.isFrozen(member?.literals) && member?.literals?.[0]?.value === "left", true);
+  const generic = shape(["done"], { kind: "declared", declaration: binder, typeArguments: [] });
+  const applied = createSourceTypeDescriptorNormalizer(unions, new Map([[binder, { kind: "primitive", primitive: "int32" } as const]]))(generic);
+  assert.equal(applied !== undefined && sourceTypeDescriptorsEqual(applied, shape(["done"])), true, "substitution keeps the literal");
+  assert.equal(applied !== undefined && sourceTypeDescriptorsEqual(applied, shape(["more"])), false);
+});

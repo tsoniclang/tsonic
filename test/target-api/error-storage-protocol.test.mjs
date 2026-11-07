@@ -30,7 +30,7 @@ async function checked(name) {
     `,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const provider = projectSourceFile(source, "src/provider.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);

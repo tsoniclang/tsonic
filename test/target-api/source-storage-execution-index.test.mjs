@@ -13,7 +13,7 @@ function fixture(body) {
     files: { "/src/index.ts": `export {}; ${body}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary authored source checks without execution annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   assert.equal(budget.failure() === undefined, true, "checked execution construction fits its original bounds");

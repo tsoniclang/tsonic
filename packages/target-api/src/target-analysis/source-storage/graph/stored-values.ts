@@ -2,6 +2,7 @@ import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysi
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/ast.js";
+import { sourceNodeHasRole } from "../../../source-navigation/callable-boundaries.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
@@ -120,9 +121,7 @@ export function createSourceStorageFormalMemberWrites(
           if (initialized && !preserved(statement)) return false;
         }
       }
-      if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) || ast.is.IsArrowFunction(parent) ||
-        ast.is.IsMethodDeclaration(parent) || ast.is.IsConstructorDeclaration(parent) ||
-        ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent)) return false;
+      if (sourceNodeHasRole(ast, parent, "execution-barrier")) return false;
       let reached = false;
       let unchanged = true;
       forEachSourceImmediateEvaluationChild(ast, parent, child => {

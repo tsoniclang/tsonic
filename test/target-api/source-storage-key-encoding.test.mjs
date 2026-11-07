@@ -98,7 +98,7 @@ test("scoped transition encoding preserves shared term DAGs within one finite re
     "/src/index.ts": "export {}; function selected() { return selected; } selected();",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the key subjects belong to an actual checked source");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const declaration = source.ast.statements(file).find(source.ast.is.IsFunctionDeclaration);
   const invocation = source.ast.statements(file).find(source.ast.is.IsExpressionStatement);

@@ -123,7 +123,7 @@ export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaratio
   build.step(declaration);
   const selected = build.source.facts.selections.resource(declaration);
   const declarationKind = build.source.ast.variableDeclarationKind(declaration);
-  if (selected === undefined || selected.declaration !== declaration ||
+  if (selected === undefined || "kind" in selected || selected.declaration !== declaration ||
     (declarationKind !== "using" && declarationKind !== "await using") || selected.async !== (declarationKind === "await using")) {
     throw new SourceFlowFailure("Source flow requires the exact Host resource selection of this using declaration.", declaration);
   }

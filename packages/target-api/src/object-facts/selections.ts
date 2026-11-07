@@ -5,9 +5,10 @@ import type { SourceInstantiationFacts, SourceRefusal, SourceTypeOutcome, Source
 import type {
   SourceCallSelection, SourceCompletionSelection, SourceGeneratorSelection, SourceIterationSelection,
   SourceMemberAccessSelection, SourceObjectLiteralElementSelection, SourceResourceSelection, SourceSelectionFacts,
-  SourceStorageSelection,
+  SourceCallParameter, SourceResourceAlternative, SourceStorageSelection, SourceYieldSelection,
 } from "../public/source/selections.js";
 import type { SourceTypeDescriptor } from "../source-semantics/local-type-flow/types.js";
+import { sourceTypeDescriptorStructure } from "../source-semantics/local-type-flow/terms.js";
 import type { HostCheckerInput, HostWitnessRefusal } from "../host-input/objects.js";
 
 export interface SourceSelectionInput {
@@ -65,11 +66,11 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     if (witness.kind === "refused") { const refused = raise(sourceRefusalOfWitness(witness)); calls.set(use, refused); return refused; }
     const instantiation = instantiations.at(use);
     if (instantiation?.kind === "refused") { const refused = raise(instantiation); calls.set(use, refused); return refused; }
-    const parameters: SourceTypeDescriptor[] = [];
-    for (const [index, declaration] of witness.parameterDeclarations.entries()) {
-      const selected = instantiation?.parameters[index] ?? typeOf(declaration);
+    const parameters: SourceCallParameter[] = [];
+    for (const [index, parameter] of witness.parameters.entries()) {
+      const selected = instantiation?.parameters[index] ?? typeOf(parameter.declaration);
       if (isRefusal(selected)) { const refused = raise(selected); calls.set(use, refused); return refused; }
-      parameters.push(selected);
+      parameters.push(Object.freeze({ declaration: parameter.declaration, kind: parameter.kind, name: parameter.name, type: selected }));
     }
     const result = instantiation?.result ?? typeOf(use);
     if (isRefusal(result)) { const refused = raise(result); calls.set(use, refused); return refused; }
@@ -82,6 +83,8 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
       overloadIndex: witness.overloadIndex,
       ...(witness.receiver === undefined ? {} : { receiver: witness.receiver }),
       arguments: witness.arguments,
+      signatureParameters: Object.freeze(witness.parameters.map(parameter =>
+        Object.freeze({ declaration: parameter.declaration, kind: parameter.kind }))),
       parameters: Object.freeze(parameters),
       result,
       optionalChain: witness.optionalChain,
@@ -161,7 +164,8 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
   };
 
   const completion = (callable: Node): SourceCompletionSelection | undefined => {
-    if (ast.body(callable) === undefined) return undefined;
+    const reachability = witnesses.completion(callable);
+    if (reachability === undefined) return undefined;
     const returned = values.callableReturn(callable);
     if (returned.kind === "refused") return undefined;
     const asynchronous = ast.hasModifierKind(callable, "async");
@@ -170,12 +174,37 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
       callable,
       kind: generating ? asynchronous ? "async-generator" : "generator" : asynchronous ? "async" : "sync",
       result: returned.type,
+      canFallThrough: reachability.canFallThrough,
     });
   };
 
-  const resource = (declaration: Node): SourceResourceSelection | undefined => {
+  const resources = new WeakMap<Node, SourceResourceSelection | SourceRefusal | null>();
+  /**
+   * A `using` declaration: one alternative per present arm of its Host type (Host arm order). Each arm is paired with the
+   * checker alternative whose selected dispose member is a member of that arm (facts.objects members by declaration);
+   * a single arm with a single alternative pairs directly. An unpaired arm or alternative is an invariant failure.
+   */
+  const resource = (declaration: Node): SourceResourceSelection | SourceRefusal | undefined => {
+    const known = resources.get(declaration);
+    if (known !== undefined) return known ?? undefined;
     const witness = witnesses.resource(declaration);
-    return witness === undefined ? undefined : Object.freeze({ declaration, async: witness.async, dispose: witness.dispose });
+    if (witness === undefined) { resources.set(declaration, null); return undefined; }
+    if (witness.kind === "refused") { const refused = raise(sourceRefusalOfWitness(witness)); resources.set(declaration, refused); return refused; }
+    const declared = typeOf(declaration);
+    if (isRefusal(declared)) { const refused = raise(declared); resources.set(declaration, refused); return refused; }
+    const arms = presentArms(declared);
+    const alternatives: SourceResourceAlternative[] = arms.map(arm => {
+      const candidates = witness.alternatives.length === 1 && arms.length === 1 ? witness.alternatives
+        : witness.alternatives.filter(alternative => armDeclaresMember(arm, alternative.dispose));
+      const kinds = new Set(candidates.map(candidate => candidate.kind));
+      if (candidates.length === 0 || kinds.size !== 1) {
+        throw new Error("A resource arm requires exactly one selected disposal kind (checker alternatives vs Host arms).");
+      }
+      return Object.freeze({ type: arm, kind: candidates[0]!.kind, dispose: candidates[0]!.dispose });
+    });
+    const selection: SourceResourceSelection = Object.freeze({ declaration, async: witness.async, alternatives: Object.freeze(alternatives) });
+    resources.set(declaration, selection);
+    return selection;
   };
 
   const storage = (expression: Node): SourceStorageSelection | undefined => {
@@ -184,16 +213,57 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     const type = typeOf(witness.storageExpression);
     return isRefusal(type) ? undefined : Object.freeze({
       expression, storageExpression: witness.storageExpression,
-      ...(witness.declaration === undefined ? {} : { declaration: witness.declaration }), type,
+      ...(witness.declaration === undefined ? {} : { declaration: witness.declaration }), type, writable: witness.writable,
+    });
+  };
+
+  const yieldSelection = (expression: Node): SourceYieldSelection | SourceRefusal | undefined => {
+    const witness = witnesses.yield(expression);
+    if (witness === undefined) return undefined;
+    const delegated = witness.delegation;
+    if (delegated?.kind === "refused") return raise(sourceRefusalOfWitness(delegated));
+    if (witness.kind === "delegate" && (delegated === undefined || witness.operand === undefined)) {
+      throw new Error("A yield* expression requires its operand and delegated iteration protocol.");
+    }
+    // The delegated values flow into the delegating generator's yield slot: that slot is the element.
+    let delegation: SourceIterationSelection | undefined;
+    if (delegated !== undefined && witness.operand !== undefined) {
+      const iterable = typeOf(witness.operand);
+      if (isRefusal(iterable)) return raise(iterable);
+      const outer = generator(witness.generator);
+      if (outer === undefined) throw new Error("A yield* expression requires its generator selection.");
+      delegation = Object.freeze({ statement: expression, protocol: delegated.protocol, iterable, element: outer.yieldType,
+        ...(delegated.iteratorMethod === undefined ? {} : { iteratorMethod: delegated.iteratorMethod }) });
+    }
+    return Object.freeze({
+      expression, generator: witness.generator, kind: witness.kind,
+      ...(witness.operand === undefined ? {} : { operand: witness.operand }),
+      ...(delegation === undefined ? {} : { delegation }),
     });
   };
 
   return Object.freeze({
-    call, memberAccess, objectLiteralElement, iteration, generator, completion, resource, storage,
+    call, memberAccess, objectLiteralElement, iteration, generator, completion, resource, storage, yield: yieldSelection,
     wellKnownSymbol: (node: Node) => witnesses.wellKnownSymbol(node),
     pointerOperation: input.pointerOperation,
     refusals: () => Object.freeze([...raised]),
   });
+}
+
+/** The present (non-absent, non-never) arms of a descriptor, in Host arm order. */
+function presentArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
+  const structure = sourceTypeDescriptorStructure(type);
+  if (structure.kind === "optional") return presentArms(structure.value);
+  if (structure.kind === "union") return structure.types.flatMap(presentArms);
+  return structure.kind === "intrinsic" && (structure.intrinsic === "absence" || structure.intrinsic === "void" ||
+    structure.intrinsic === "never") ? [] : [type];
+}
+
+/** Whether a member of the arm's structure (own or inherited, as published on the descriptor) is `declaration`. */
+function armDeclaresMember(arm: SourceTypeDescriptor, declaration: Node): boolean {
+  const structure = sourceTypeDescriptorStructure(arm);
+  return structure.kind === "shape" && structure.members.some(member =>
+    member.origin.kind === "declared" && member.origin.declaration === declaration);
 }
 
 /** The node whose value type is the element: the for-of binding, the spread element itself, or the yield* operand. */

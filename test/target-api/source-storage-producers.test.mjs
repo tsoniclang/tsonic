@@ -18,7 +18,7 @@ async function fixture(name, body, limits = defaultSourceStorageLimits) {
   const checked = await checkedSource(name, { "globals.d.ts": globals, "src/index.ts": `export {}; ${body}` });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact admitted source facts");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, limits);
   const subject = node => {

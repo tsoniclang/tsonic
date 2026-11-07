@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
+import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
@@ -12,7 +12,7 @@ import { cleanMemorySession, memoryCall, memoryDescriptorProperty, memorySession
 function scalar(): TsonicValueMemoryLayoutFact {
   return {
     kind: "value",
-    call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
+    call: {} as Node, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: memoryTestRegistration.providerDeclaration, ...memoryTestRegistration.descriptor },
     byteSize: 4n, byteAlignment: 4n, stride: 4n, fields: [],
   };
@@ -20,8 +20,8 @@ function scalar(): TsonicValueMemoryLayoutFact {
 
 function field(child: TsonicMemoryLayoutFact, byteOffset = 0n): TsonicMemoryFieldLayoutFact {
   return {
-    call: {} as Node, sourceType: {} as Type, selector: {} as Node, selectedDeclaration: {} as Node,
-    fieldType: child.sourceType, fieldLayoutExpression: {} as Node, fieldLayout: child,
+    call: {} as Node, selector: {} as Node, selectedDeclaration: {} as Node,
+    fieldLayoutExpression: {} as Node, fieldLayout: child,
     byteOffset, byteAlignment: child.byteAlignment,
   };
 }

@@ -21,7 +21,7 @@ export function createSourceStorageExecutionRegions(source: SourceAnalysisProgra
   const invocations = new Map<Node, Set<Node>>();
   const invocationRows = budget.createRows();
   let sealed = false;
-  const typeMayBeAbsent = (type: SourceTypeDescriptor): boolean => !step() || sourceAnalysisMayBeAbsent(type);
+  const typeMayBeAbsent = (type: SourceTypeDescriptor): boolean => !step() || sourceAnalysisMayBeAbsent(source.ast, type);
   const callable = (declaration: Node, invocation: Node | undefined,
     argumentTypes?: (expression: Node) => readonly SourceTypeDescriptor[] | undefined, callback?: SourceStorageCallbackEntry,
     actualTypes?: readonly (readonly SourceTypeDescriptor[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {

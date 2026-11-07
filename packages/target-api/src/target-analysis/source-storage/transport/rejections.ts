@@ -111,7 +111,7 @@ export function createSourceStorageRejections(source: SourceAnalysisProgram, bud
     const awaitExpression = ast.parent(operand);
     const awaited = type === undefined || awaitExpression === undefined || !ast.is.IsAwaitExpression(awaitExpression)
       ? undefined : sourceAnalysisValueType(source, awaitExpression);
-    if (type !== undefined && awaited !== undefined && !sourceStorageIsOpenType(type) &&
+    if (type !== undefined && awaited !== undefined && !sourceStorageIsOpenType(ast, type) &&
       !sourceStorageTypeHasTypeVariables(type, ast) && sourceStorageTypesEqual(type, awaited)) return origins;
     const producers = selected === undefined ? undefined : queries.originsFor(selected);
     if (producers === undefined) refuse("Awaited rejection storage requires a completed checked value origin.");

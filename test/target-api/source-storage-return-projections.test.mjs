@@ -29,7 +29,7 @@ const pending = asynchronous();
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length === 0 && checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "/src/index.ts");
   const declaration = name => namedDeclaration(source.ast, file, name);
   const returned = (node, projection = [], selected = source) => sourceStorageSubjectType(selected,

@@ -97,7 +97,7 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
     }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const selectedDeclaration = (call) => {
         const selected = source.navigation.call(call);
         return selected?.selection === "resolved" ? selected.signature : undefined;

@@ -3,7 +3,13 @@ import test from "node:test";
 import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import { cleanMemorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
-import { createTsonicPointerStorageRelation } from "./storage-relation.js";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
+import type { SourceStorageQueries } from "@tsonic/target-api/analysis";
+import { tsonicCoreAnalysisKey } from "../analysis/host-analyses.js";
+
+// The relation as published: facts.analyses.extension(tsonicCoreAnalysisKey).pointerStorage(storage) (K-2662).
+const createTsonicPointerStorageRelation = (source: HostSourceProgram, storage: SourceStorageQueries) =>
+  source.facts.analyses.extension(tsonicCoreAnalysisKey).pointerStorage(storage);
 
 function fixture(text: string) {
   const checked = cleanMemorySession(`

@@ -6,9 +6,48 @@ import { type Node } from "@tsonic/tsts";
 
 import { analyzeSourcePropertyNames } from "./semantics-property-names.js";
 
-import { targetSourceSyntaxProgram } from "../target-analysis/source-syntax.js";
+import { targetSourceSyntaxProgram, type TargetSourceSyntaxProgram } from "../target-analysis/source-syntax.js";
+
+import type { SourcePropertyNameSelection } from "../source-semantics/property-names-model.js";
+
+import type { TargetSourceProgramFacts } from "../public/source/index.js";
+
+import type { HostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 
 import { checked } from "../../../../test/target-api/fixtures/source-semantics/property-names-fixtures.mjs";
+
+/** The target handle of this Host program (the createTargetSourceProgram projection), so identities stay comparable. */
+function targetHandle(source: HostSourceProgramFixture): TargetSourceProgramFacts {
+  return Object.freeze({ facts: source.facts, documents: source.documents, sourceFiles: source.sourceFiles,
+    syntax: source.ast, sourceFacts: source.sourceFacts });
+}
+
+/**
+ * Whether the target's published name (facts.analyses.propertyName) is the publication of the Host selection: the
+ * same kind, name and constant (the identical frozen string/numeric constant; an enum member by declaration and value),
+ * the same unique-symbol declaration, the same refusal. A frozen record, read twice as the identical record.
+ */
+function publishes(syntax: TargetSourceSyntaxProgram, node: Node, selection: SourcePropertyNameSelection): boolean {
+  const published = syntax.propertyNames.get(node);
+  if (published === undefined || published !== syntax.propertyNames.get(node) || !Object.isFrozen(published)) return false;
+  switch (selection.kind) {
+    case "resolved": {
+      if (published.kind !== "resolved" || published.name !== selection.name) return false;
+      const constant = selection.constant;
+      return constant.kind === "enum-member"
+        ? published.constant.kind === "enum-member" && published.constant.declaration === constant.entry.declaration &&
+          published.constant.value === constant.entry.value
+        : published.constant === constant;
+    }
+    case "well-known-symbol":
+      return published.kind === "well-known-symbol" &&
+        published.symbol === `Symbol.${selection.symbol.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())}`;
+    case "unique-symbol":
+      return published.kind === "unique-symbol" && published.declaration === selection.declaration;
+    case "rejected":
+      return published.kind === "rejected" && published.reason === selection.reason && published.failure === selection.failure;
+  }
+}
 
 test("already checked literal aliases retain exact keys without an alias-length restriction", () => {
   const aliases = Array.from({ length: 12 }, (_, index) =>
@@ -75,8 +114,11 @@ export function read(value: Storage<number>): number { return value; }
   const entry = semantics.propertyNames.entries[0]!;
   const checkedName = semantics.operations.propertyName(entry.node);
   assert.equal(semantics.propertyNames.issues.length, 0, "a checked phantom type key has no native storage obligation");
-  assert.equal(entry.selection.kind === "unique-symbol" && entry.selection.type === checkedName?.type, true,
-    "the source-only contract retains its actual unique checked type, not a fake string or well-known symbol");
+  const storage = source.navigation.nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "storage");
+  assert.equal(checkedName?.kind === "unique-symbol" && storage !== undefined && entry.selection.kind === "unique-symbol" &&
+    entry.selection.declaration === storage, true,
+    "the source-only contract retains the declaration of its unique symbol, not a fake string or well-known symbol");
   assert.equal(Object.isFrozen(entry.selection), true, "the identity selection is immutable");
 });
 
@@ -247,24 +289,24 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
   let sealed = false;
   let reads = 0;
   const index = analyzeSourcePropertyNames(source.ast, [{ sourceFile: file, semantics: {
-    operations: semantics.operations,
-    declarations: semantics.declarations,
-    types: { ...semantics.types, expressionType(node: Node) {
+    operations: { ...semantics.operations, propertyName(node: Node) {
       assert.equal(sealed, false, "a sealed lookup cannot read the checker");
       reads += 1;
-      return semantics.types.expressionType(node);
+      return semantics.operations.propertyName(node);
     } },
-  } }], source.navigation, source.semantics.enumConstants)[0]!.propertyNames;
+    declarations: semantics.declarations,
+    types: semantics.types,
+  } }], source.navigation, source.enums)[0]!.propertyNames;
   sealed = true;
   const entry = index.entries[0]!;
-  assert.equal(reads, 1, "one source literal type selection");
+  assert.equal(reads, 1, "one member-name selection witness for the one computed key");
   for (let indexOfRead = 0; indexOfRead < 10; indexOfRead += 1) {
     assert.equal(index.get(entry.node) === entry.selection, true, "published reader is a stable pure lookup");
   }
   assert.equal(reads, 1, "published reads performed no extra selection");
-  const syntax = targetSourceSyntaxProgram(source);
+  const syntax = targetSourceSyntaxProgram(targetHandle(source));
   const original = semantics.propertyNames.entries[0]!;
-  assert.equal(syntax.propertyNames.get(original.node) === original.selection, true, "backend consumes the identical admitted evidence");
+  assert.equal(publishes(syntax, original.node, original.selection), true, "backend consumes the published admitted evidence");
 });
 
 test("missing raw property declarations refuse keys without reentering file construction", () => {
@@ -322,7 +364,7 @@ test("property-key publication inventories each syntax occurrence and completes 
     }
     return undefined;
   } } };
-  const index = analyzeSourcePropertyNames(ast, [{ sourceFile: file, semantics: source.semantics.forFile(file) }], source.navigation, source.semantics.enumConstants)[0]!.propertyNames;
+  const index = analyzeSourcePropertyNames(ast, [{ sourceFile: file, semantics: source.semantics.forFile(file) }], source.navigation, source.enums)[0]!.propertyNames;
   assert.equal(index.issues.length, 0, "the exact native key survives all ordinary typed aliases");
   const selected = index.entries.find(entry => source.ast.is.IsComputedPropertyName(entry.node))!.selection;
   assert.equal(selected.kind === "resolved" && selected.constant.kind === "numeric" &&
@@ -374,10 +416,10 @@ export const text = "actual" as unknown as "asserted";
     wide.constant.token.coefficient === 9007199254740993n, true, "the foreign native scalar does not round through checked Number");
   assert.equal(computed[1]!.selection.kind === "resolved" && computed[1]!.selection.name === "5", true,
     "a genuine foreign literal assertion retains its exact checked declaration identity");
-  const syntax = targetSourceSyntaxProgram(source);
+  const syntax = targetSourceSyntaxProgram(targetHandle(source));
   for (const entry of computed) {
     assert.equal(index.get(entry.node) === entry.selection, true, "the per-file index is one immutable occurrence lookup");
-    assert.equal(syntax.propertyNames.get(entry.node) === entry.selection, true, "publication forwards the identical completed selection");
+    assert.equal(publishes(syntax, entry.node, entry.selection), true, "publication forwards the completed selection");
   }
   assert.equal(Object.isFrozen(index), true, "foreign facts are validated before per-file publication");
 });
@@ -393,7 +435,7 @@ export const result = [{ [kept]: 1 }, { [alias]: 2 }, { [bad]: 3 }];
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
   assert.deepEqual(index.entries.map(entry => entry.selection.kind), ["resolved", "resolved", "rejected"]);
   assert.equal(index.issues.length, 1, "only the actual forged enum value is refused");
-  const member = source.semantics.enumConstants.entries.find(entry => entry.kind === "resolved" && entry.value === 5n)!;
+  const member = source.enums.entries.find(entry => entry.kind === "resolved" && entry.value === 5n)!;
   for (const entry of index.entries.slice(0, 2)) {
     assert.equal(entry.selection.kind === "resolved" && entry.selection.constant.kind === "enum-member" &&
       entry.selection.constant.entry === member, true, "each assertion/alias keeps the identical canonical enum entry");

@@ -33,7 +33,7 @@ function fixture() {
       const arrow = (): boolean => true;
     ` } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "real source fixture checks without compensating type annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(value => source.ast.getFileName(value) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const nodes = [];

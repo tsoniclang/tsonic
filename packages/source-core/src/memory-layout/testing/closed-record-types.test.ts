@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
+import { readTsonicMemoryLayout } from "../readers.js";
+import { readTsonicMemoryType } from "../type-contract/facts.js";
+import { selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
 import { checkedRecords, recordIdentity, recordLayouts, recordPrelude } from "./closed-record-fixtures.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 
 test("independently authored inline child records retain exact field/layout memory identity", () => {
   const checked = checkedRecords(`
@@ -34,7 +39,10 @@ test("independently authored inline child records retain exact field/layout memo
   const raw = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "torawptr"));
   assert.ok(raw?.kind === "resolved");
   assert.equal(raw.memoryType, field.identity);
-  assert.ok(raw.operation.pointeeType !== layout.sourceType);
+  // Distinct named record types share one memory identity but keep distinct Host descriptors (K-2662).
+  const record = createTsonicHostRecords(createHostSourceProgramFixture(checked)).memory.rawLocation(memoryCall(checked, "torawptr"));
+  assert.ok(record?.kind === "resolved");
+  assert.ok(!sourceTypeDescriptorsEqual(record.pointee, record.layout.type));
 });
 
 for (const [name, declarations, first, second] of [

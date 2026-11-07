@@ -4,7 +4,7 @@ import { formatDiagnostics } from "@tsonic/tsts";
 
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 
-import { readTsonicMemoryType } from "../../public/facts.js";
+import { readTsonicMemoryType } from "../type-contract/facts.js";
 
 import { assertMemoryDiagnostics, memorySession } from "./fixtures.js";
 

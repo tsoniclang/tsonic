@@ -4,7 +4,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type {
   SourceAnalysisExtension, SourceAnalysisFacts, SourceAnalysisHost, SourceAnalysisKey, SourceCallOnlyAliasRecord,
-  SourcePropertyName, SourcePropertyNameIssue,
+  SourceLexicalCaptureSelection, SourcePropertyName, SourcePropertyNameIssue,
 } from "../public/source/analyses.js";
 import type { SourceHeritageEdge } from "../public/source/objects.js";
 import type { HostSourceProgram } from "../source-semantics/types.js";
@@ -17,6 +17,7 @@ import { sourceBindingCapturedBeforeFirstWrite, sourceBindingCapturedBeforeIniti
 import { sourceCallableDefinitionIsDiscarded } from "../source-navigation/expression-use.js";
 import { sourceCallableValueParameters } from "../source-navigation/callable-parameters.js";
 import { sourceExpressionCallArgument } from "../source-navigation/callable-arguments.js";
+import { createSourceLexicalCaptureQuery } from "../source-navigation/lexical-captures.js";
 import { sourceAnnotationHint } from "../source-navigation/annotation-hints.js";
 import { selectSourceNativeValueGuard } from "../source-semantics/native-value-guards.js";
 import { sourceInterfaceRepresentationBase } from "../source-semantics/interface-representations.js";
@@ -29,6 +30,7 @@ import { defaultSourceStorageLimits } from "./source-storage/model/resource-budg
 import { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
 import { createSourceDeclarationOwnershipQuery } from "./ownership/query.js";
 import { analyzeSourceDeclarationGenericAdoption } from "./ownership/generic-adoption.js";
+import type { SourcePlatformFacts } from "../source-semantics/platform-model.js";
 
 /** Host-internal: open the opaque handle an extension factory receives. Exported only from `@tsonic/target-api/host`. */
 export function hostSourceProgramOfAnalysisHost(host: SourceAnalysisHost): HostSourceProgram {
@@ -47,6 +49,7 @@ export function createSourceAnalysisKey<T>(id: string): SourceAnalysisKey<T> {
 export function createSourceAnalysisFacts(
   owner: () => HostSourceProgram,
   extensions: readonly SourceAnalysisExtension<unknown>[],
+  platform: SourcePlatformFacts,
 ): SourceAnalysisFacts {
   const registered = new Map<string, SourceAnalysisExtension<unknown>>();
   for (const extension of extensions) {
@@ -57,6 +60,7 @@ export function createSourceAnalysisFacts(
   let integers: SourceIntegerRangeQueries | undefined;
   let aliases: ((declaration: Node) => ReturnType<ReturnType<typeof createSourceCallOnlyAliasQuery>>) | undefined;
   let switches: ((switchStatement: Node) => boolean) | undefined;
+  let lexicalCaptures: ((owner: Node) => SourceLexicalCaptureSelection) | undefined;
   let names: { readonly get: WeakMap<Node, SourcePropertyName>; readonly issues: readonly SourcePropertyNameIssue[] } | undefined;
   const aliasRecords = new WeakMap<Node, SourceCallOnlyAliasRecord | null>();
   const bases = new WeakMap<Node, SourceHeritageEdge | null>();
@@ -84,7 +88,10 @@ export function createSourceAnalysisFacts(
       const index = host.propertyNames(sourceFile);
       for (const entry of index.entries) get.set(entry.node, publishPropertyName(entry.selection));
       for (const issue of index.issues) {
-        issues.push(Object.freeze({ node: issue.node, reason: issue.reason, failure: issue.failure }));
+        issues.push(Object.freeze({
+          code: issue.failure === "resource" ? "TSONIC_COMPILER_RESOURCE_LIMIT" as const : "TSONIC_COMPUTED_PROPERTY_NAME_NOT_PROVEN" as const,
+          node: issue.node, reason: issue.reason, failure: issue.failure,
+        }));
       }
     }
     names = Object.freeze({ get, issues: Object.freeze(issues) });
@@ -92,6 +99,8 @@ export function createSourceAnalysisFacts(
   };
 
   const facts: SourceAnalysisFacts = {
+    // E24 (N5): the composition root's premise, published unchanged (the same object).
+    platform,
     integerRange: (expression: Node) => integerQueries().range(expression),
     exactInt32Remainders: () => integerQueries().exactInt32Remainders,
     integerIsNonnegative(expression: Node): boolean {
@@ -131,6 +140,13 @@ export function createSourceAnalysisFacts(
       const host = owner();
       const parameters = sourceCallableValueParameters(host.ast, declaration, host.navigation);
       return parameters === undefined ? undefined : Object.freeze([...parameters]);
+    },
+    lexicalCaptures(captureOwner: Node): SourceLexicalCaptureSelection {
+      if (lexicalCaptures === undefined) {
+        const host = owner();
+        lexicalCaptures = createSourceLexicalCaptureQuery(host.ast, host.navigation);
+      }
+      return lexicalCaptures(captureOwner);
     },
     callArgument(expression: Node) {
       const host = owner();

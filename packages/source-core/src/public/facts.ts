@@ -21,8 +21,6 @@ export {
   tsonicCoreNativePointerProviderNames,
 } from "../pointers/provider-declarations.js";
 export type { SourceNativePointerProviderNames } from "../pointers/provider-declarations.js";
-export { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
-export type { TsonicNativePointerOperationFact } from "../pointers/facts.js";
 export {
   sourceSafetySignatureIds,
   tsonicCoreSafetyProviderNames,
@@ -41,10 +39,6 @@ export type {
   TsonicSafetyMemberKind,
   TsonicUnsafeContextFact,
 } from "../safety/facts.js";
-export { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
-export type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
-export { selectTsonicFixedArray } from "../fixed-arrays/selection.js";
-export type { TsonicFixedArraySelection, TsonicFixedArraySyntax } from "../fixed-arrays/selection.js";
 export { tsonicCompileTimeFactKey } from "../compile-time/facts.js";
 export type { TsonicCompileTimeFact } from "../compile-time/facts.js";
 export {
@@ -53,49 +47,32 @@ export {
   tsonicFixedArrayProviderMember,
 } from "../fixed-arrays/provider.js";
 export type { TsonicFixedArrayProviderMember } from "../fixed-arrays/provider.js";
-export { tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../memory-layout/facts.js";
+// Memory and pointer facts reach targets only as Host records (I1, K-2662): the Legacy witness keys, fact types and
+// readers are source-core-internal. The data layout fact is checker-free (ABI identity and descriptor values).
+export { tsonicDataLayoutFactKey, dataLayoutsEqual } from "../memory-layout/facts.js";
 export type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity, TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
+export type { TsonicDataLayoutFact } from "../memory-layout/facts.js";
+export type { TsonicAddressIntegerDomain } from "../pointers/raw-memory/facts.js";
+export { countTsonicMemoryLayoutRecordValues } from "../analysis/host-records.js";
 export type {
-  TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact,
-  TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
-} from "../memory-layout/facts.js";
-export { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
-export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
-export {
-  readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
-  readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
-  countTsonicMemoryLayoutValues, isFinalizedMemoryLayoutFacts,
-} from "../memory-layout/readers.js";
+  TsonicRejectedRecord, TsonicTypedOperand, TsonicMemoryFixedArrayRecord, TsonicMemoryFieldRecord,
+  TsonicValueMemoryLayoutRecord, TsonicArrayMemoryLayoutRecord, TsonicMemoryLayoutRecord, TsonicRawLocationRecord,
+  TsonicReinterpretRecord, TsonicRawAddressRecord, TsonicLayoutObservationRecord, TsonicKeepAliveRecord, TsonicMemoryFacts,
+  TsonicMemoryFieldBindingRecord, TsonicMemoryRecordBindingRecord, TsonicMemoryBindings, TsonicPointerViewRecord,
+  TsonicNativePointerRecord, TsonicPointerFacts, TsonicRawAddressRejection, TsonicNativePointerRejection,
+} from "../analysis/host-records.js";
 export type {
   TsonicPointerStorageOperation, TsonicPointerStorageProducer, TsonicPointerStorageIssue,
   TsonicPointerStorageSelection, TsonicPointerStorageRelation,
 } from "../pointers/storage-relation.js";
 export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
-export { selectTsonicRawLocationOperation, selectTsonicRawLocationFacts } from "../pointers/raw-memory/selection.js";
-export type { TsonicRawLocationFactsSelection } from "../pointers/raw-memory/selection.js";
-export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
-export { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../memory-layout/type-contract/facts.js";
-export type { TsonicMemoryTypeFact, TsonicMemoryTypeIdentity } from "../memory-layout/type-contract/facts.js";
-export { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
-export type { TsonicPointerViewFact } from "../pointers/views/facts.js";
-export { selectTsonicPointerView } from "../pointers/views/selection.js";
-export type { TsonicPointerViewSelection } from "../pointers/views/selection.js";
-export { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../memory-layout/bindings/facts.js";
-export type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "../memory-layout/bindings/facts.js";
-export { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding,
-  selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../memory-layout/bindings/selection.js";
-export type { TsonicMemoryBindingSelection } from "../memory-layout/bindings/selection.js";
 export { foldTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy, TsonicProviderPointerSelection,
   TsonicProviderPointerShape } from "../pointers/provider-return-evidence.js";
-export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
-export { sameBackingLayout } from "../pointers/backing/layout-equality.js";
 // Program analyses are published as facts.analyses.extension(tsonicCoreAnalysisKey); their factories are Host-internal.
 export { tsonicCoreAnalysisKey, tsonicClosedArrayStorageValueBudget } from "../analysis/host-analyses.js";
 export type { TsonicCoreSourceAnalyses } from "../analysis/host-analyses.js";
-export type { TsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
-export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
 export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
 export type {
   TsonicPointerBackingOrigin, TsonicPointerBackingIssue,

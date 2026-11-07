@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createHostSourceProgramFixture } from "../../../host-program-fixtures.js";
-import { selectTsonicMemoryFieldBindingFacts,
-  selectTsonicMemoryRecordBindingFacts, selectTsonicRawLocationFacts } from "../../../public/facts.js";
-import { createTsonicMemoryBindingFactsIndex } from "../usage.js";
+import { selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../selection.js";
+import { selectTsonicRawLocationFacts } from "../../../pointers/raw-memory/selection.js";
 import { tsonicRawMemoryOperationFactKey } from "../../../pointers/raw-memory/facts.js";
 import { tsonicMemoryTypeFactKey } from "../../type-contract/facts.js";
 import { memoryCall, memoryCalls } from "../../testing/fixtures.js";
@@ -53,21 +51,6 @@ test("field and record facts preserve selected field order without legacy domain
     selected.operation.layout.fields[1]!.selectedDeclaration, true);
   assert.equal(selected.operation.fields[1]!.binding.field.selectedDeclaration ===
     selected.operation.layout.fields[0]!.selectedDeclaration, true);
-});
-
-test("the structural binding index keeps exact bound fields without legacy domain reads", () => {
-  const checked = bindingSession(boundRecordSource);
-  const source = createHostSourceProgramFixture(checked);
-  const facts = structuralFacts(checked.sourceFacts);
-  const selected = selectTsonicMemoryRecordBindingFacts(checked.ast, facts, memoryCall(checked, "bindmemoryrecord"));
-  assert.equal(selected?.kind, "resolved");
-  if (selected?.kind !== "resolved") return;
-  const index = createTsonicMemoryBindingFactsIndex({ ...source, sourceFacts: facts });
-  assert.equal(index.issues.length, 0);
-  for (const { binding } of selected.operation.fields) {
-    assert.equal(index.hasBoundField([binding.field.selectedDeclaration]), true);
-    assert.equal(index.hasBoundField([binding.pointerExpression]), false);
-  }
 });
 
 test("structural raw selection still rejects a changed selected layout operand", () => {

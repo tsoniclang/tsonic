@@ -2,6 +2,9 @@
 // Keys are declaration Nodes, never checker Symbols (I1). Grouped by purpose, not by the old functions.
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use-model.js";
+import type { SourceValueInput, SourceValueInputSlot } from "../../source-navigation/expression-use.js";
+
+export type { SourceValueInput, SourceValueInputSlot };
 import type {
   SourceDeclarationUse,
   SourceDeclarationUseSummary,
@@ -62,8 +65,13 @@ export interface SourceExpressionRoles {
   valueFlow(expression: Node): SourceExpressionValueFlowSummary;
   resultUse(expression: Node): "consumed" | "discarded";
   resultDisposition(expression: Node): SourceExpressionResultDisposition;
-  /** Evaluation inputs in evaluation order: call, `new`, tagged template, sequence operands. */
-  valueInputs(expression: Node): readonly Node[];
+  /**
+   * Evaluation inputs of an expression in evaluation order, each with its slot (operand, condition, branch, receiver,
+   * callee, element ...). undefined when the expression is not an evaluation owner (a leaf).
+   */
+  valueInputs(expression: Node): readonly SourceValueInput[] | undefined;
+  /** Evaluation inputs of a statement or construct (declaration, return, throw, loop, class ...) with their slots. */
+  constructInputs(owner: Node): readonly SourceValueInput[];
   /** Operand of parentheses / non-null / satisfies / type assertions that does not change the value. */
   transparentOperand(expression: Node): Node;
   /** Operand stability: true when re-reading the operand yields the same value without effects. */

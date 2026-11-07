@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
 
 export function sourceStatementAlwaysExits(
   ast: AstReader,
@@ -40,7 +40,7 @@ export function sourceNodeIsNativeUnreachable(
   for (let current = node; remaining > 0;) {
     remaining -= 1;
     const parent = ast.parent(current);
-    if (parent === undefined || sourceBindingCallableKinds.has(ast.kindName(parent))) return false;
+    if (parent === undefined || sourceNodeHasRole(ast, parent, "execution-barrier")) return false;
     if (ast.is.IsIfStatement(parent)) {
       const statement = ast.as.AsIfStatement(parent);
       const result = statement?.Expression === undefined ? undefined : conditionResult(statement.Expression);

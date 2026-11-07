@@ -1,5 +1,6 @@
+import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import {
-  sourceAnalysisArms, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm, type SourceAnalysisProgram,
+  sourceAnalysisArms, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, type SourceAnalysisProgram,
 } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
@@ -93,7 +94,7 @@ export function createSourceStorageGuardedValues(source: SourceAnalysisProgram, 
       let selected: boolean;
       if (sourceAnalysisIsAbsentArm(member)) selected = true;
       else {
-        if (sourceAnalysisIsOpenArm(member)) return undefined;
+        if (sourceTypeDescriptorOpenness(source.ast, member) === "top") return undefined;
         selected = false;
       }
       if (result !== undefined && selected !== result) return undefined;

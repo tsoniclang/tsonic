@@ -21,7 +21,7 @@ export function run(value: number): void {
 }
 ` });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.slice(0, 4)).slice(0, 2048));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const transfers = [];
   const labels = [];
@@ -57,7 +57,7 @@ test("native Boolean literal guards share exact truth through transparent syntax
   const checked = await checkedSource("native-boolean-literal-guards", { "globals.d.ts": minimalSourceGlobals,
     "src/index.ts": "export function run(flag: boolean): void { if (true) {} if (false) {} if (!(false)) {} if (flag) {} }" });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.slice(0, 4)).slice(0, 2048));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const conditions = [];
   const visit = node => {

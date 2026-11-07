@@ -3,6 +3,7 @@
 // elements from the descriptor structure. No checker Type is read.
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
 import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosing, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import { isSourceCallableSignatureDeclaration } from "../../../source-navigation/callable-boundaries.js";
@@ -10,7 +11,7 @@ import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-
 import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
 import {
   sourceAnalysisCallableResult, sourceAnalysisIncludesFile, sourceAnalysisIsAbsent,
-  sourceAnalysisIsOpenArm, sourceAnalysisIsScalar, sourceAnalysisPresentArms, sourceAnalysisValueType,
+  sourceAnalysisIsScalar, sourceAnalysisPresentArms, sourceAnalysisValueType,
   type SourceAnalysisProgram,
 } from "../../analysis-program.js";
 
@@ -33,8 +34,8 @@ export function sourceStorageIsNeverType(type: Descriptor): boolean {
 }
 
 /** Some present arm is any / unknown (its structure is open). */
-export function sourceStorageIsOpenType(type: Descriptor): boolean {
-  return sourcePresentStorageArms(type).some(sourceAnalysisIsOpenArm);
+export function sourceStorageIsOpenType(ast: Pick<AstReader, "is">, type: Descriptor): boolean {
+  return sourcePresentStorageArms(type).some(arm => sourceTypeDescriptorOpenness(ast, arm) === "top");
 }
 
 /** The present (non-absent, non-never) arms of a storage type. Empty: never present. */
@@ -75,9 +76,16 @@ export function sourceStorageTupleElements(type: Descriptor):
   return arms.length === 0 || tuples.some(tuple => tuple === undefined) ? undefined : tuples.map(tuple => tuple!.elements);
 }
 
-/** The array element of an array type (arrays only, not tuples; checker sourceArrayElementType). */
-export function sourceStorageArrayElementType(type: Descriptor): Descriptor | undefined {
-  return sameComponent(sourcePresentStorageArms(type).map(arm => arrayArm(arm)?.element));
+/** The array element of every present arm (arrays only, not tuples); undefined unless every present arm is an array. */
+function sourceStorageArrayElements(type: Descriptor): readonly Descriptor[] | undefined {
+  const arms = sourcePresentStorageArms(type);
+  const elements = arms.map(arm => arrayArm(arm)?.element);
+  return arms.length === 0 || elements.some(element => element === undefined) ? undefined : elements as Descriptor[];
+}
+
+/** The array element of an array type (checker sourceArrayElementType): the Host join of the per-arm elements. */
+export function sourceStorageArrayElementType(source: Pick<StorageFacts, "facts">, type: Descriptor): Descriptor | undefined {
+  return hostComponent(source, sourceStorageArrayElements(type));
 }
 
 /** Whether every present arm is an array or tuple (checker isArrayLike). */
@@ -86,12 +94,12 @@ export function sourceStorageIsArrayLikeType(type: Descriptor): boolean {
   return arms.length > 0 && arms.every(arm => arrayArm(arm) !== undefined || tupleArm(arm) !== undefined);
 }
 
-// A component of a multi-arm union is defined only when every arm yields the same Host descriptor (B4 D3).
-function sameComponent(components: readonly (Descriptor | undefined)[]): Descriptor | undefined {
-  const first = components[0];
-  if (first === undefined || components.some(component => component === undefined ||
-    !sourceTypeDescriptorsEqual(component, first))) return undefined;
-  return first;
+// The component of a multi-arm storage type (supervisor ruling on B4 D3): every arm must yield a component, and their
+// single descriptor is the Host join (facts.sums.join, the one union builder, I6), never built here.
+function hostComponent(source: Pick<StorageFacts, "facts">, components: readonly (Descriptor | undefined)[] | undefined):
+  Descriptor | undefined {
+  if (components === undefined || components.length === 0 || components.some(component => component === undefined)) return undefined;
+  return source.facts.sums.join(components as Descriptor[]);
 }
 
 /** One member of a storage type, from facts.objects per arm (a union member exists only when every arm has it). */
@@ -116,7 +124,7 @@ export interface SourceStorageMember {
  */
 export function sourceStorageMembers(source: StorageFacts, type: Descriptor): readonly SourceStorageMember[] | undefined {
   const arms = sourcePresentStorageArms(type);
-  if (arms.length === 0 || arms.some(sourceAnalysisIsOpenArm)) return undefined;
+  if (arms.length === 0 || arms.some(arm => sourceTypeDescriptorOpenness(source.ast, arm) === "top")) return undefined;
   const perArm: (readonly { readonly name: string; readonly optional: boolean; readonly readonly: boolean;
     readonly declarations: readonly Node[]; readonly type: Descriptor }[])[] = [];
   for (const arm of arms) {
@@ -142,7 +150,7 @@ export function sourceStorageMembers(source: StorageFacts, type: Descriptor): re
       setters,
       read: getters.length > 0 ? "accessor" : setters.length > 0 ? "unavailable"
         : declarations.some(node => sourceStorageIsMethodMember(node, ast)) ? "method" : "property",
-      type: sameComponent(matches.map(match => match!.type)),
+      type: hostComponent(source, matches.map(match => match!.type)),
     }));
   }
   return Object.freeze(selected);
@@ -263,7 +271,7 @@ export function sourceStorageDynamicMemberDeclarations(source: SourceAnalysisPro
   key: string, mode: "read" | "write", step: () => boolean):
   { readonly type: Descriptor; readonly declarations: readonly Node[] } | undefined {
   const type = sourceStorageSubjectType(source, receiver);
-  if (type === undefined || sourceStorageIsOpenType(type)) return undefined;
+  if (type === undefined || sourceStorageIsOpenType(source.ast, type)) return undefined;
   const members = sourceStorageMembers(source, type);
   if (members === undefined) return undefined;
   const originals = new Set<Node>();
@@ -293,12 +301,12 @@ export function sourceStorageComponentType(source: StorageFacts, type: Descripto
   if (component.kind === "tuple-element") {
     const tuples = sourceStorageTupleElements(type);
     if (tuples === undefined) return undefined;
-    return sameComponent(tuples.map(elements => {
+    return hostComponent(source, tuples.map(elements => {
       const element = elements[component.index];
       return element?.kind === "required" || element?.kind === "optional" ? element.type : undefined;
     }));
   }
-  return sourceStorageArrayElementType(type);
+  return sourceStorageArrayElementType(source, type);
 }
 
 /** The source components a destination component is read from, across a value edge `from` → `to`. */
@@ -327,7 +335,7 @@ export function* sourceStorageComponents(type: Descriptor): Iterable<SourceStora
       if (element.kind === "required" || element.kind === "optional") indexes.add(index);
     }
     for (const index of indexes) yield { kind: "tuple-element", index };
-  } else if (sourceStorageArrayElementType(type) !== undefined)
+  } else if (sourceStorageArrayElements(type) !== undefined)
     yield { kind: "array-element" };
 }
 
@@ -434,7 +442,7 @@ function sourceStorageReceiverType(source: SourceAnalysisProgram, node: Node): D
 export function sourceStorageInstanceType(source: StorageFacts, declaration: Node): Descriptor | undefined {
   const construction = source.facts.objects.construction(declaration);
   if ("kind" in construction) return undefined;
-  return sameComponent(construction.signatures.map(signature => signature.result));
+  return hostComponent(source, construction.signatures.map(signature => signature.result));
 }
 
 /** The projection an element access selects on a storage type (literal tuple position, else the array element). */

@@ -27,7 +27,7 @@ for (const arrow of [false, true]) {
       });
       assert.equal(checked.diagnostics.length, 0, "source is valid without extra annotations");
       assert.equal(checked.extensionDiagnostics.length, 0, "checked source facts are complete");
-      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
       const file = projectSourceFile(source, "src/index.ts");
       const owner = arrow
         ? source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, "accept")).Initializer

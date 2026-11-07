@@ -4,7 +4,9 @@ import { test } from "node:test";
 
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { readTsonicMemoryLayout } from "../readers.js";
+import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../type-contract/facts.js";
+import { selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
 
 import { memoryCall, memoryCalls, memorySession } from "./fixtures.js";
 

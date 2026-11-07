@@ -17,7 +17,7 @@ async function fixture(text, name = "run", limits, globals) {
   const files = { "src/index.ts": text };
   if (globals !== undefined) files["globals.d.ts"] = globals;
   const checked = await checkedSource(`flow-control-${caseNumber++}`, files);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
   const selection = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" }, limits });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
@@ -413,7 +413,7 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
   const checked = createHostSourceProgram(await checkedSource("flow-unsupported-import", {
     "src/index.ts": "function run() { return import('./value.js'); }",
     "src/value.ts": "export const value = 1;",
-  }), { profile: createJsSourceApiFacts });
+  }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const selection = createSourceDeclarationControlFlow(checked, namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"), { domain: { kind: "source" } });
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false);
@@ -470,7 +470,7 @@ test("flow constructor, method and expression-bodied arrow bodies stay separate 
   const source = createHostSourceProgram(await checkedSource("flow-callable-bodies", { "src/index.ts": `
     class Box { constructor(public count: number) { this.count = count; } read() { return this.count; } }
     const arrow = (value: number) => value + 1;
-  ` }), { profile: createJsSourceApiFacts });
+  ` }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const pending = [projectSourceFile(source, "src/index.ts")];
   const declarations = [];
   while (pending.length > 0) {
@@ -545,7 +545,7 @@ test("flow closure capture facts are computed once per exact checked scope", asy
 test("flow budgets include capture-free closure scanning after syntax preflight", async () => {
   const source = createHostSourceProgram(await checkedSource(`flow-capture-budget-${caseNumber++}`, {
     "src/index.ts": `export function run() { return () => { ${"0;".repeat(256)} return 0; }; }`,
-  }), { profile: createJsSourceApiFacts });
+  }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), "run");
   const nodes = new Set();
   const pending = [declaration];

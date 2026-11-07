@@ -22,7 +22,7 @@ const sameBinding = (source, invocation, transported, index = 0) => {
   const witness = source.navigation.call(invocation)?.bindings[index];
   const selection = source.facts.selections.call(invocation);
   const parameter = selection === undefined || selection.kind === "refused" ? undefined
-    : selection.parameters[transported.binding.sourceParameterIndex];
+    : selection.parameters[transported.binding.sourceParameterIndex]?.type;
   return witness !== undefined && witness.sourceArgumentIndex === transported.binding.sourceArgumentIndex &&
     witness.sourceParameterIndex === transported.binding.sourceParameterIndex &&
     witness.sourceForm === transported.binding.sourceForm && same(transported.parameterType, parameter);
@@ -144,7 +144,7 @@ ${provider}
     "src/index.ts": `import { Box, identity, first, second, forward, throwValue, Holder${imports.length === 0 ? "" : `, ${imports.join(", ")}`} } from "./provider.js"; ${body}`,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const providerFile = projectSourceFile(source, "src/provider.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);

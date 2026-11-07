@@ -25,11 +25,9 @@ export function analyzeTsonicPointerView(selected: SelectedProviderSourceCall, c
     return;
   }
   const result = context.facts.set(selected.call, tsonicPointerViewFactKey, {
-    call: selected.call, resultType: selected.selection.sourceResultType, sourcePointeeType: sourceType,
-    pointeeType: target.selectedType,
+    call: selected.call,
     ...(target.explicitTypeNode === undefined ? {} : { explicitPointeeTypeNode: target.explicitTypeNode }),
-    pointerExpression: pointer.expression, pointerType: pointer.type,
-    readExpression: read.expression, readType: read.type, writeExpression: write.expression, writeType: write.type,
+    pointerExpression: pointer.expression, readExpression: read.expression, writeExpression: write.expression,
     optional: overload === "optional",
   });
   if (result !== "inserted" && result !== "idempotent") {

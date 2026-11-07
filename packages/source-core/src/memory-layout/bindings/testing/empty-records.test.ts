@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readTsonicMemoryType, selectTsonicMemoryRecordBinding, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { readTsonicMemoryType } from "../../type-contract/facts.js";
+import { selectTsonicMemoryRecordBinding } from "../selection.js";
+import { tsonicMemoryRecordBindingFactKey } from "../facts.js";
 import { memoryCall, memoryCalls, memorySession } from "../../testing/fixtures.js";
 import { bindingPrelude, bindingSession } from "./fixtures.js";
 

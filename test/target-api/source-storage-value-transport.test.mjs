@@ -19,7 +19,7 @@ async function fixture(name, text = `
   `, "src/index.ts": `export {}; ${text}` });
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const { ast } = source;
   const nodes = [];

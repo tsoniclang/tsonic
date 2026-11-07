@@ -1,6 +1,9 @@
 // @tsonic/target-api/host: Host-internal entry for Host packages (source-core, target-analysis, host).
 // Targets must not import it (I2): it exposes the Host-internal HostSourceProgram (no checker service, I3).
-export { createHostSourceProgram } from "../source-semantics/target-source-program.js";
+// The composition factories (K-2668): both take the checked program (checker-typed), so they live on this Host-only
+// entry. createTargetSourceProgram builds what a target receives; createHostSourceProgram the Host-internal owner.
+export { createHostSourceProgram, createTargetSourceProgram } from "../source-semantics/target-source-program.js";
+export type { TargetSourceProgramOptions } from "../source-semantics/target-source-program.js";
 // The navigation input translator: Host packages and tests build navigation as
 // createSourceProgramNavigation(createSourceNavigationInput(checked)).
 export { createSourceNavigationInput } from "../host-input/navigation.js";

@@ -11,7 +11,7 @@ function inspect(text, files = {}) {
     }).checkSource();
     assert.deepEqual(checked.extensionDiagnostics, []);
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
-    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const source = built.program;
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);

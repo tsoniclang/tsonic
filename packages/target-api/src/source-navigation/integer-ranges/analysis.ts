@@ -1,6 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../types.js";
 import { Node_Expression, Node_Initializer } from "../ast.js";
+import { sourceNodeHasRole } from "../callable-boundaries.js";
 import { binaryIntegerRange, integerRange, joinIntegerRanges } from "./domain.js";
 import type { SourceIntegerRange } from "./domain.js";
 
@@ -27,7 +28,8 @@ export function analyzeSourceIntegerRanges(options: SourceIntegerRangeOptions): 
   while (pending.length > 0) {
     const current = pending.pop()!;
     const { node } = current;
-    const owner = callableKinds.has(ast.kindName(node)) ? node : current.owner;
+    // The analysis unit is a callable body (E13 callable-body: functions, methods, constructors, accessors).
+    const owner = sourceNodeHasRole(ast, node, "callable-body") ? node : current.owner;
     if (owner !== undefined && ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindPercentToken") callables.add(owner);
     ast.forEachChild(node, child => { if (child !== undefined) pending.push({ node: child, owner }); });
   }
@@ -106,7 +108,7 @@ class CallableIntegerRanges {
     if (!this.enter(depth)) return undefined;
     const { ast } = this.#options;
     const kind = ast.kindName(node);
-    if (callableKinds.has(kind)) return undefined;
+    if (sourceNodeHasRole(ast, node, "callable-signature")) return undefined;
     let range: SourceIntegerRange | undefined;
     if (ast.is.IsNumericLiteral(node)) {
       const text = ast.text(node);
@@ -203,7 +205,7 @@ class CallableIntegerRanges {
       else return false;
     } else if (ast.is.IsForStatement(node)) {
       this.loop(node, environment, depth + 1);
-    } else if (!callableKinds.has(ast.kindName(node)) && ast.kindName(node) !== "KindEmptyStatement") {
+    } else if (!sourceNodeHasRole(ast, node, "callable-signature") && ast.kindName(node) !== "KindEmptyStatement") {
       environment.clear();
     }
     return true;
@@ -256,7 +258,7 @@ class CallableIntegerRanges {
   private invalidateWrites(node: Node, environment: Environment, depth: number): void {
     if (!this.enter(depth)) return;
     const { ast } = this.#options;
-    if (callableKinds.has(ast.kindName(node))) return;
+    if (sourceNodeHasRole(ast, node, "callable-signature")) return;
     if (ast.is.IsVariableDeclaration(node) && Node_Initializer(ast, node) !== undefined) {
       const parent = ast.parent(node);
       if (parent === undefined || ast.variableDeclarationKind(parent) === "var") environment.clear();
@@ -295,7 +297,6 @@ class CallableIntegerRanges {
   }
 }
 
-const callableKinds = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration"]);
 const transparentKinds = new Set(["KindParenthesizedExpression", "KindAsExpression", "KindSatisfiesExpression", "KindNonNullExpression", "KindTypeAssertion"]);
 const conditionalKinds = new Set(["KindAmpersandAmpersandToken", "KindBarBarToken", "KindQuestionQuestionToken",
   "KindAmpersandAmpersandEqualsToken", "KindBarBarEqualsToken", "KindQuestionQuestionEqualsToken"]);

@@ -9,8 +9,8 @@ import type {
 } from "@tsonic/target-api/analysis";
 import type { HostSourceProgram } from "@tsonic/target-api/host";
 import type { TsonicPointerBackingOrigin } from "./backing/requirements.js";
-import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
 import { tsonicDescriptorIsAbsent } from "./host-values.js";
+import type { TsonicReinterpretRecord, TsonicRejectedRecord } from "../analysis/host-records.js";
 
 /** A pointer storage producer operation: a backing origin, or a Host bind/project pointer record (I1). */
 export type TsonicPointerStorageOperation = TsonicPointerBackingOrigin |
@@ -51,6 +51,7 @@ export interface TsonicPointerStorageRelation {
 export function createTsonicPointerStorageRelation(
   source: HostSourceProgram,
   storage: SourceStorageQueries,
+  reinterpret: (call: Node) => TsonicReinterpretRecord | TsonicRejectedRecord | undefined,
 ): TsonicPointerStorageRelation {
   const unresolved = (node: Node, reason: string): TsonicPointerStorageSelection => Object.freeze({
     kind: "unresolved",
@@ -80,11 +81,11 @@ export function createTsonicPointerStorageRelation(
       const selection = original.kind === "value" && original.projection.length === 0 && source.ast.is.IsCallExpression(original.node)
         ? source.facts.selections.pointerOperation(original.node) : undefined;
       const pointer = selection === undefined || "kind" in selection ? undefined : selection;
-      const raw = original.kind === "value" && original.projection.length === 0
-        ? source.sourceFacts.getFact(original.node, tsonicRawMemoryOperationFactKey) : undefined;
+      const raw = original.kind === "value" && original.projection.length === 0 && source.ast.is.IsCallExpression(original.node)
+        ? reinterpret(original.node) : undefined;
       const operation = pointer?.operation === "allocate" || pointer?.operation === "address-of" ||
         pointer?.operation === "bind-pointer" || pointer?.operation === "project-pointer" ? pointer as TsonicPointerStorageOperation
-        : raw?.operation === "reinterpret" ? raw : undefined;
+        : raw?.kind === "resolved" ? raw : undefined;
       if (operation === undefined || operation.call !== original.node) {
         if (selected.kind === "open" && selected.boundaries.some(boundary =>
           boundary.subject === original && boundary.bindings === producer.bindings)) continue;

@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { sourceEnclosing } from "../../source-navigation/callable-boundaries.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeFlowAnalysisContext,
@@ -176,7 +177,8 @@ function signatureOrigin(
     }
     if ((ast.is.IsReturnStatement(parent) || ast.is.IsYieldExpression(parent)) &&
       Node_Expression(ast, parent) === current) {
-      const owner = enclosingCallable(ast, parent);
+      // The callable whose body the return / yield completes (E13 purpose callable-body, Q5).
+      const owner = sourceEnclosing(ast, parent, "callable-body");
       return owner !== undefined && ast.typeNode(owner) === undefined && !inlineArgument(ast, owner)
         ? { site: parent, owner } : undefined;
     }
@@ -197,21 +199,11 @@ function signatureOrigin(
 function initializerSignature(ast: AstReader, declaration: Node): SignatureOrigin | undefined {
   if (ast.typeNode(declaration) !== undefined) return undefined;
   if (ast.is.IsParameterDeclaration(declaration)) {
-    const owner = enclosingCallable(ast, declaration);
+    // The signature that declares the parameter (E13 purpose callable-signature).
+    const owner = sourceEnclosing(ast, declaration, "callable-signature");
     if (owner === undefined || inlineArgument(ast, owner)) return undefined;
   }
   return { site: declaration, owner: declaration };
-}
-
-function enclosingCallable(ast: AstReader, node: Node): Node | undefined {
-  for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
-    if (ast.is.IsFunctionDeclaration(owner) || ast.is.IsFunctionExpression(owner) ||
-      ast.is.IsArrowFunction(owner) || ast.is.IsMethodDeclaration(owner) ||
-      ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner) ||
-      ast.is.IsConstructorDeclaration(owner)) return owner;
-    if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsSourceFile(owner)) return undefined;
-  }
-  return undefined;
 }
 
 function inlineArgument(ast: AstReader, callable: Node): boolean {

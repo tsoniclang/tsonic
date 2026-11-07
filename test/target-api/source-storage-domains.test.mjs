@@ -22,7 +22,7 @@ async function fixture(name, body, options = {}) {
     { sourceCore: options.sourceCore === true });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, options.limits ?? defaultSourceStorageLimits,
     options.effectsFactory === undefined ? options.effects : options.effectsFactory(source, file));
@@ -482,7 +482,9 @@ test("opaque byref writes use the exact fact-owned source storage without expres
   `, { sourceCore: true });
   const passing = requiredNode(current.source.ast, current.file, node => current.source.ast.is.IsCallExpression(node) &&
     current.source.ast.text(current.source.ast.as.AsCallExpression(node).Expression) === "readwriteref");
-  assert.equal(current.source.sourceFacts.getFact(passing, argumentPassingFactKey)?.storageExpression !== undefined, true, "genuine exact checked byref storage fact");
+  const passingFact = current.source.sourceFacts.getFact(passing, argumentPassingFactKey);
+  assert.equal(passingFact?.role, "argument", "genuine exact checked byref storage fact");
+  assert.equal(passingFact.storageExpression, current.source.ast.arguments(passing)[0], "exact storage occurrence");
   open(current.selection("token"), "opaque-write", "underlying byref storage remains externally writable");
 });
 
@@ -875,7 +877,7 @@ test("default-library recursive callback publication stays finite without poison
     }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unchanged recursive callback source is checked");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const selection = storage.storageSubjectFor(namedVariable(source.ast, file, "selected"));

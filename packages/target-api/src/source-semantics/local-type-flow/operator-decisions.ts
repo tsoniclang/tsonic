@@ -1,6 +1,11 @@
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
 import { compareSourceNumericLiteralMagnitude } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
+import {
+  isSourceNativeIntegerPrimitive, sourceNativeIntegerBounds, sourceNativeIntegerWidthRefusal, sourceNativeIntegerWidths,
+  type SourceFixedWidthPrimitiveKind, type SourceNativeIntegerPrimitive, type SourceNativeIntegerWidthRefusal,
+  type SourceNativeIntegerWidthRefusalCode, type SourcePlatformFacts,
+} from "../platform-model.js";
 
 export const sourcePrimitiveOperatorKinds = Object.freeze([
   "bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
@@ -26,8 +31,17 @@ export type SourcePrimitiveOperatorOperand =
 
 export interface SourcePrimitiveOperatorRefusal {
   readonly kind: "refused";
+  /**
+   * TSONIC_LOCAL_TYPE_UNSUPPORTED: the operator form has no admitted native rule. A native integer width code: the
+   * decision fitted a literal to native-int / native-uint and its answer depends on a width the active target's
+   * premise does not state (E24, N5).
+   */
+  readonly code: "TSONIC_LOCAL_TYPE_UNSUPPORTED" | SourceNativeIntegerWidthRefusalCode;
   readonly reason: string;
 }
+
+/** A literal fit against one primitive kind. Compare with the string results; the refusal is an object. */
+export type SourcePrimitiveLiteralFit = "fits" | "outside" | SourceNativeIntegerWidthRefusal;
 
 export type SourcePrimitiveBinaryDecision = SourcePrimitiveOperatorRefusal | {
   readonly kind: "resolved";
@@ -92,10 +106,15 @@ export function sourcePrimitiveOperatorIsIntegral(kind: SourcePrimitiveKind): bo
   return integrals.has(kind);
 }
 
+/**
+ * The binary operator decision. `platform` is the active target's native integer premise (E24): it is read only when
+ * an unbound literal is fitted to native-int / native-uint and the 32-bit and 64-bit answers differ.
+ */
 export function decideSourcePrimitiveBinaryOperator(
   operator: SourcePrimitiveBinaryOperator,
   left: SourcePrimitiveOperatorOperand,
   right: SourcePrimitiveOperatorOperand,
+  platform: SourcePlatformFacts,
   expectedKind?: SourcePrimitiveKind,
 ): SourcePrimitiveBinaryDecision {
   if (operator === "power") return refusal("Exponentiation has no admitted native operator result.");
@@ -115,12 +134,19 @@ export function decideSourcePrimitiveBinaryOperator(
   }
   let effectiveLeft: SourcePrimitiveKind | "bigint" = left.primitive;
   let effectiveRight: SourcePrimitiveKind | "bigint" = right.primitive;
-  if (expectedKind !== undefined && expectedKind !== "bool" && canUseExpectedKind(left, expectedKind) && canUseExpectedKind(right, expectedKind)) {
-    effectiveLeft = expectedKind;
-    effectiveRight = expectedKind;
+  const expected = expectedKind === undefined || expectedKind === "bool" ? "outside"
+    : expectedOperandsFit(left, right, expectedKind, platform);
+  if (typeof expected === "object") return expected;
+  if (expected === "fits") {
+    effectiveLeft = expectedKind!;
+    effectiveRight = expectedKind!;
   } else {
-    effectiveLeft = sourcePrimitiveOperatorLiteralPartner(left, right.primitive) ?? effectiveLeft;
-    effectiveRight = sourcePrimitiveOperatorLiteralPartner(right, left.primitive) ?? effectiveRight;
+    const leftPartner = literalPartner(left, right.primitive, platform);
+    if (typeof leftPartner === "object") return leftPartner;
+    const rightPartner = literalPartner(right, left.primitive, platform);
+    if (typeof rightPartner === "object") return rightPartner;
+    effectiveLeft = leftPartner ?? effectiveLeft;
+    effectiveRight = rightPartner ?? effectiveRight;
   }
   if (effectiveLeft === "bigint" || effectiveRight === "bigint") return refusal("A bigint literal has no admitted primitive partner or result.");
   const position = primitivePositions.get(effectiveRight);
@@ -132,10 +158,21 @@ export function decideSourcePrimitiveBinaryOperator(
   return { kind: "resolved", result: comparisonOperators.has(operator) ? "bool" : promoted, left: promoted, right: promoted };
 }
 
+/**
+ * The partner kind an unbound literal adopts, when it fits. A native partner whose fit depends on an unstated width
+ * gives no partner (fail closed); decideSourcePrimitiveBinaryOperator reports that case as the width refusal.
+ */
 export function sourcePrimitiveOperatorLiteralPartner(operand: SourcePrimitiveOperatorOperand,
-  partner: SourcePrimitiveKind | "bigint"): SourcePrimitiveKind | undefined {
-  return operand.kind === "unbound-literal" && partner !== "bigint" && sourcePrimitiveOperatorLiteralFits(operand.literal, partner)
-    ? partner : undefined;
+  partner: SourcePrimitiveKind | "bigint", platform: SourcePlatformFacts): SourcePrimitiveKind | undefined {
+  const selected = literalPartner(operand, partner, platform);
+  return typeof selected === "object" ? undefined : selected;
+}
+
+function literalPartner(operand: SourcePrimitiveOperatorOperand, partner: SourcePrimitiveKind | "bigint",
+  platform: SourcePlatformFacts): SourcePrimitiveKind | undefined | SourceNativeIntegerWidthRefusal {
+  if (operand.kind !== "unbound-literal" || partner === "bigint") return undefined;
+  const fit = sourcePrimitiveLiteralFit(operand.literal, partner, platform);
+  return fit === "fits" ? partner : fit === "outside" ? undefined : fit;
 }
 
 export function decideSourcePrimitiveUnaryOperator(
@@ -158,26 +195,69 @@ export function decideSourcePrimitiveUnaryOperator(
     : { kind: "resolved", result: operand, operand };
 }
 
-const integerBounds: Readonly<Partial<Record<SourcePrimitiveKind, readonly [bigint, bigint]>>> = {
+// Fixed-width integer bounds. native-int / native-uint have no entry: their bounds come from the platform premise.
+const integerBounds: Readonly<Partial<Record<SourceFixedWidthPrimitiveKind, readonly [bigint, bigint]>>> = {
   int8: [-128n, 127n], uint8: [0n, 255n], int16: [-32768n, 32767n], uint16: [0n, 65535n],
   int32: [-2147483648n, 2147483647n], uint32: [0n, 4294967295n],
   int64: [-(1n << 63n), (1n << 63n) - 1n], uint64: [0n, (1n << 64n) - 1n],
-  "native-int": [-(1n << 63n), (1n << 63n) - 1n], "native-uint": [0n, (1n << 64n) - 1n],
   int128: [-(1n << 127n), (1n << 127n) - 1n], uint128: [0n, (1n << 128n) - 1n],
 };
 const float32OverflowThreshold = (1n << 128n) - (1n << 103n);
 const decimalOverflowThresholdTwice = (((1n << 96n) - 1n) << 1n) + 1n;
 
-export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind): boolean {
-  if (literal.form === "array") return false;
-  const bounds = integerBounds[primitive];
+/**
+ * Whether the literal fits the primitive kind. A fixed-width kind needs no premise. A native kind reads the active
+ * target's premise (E24); when the premise is missing or conflicting and the answer depends on the width, the result
+ * is false (fail closed) and sourcePrimitiveLiteralFit names the refusal.
+ */
+export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourceFixedWidthPrimitiveKind): boolean;
+export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind,
+  platform: SourcePlatformFacts): boolean;
+export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind,
+  platform?: SourcePlatformFacts): boolean {
+  return literalFit(literal, primitive, platform) === "fits";
+}
+
+/** The literal fit with the native width refusal: "fits", "outside", or the refusal when only the unstated width decides. */
+export function sourcePrimitiveLiteralFit(literal: SourceLiteralValue, primitive: SourcePrimitiveKind,
+  platform: SourcePlatformFacts): SourcePrimitiveLiteralFit {
+  return literalFit(literal, primitive, platform);
+}
+
+function literalFit(literal: SourceLiteralValue, primitive: SourcePrimitiveKind,
+  platform: SourcePlatformFacts | undefined): SourcePrimitiveLiteralFit {
+  if (literal.form === "array") return "outside";
   const constant = literal.integerConstant;
-  if (primitive === "bool") return literal.form === "true" || literal.form === "false";
-  if (primitive === "char") return (literal.form === "string" || literal.form === "template") && literal.text.length === 1;
-  if (bounds !== undefined) {
-    const integer = constant ?? literal.integer;
-    return integer !== undefined && integer >= bounds[0] && integer <= bounds[1];
+  if (primitive === "bool") return fitWhen(literal.form === "true" || literal.form === "false");
+  if (primitive === "char") return fitWhen((literal.form === "string" || literal.form === "template") && literal.text.length === 1);
+  if (isSourceNativeIntegerPrimitive(primitive)) {
+    if (platform === undefined) throw new Error(`A '${primitive}' literal fit requires the active platform premise (E24).`);
+    return nativeLiteralFit(constant ?? literal.integer, primitive, platform);
   }
+  const bounds = integerBounds[primitive];
+  if (bounds !== undefined) return fitWhen(withinBounds(constant ?? literal.integer, bounds));
+  return fitWhen(floatingLiteralFits(literal, primitive));
+}
+
+/** A native integer fit: under a stated width, its bounds; otherwise the answer shared by every width, or the refusal. */
+function nativeLiteralFit(integer: bigint | undefined, primitive: SourceNativeIntegerPrimitive,
+  platform: SourcePlatformFacts): SourcePrimitiveLiteralFit {
+  if (integer === undefined) return "outside";
+  if (platform.kind === "known") return fitWhen(withinBounds(integer, sourceNativeIntegerBounds(primitive, platform.nativeIntegerBits)));
+  const answers = new Set(sourceNativeIntegerWidths.map(width => withinBounds(integer, sourceNativeIntegerBounds(primitive, width))));
+  return answers.size === 1 ? fitWhen(answers.has(true)) : sourceNativeIntegerWidthRefusal(primitive, platform);
+}
+
+function withinBounds(integer: bigint | undefined, bounds: readonly [bigint, bigint]): boolean {
+  return integer !== undefined && integer >= bounds[0] && integer <= bounds[1];
+}
+
+function fitWhen(fits: boolean): "fits" | "outside" {
+  return fits ? "fits" : "outside";
+}
+
+function floatingLiteralFits(literal: SourceLiteralValue, primitive: SourceFixedWidthPrimitiveKind): boolean {
+  const constant = literal.integerConstant;
   if (constant !== undefined && literal.numeric === undefined) {
     const magnitude = { coefficient: constant < 0n ? -constant : constant, exponent: 0n };
     if (primitive === "float64") return compareSourceNumericLiteralMagnitude(magnitude, (1n << 1024n) - (1n << 970n)) < 0;
@@ -200,10 +280,18 @@ export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, 
     ) < 0;
 }
 
-function canUseExpectedKind(operand: SourcePrimitiveOperatorOperand, primitive: SourcePrimitiveKind): boolean {
-  return operand.primitive === primitive || operand.kind === "unbound-literal" && sourcePrimitiveOperatorLiteralFits(operand.literal, primitive);
+/**
+ * Whether both operands take the expected kind. When either operand definitely cannot, the expected kind is not used
+ * and no width is needed; otherwise a width refusal from either operand decides.
+ */
+function expectedOperandsFit(left: SourcePrimitiveOperatorOperand, right: SourcePrimitiveOperatorOperand,
+  primitive: SourcePrimitiveKind, platform: SourcePlatformFacts): SourcePrimitiveLiteralFit {
+  const fits = [left, right].map(operand => operand.primitive === primitive ? "fits" as const
+    : operand.kind === "unbound-literal" ? literalFit(operand.literal, primitive, platform) : "outside" as const);
+  if (fits.includes("outside")) return "outside";
+  return fits.find((fit): fit is SourceNativeIntegerWidthRefusal => typeof fit === "object") ?? "fits";
 }
 
 function refusal(reason: string): SourcePrimitiveOperatorRefusal {
-  return { kind: "refused", reason };
+  return { kind: "refused", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", reason };
 }

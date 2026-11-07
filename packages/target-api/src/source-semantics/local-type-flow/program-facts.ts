@@ -17,7 +17,7 @@ import type { SourceHostInput } from "../../host-input/index.js";
 import { analyzeSourceEffectiveTypes, type SourceSolvedValueModel } from "./solver.js";
 import { createSourceTypeDescriptorUnions, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorSum, sourceTypeDescriptorTupleValue,
   sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
-import { sourceTypeFlowIsBroadSlot } from "./uses.js";
+import { sourceTypeDescriptorOpenness, sourceTypeFlowIsBroadSlot } from "./uses.js";
 import { sourceTypeDescriptorAwaitedPayload } from "./awaited.js";
 import { createSourceRelationQuery } from "./relations.js";
 import type { SourceObligation } from "../../public/source/analyses.js";
@@ -135,6 +135,16 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     // translation or its refusal.
     const authored = solved.typeSyntax(node);
     if (authored !== undefined) return authored;
+    // A declaration that is not a solver slot (R-B4-5): its declared value, or the refusal that it has none.
+    if (declarationValueNode(node)) {
+      const described = solved.declarationValue(node);
+      if (described === undefined) {
+        return Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", site: node,
+          reason: "The value of this declaration has no Host description. Annotate it with a supported type form." });
+      }
+      return Object.freeze({ kind: "resolved", type: described, provenance: Object.freeze({ group: node, occurrence: node,
+        sourceFile: sourceFileOf(node), component: Object.freeze({ declaration: node }) }) });
+    }
     return invariant(ast, node, "no Host type for this node; only value nodes, declarations, slots and type nodes have one");
   }
   const resolvedType = (node: Node): SourceTypeDescriptor | undefined => {
@@ -168,7 +178,14 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   const valueNodeSet = new Set(solved.valueNodes);
   function has(node: Node): boolean {
     return valueNodeSet.has(node) || solved.get(node) !== undefined || solved.declaredSlot(node) !== undefined ||
-      isTypeSyntaxNode(ast, node);
+      isTypeSyntaxNode(ast, node) || declarationValueNode(node);
+  }
+  // Declarations whose value a storage or ownership subject reads (R-B4-5), in program or library files.
+  function declarationValueNode(node: Node): boolean {
+    return ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsPropertyDeclaration(node) ||
+      ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsClassDeclaration(node) ||
+      ast.is.IsFunctionDeclaration(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node) ||
+      ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node);
   }
 
   function slot(node: Node): SourceSlotOutcome {
@@ -237,7 +254,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const structure = sourceTypeDescriptorStructure(selected);
     if (structure.kind === "intrinsic") {
       return structure.intrinsic === "absence" || structure.intrinsic === "void" ? "always"
-        : structure.intrinsic === "any" || structure.intrinsic === "unknown" ? "possible" : "never";
+        : sourceTypeDescriptorOpenness(ast, structure) === "top" ? "possible" : "never";
     }
     if (structure.kind === "optional") return "possible";
     if (structure.kind === "union") return structure.types.some(member => absence(member) !== "never") ? "possible" : "never";
@@ -366,7 +383,9 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const indexNode = ast.as.AsElementAccessExpression(node)!.ArgumentExpression!;
     const record: SourceElementAccessRecord = Object.freeze({ node, receiver, receiverType: requireType(receiver, "an element access record"),
       index: requireType(indexNode, "an element access record"), selected: Object.freeze(selection.selection.selected), result,
-      readonly: selection.selection.readonly, access: accessMode(ast, node) });
+      readonly: selection.selection.readonly, access: accessMode(ast, node),
+      // Part of an optional chain (`a?.[i]`, `a?.b[i]`): the checker's access witness, as for member access.
+      optionalChain: input.member(node)?.optionalChain === true });
     elementRecords.set(node, record);
     return record;
   }
@@ -384,8 +403,9 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
         // `object` holds both objects and functions: no single category is proven.
         return structure.intrinsic === "bigint" ? "bigint" : structure.intrinsic === "symbol" ? "symbol" : undefined;
       case "callable": return "function";
-      // A value with call signatures is a function; any other shape is an object (the declared type decides, N3').
-      case "shape": return structure.calls.length > 0 ? "function" : "object";
+      // A value with a call or construct signature is a JS function: a class constructor with static members is a
+      // construct-only shape and still `typeof === "function"` (K-2669).
+      case "shape": return structure.calls.length > 0 || structure.constructs.length > 0 ? "function" : "object";
       case "array": case "tuple": return "object";
       case "declared":
         if (ast.is.IsEnumDeclaration(structure.declaration)) {
@@ -406,87 +426,18 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
       case "optional": return category(structure.value, operand);
     }
   }
-  // The nullish members (null, undefined incl. void and `?`) of an operand's authored type, carried through declarations,
-  // unannotated initializers, member and call result annotations, aliases, `??` and conditionals (§4.3 E9: taken before
-  // descriptor erasure). undefined: no authored type reaches the operand ("unavailable").
-  type Nullish = { readonly null: boolean; readonly undefined: boolean };
-  const noNullish: Nullish = Object.freeze({ null: false, undefined: false });
-  function annotationNullish(annotation: Node, depth: number): Nullish {
-    const found = { null: false, undefined: false };
-    const visit = (node: Node, level: number): void => {
-      if (ast.is.IsUnionTypeNode(node) || ast.kindName(node) === "KindParenthesizedType") {
-        for (const child of ast.children(node)) if (child !== undefined) visit(child, level);
-        return;
-      }
-      const kind = ast.kindName(node);
-      if (kind === "KindUndefinedKeyword" || kind === "KindVoidKeyword") found.undefined = true;
-      if (ast.is.IsLiteralTypeNode(node) && ast.children(node).some(child => child !== undefined && ast.kindName(child) === "KindNullKeyword")) {
-        found.null = true;
-      }
-      if (ast.is.IsTypeReferenceNode(node) && level < 8) {
-        const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
-        const alias = name === undefined ? undefined : source.navigation.sourceReferenceFor(name)?.declaration;
-        const body = alias !== undefined && ast.is.IsTypeAliasDeclaration(alias) ? ast.typeNode(alias) : undefined;
-        if (body !== undefined) visit(body, level + 1);
-      }
-    };
-    visit(annotation, depth);
-    return found;
-  }
-  function merge(left: Nullish | undefined, right: Nullish | undefined): Nullish | undefined {
-    return left === undefined || right === undefined ? undefined
-      : { null: left.null || right.null, undefined: left.undefined || right.undefined };
-  }
-  function authoredNullish(operand: Node, depth = 0): Nullish | undefined {
-    if (depth > 8) return undefined;
-    let node = operand;
-    while (ast.is.IsParenthesizedExpression(node) || ast.is.IsSatisfiesExpression(node)) {
-      const inner = Node_Expression(ast, node);
-      if (inner === undefined) return undefined;
-      node = inner;
-    }
-    if (ast.kindName(node) === "KindNullKeyword") return { null: true, undefined: false };
-    if (ast.is.IsNonNullExpression(node) || solved.literal(node) !== undefined) return noNullish;
-    const declared = (declaration: Node, optional: boolean): Nullish | undefined => {
-      const annotation = ast.typeNode(declaration);
-      const question = ast.questionToken(declaration) !== undefined || optional;
-      if (annotation !== undefined) {
-        const found = annotationNullish(annotation, 0);
-        return { null: found.null, undefined: found.undefined || question };
-      }
-      const initializer = ast.is.IsVariableDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration) ||
-        ast.is.IsPropertyDeclaration(declaration) ? Node_Initializer(ast, declaration) : undefined;
-      const fromInitializer = initializer === undefined ? undefined : authoredNullish(initializer, depth + 1);
-      return fromInitializer === undefined ? undefined : { null: fromInitializer.null, undefined: fromInitializer.undefined || question };
-    };
-    if (ast.is.IsIdentifier(node)) {
-      const reference = source.navigation.sourceReferenceFor(node);
-      if (reference === undefined) return undefined;
-      if (ast.text(node) === "undefined" && !reference.project) return { null: false, undefined: true };
-      return declared(reference.declaration, false);
-    }
-    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-      const witness = input.member(node);
-      const declaration = witness?.declarations[0];
-      return declaration === undefined ? undefined : declared(declaration, witness!.optionalChain);
-    }
-    if (ast.is.IsCallExpression(node)) {
-      const witness = input.call(node);
-      const annotation = witness?.signature === undefined ? undefined : ast.typeNode(witness.signature);
-      if (annotation === undefined) return undefined;
-      const found = annotationNullish(annotation, 0);
-      return { null: found.null, undefined: found.undefined || witness!.optionalChain };
-    }
-    if (ast.is.IsConditionalExpression(node)) {
-      const conditional = ast.as.AsConditionalExpression(node);
-      return conditional?.WhenTrue === undefined || conditional.WhenFalse === undefined ? undefined
-        : merge(authoredNullish(conditional.WhenTrue, depth + 1), authoredNullish(conditional.WhenFalse, depth + 1));
-    }
-    if (ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindQuestionQuestionToken") {
-      const right = ast.as.AsBinaryExpression(node)?.Right;
-      return right === undefined ? undefined : authoredNullish(right, depth + 1);
-    }
-    return undefined;
+  // The nullish admission of an operand whose Host descriptor admits absence (§4.3 E9, N7, K-2676), from the intrinsic
+  // null / undefined constituents of the value read at the operand, taken by host-input before the one-absence erasure
+  // (aliases with their actual type arguments, generic member and call results, narrowing: host-input/nullish-components).
+  // A found intrinsic is proven; a missing one is proven absent only when every constituent was classified. Both found:
+  // "both" (an opaque constituent cannot remove a found intrinsic). An opaque constituent or no read: "unavailable".
+  function nullishAdmission(operand: Node, absent: boolean): SourceNullishAdmission["admission"] {
+    if (!absent) return "none";
+    const found = input.nullishComponents(operand);
+    if (found.null && found.undefined) return "both";
+    if (!found.complete) return "unavailable";
+    // A complete read with neither intrinsic while the descriptor keeps absence: the absence arm is not attributable.
+    return found.null ? "null-only" : found.undefined ? "undefined-only" : "unavailable";
   }
   // ---- typeof sites (E23, WP0 A1/A7, K-2657) -------------------------------------------------------------------------
   // A wide-integer arm (int64/uint64/int128/uint128) is "number" only when its values come from a Q1-defaulted TS
@@ -592,10 +543,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const existing = typeofRecords.get(key);
     if (existing !== undefined) return existing;
     const selected = requireType(operand, "a typeof/nullish admission");
-    const absent = absence(selected) !== "never";
-    const authored = absent ? authoredNullish(operand) : undefined;
-    const admission: SourceNullishAdmission["admission"] = !absent ? "none" : authored === undefined ? "unavailable"
-      : authored.null && authored.undefined ? "both" : authored.null ? "null-only" : authored.undefined ? "undefined-only" : "unavailable";
+    const admission = nullishAdmission(operand, absence(selected) !== "never");
     const sum = selected.kind === "union" || selected.kind === "optional" ? sums.sumOf(selected) : undefined;
     let record: SourceNullishAdmission | SourceRefusal;
     if (sum !== undefined) {
@@ -677,15 +625,25 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     substitute: (descriptor: SourceTypeDescriptor, bindings: ReadonlyMap<Node, SourceTypeDescriptor>) =>
       substituteSourceTypeDescriptor(owner, descriptor, bindings) ??
         invariant(ast, source.sourceFiles[0]!, "substitution requires a descriptor and bindings of this program"),
+    // Per-arm components joined by the one union builder (I6, supervisor ruling on B4 D3): equal components are one
+    // descriptor; distinct ones are the program's union of them, in the builder's recorded (authored-first) arm order. A
+    // union the program never formed has no recorded order, so it has no join.
+    join: (components: readonly SourceTypeDescriptor[]) => {
+      if (components.length === 0) invariant(ast, source.sourceFiles[0]!, "a join requires at least one component");
+      const first = components[0]!;
+      if (components.every(component => sourceTypeDescriptorsEqual(component, first))) return first;
+      return sourceTypeDescriptorUnion(owner, components);
+    },
   });
 
   // ---- relations -------------------------------------------------------------------------------------------------
-  const relationAt = createSourceRelationQuery({
+  const relationQuery = createSourceRelationQuery({
     source, input, type, contextual: node => solved.contextual(node), sumOf: sums.sumOf,
     declaredSlotType: declaration => solved.declaredSlot(declaration)?.type, literal: node => solved.literal(node),
     typeofCategory, instantiation: use => instantiation(use),
   });
-  const relations: SourceRelationFacts = Object.freeze({ at: relationAt });
+  const relationAt = relationQuery.at;
+  const relations: SourceRelationFacts = Object.freeze({ at: relationAt, write: relationQuery.write });
 
   // ---- instantiations --------------------------------------------------------------------------------------------
   // `super(...)` (R-F5-2): the base class binders come from the authored `extends` type arguments, else the binders'
@@ -764,6 +722,49 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   // ---- native marker refusals and pointer records (moved from Legacy TSTS_SOURCE_SEMANTICS_0001-0003) ------------
   const markerRefusals: SourceRefusal[] = [];
   const pointerRecords = new Map<Node, SourcePointerOperationRecord | SourceRefusal>();
+  // N8 (b) place validity (C-2496). Only the outer marker target is classified, from its exact syntax and the
+  // declarations it selects; the target's own passing fact (always recorded by Legacy) and a declaration's passing
+  // metadata prove nothing about the place. Through parentheses only, a place is: an identifier bound to a variable,
+  // parameter or destructured binding; a property access whose selected members are all data storage (a field,
+  // property signature, object-literal property, parameter property, module or namespace variable); or an element
+  // access whose selected members (if any) are data storage, index signatures or tuple members. No optional chain.
+  // Everything else (operators, calls, `new`, literals, `this`, assertions, accessors, methods, functions, classes,
+  // enum members) is refused. Writability of `out`/`ref` targets is not decided here (AGENT-A6-NOTES D4).
+  const storageBinding = (declaration: Node): boolean => ast.is.IsVariableDeclaration(declaration) ||
+    ast.is.IsParameterDeclaration(declaration) || ast.is.IsBindingElement(declaration);
+  const storageMember = (declaration: Node): boolean => storageBinding(declaration) ||
+    ast.is.IsPropertyDeclaration(declaration) || ast.is.IsPropertySignatureDeclaration(declaration) ||
+    ast.is.IsPropertyAssignment(declaration) || ast.is.IsShorthandPropertyAssignment(declaration) ||
+    ast.is.IsIndexSignatureDeclaration(declaration) || ast.is.IsNamedTupleMember(declaration);
+  const questionDot = (link: Node): Node | undefined => ast.is.IsPropertyAccessExpression(link)
+    ? ast.as.AsPropertyAccessExpression(link)?.QuestionDotToken
+    : ast.is.IsElementAccessExpression(link) ? ast.as.AsElementAccessExpression(link)?.QuestionDotToken
+      : ast.is.IsCallExpression(link) ? ast.as.AsCallExpression(link)?.QuestionDotToken : undefined;
+  const inOptionalChain = (access: Node): boolean => {
+    for (let link: Node | undefined = access; link !== undefined && (ast.is.IsPropertyAccessExpression(link) ||
+      ast.is.IsElementAccessExpression(link) || ast.is.IsCallExpression(link) || ast.is.IsNonNullExpression(link));
+      link = Node_Expression(ast, link)) {
+      if (questionDot(link) !== undefined) return true;
+    }
+    return false;
+  };
+  const argumentPlace = (target: Node): boolean => {
+    let place = target;
+    // Parentheses and a non-null assertion (`x!`) are transparent: both name the same storage, and the baseline grammar
+    // admitted `x!` as a left-hand side (N8 (b) refuses only non-place targets such as calls, `new` and literals).
+    // A type assertion (`as`, `<T>x`) stays refused, as it was not a left-hand side at baseline either.
+    while (ast.is.IsParenthesizedExpression(place) || ast.is.IsNonNullExpression(place)) {
+      place = Node_Expression(ast, place) ?? invariant(ast, place, "a parenthesized or non-null marker target has no operand");
+    }
+    if (ast.is.IsIdentifier(place)) {
+      const declaration = source.navigation.sourceReferenceFor(place)?.declaration;
+      return declaration !== undefined && storageBinding(declaration);
+    }
+    const property = ast.is.IsPropertyAccessExpression(place);
+    if (!property && !ast.is.IsElementAccessExpression(place) || inOptionalChain(place)) return false;
+    const selected = input.member(place)?.declarations ?? [];
+    return (!property || selected.length > 0) && selected.every(storageMember);
+  };
   for (const node of solved.valueNodes) {
     if (!ast.is.IsCallExpression(node)) continue;
     const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
@@ -772,9 +773,15 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const name = callee === undefined ? "marker" : ast.text(ast.is.IsPropertyAccessExpression(callee) ? ast.name(callee) : callee);
     const arguments_ = ast.arguments(node).filter((argument): argument is Node => argument !== undefined);
     if (referenceMarkers.has(marker.marker)) {
-      // N8 (b) place validity, C-2496: a reference marker's argument must be a storage place.
+      // N8 (b) place validity, C-2496: a reference marker's one argument must be a storage place. Legacy records the
+      // argument-role passing fact (WP0 A4: role "argument" with its exact storage expression) on every reference
+      // marker call. A declaration-role fact is never place authority.
       const target = arguments_[0];
-      if (target !== undefined && source.sourceFacts.getFact(target, argumentPassingFactKey) === undefined) {
+      const passing = source.sourceFacts.getFact(node, argumentPassingFactKey);
+      if (target === undefined || passing?.role !== "argument" || passing.storageExpression !== target) {
+        invariant(ast, node, "a reference marker call has no argument-role passing fact naming its target");
+      }
+      if (!argumentPlace(target)) {
         markerRefusals.push(Object.freeze({ kind: "refused", code: "TSONIC_ARGUMENT_MARKER_NOT_PLACE",
           message: `${name}(...) requires a storage expression.`, site: target, related: node }));
       }
@@ -818,13 +825,25 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   // ---- refusals --------------------------------------------------------------------------------------------------
   const relationRefusals: SourceRefusal[] = [];
   const elementRefusals: SourceRefusal[] = [];
+  const anyRefusals: SourceRefusal[] = [];
   for (const node of solved.valueNodes) {
     // An element access refused for its selection (E8) is reported once, with its own site.
     if (ast.is.IsElementAccessExpression(node) && solved.get(node)?.kind !== "refused") {
       const selection = elementSelection(node);
       if (selection.kind === "refused") elementRefusals.push(toRefusal(selection));
     }
-    if (type(node).kind === "refused") continue;
+    const outcome = type(node);
+    if (outcome.kind === "refused") continue;
+    // An object literal whose Host type is `any` has no native construction (baseline C# TSONIC_ANY_UNSUPPORTED, now
+    // Host-originated, R-F5-A2). Only the literal is refused; an `any` value elsewhere is not.
+    if (ast.is.IsObjectLiteralExpression(node)) {
+      let literalType = outcome.type;
+      while (literalType.kind === "optional") literalType = literalType.value;
+      if (literalType.kind === "intrinsic" && literalType.intrinsic === "any") {
+        anyRefusals.push(Object.freeze({ kind: "refused", code: "TSONIC_ANY_UNSUPPORTED", site: node,
+          message: "'any' has no native representation. Declare the type, or use 'unknown' and narrow it." }));
+      }
+    }
     // A typeof site whose operand categories are not proven (coincident incompatible origins, A1) is refused once.
     if (ast.is.IsTypeOfExpression(node)) {
       const operand = Node_Expression(ast, node);
@@ -833,6 +852,9 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     }
     const relation: SourceUnionRelation | undefined = relationAt(node);
     if (relation?.kind === "refused") relationRefusals.push(relation);
+    // A node that is also written into a sum (Q1) has its own write relation; its refusal is reported too.
+    const written = relationQuery.write(node);
+    if (written?.kind === "refused" && written !== relation) relationRefusals.push(written);
   }
   // Spread elements are not value nodes; their element writes are relations of their own (A4).
   for (const node of solved.nodes) {
@@ -841,7 +863,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     if (relation?.kind === "refused") relationRefusals.push(relation);
   }
   for (const node of solved.nodes) if (isSourceCallableSignatureDeclaration(ast, node)) callableReturn(node);
-  const allRefusals = Object.freeze([...new Set([...solved.refusals().map(toRefusal), ...markerRefusals, ...elementRefusals, ...relationRefusals,
+  const allRefusals = Object.freeze([...new Set([...solved.refusals().map(toRefusal), ...markerRefusals, ...elementRefusals, ...anyRefusals, ...relationRefusals,
     ...[...callableReturnRefusals.values()].map(toRefusal)])]);
 
   // ---- obligations (checker-free projection of the solver's obligation list) ------------------------------------

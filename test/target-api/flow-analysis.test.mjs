@@ -21,7 +21,7 @@ test("the public flow port exports the identical canonical graph and solver owne
 
 let caseNumber = 0;
 async function fixture(text, name = "run") {
-  const source = createHostSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }), { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const selection = createSourceDeclarationControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");

@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
 import type { SourceFlowCondition, SourceFlowConditions, SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import { sourceStatementAlwaysExits } from "./native-control-flow.js";
@@ -27,7 +27,7 @@ export function resolveSourceFlowConditions(
   let current = reference;
   while (enter()) {
     const parent = context.ast.parent(current);
-    if (parent === undefined || sourceBindingCallableKinds.has(context.ast.kindName(parent))) break;
+    if (parent === undefined || sourceNodeHasRole(context.ast, parent, "execution-barrier")) break;
     if (context.ast.is.IsIfStatement(parent)) {
       const statement = context.ast.as.AsIfStatement(parent);
       if (statement?.ThenStatement === current) retain(statement.Expression, true);

@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../../../host-program-fixtures.js";
-import { selectTsonicMemoryRecordBinding, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
-import { createTsonicMemoryBindingIndex } from "../usage.js";
+import { selectTsonicMemoryRecordBinding } from "../selection.js";
+import { tsonicMemoryRecordBindingFactKey } from "../facts.js";
+import { createTsonicHostRecords } from "../../../analysis/host-records.js";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
+
+// The binding index is the Host memoryBindings member (K-2662): declaration-keyed, checker-free.
+const createTsonicMemoryBindingIndex = (source: HostSourceProgram) => createTsonicHostRecords(source).memoryBindings;
 import { memoryCall } from "../../testing/fixtures.js";
 import { bindingSession, boundRecordSource } from "./fixtures.js";
 
@@ -23,13 +28,18 @@ test("binding storage index selects exact validated members without querying sem
   assert.ok(Object.isFrozen(index.issues));
   for (const { binding } of selection.operation.fields) {
     assert.equal(index.hasBoundField([binding.field.selectedDeclaration]), true);
-    if (binding.field.selectedSymbol !== undefined) assert.equal(index.hasBoundField([binding.field.selectedSymbol]), true);
     assert.equal(index.hasBoundField([binding.pointerExpression]), false);
   }
   const other = bindingSession(boundRecordSource);
   const different = selectTsonicMemoryRecordBinding(other.ast, other.sourceFacts, memoryCall(other, "bindmemoryrecord"));
   assert.ok(different?.kind === "resolved");
   assert.equal(index.hasBoundField([different.operation.fields[0]!.binding.field.selectedDeclaration]), false);
+  const record = index.record(memoryCall(checked, "bindmemoryrecord"));
+  assert.ok(record?.kind === "resolved");
+  assert.deepEqual(record.fields.map(entry => entry.binding.field.declaration),
+    selection.operation.fields.map(entry => entry.binding.field.selectedDeclaration));
+  assert.deepEqual(record.fields.map(entry => entry.binding.pointer.expression),
+    selection.operation.fields.map(entry => entry.binding.pointerExpression));
 });
 
 test("binding index does not promote an unconsumed field binding into record storage", () => {

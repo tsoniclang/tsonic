@@ -14,7 +14,7 @@ function checked(body) {
   const program = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(program.diagnostics.length === 0, true, formatDiagnostics(program.diagnostics));
-  const source = createHostSourceProgram(program, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(program, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = program.getSourceFile("/src/index.ts");
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   return { source, file, initializer };

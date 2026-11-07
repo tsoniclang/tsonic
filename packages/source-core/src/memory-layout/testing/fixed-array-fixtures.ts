@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
-import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../public/facts.js";
-import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
+import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../facts.js";
 import { assertMemoryDiagnostics, memoryCall, memorySession, memoryTestRegistration } from "./fixtures.js";
 
 export const arrayTestPrelude = `

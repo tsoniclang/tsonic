@@ -2,7 +2,8 @@ import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { freezeSourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import type {
-  SourceClosedSum, SourceSumIdentity, SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
+  SourceClosedSum, SourceSumIdentity, SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorLiteral, SourceTypeDescriptorMember,
+  SourceTypeDescriptorSignature, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
   SourceTypeFlowRefusal, SourceTypeFlowTerm, SourceTypeFlowVariable,
 } from "./types.js";
 
@@ -32,9 +33,25 @@ export function sourceTypeDescriptorsEqual(left: SourceTypeDescriptor, right: So
       left.members.every(member => {
         const selected = right.members.find(candidate => candidate.name === member.name);
         return selected !== undefined && member.optional === selected.optional && !!member.readonly === !!selected.readonly &&
-          sourceTypeDescriptorsEqual(member.type, selected.type);
+          memberLiteralsKey(member) === memberLiteralsKey(selected) && sourceTypeDescriptorsEqual(member.type, selected.type);
       });
   }
+}
+
+/** The value key of a member literal (05 §2a D-2): equal keys are the same literal value. Numbers and bigints share the
+ * integer spelling, as literal values do in the discriminant rule; the member's base type keeps them apart. */
+export function sourceTypeDescriptorLiteralKey(literal: SourceTypeDescriptorLiteral): string {
+  switch (literal.kind) {
+    case "string": return `s:${literal.value}`;
+    case "boolean": return `b:${String(literal.value)}`;
+    case "bigint": return `n:${literal.value.toString()}`;
+    case "number": return Number.isInteger(literal.value) ? `n:${BigInt(literal.value).toString()}` : `n:${String(literal.value)}`;
+  }
+}
+
+// A member's literal set takes part in shape equality and identity as a set: declaration order never separates two arms.
+function memberLiteralsKey(member: SourceTypeDescriptorMember): string {
+  return member.literals === undefined ? "" : JSON.stringify([...new Set(member.literals.map(sourceTypeDescriptorLiteralKey))].sort());
 }
 
 function indexesEqual(left: readonly SourceTypeDescriptorIndex[], right: readonly SourceTypeDescriptorIndex[]): boolean {
@@ -296,7 +313,7 @@ function descriptorIdentity(ast: AstReader, registry: SourceUnionRegistry): (typ
       case "tuple": value = vector(["tuple", type.readonly, vector(type.elements.map(element =>
         vector([element.kind, tree(element.type)])))]); break;
       case "shape": value = vector(["shape", ordered(type.members.map(member =>
-        intern(vector(["member", member.name, member.optional, !!member.readonly, tree(member.type)])))),
+        intern(vector(["member", member.name, member.optional, !!member.readonly, memberLiteralsKey(member), tree(member.type)])))),
         ordered(type.indexes.map(index => intern(vector(["index", index.readonly, tree(index.key), tree(index.value)])))),
         vector(type.calls.map(signature)), vector(type.constructs.map(signature))]); break;
       case "callable": value = vector(["callable", vector(type.calls.map(signature)), vector(type.constructs.map(signature))]); break;
@@ -487,7 +504,8 @@ function snapshotSourceTypeDescriptor(owner: SourceTypeDescriptorUnions, type: S
       ...(type.extent === undefined ? {} : { extent: Object.freeze({ ...type.extent }) }) });
     case "shape": return Object.freeze({ ...type, indexes: indexes(type.indexes), calls: signatures(type.calls), constructs: signatures(type.constructs),
       members: Object.freeze(type.members.map(member => Object.freeze({ ...member, origin: freezeSourceTypeDescriptorMemberOrigin(member.origin),
-        type: freeze(member.type) }))) });
+        type: freeze(member.type),
+        ...(member.literals === undefined ? {} : { literals: Object.freeze(member.literals.map(literal => Object.freeze({ ...literal }))) }) }))) });
   }
 }
 

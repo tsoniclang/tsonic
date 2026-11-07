@@ -68,9 +68,12 @@ test("guard proofs reject unrelated bindings, writes, captures and uncertain con
 test("mutable passing and address exposure invalidate source guards", () => {
   const current = fixture("if (value < 0) return -1; consume(value); return value;");
   const call = current.calls[0]!;
+  const storageExpression = current.source.navigation.call(call)?.arguments[0];
+  assert.ok(storageExpression);
   for (const mode of ["by-value", "byref-readonly", "borrow-shared", "borrow-mut", "byref", "out"] as const) {
+    // WP0 A4: a call carries the argument role with its exact storage; this reader uses only the mode.
     const sourceFacts = { getFact(subject: Node, key: unknown) {
-      return subject === call && key === argumentPassingFactKey ? { mode } : undefined;
+      return subject === call && key === argumentPassingFactKey ? { role: "argument", mode, storageExpression } : undefined;
     } } as unknown as ReadonlySourceFactResolver;
     assert.deepEqual(current.proved(sourceFacts), [mode === "by-value" || mode === "byref-readonly" || mode === "borrow-shared"]);
   }

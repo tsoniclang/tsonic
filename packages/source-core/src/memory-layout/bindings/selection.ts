@@ -22,10 +22,9 @@ function fieldBindingDomain(facts: ReadonlySourceFactResolver, operation: Tsonic
   const selectedType = readTsonicMemoryType(facts, operation.call);
   const fieldType = readTsonicMemoryType(facts, operation.field.call);
   const childType = readTsonicMemoryType(facts, operation.field.fieldLayout.call);
+  // The certified memory type identities are the domain proof; no checker Type is compared here.
   return isFinalizedMemoryLayout(facts, operation.field.fieldLayout) && selectedType !== undefined &&
-    fieldType !== undefined && childType !== undefined && selectedType.sourceType === operation.pointeeType &&
-    fieldType.sourceType === operation.field.fieldType && childType.sourceType === operation.field.fieldLayout.sourceType &&
-    selectedType.identity === fieldType.identity && fieldType.identity === childType.identity;
+    fieldType !== undefined && childType !== undefined && selectedType.identity === fieldType.identity && fieldType.identity === childType.identity;
 }
 
 export function selectTsonicMemoryFieldBindingFacts(
@@ -55,7 +54,6 @@ export function selectTsonicMemoryRecordBinding(
   const selectedType = readTsonicMemoryType(facts, operation.call);
   const layoutType = readTsonicMemoryType(facts, operation.layout.call);
   if (!isFinalizedMemoryLayout(facts, operation.layout) || selectedType === undefined || layoutType === undefined ||
-      selectedType.sourceType !== operation.sourceType || layoutType.sourceType !== operation.layout.sourceType ||
       selectedType.identity !== layoutType.identity || operation.fields.some(entry => !fieldBindingDomain(facts, entry.binding)))
     return Object.freeze({ kind: "rejected",
       reason: "Memory record binding requires its exact operands, complete field bindings and finalized record layout/type." });

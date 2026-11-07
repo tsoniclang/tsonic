@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { sourceNodeHasRole } from "../../source-navigation/callable-boundaries.js";
 import type { SourceHostComponent, SourceHostQueries } from "../../host-input/index.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue, sourceTypeDescriptorUnion } from "./terms.js";
@@ -24,11 +25,6 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
   const cache = new WeakMap<Node, SourceTypeFlowDeclaredSlot | null>();
   const active = new Set<Node>();
   const activeParameters = new Set<Node>();
-
-  function callable(node: Node): boolean {
-    return ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) ||
-      ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node);
-  }
 
   function component(owner: Node, query: SourceHostQueries): SourceHostComponent | undefined {
     const authoredTypeNode = ast.typeNode(owner);
@@ -476,8 +472,9 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
         ast.typeNode(parent) === undefined) return Object.freeze({ authority: "inferred" });
       if (ast.typeNode(parent) === undefined) {
         let owner = ast.parent(parent);
-        while (owner !== undefined && !callable(owner) && !ast.is.IsSourceFile(owner)) owner = ast.parent(owner);
-        const local = owner !== undefined && callable(owner) && ast.is.IsVariableDeclaration(parent) &&
+        // A local of an execution (a callable body or a class static block, E13 execution-barrier; F2-1).
+        while (owner !== undefined && !sourceNodeHasRole(ast, owner, "execution-barrier") && !ast.is.IsSourceFile(owner)) owner = ast.parent(owner);
+        const local = owner !== undefined && sourceNodeHasRole(ast, owner, "execution-barrier") && ast.is.IsVariableDeclaration(parent) &&
           (ast.variableDeclarationKind(parent) === "const" || ast.variableDeclarationKind(parent) === "let") &&
           !navigation.declarationUseSummary(parent).exported;
         if (local) return undefined;
@@ -494,7 +491,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (ast.is.IsReturnStatement(parent) && Node_Expression(ast, parent) === occurrence ||
       ast.is.IsArrowFunction(parent) && ast.body(parent) === occurrence) {
       let owner: Node | undefined = ast.is.IsArrowFunction(parent) ? parent : ast.parent(parent);
-      while (owner !== undefined && !callable(owner)) owner = ast.parent(owner);
+      while (owner !== undefined && !sourceNodeHasRole(ast, owner, "callable-body")) owner = ast.parent(owner);
       if (owner === undefined) return undefined;
       const generator = query.generator(owner);
       if (generator?.declaration === owner) {

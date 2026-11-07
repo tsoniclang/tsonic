@@ -3,11 +3,10 @@
 // Symbol or Resolved*Info is reachable from this entry; Node and SourceFile appear as site keys only.
 // Host-internal services (semantics, raw navigation, checker witnesses) are not exported here.
 
-// The published fact contract and its program entry.
+// The published fact contract. The program is built by the composition root through @tsonic/target-api/host
+// (createTargetSourceProgram takes the checked program, whose type exposes the checker: K-2668, I1).
 export * from "./source/index.js";
 export type { SourceJsApiFactsFactory, SourceJsApiFactsInput } from "./source/assembly.js";
-export { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-export type { TargetSourceProgramOptions } from "../source-semantics/target-source-program.js";
 export type {
   SourceAuthoredOccurrence, SourceDocument, SourceOccurrence, SourceOccurrenceLookup, SourceProgramDocuments,
   SourceSyntheticOccurrence,

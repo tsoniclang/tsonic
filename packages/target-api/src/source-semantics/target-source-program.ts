@@ -8,6 +8,7 @@ import { createHostCheckerInput } from "../host-input/objects.js";
 import type { SourceProgramSemantics } from "../host-input/semantics-types.js";
 import { createSourceObjectFacts } from "../object-facts/objects.js";
 import { createSourceSelectionFacts } from "../object-facts/selections.js";
+import { createSourceSelectionRefusals } from "../object-facts/selection-refusals.js";
 import { assembleSourceProgramFacts, type SourceJsApiFactsFactory } from "../public/source/assembly.js";
 import type { TargetSourceProgramFacts } from "../public/source/index.js";
 import type { SourceAnalysisExtension } from "../public/source/analyses.js";
@@ -23,12 +24,19 @@ import { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
 import type { SourceTypeDescriptor } from "./local-type-flow/types.js";
 import type { SourceFlowConditions } from "./value-flow-model.js";
 import type { HostSourceProgram } from "./types.js";
+import type { SourcePlatformFacts } from "./platform-model.js";
 
 export interface TargetSourceProgramOptions {
   /** The JS API profile builder (js-source-profile createJsSourceApiFacts), supplied by the composition root. */
   readonly profile: SourceJsApiFactsFactory;
   /** Host extension analyses (source-core), published as facts.analyses.extension(key); supplied by the composition root. */
   readonly analyses?: readonly SourceAnalysisExtension<unknown>[];
+  /**
+   * The active target/toolchain ABI premise for native-int / native-uint (E24, N5): known 32 / 64, missing or
+   * conflicting. The composition root passes the selected target's own premise for the compilation being built; it is
+   * never the coordinating machine's width. Published unchanged as facts.analyses.platform.
+   */
+  readonly platform: SourcePlatformFacts;
 }
 
 /** The target-facing program: published facts, documents, the authored-syntax reader and the extension facts only (I1). */
@@ -73,7 +81,8 @@ export function buildHostSourceProgram(
   const checker = createSourceSemanticsInput(source, { navigation, enumConstants });
   const { semantics } = checker;
 
-  const services = Object.freeze({ ast, sourceFiles, sourceFacts: source.sourceFacts, navigation, semantics });
+  const services = Object.freeze({ ast, sourceFiles, sourceFacts: source.sourceFacts, navigation, semantics,
+    platform: options.platform });
   const input = createSourceHostInput(services);
   const valueModel = buildSourceValueModelFacts(services, source.programSourceFiles, input);
   const witnesses = createHostCheckerInput({ ...services, input });
@@ -81,7 +90,8 @@ export function buildHostSourceProgram(
     ast, witnesses, values: valueModel.values, instantiations: valueModel.instantiations,
     pointerOperation: valueModel.pointerOperation,
   });
-  const objects = createSourceObjectFacts({ ast, navigation, values: valueModel.values, selections });
+  const objects = createSourceObjectFacts({ ast, navigation, values: valueModel.values, selections,
+    substitute: valueModel.sums.substitute });
   const roles = createSourceRoleModel({
     ast,
     navigation,
@@ -98,7 +108,7 @@ export function buildHostSourceProgram(
   let program: HostSourceProgram | undefined;
   const analyses = createSourceAnalysisFacts(
     () => program ?? (() => { throw new Error("Source analyses run only after the Host program is assembled."); })(),
-    options.analyses ?? []);
+    options.analyses ?? [], options.platform);
   const facts = assembleSourceProgramFacts({
     documents,
     values: valueModel.values,
@@ -111,7 +121,11 @@ export function buildHostSourceProgram(
     profile,
     analyses,
     obligations: valueModel.obligations,
-    refusalSources: Object.freeze([valueModel.refusals, selections.refusals, objects.refusals]),
+    refusalSources: Object.freeze([
+      valueModel.refusals,
+      createSourceSelectionRefusals({ ast, sourceFiles: source.programSourceFiles, selections, profile }),
+      objects.refusals,
+    ]),
   });
 
   const enums = hostEnumFacts(enumConstants, () => analyzeSourceEnumNumericUses(

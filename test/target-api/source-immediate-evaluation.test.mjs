@@ -43,7 +43,7 @@ test("source effects distinguish eager class work from deferred instance and cal
     `,
   });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const none = { invokes: false, mutates: false, suspends: false, mayThrow: false };
   const invokes = { invokes: true, mutates: false, suspends: false, mayThrow: true };
@@ -93,7 +93,7 @@ test("immediate class children retain exact heritage, key and static initializat
     `,
   });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
   const ordered = namedDeclaration(ast, file, "Ordered");

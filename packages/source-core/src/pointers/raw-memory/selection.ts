@@ -22,11 +22,10 @@ export function selectTsonicRawLocationOperation(
 ): TsonicRawLocationSelection | undefined {
   const selected = selectTsonicRawLocationFacts(ast, facts, subject);
   if (selected?.kind !== "resolved") return selected;
-  const { operation, layout } = selected;
+  const { layout } = selected;
   const selectedType = readTsonicMemoryType(facts, subject);
   const layoutType = readTsonicMemoryType(facts, layout.call);
   if (!isFinalizedMemoryLayout(facts, layout) || selectedType === undefined || layoutType === undefined ||
-    selectedType.sourceType !== operation.pointeeType || layoutType.sourceType !== layout.sourceType ||
     selectedType.identity !== layoutType.identity) return Object.freeze({ kind: "rejected" as const,
       reason: "Raw location conversion requires its exact selected operands and finalized layout/ABI identity." });
   return Object.freeze({ ...selected, memoryType: selectedType.identity });

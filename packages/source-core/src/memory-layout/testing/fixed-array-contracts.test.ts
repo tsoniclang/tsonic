@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createSourceSemanticsVirtualModuleProvider } from "../../public/extension.js";
-import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryType, resolveTsonicMemoryLayoutObservation, tsonicFixedArrayFactKey } from "../../public/facts.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { readTsonicMemoryType } from "../type-contract/facts.js";
+import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
 import { memoryCall, memoryCalls, memoryDescriptorProperty, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, arrayProfileRegistration, arraySession, arrayTestProfiles, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
@@ -49,16 +51,16 @@ for (const profile of arrayTestProfiles) {
       const layout = arrayLayoutAt(checked, index);
       assert.equal(layout.fixedArray.length, BigInt(index < 2 ? index : 2));
       assert.equal(layout.fixedArray.lengthRuntimeBase, "number");
-      assert.equal(layout.fixedArray.sourceType, layout.sourceType);
-      assert.ok(layout.fixedArray.elementSourceType);
       assert.equal(layout.byteSize, BigInt(size));
       assert.equal(layout.stride, BigInt(size));
       assert.equal("fields" in layout, false);
       assert.equal("length" in layout, false);
       assert.equal(layout.elementLayoutExpression, memoryDescriptorProperty(checked, layout.call, "elementlayout"));
       assert.equal(readTsonicMemoryLayout(checked.sourceFacts, layout.elementLayoutExpression)?.call, layout.elementLayout.call);
-      assert.ok(tsonicFixedArrayFactKey.equals(layout.fixedArray,
-        checked.sourceFacts.getFact(layout.call, tsonicFixedArrayFactKey)!));
+      const fixedArray = checked.sourceFacts.getFact(layout.call, tsonicFixedArrayFactKey)!;
+      assert.equal(fixedArray.length, layout.fixedArray.length);
+      assert.equal(fixedArray.lengthRuntimeBase, layout.fixedArray.lengthRuntimeBase);
+      assert.equal(fixedArray.elementType, layout.fixedArray.elementType);
       assert.deepEqual(layout.dataLayout, { providerDeclaration: registration.providerDeclaration, ...registration.descriptor });
       assertArrayObservation(checked, "sizeof", size, index);
     }
@@ -175,7 +177,6 @@ test("closed generic array aliases preserve explicit element markers and nested 
   assert.ok(explicitType && inferredType);
   assert.equal(explicitType.identity, inferredType.identity);
   assert.equal(inferred.fixedArray.elementType, undefined);
-  assert.ok(inferred.fixedArray.elementSourceType);
   assertArrayObservation(checked, "sizeof", 16);
   assertArrayObservation(checked, "sizeof", 16, 1);
 });

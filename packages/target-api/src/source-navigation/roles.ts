@@ -181,13 +181,14 @@ export function createSourceRoleModel(input: SourceRoleModelInput): SourceRoleMo
       valueFlow: (expression: Node) => navigation.expressionValueFlow(expression),
       resultUse: (expression: Node) => navigation.expressionResultUse(expression),
       resultDisposition: (expression: Node) => navigation.expressionResultDisposition(expression),
-      valueInputs(expression: Node): readonly Node[] {
+      // A call, `new` or tagged template whose inputs the expression walk does not list takes its construct inputs.
+      valueInputs(expression: Node) {
         const kind = ast.kindName(expression);
-        const inputs = kind === "KindNewExpression" || kind === "KindCallExpression" || kind === "KindTaggedTemplateExpression"
+        return kind === "KindNewExpression" || kind === "KindCallExpression" || kind === "KindTaggedTemplateExpression"
           ? sourceExpressionValueInputs(ast, expression) ?? sourceConstructValueInputs(ast, expression)
           : sourceExpressionValueInputs(ast, expression);
-        return Object.freeze((inputs ?? []).map(entry => entry.expression));
       },
+      constructInputs: (owner: Node) => sourceConstructValueInputs(ast, owner),
       transparentOperand,
       stable,
     }),

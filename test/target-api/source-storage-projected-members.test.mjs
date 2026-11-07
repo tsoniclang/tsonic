@@ -23,7 +23,7 @@ test("inline optional declaration members preserve correlated absence and real c
       const read = receiver.value;
     ` } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the original inline optional storage checks");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const { ast } = source;
   const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
   assert.equal(file !== undefined, true, "the original checked file is present");
@@ -87,7 +87,7 @@ for (const [name, container, prefix, fieldType = "object", stored = "value", suf
       ` },
     }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${name}: the original source checks`);
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const { ast } = source;
     const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
     assert.equal(file !== undefined, true, `${name}: the original file is present`);

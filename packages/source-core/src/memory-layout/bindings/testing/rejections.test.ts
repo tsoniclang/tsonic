@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { selectTsonicMemoryFieldBinding, selectTsonicMemoryFieldBindingFacts, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { selectTsonicMemoryFieldBinding, selectTsonicMemoryFieldBindingFacts } from "../selection.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../facts.js";
 import { memoryCall, memorySession } from "../../testing/fixtures.js";
 import { bindingPrelude } from "./fixtures.js";
 

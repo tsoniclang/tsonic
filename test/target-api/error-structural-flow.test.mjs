@@ -48,7 +48,7 @@ export function store(input: Input<object>): void {
 }
 ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the actual instantiated conditional store is checked");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   assert.equal(storage.failureReason(), undefined, "transport construction preserves finite exact instantiated member edges");

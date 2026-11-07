@@ -37,3 +37,20 @@ test("collection facts follow the descriptor", () => {
   assert.deepEqual(facts.collection({ kind: "string" }), { kind: "string" });
   assert.equal(facts.collection({ kind: "intrinsic", intrinsic: "unknown" }), undefined);
 });
+
+test("calling Generator.throw is a Host refusal at the call (profile callRefusal, raised in facts.refusals())", async () => {
+  const { createCompilerSessionFromFiles } = await import("@tsonic/tsts");
+  const { createTargetSourceProgram } = await import("@tsonic/target-api/host");
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+export function* numbers(): Generator<number, void, unknown> { yield 1; }
+const iterator = numbers();
+iterator.next();
+iterator.throw(new Error("stop"));` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const program = createTargetSourceProgram(checked, { profile: createJsSourceApiFacts,
+    platform: { kind: "known", nativeIntegerBits: 64, basis: "js-source-profile test" } });
+  const refusals = program.facts.refusals().filter(refusal => refusal.code === "TSONIC_GENERATOR_THROW_UNSUPPORTED");
+  assert.equal(refusals.length, 1, "only the throw call; next is supported");
+  assert.equal(refusals[0]!.message, "Generator throw-in is not supported.");
+  assert.equal(program.syntax.text(refusals[0]!.site).startsWith("iterator.throw("), true);
+});

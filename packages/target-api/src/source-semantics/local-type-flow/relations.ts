@@ -16,9 +16,10 @@ import type { SourceLiteralValue } from "../literal-values-model.js";
 import type {
   SourceInstantiation, SourceNullishAdmission, SourceRefusal, SourceTypeOutcome, SourceUnionRelation,
 } from "../../public/source/facts.js";
-import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { sourceTypeDescriptorLiteralKey, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
 import type { SourceClosedSum, SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
 import type { SourceHostInput } from "../../host-input/index.js";
+import { sourceTypeDescriptorOpenness } from "./uses.js";
 
 export interface SourceRelationInputs {
   readonly source: SourceTypeFlowSource;
@@ -34,7 +35,7 @@ export interface SourceRelationInputs {
   instantiation(use: Node): SourceInstantiation | undefined;
 }
 
-type Match = boolean | "unknown" | "refuse";
+type Match = boolean | "unknown";
 type TestKind = Extract<SourceUnionRelation, { readonly kind: "test" }>["test"];
 
 const equalities: ReadonlyMap<string, { readonly negated: boolean; readonly strict: boolean }> = new Map([
@@ -86,10 +87,18 @@ function relationKey(relation: SourceUnionRelation): string {
   }
 }
 
-export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: Node) => SourceUnionRelation | undefined {
+export interface SourceRelationQuery {
+  /** The one relation of a node, by priority (spread write, cast, test, per-arm, narrowed read, write). */
+  at(use: Node): SourceUnionRelation | undefined;
+  /** The write relation of a value use into its Host slot, whatever other relation the node has (BUILD-FIX Q1). */
+  write(use: Node): SourceUnionRelation | undefined;
+}
+
+export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceRelationQuery {
   const { source, input } = inputs;
   const { ast, navigation } = source;
   const cache = new Map<Node, SourceUnionRelation | undefined>();
+  const writes = new Map<Node, SourceUnionRelation | undefined>();
 
   const refuse = (use: Node, message: string): SourceRefusal => Object.freeze({
     kind: "refused", code: "TSONIC_LOCAL_TYPE_UNION", message, site: use,
@@ -102,29 +111,9 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
     ? sum.arms.findIndex(arm => isAbsence(arm.type))
     : sum.arms.findIndex(arm => sourceTypeDescriptorsEqual(arm.type, type));
 
-  // ---- discriminators (05 §2a D-2): required literal-typed members, read from the members' authored declarations ----
-  // The literal evidence survives descriptor erasure through the member's original declaration (never a checked type).
-  const literalKeys = (annotation: Node): ReadonlySet<string> | undefined => {
-    if (ast.kindName(annotation) === "KindParenthesizedType") {
-      const inner = ast.children(annotation).find(child => child !== undefined);
-      return inner === undefined ? undefined : literalKeys(inner);
-    }
-    if (ast.is.IsUnionTypeNode(annotation)) {
-      const keys = new Set<string>();
-      for (const member of ast.children(annotation)) {
-        if (member === undefined) continue;
-        const selected = literalKeys(member);
-        if (selected === undefined) return undefined;
-        for (const key of selected) keys.add(key);
-      }
-      return keys.size === 0 ? undefined : keys;
-    }
-    if (!ast.is.IsLiteralTypeNode(annotation)) return undefined;
-    const literal = ast.children(annotation)[0];
-    const key = literal === undefined ? undefined : literalKey(inputs.literal(literal)) ??
-      (ast.is.IsStringLiteral(literal) ? `s:${ast.text(literal)}` : undefined);
-    return key === undefined ? undefined : new Set([key]);
-  };
+  // ---- discriminators (05 §2a D-2): required literal-typed members, read from the arm descriptor itself ------------
+  // The arm's shape carries each member's literal set (descriptor `literals`, kept through canonical dedup and generic
+  // application), so the rule reads the arm the sum published; it never goes back to member declarations (R4).
   const discriminantCache = new Map<SourceTypeDescriptor, ReadonlyMap<string, ReadonlySet<string>>>();
   // name -> literal keys of every required literal-typed member of an arm.
   const discriminants = (arm: SourceTypeDescriptor): ReadonlyMap<string, ReadonlySet<string>> => {
@@ -134,10 +123,8 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
     const structure = sourceTypeDescriptorStructure(arm);
     if (structure.kind === "shape") {
       for (const member of structure.members) {
-        if (member.optional || member.origin.kind !== "declared") continue;
-        const annotation = ast.typeNode(member.origin.declaration);
-        const keys = annotation === undefined ? undefined : literalKeys(annotation);
-        if (keys !== undefined) result.set(member.name, keys);
+        if (member.optional || member.literals === undefined) continue;
+        result.set(member.name, new Set(member.literals.map(sourceTypeDescriptorLiteralKey)));
       }
     }
     discriminantCache.set(arm, result);
@@ -274,8 +261,9 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
     const fromSum = inputs.sumOf(from);
     if (fromSum !== undefined && toSum !== undefined) return mapSums(use, mode, fromSum, toSum);
     if (toSum !== undefined) {
-      const open = sourceTypeDescriptorStructure(from);
-      if (open.kind === "intrinsic" && (open.intrinsic === "any" || open.intrinsic === "unknown")) {
+      // A top value (any / unknown) states no arm; a type parameter selects per instantiation (selectArm decides).
+      if (sourceTypeDescriptorOpenness(ast, from) === "top") {
+        const open = sourceTypeDescriptorStructure(from) as { readonly intrinsic?: string };
         return refuse(use, `An '${open.intrinsic}' value states no arm of the destination union. Cast it to one arm's type first.`);
       }
       return selectArm(use, value, from, toSum);
@@ -298,22 +286,14 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
     const structure = sourceTypeDescriptorStructure(type);
     return structure.kind === "optional" ? { arms: [structure.value, absenceDescriptor] } : { arms: [type] };
   };
-  // An arm whose values the descriptor does not constrain (any, unknown, a type parameter): every test is unknown on it.
-  const open = (arm: SourceTypeDescriptor): boolean => {
-    const structure = sourceTypeDescriptorStructure(arm);
-    return structure.kind === "intrinsic" && (structure.intrinsic === "any" || structure.intrinsic === "unknown") ||
-      structure.kind === "declared" && ast.is.IsTypeParameterDeclaration(structure.declaration);
-  };
+  // An arm whose values the descriptor does not constrain (R4 classifier: top or type parameter): every test is unknown on it.
+  const open = (arm: SourceTypeDescriptor): boolean => sourceTypeDescriptorOpenness(ast, arm) !== "closed";
 
   const testRelation = (use: Node, operand: Node, test: TestKind, negated: boolean,
     predicate: (arm: SourceTypeDescriptor, index: number) => Match): SourceUnionRelation | undefined => {
     const selected = testArms(operand);
     if (selected === undefined) return undefined;
     const results: Match[] = selected.arms.map((arm, index) => !isAbsence(arm) && open(arm) ? "unknown" : predicate(arm, index));
-    if (results.includes("refuse")) {
-      return refuse(use, "This test cannot separate null from undefined: the operand admits both. Test with '== null' " +
-        "or annotate the operand with only one of them.");
-    }
     const holds = results.map(result => result === "unknown" ? "unknown" : (result === true) !== negated);
     const outcome = holds.every(result => result === true) ? "always-true" as const
       : holds.every(result => result === false) ? "always-false" as const : "undecided" as const;
@@ -347,10 +327,11 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
 
   // `x === null` / `x == undefined` on the absence arm, from the operand's nullish admission (N7, C-2479 decision 2 (c)).
   // Only a proven "both" refuses (§4.3); an unproven admission leaves the arm undecided.
+  // A strict null / undefined test on "both" is undecided, not refused (R-D2-1: N7 refuses only typeof "undefined";
+  // the target emits the runtime check).
   const absenceMatch = (admission: SourceNullishAdmission["admission"], nullish: "null" | "undefined", strict: boolean): Match => {
     if (!strict) return true;
-    if (admission === "both") return "refuse";
-    if (admission === "unavailable" || admission === "none") return "unknown";
+    if (admission === "both" || admission === "unavailable" || admission === "none") return "unknown";
     return admission === `${nullish}-only`;
   };
 
@@ -393,10 +374,16 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
         const site = siteCategories(operand, operandNode);
         if (site.kind === "refused") return site;
         const { admission } = site;
+        // N7 is decided by the operand's nullish admission before any arm (R-D2-2): an any / unknown operand authored
+        // with both null and undefined has no absence arm to visit, and is refused the same way.
+        if (category.text === "undefined" && admission === "both") {
+          return refuse(use, "This test cannot separate null from undefined: the operand admits both. Test with '== null' " +
+            "or annotate the operand with only one of them.");
+        }
         return testRelation(use, operandNode, "typeof", equality.negated, (arm, index) => {
           if (isAbsence(arm)) {
             if (category.text === "undefined") {
-              return admission === "both" ? "refuse" : admission === "undefined-only" ? true : admission === "null-only" ? false : "unknown";
+              return admission === "undefined-only" ? true : admission === "null-only" ? false : "unknown";
             }
             if (category.text === "object") return admission === "null-only" ? true : admission === "undefined-only" ? false : "unknown";
             return false;
@@ -484,16 +471,38 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
     if (structure.kind === "declared") return input.declaredMembers(structure.declaration, name)?.[0];
     return undefined;
   };
+  // The component an arm's read yields (supervisor ruling on B4 D3): a shape member's type (else its index value), an
+  // array element, a tuple position, a string character. `name` undefined: an element read with a computed key.
+  const armComponent = (arm: SourceTypeDescriptor, name: string | undefined): SourceTypeDescriptor | undefined => {
+    const structure = sourceTypeDescriptorStructure(arm);
+    const position = name !== undefined && /^\d+$/u.test(name) ? Number(name) : undefined;
+    switch (structure.kind) {
+      case "shape": {
+        const member = name === undefined ? undefined : structure.members.find(selected => selected.name === name);
+        if (member !== undefined) return member.type;
+        const index = (name === undefined || position !== undefined
+          ? structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "primitive") : undefined) ??
+          structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "string");
+        return index?.value;
+      }
+      case "array": return name === undefined || position !== undefined ? structure.element : undefined;
+      case "tuple": return position === undefined ? undefined : sourceTypeDescriptorTupleValue(structure, position);
+      case "string": return name === undefined || position !== undefined ? structure : undefined;
+      default: return undefined;
+    }
+  };
   function perArm(use: Node): SourceUnionRelation | undefined {
     const receiver = Node_Expression(ast, use);
     const selected = receiver === undefined ? undefined : resolved(receiver);
     const sum = selected === undefined ? undefined : inputs.sumOf(selected);
     const name = memberName(use);
-    if (sum === undefined || name === undefined) return undefined;
+    const computed = name === undefined && ast.is.IsElementAccessExpression(use);
+    if (sum === undefined || name === undefined && !computed) return undefined;
     const arms = sum.arms.flatMap((arm, index) => {
       if (isAbsence(arm.type)) return [];
-      const member = armMember(arm.type, name);
-      return [Object.freeze({ arm: index, ...(member === undefined ? {} : { member }) })];
+      const member = name === undefined ? undefined : armMember(arm.type, name);
+      const type = armComponent(arm.type, name);
+      return [Object.freeze({ arm: index, ...(member === undefined ? {} : { member }), ...(type === undefined ? {} : { type }) })];
     });
     return Object.freeze({ kind: "per-arm", use, sum: sum.identity, arms: Object.freeze(arms) });
   }
@@ -599,17 +608,32 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): (use: N
         if (index >= 0) return Object.freeze({ kind: "extract-arm", use, sum: from.identity, arm: index });
       }
     }
+    return write(use);
+  }
+
+  // A value use written into its Host destination slot: select-arm / map / identity, or the write refusal.
+  function computeWrite(use: Node): SourceUnionRelation | undefined {
+    if (ast.is.IsSpreadElement(use)) return undefined;
     const destination = inputs.contextual(use);
     if (destination === undefined || destination.kind === "refused") return undefined;
     const outcome = inputs.type(use);
     if (outcome.kind === "refused") return undefined;
     return relate(use, "write", use, outcome.construction ?? outcome.type, destination.type);
   }
-
-  return use => {
-    if (cache.has(use)) return cache.get(use);
-    const result = compute(use);
-    cache.set(use, result);
+  function write(use: Node): SourceUnionRelation | undefined {
+    if (writes.has(use)) return writes.get(use);
+    const result = computeWrite(use);
+    writes.set(use, result);
     return result;
-  };
+  }
+
+  return Object.freeze({
+    at(use: Node) {
+      if (cache.has(use)) return cache.get(use);
+      const result = compute(use);
+      cache.set(use, result);
+      return result;
+    },
+    write,
+  });
 }

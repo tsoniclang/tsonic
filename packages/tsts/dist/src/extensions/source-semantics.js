@@ -1,11 +1,10 @@
-import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
-import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
+import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
+import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsImportTypeNode, AsLiteralTypeNode, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeQueryNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindImportType, KindNamedImports, KindNamedExports, KindNamespaceImport, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTypeQuery, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
-import { GetSourceFileOfNode, GetSymbolId, IsDeclarationName, IsLeftHandSideExpression, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
+import { GetSymbolId, IsDeclarationName, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerVirtualDeclarationFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { defineExtensionFactKey } from "./fact-key.js";
-import { encodeIdentityTuple } from "./identity-tuple.js";
 export const sourceSemanticsExtensionId = "tsts.source-semantics";
 const selectedSourcePrimitiveDeclarationFactKey = defineExtensionFactKey({
     extensionId: sourceSemanticsExtensionId,
@@ -75,7 +74,7 @@ export function createSourceSemanticsExtension(options) {
                 recordSourceSemanticsDeclarationAliases(context.facts, sourceFile, context.source.getSourceFileQueries(sourceFile).checker, modules);
             }
             for (const sourceFile of sourceFiles) {
-                recordSourceSemanticsFacts(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules);
+                recordSourceSemanticsFacts(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, modules);
             }
         },
     };
@@ -166,9 +165,9 @@ function recordSourceSemanticsDeclarationAliases(facts, sourceFile, checker, mod
         facts.set(localSymbol, sourceMarkerFactKey, markerFact, evidence);
     });
 }
-function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules) {
+function recordSourceSemanticsFacts(sourceFile, checker, facts, modules) {
     recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modules);
-    recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker);
+    recordSourceSemanticsCallMarkers(facts, sourceFile, checker);
     recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules);
 }
 function recordSourceSemanticsImportClause(facts, checker, importDeclaration, moduleIdentity) {
@@ -268,7 +267,7 @@ function recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modul
         facts.set(node, sourceMarkerFactKey, fact, createMarkerEvidence(marker.exportName));
     });
 }
-function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker) {
+function recordSourceSemanticsCallMarkers(facts, sourceFile, checker) {
     visitSourceSemanticsNodePost(sourceFile, (node) => {
         if (node?.Kind !== KindCallExpression) {
             return;
@@ -278,7 +277,7 @@ function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourc
         if (marker === undefined || callInfo === undefined) {
             return;
         }
-        recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, node, callInfo, marker);
+        recordSourceSemanticsCallMarker(facts, checker, node, callInfo, marker);
     });
 }
 function recordCanonicalProviderSourcePrimitives(context, modules) {
@@ -313,7 +312,11 @@ function recordCanonicalProviderTypeMarker(context, modules) {
         facts.set(subject, sourceMarkerFactKey, fact, evidence);
     }
 }
-function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker) {
+// Facts only: Source refusals for marker calls (storage expression, writable storage, pointer type arguments) are
+// Host decisions over these facts (TSONIC_ARGUMENT_MARKER_NOT_PLACE, TSONIC_POINTER_TYPE_ARGUMENTS; nextgen §2).
+// Every reference and pointer marker call carries its call-marker fact, so the Host sees the call even when no
+// operation fact could be recorded.
+function recordSourceSemanticsCallMarker(facts, checker, callExpression, callInfo, marker) {
     const evidence = createMarkerEvidence(marker.exportName);
     switch (marker.marker) {
         case "write-only-reference":
@@ -326,7 +329,7 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
             if (argument === undefined) {
                 return;
             }
-            recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, argument, marker, evidence);
+            recordArgumentPassingMarker(facts, callExpression, argument, marker, evidence);
             return;
         }
         case "shared-borrow": {
@@ -406,7 +409,11 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
         case "hash-pointer":
         case "bind-pointer":
         case "project-pointer":
-            recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence);
+            facts.set(callExpression, sourceMarkerFactKey, {
+                kind: "call-marker",
+                marker: marker.marker,
+            }, evidence);
+            recordPointerOperation(facts, checker, callExpression, callInfo, marker, evidence);
             return;
         case "bind-raw-pointer":
         case "equal-raw-pointer":
@@ -421,7 +428,7 @@ function hasMarkerArgumentCount(callExpression, count) {
 function hasMarkerTypeArgumentCount(callExpression, count) {
     return (Node_TypeArguments(callExpression) ?? []).length === count;
 }
-function recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence) {
+function recordPointerOperation(facts, checker, callExpression, callInfo, marker, evidence) {
     if (callInfo.sourceSelectedSignatureKind !== "resolved") {
         return;
     }
@@ -435,17 +442,6 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
         ? selectedTypeArguments[pointeeIndex]?.explicitTypeNode
         : undefined;
     if (pointeeType === undefined) {
-        diagnostics.append({
-            extensionId,
-            extensionCode: "SOURCE_SEMANTICS_POINTER_TYPE_EVIDENCE_MISSING",
-            numericCode: 9901103,
-            publicCode: "TSTS_SOURCE_SEMANTICS_0003",
-            category: "error",
-            message: `${marker.exportName}(...) requires ${expectedTypeArgumentCount} exact selected pointer type argument${expectedTypeArgumentCount === 1 ? "" : "s"}.`,
-            nodeOrSpan: callExpression,
-            evidence,
-            identity: sourceSemanticsDiagnosticIdentity("pointer-type", marker.exportName, callExpression),
-        });
         return;
     }
     switch (marker.marker) {
@@ -456,28 +452,13 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             }
             const storage = checker.getResolvedStorageInfo(storageArgument.expression);
             if (storage === undefined || !storage.writable) {
-                diagnostics.append({
-                    extensionId,
-                    extensionCode: "SOURCE_SEMANTICS_WRITABLE_STORAGE_REQUIRED",
-                    numericCode: 9901102,
-                    publicCode: "TSTS_SOURCE_SEMANTICS_0002",
-                    category: "error",
-                    message: `${marker.exportName}(...) requires writable storage.`,
-                    nodeOrSpan: storageArgument.expression,
-                    evidence,
-                    identity: sourceSemanticsDiagnosticIdentity("writable-storage", marker.exportName, callExpression),
-                });
                 return;
             }
             const fact = {
                 operation: "address-of",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 storageExpression: storage.storageExpression,
-                storageType: storage.type,
-                ...(storage.symbol === undefined ? {} : { storageSymbol: storage.symbol }),
                 ...(storage.declaration === undefined
                     ? {}
                     : { storageDeclaration: storage.declaration }),
@@ -494,11 +475,8 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "allocate",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 initialExpression: initial.expression,
-                initialType: initial.type,
                 locationIdentity: callExpression,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
@@ -512,11 +490,8 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "load",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
-                pointerType: pointer.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;
@@ -530,13 +505,9 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "store",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
-                pointerType: pointer.type,
                 valueExpression: value.expression,
-                valueType: value.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;
@@ -550,13 +521,9 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "equal-pointer",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 leftExpression: left.expression,
-                leftType: left.type,
                 rightExpression: right.expression,
-                rightType: right.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;
@@ -569,11 +536,8 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "hash-pointer",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
-                pointerType: pointer.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;
@@ -588,15 +552,10 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "bind-pointer",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
                 identityExpression: identity.expression,
-                identityType: identity.type,
                 readExpression: read.expression,
-                readType: read.type,
                 writeExpression: write.expression,
-                writeType: write.type,
                 locationIdentity: identity.expression,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
@@ -616,19 +575,13 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             const fact = {
                 operation: "project-pointer",
                 call: callExpression,
-                pointeeType,
                 ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
-                resultType: callInfo.sourceResultType,
-                sourcePointeeType: sourceTypeArgument.selectedType,
                 ...(sourceTypeArgument.explicitTypeNode === undefined
                     ? {}
                     : { explicitSourcePointeeTypeNode: sourceTypeArgument.explicitTypeNode }),
                 pointerExpression: pointer.expression,
-                pointerType: pointer.type,
                 fromSourceExpression: fromSource.expression,
-                fromSourceType: fromSource.type,
                 toSourceExpression: toSource.expression,
-                toSourceType: toSource.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;
@@ -655,9 +608,7 @@ function recordRawPointerOperation(facts, callExpression, callInfo, marker, evid
             facts.set(callExpression, rawPointerOperationFactKey, {
                 operation: marker.marker,
                 call: callExpression,
-                resultType: callInfo.sourceResultType,
                 identityExpression: identity.expression,
-                identityType: identity.type,
             }, evidence);
             return;
         }
@@ -670,11 +621,8 @@ function recordRawPointerOperation(facts, callExpression, callInfo, marker, evid
             facts.set(callExpression, rawPointerOperationFactKey, {
                 operation: marker.marker,
                 call: callExpression,
-                resultType: callInfo.sourceResultType,
                 leftExpression: left.expression,
-                leftType: left.type,
                 rightExpression: right.expression,
-                rightType: right.type,
             }, evidence);
             return;
         }
@@ -686,9 +634,7 @@ function recordRawPointerOperation(facts, callExpression, callInfo, marker, evid
             facts.set(callExpression, rawPointerOperationFactKey, {
                 operation: marker.marker,
                 call: callExpression,
-                resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
-                pointerType: pointer.type,
             }, evidence);
             return;
         }
@@ -696,38 +642,17 @@ function recordRawPointerOperation(facts, callExpression, callInfo, marker, evid
             return;
     }
 }
-function recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, target, marker, evidence) {
+function recordArgumentPassingMarker(facts, callExpression, target, marker, evidence) {
     const fact = {
+        role: "argument",
         mode: getArgumentPassingMode(marker.marker),
         storageExpression: target,
     };
+    facts.set(callExpression, sourceMarkerFactKey, { kind: "call-marker", marker: marker.marker }, evidence);
     facts.set(callExpression, argumentPassingFactKey, fact, evidence);
-    if (IsLeftHandSideExpression(target)) {
-        facts.set(target, argumentPassingFactKey, fact, evidence);
-        return;
-    }
-    diagnostics.append({
-        extensionId,
-        extensionCode: "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
-        numericCode: 9901101,
-        publicCode: "TSTS_SOURCE_SEMANTICS_0001",
-        category: "error",
-        message: `${marker.exportName}(...) requires a storage expression.`,
-        nodeOrSpan: target,
-        evidence,
-        identity: sourceSemanticsDiagnosticIdentity("non-storage", marker.exportName, target),
-    });
-}
-function sourceSemanticsDiagnosticIdentity(diagnostic, exportName, node) {
-    const sourceFile = GetSourceFileOfNode(node);
-    return encodeIdentityTuple([
-        "source-semantics",
-        diagnostic,
-        exportName,
-        sourceFile === undefined ? undefined : SourceFile_Path(sourceFile),
-        Node_Pos(node),
-        Node_End(node),
-    ]);
+    // N8 (b), C-2496: no grammar guard. Every marker call's target carries the fact whatever its syntax; whether the
+    // target is a storage place is the Host decision (TSONIC_ARGUMENT_MARKER_NOT_PLACE) over its exact evidence.
+    facts.set(target, argumentPassingFactKey, fact, evidence);
 }
 function getArgumentPassingMode(kind) {
     switch (kind) {

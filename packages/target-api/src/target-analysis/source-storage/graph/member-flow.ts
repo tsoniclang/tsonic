@@ -1,5 +1,5 @@
-import { sourceAnalysisArms, sourceAnalysisIncludesFile, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm,
-  sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourceAnalysisArms, sourceAnalysisIncludesFile, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import {
@@ -230,7 +230,7 @@ export function createSourceStorageMemberFlow(
   const armMembers = (type: Descriptor): readonly (readonly SourceStorageSpreadMember[])[] | undefined => {
     const selected: (readonly SourceStorageSpreadMember[])[] = [];
     for (const arm of sourceAnalysisArms(type)) {
-      if (!budget.step() || sourceAnalysisIsOpenArm(arm)) return undefined;
+      if (!budget.step() || sourceTypeDescriptorOpenness(source.ast, arm) === "top") return undefined;
       if (sourceAnalysisIsAbsentArm(arm) || sourceAnalysisIsNeverArm(arm)) continue;
       const members = source.facts.objects.members(arm);
       if ("kind" in members) return undefined;
@@ -366,7 +366,7 @@ export function createSourceStorageMemberFlow(
     const components: SourceStorageProjection[] = [];
     const declarations = new Set<Node>();
     for (const alternative of sourcePresentStorageArms(type)) {
-      if (!budget.step() || sourceAnalysisIsOpenArm(alternative)) return undefined;
+      if (!budget.step() || sourceTypeDescriptorOpenness(source.ast, alternative) === "top") return undefined;
       const indexed = [...sourceStorageComponents(alternative)];
       if (indexed.length !== 0) {
         components.push(...indexed);

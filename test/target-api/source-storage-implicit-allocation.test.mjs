@@ -24,7 +24,7 @@ async function fixture(name, body, files = {}, transform = source => source) {
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
-  const source = transform(createHostSourceProgram(checked, { profile: createJsSourceApiFacts }));
+  const source = transform(createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } }));
   const file = projectSourceFile(source, "src/index.ts");
   const profile = projectSourceFile(source, "globals.d.ts");
   const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");

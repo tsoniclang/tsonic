@@ -18,7 +18,7 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
     ...Object.fromEntries(Object.entries(recursiveSourceUnionFiles).map(([name, body]) => [`src/${name}`, body])),
   });
   assert.equal(checked.diagnostics.length, 0, "unchanged recursive source checks");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, {
     ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 32768,
   });

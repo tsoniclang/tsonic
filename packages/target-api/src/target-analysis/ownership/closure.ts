@@ -1,10 +1,10 @@
 import type { SourceAnalysisProgram } from "../analysis-program.js";
+import { sourceTypeDescriptorOpenness } from "../../source-semantics/local-type-flow/uses.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceNavigationCall } from "../../host-input/navigation.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import {
-  sourceAnalysisArms, sourceAnalysisCallSignatures, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisIsOpenArm,
-  sourceAnalysisValueType,
+  sourceAnalysisArms, sourceAnalysisCallSignatures, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisValueType,
 } from "../analysis-program.js";
 import { Node_Initializer, sourceSuperConstructor } from "../../source-navigation/index.js";
 import { sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
@@ -60,7 +60,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
     if (selected === undefined) return "maybe";
     const arms: ("absent" | "present" | "maybe")[] = [];
     for (const arm of sourceAnalysisArms(selected)) {
-      if (!budget.step(node) || sourceAnalysisIsOpenArm(arm)) return "maybe";
+      if (!budget.step(node) || sourceTypeDescriptorOpenness(source.ast, arm) === "top") return "maybe";
       arms.push(sourceAnalysisIsAbsentArm(arm) ? "absent" : "present");
     }
     return arms.every(arm => arm === "absent") ? "absent" : arms.every(arm => arm === "present") ? "present" : "maybe";

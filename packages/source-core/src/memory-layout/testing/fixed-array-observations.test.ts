@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
-import { readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { tsonicDataLayoutFactKey } from "../../public/facts.js";
+import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../type-contract/facts.js";
+import { readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
+import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
+import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
 import { createTsonicMemoryMetadataIndex } from "../metadata-index.js";
 import { memoryCall, memoryCalls, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, arraySession, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 
 function observedArrays() {
   const checked = cleanArraySession(`
@@ -61,7 +67,8 @@ test("public array observations and raw conversions preserve the whole selected 
     const inferred = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(inferred?.operation === "to-raw" || inferred?.operation === "reinterpret");
     if (inferred.operation === "reinterpret") assert.equal(inferred.explicitPointeeTypeNode, undefined);
-    assert.ok(inferred.pointeeType);
+    const record = createTsonicHostRecords(createHostSourceProgramFixture(checked)).memory.rawLocation(memoryCall(checked, name));
+    assert.ok(record?.kind === "resolved" && record.layout.kind === "array", "the Host record carries the array layout pointee");
   }
 });
 
@@ -169,21 +176,16 @@ test("coherent root and child substitutions cannot rewrite the authentic array e
   const signed = arrayLayoutAt(checked, 1);
   const huge = arrayLayoutAt(checked, 2);
   const otherUnsigned = arrayLayoutAt(checked, 3);
-  assert.notEqual(unsigned.fixedArray.elementSourceType, huge.elementLayout.sourceType);
   assert.ok(unsigned.fixedArray.elementType && otherUnsigned.fixedArray.elementType);
   assert.notEqual(unsigned.fixedArray.elementType, otherUnsigned.fixedArray.elementType);
   const { elementType, ...withoutSyntax } = unsigned.fixedArray;
   assert.ok(elementType);
   const substitutions = [
     ["selected child and embedded element", 0, unsigned, { ...unsigned,
-      fixedArray: { ...unsigned.fixedArray, elementSourceType: signed.fixedArray.elementSourceType,
-        elementType: signed.fixedArray.elementType },
+      fixedArray: { ...unsigned.fixedArray, elementType: signed.fixedArray.elementType },
       elementLayoutExpression: signed.elementLayoutExpression, elementLayout: signed.elementLayout,
     }],
     ["rounded adjacent count", 1, huge, { ...huge, fixedArray: { ...huge.fixedArray, length: 9007199254740992n } }],
-    ["coupled element type only", 0, unsigned, { ...unsigned,
-      fixedArray: { ...unsigned.fixedArray, elementSourceType: huge.elementLayout.sourceType },
-    }],
     ["coupled relocated element syntax", 0, unsigned, { ...unsigned,
       fixedArray: { ...unsigned.fixedArray, elementType: otherUnsigned.fixedArray.elementType },
     }],

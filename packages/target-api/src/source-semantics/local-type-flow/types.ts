@@ -5,6 +5,7 @@ import type {
 } from "../../host-input/index.js";
 import type { SourceProgramNavigation } from "../../source-navigation/types.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
+import type { SourcePlatformFacts } from "../platform-model.js";
 
 export type SourceTypeDescriptor =
   | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
@@ -70,7 +71,19 @@ export interface SourceTypeDescriptorMember {
     | { readonly kind: "class-prototype"; readonly owner: Node }
     | { readonly kind: "mapped"; readonly owner: Node; readonly key: SourceMemberKey };
   readonly readonly?: boolean;
+  // Present exactly when the member's declared type in this arm is a literal type or a union of literal types (string,
+  // number, bigint, boolean; enum members by value; the full `boolean` domain is not literal): its distinct literal values,
+  // a set sorted by value key (05 §2a D-2, R6). `type` stays the erased base type: the canonical descriptor has no literal
+  // types, so the literal evidence is carried with the member identity. Literals are part of the shape's equality and
+  // identity, so two otherwise-equal arms with different discriminator literals stay two arms; substitution keeps them.
+  readonly literals?: readonly SourceTypeDescriptorLiteral[];
 }
+
+export type SourceTypeDescriptorLiteral =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "bigint"; readonly value: bigint }
+  | { readonly kind: "boolean"; readonly value: boolean };
 
 export interface SourceTypeDescriptorIndex {
   readonly declaration: Node;
@@ -93,7 +106,9 @@ export type SourceTypeFlowRefusalCode =
   | "TSONIC_LOCAL_TYPE_LIMIT"
   | "TSONIC_LOCAL_TYPE_GENERIC"
   | "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT"
-  | "TSONIC_LOCAL_TYPE_UNSUPPORTED";
+  | "TSONIC_LOCAL_TYPE_UNSUPPORTED"
+  | "TSONIC_NATIVE_INTEGER_WIDTH_MISSING"
+  | "TSONIC_NATIVE_INTEGER_WIDTH_CONFLICTING";
 
 export interface SourceTypeFlowRefusal {
   readonly kind: "refused";
@@ -241,6 +256,8 @@ export interface SourceTypeFlowSource {
   readonly sourceFiles: readonly SourceFile[];
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
+  /** The active target's native integer premise (E24): read only for native-int / native-uint width decisions. */
+  readonly platform: SourcePlatformFacts;
 }
 
 export interface SourceTypeFlowOrder {

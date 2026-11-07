@@ -152,7 +152,7 @@ test("cross-file structural members retain selected generic types and inherited 
   const pair = result.members.find(member => member.destination.property.name === "value");
   assert.ok(pair?.kind === "present");
   assert.equal(semantics.types.isNumberLike(pair.source.property.type), true);
-  const destinationType = semantics.types.withoutMissingOrUndefined(pair.destination.property.type);
+  const destinationType = semantics.types.nonNullableType(pair.destination.property.type);
   assert.ok(destinationType);
   assert.equal(semantics.types.isNumberLike(destinationType), true);
   assert.equal(pair.source.getters.length, 1);

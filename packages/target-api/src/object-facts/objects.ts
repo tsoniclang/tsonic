@@ -7,6 +7,7 @@ import type {
   SourceConstructFacts, SourceHeritageEdge, SourceMemberImplementation, SourceObjectFacts, SourceObjectMember,
 } from "../public/source/objects.js";
 import type { SourceSelectionFacts } from "../public/source/selections.js";
+import { isSourceCallableSignatureDeclaration, sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../source-navigation/class-members.js";
 import type { SourceDeclaredHeritageEdge, SourceProgramNavigation } from "../source-navigation/types.js";
 import { orderEnumerableOwnStringProperties } from "../source-semantics/enumerable-own-properties.js";
@@ -21,6 +22,8 @@ export interface SourceObjectFactsInput {
   readonly navigation: SourceProgramNavigation;
   readonly values: SourceValueFacts;
   readonly selections: SourceSelectionFacts;
+  /** The sole substitution (SourceSumFacts.substitute, I6): heritage defaults over earlier bindings. */
+  readonly substitute: (type: SourceTypeDescriptor, bindings: ReadonlyMap<Node, SourceTypeDescriptor>) => SourceTypeDescriptor;
 }
 
 type Members = readonly SourceObjectMember[] | SourceRefusal;
@@ -149,12 +152,29 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     throw new Error("An object-fact refusal requires a site.");
   };
 
+  // Type arguments of a heritage clause, one per target binder (R-B4-3): the authored argument, else the binder's
+  // authored default with the earlier bindings substituted (the sole substitution, I6). A binder with neither is not
+  // published (the clause names fewer arguments than binders only when defaults supply the rest).
   const heritageEdge = (edge: SourceDeclaredHeritageEdge): SourceHeritageEdge | SourceRefusal => {
     const typeArguments: SourceTypeDescriptor[] = [];
-    for (const argument of edge.typeArguments) {
+    const binders = !hasTypeParameters(edge.target.declaration) ? []
+      : ast.typeParameters(edge.target.declaration).filter((binder): binder is Node => binder !== undefined);
+    const bindings = new Map<Node, SourceTypeDescriptor>();
+    for (const [index, argument] of edge.typeArguments.entries()) {
       const selected = descriptor(argument);
       if (refused(selected)) return selected;
       typeArguments.push(selected);
+      const binder = binders[index];
+      if (binder !== undefined) bindings.set(binder, selected);
+    }
+    for (const binder of binders.slice(edge.typeArguments.length)) {
+      const authored = ast.as.AsTypeParameterDeclaration(binder)?.DefaultType;
+      if (authored === undefined) break;
+      const selected = descriptor(authored);
+      if (refused(selected)) return selected;
+      const applied = input.substitute(selected, bindings);
+      typeArguments.push(applied);
+      bindings.set(binder, applied);
     }
     return Object.freeze({
       kind: edge.kind, declaration: edge.sourceDeclaration, heritage: edge.heritage, target: edge.target.declaration,
@@ -181,6 +201,11 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     heritageMemo.set(declaration, selected);
     return selected;
   };
+
+  // A declaration kind that can declare type parameters (ast.typeParameters is defined only for those, E13).
+  const hasTypeParameters = (declaration: Node): boolean =>
+    ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
+    ast.is.IsTypeAliasDeclaration(declaration);
 
   const instanceType = (declaration: Node): SourceTypeDescriptor => Object.freeze({
     kind: "declared", declaration,
@@ -231,6 +256,20 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       contract: result.contractDeclaration, implementation: result.implementation.declaration,
       overridesBase: dispatch?.overridesBase === true, hasDerivedOverride: dispatch?.hasDerivedOverride === true,
     });
+  };
+
+  const callableImplementation = (contract: Node): Node | "unrelated" | SourceRefusal => {
+    const result = navigation.callableImplementation(contract);
+    if (result.kind === "resolved") return result.implementation.declaration;
+    if (result.kind === "unrelated" || !navigation.isProjectDeclaration(contract) ||
+      !isSourceCallableSignatureDeclaration(ast, contract)) return "unrelated";
+    // The entity's declarations, as the navigation selects among them: a constructor's are its class's constructors.
+    const entity = ast.is.IsConstructorDeclaration(contract)
+      ? ast.members(ast.parent(contract)).filter((member): member is Node => member !== undefined)
+      : navigation.mergedDeclarations(contract);
+    return entity.some(declaration => sourceNodeHasRole(ast, declaration, "callable-body"))
+      ? raise("TSONIC_SOURCE_CALLABLE_IMPLEMENTATION_UNRESOLVED", contract, result.reason)
+      : "unrelated";
   };
 
   const ownKeys = (value: Node): readonly SourceMemberKey[] | "ambiguous" => {
@@ -291,6 +330,7 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     },
     construction,
     implementation,
+    callableImplementation,
     contracts(implementationDeclaration: Node) {
       const result = navigation.memberContracts(implementationDeclaration);
       return result.kind === "unresolved"

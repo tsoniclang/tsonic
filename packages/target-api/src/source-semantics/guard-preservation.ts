@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
-import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
 import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
 
 export function sourceGuardPreservesBinding(
@@ -28,7 +29,7 @@ export function sourceGuardPreservesBinding(
   while (enter(current) && !visited.has(current)) {
     visited.add(current);
     const parent = context.ast.parent(current);
-    if (parent === undefined || sourceBindingCallableKinds.has(context.ast.kindName(parent))) return false;
+    if (parent === undefined || sourceNodeHasRole(context.ast, parent, "execution-barrier")) return false;
     if (context.ast.is.IsWhileStatement(parent) || context.ast.is.IsDoStatement(parent) ||
       context.ast.is.IsForStatement(parent) || context.ast.is.IsForInStatement(parent) ||
       context.ast.is.IsForOfStatement(parent)) return false;

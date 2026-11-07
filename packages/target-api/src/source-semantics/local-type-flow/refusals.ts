@@ -16,6 +16,8 @@ const reasons: Readonly<Record<SourceTypeFlowRefusalCode, string>> = Object.free
   TSONIC_LOCAL_TYPE_GENERIC: "The pinned generic declaration cannot establish one exact source instantiation. Annotate the arguments or provide explicit type arguments.",
   TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT: "This number-origin integer cannot enter an unknown or object slot without a proven exact float64 representation.",
   TSONIC_LOCAL_TYPE_UNSUPPORTED: "This source operation has no proven local type-flow rule or required checked evidence is unavailable. Annotate the value or the selected signature.",
+  TSONIC_NATIVE_INTEGER_WIDTH_MISSING: "This native-int / native-uint value needs the native integer width of the active target, which states none. Use a fixed-width integer type, or configure the target architecture.",
+  TSONIC_NATIVE_INTEGER_WIDTH_CONFLICTING: "This native-int / native-uint value needs the native integer width of the active target, which states conflicting widths. Use a fixed-width integer type, or configure one target architecture.",
 });
 
 export function createSourceTypeFlowRefusal(

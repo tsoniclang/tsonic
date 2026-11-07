@@ -22,7 +22,7 @@ interface String {} interface RegExp {} interface Array<T> { [index: number]: T;
 export class Holder { field = 1; method(value = 3) { return value; } }`,
   });
   assert.equal(checked.diagnostics.length, 0, "valid original checked AST");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const throwing = number => requiredNode(source.ast, file, node =>
     source.ast.is.IsThrowStatement(node) && source.ast.text(Node_Expression(source.ast, node)) === String(number));

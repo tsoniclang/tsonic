@@ -91,12 +91,9 @@ function analyzeSelectedOperation(
   }
   const base = {
     pointerExpression: pointer.expression,
-    pointerType: pointer.type,
-    pointeeType: pointee.selectedType,
     ...(pointee.explicitTypeNode === undefined
       ? {}
       : { explicitPointeeTypeNode: pointee.explicitTypeNode }),
-    resultType: selected.selection.sourceResultType,
   };
   const fact = (() => {
     switch (operation) {
@@ -110,7 +107,6 @@ function analyzeSelectedOperation(
               ...base,
               operation,
               valueExpression: value.expression,
-              valueType: value.type,
             };
       }
       case "offset": {
@@ -121,7 +117,6 @@ function analyzeSelectedOperation(
               ...base,
               operation,
               offsetExpression: offset.expression,
-              offsetType: offset.type,
             };
       }
     }

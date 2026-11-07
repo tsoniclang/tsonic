@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
 import type { TsonicValueMemoryLayoutFact } from "../facts.js";
@@ -8,20 +8,19 @@ import { captureDataLayoutRegistrations } from "../registrations.js";
 import { memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 
 function layoutFixture(): TsonicValueMemoryLayoutFact {
-  const fieldType = {} as Type;
   const child: TsonicValueMemoryLayoutFact = {
     kind: "value",
-    call: {} as Node, sourceType: fieldType, dataLayoutExpression: {} as Node,
+    call: {} as Node, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
     byteSize: 4n, byteAlignment: 4n, stride: 4n, fields: [],
   };
   return {
     kind: "value",
-    call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
+    call: {} as Node, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
     byteSize: 8n, byteAlignment: 4n, stride: 8n,
-    fields: [{ call: {} as Node, sourceType: {} as Type, selector: {} as Node, selectedDeclaration: {} as Node,
-      fieldType, byteOffset: 4n, byteAlignment: 4n, fieldLayoutExpression: {} as Node, fieldLayout: child }],
+    fields: [{ call: {} as Node, selector: {} as Node, selectedDeclaration: {} as Node,
+      byteOffset: 4n, byteAlignment: 4n, fieldLayoutExpression: {} as Node, fieldLayout: child }],
   };
 }
 
@@ -110,13 +109,11 @@ test("layout registration snapshots are mutation-proof and compare all ABI field
 });
 
 test("fact snapshots reject extra keys, missing evidence, and accessors without executing them", () => {
-  const value = { operation: "reinterpret" as const, call: {} as Node, resultType: {} as Type,
-    rawExpression: {} as Node, rawType: {} as Type, pointeeType: {} as Type,
-    layoutExpression: {} as Node, layoutType: {} as Type };
+  const value = { operation: "reinterpret" as const, call: {} as Node, rawExpression: {} as Node, layoutExpression: {} as Node };
   const fact = tsonicRawMemoryOperationFactKey.snapshot(value);
   assert.equal("explicitPointeeTypeNode" in fact, false);
   assert.throws(() => tsonicRawMemoryOperationFactKey.snapshot({ ...value, unexpected: true } as typeof value));
-  assert.throws(() => tsonicRawMemoryOperationFactKey.snapshot({ ...value, pointeeType: undefined } as unknown as typeof value));
+  assert.throws(() => tsonicRawMemoryOperationFactKey.snapshot({ ...value, layoutExpression: undefined } as unknown as typeof value));
   const accessor = Object.defineProperty({ ...value }, "rawExpression", { get() { assert.fail("Must not invoke accessor."); } });
   assert.throws(() => tsonicRawMemoryOperationFactKey.snapshot(accessor), /accessor/u);
   const discriminatorAccessor = Object.defineProperty({ ...value }, "operation", { get() { assert.fail("Must not invoke operation accessor."); } });
@@ -133,14 +130,14 @@ test("fact snapshots reject extra keys, missing evidence, and accessors without 
 });
 
 test("query facts require exact selected field evidence only for field-offset observations", () => {
-  const query = { operation: "size" as const, call: {} as Node, layoutExpression: {} as Node, layoutType: {} as Type, resultType: {} as Type };
+  const query = { operation: "size" as const, call: {} as Node, layoutExpression: {} as Node };
   assert.ok(tsonicMemoryLayoutQueryFactKey.snapshot(query));
   assert.throws(() => tsonicMemoryLayoutQueryFactKey.snapshot({ ...query, operation: "field-offset" }));
   assert.throws(() => tsonicMemoryLayoutQueryFactKey.snapshot({ ...query, selectedFieldDeclaration: {} as Node }));
 });
 
 test("keepalive facts preserve the exact lexical call and protected value", () => {
-  const source = { call: {} as Node, valueExpression: {} as Node, valueType: {} as Type, resultType: {} as Type };
+  const source = { call: {} as Node, valueExpression: {} as Node };
   const fact = tsonicKeepAliveFactKey.snapshot(source);
   assert.ok(tsonicKeepAliveFactKey.equals(fact, source));
   assert.ok(!tsonicKeepAliveFactKey.equals(fact, { ...source, call: {} as Node }));

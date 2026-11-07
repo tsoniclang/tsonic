@@ -72,6 +72,8 @@ export interface SourceElementAccessRecord {
   readonly result: SourceTypeDescriptor;
   readonly readonly: boolean;
   readonly access: "read" | "write" | "read-write";
+  /** The access is part of an optional chain (`a?.[i]`), as SourceMemberAccessSelection.optionalChain. */
+  readonly optionalChain: boolean;
 }
 
 /** A typeof result category (E23, N3'). "undefined" appears only for an absence arm whose admission proves it. */
@@ -145,6 +147,14 @@ export interface SourceSumFacts {
   sumOf(descriptor: SourceTypeDescriptor): SourceClosedSum | undefined;
   /** The sole substitution (I6): binder declaration → descriptor. */
   substitute(type: SourceTypeDescriptor, bindings: ReadonlyMap<Node, SourceTypeDescriptor>): SourceTypeDescriptor;
+  /**
+   * The single descriptor of several per-arm components (the member or element each arm of a union receiver yields),
+   * built by the one union builder (I6): equal components give that component; distinct ones give the program's union
+   * of them in its recorded authored-first order. undefined only when the program never formed that union. For Host
+   * analyses (storage components, equality); a target represents per-arm components from the `per-arm` relation
+   * (`arms[i].type`), not from a join.
+   */
+  join(components: readonly SourceTypeDescriptor[]): SourceTypeDescriptor | undefined;
 }
 
 /** Union relation at one use, rooted in the original sum/family/application (§4.3, C-2479 decision 1). */
@@ -170,12 +180,15 @@ export type SourceUnionRelation =
       readonly outcome: "always-true" | "always-false" | "undecided";
       readonly sum?: SourceSumIdentity; readonly whenTrue: readonly number[] }
   /**
-   * A member read or member call applied per arm (at the property access, or the element access with a literal key).
+   * A member read, member call or element read applied per arm (at the property access or the element access).
    * `member` is the declaration the arm's member resolves to; absent for an arm whose members are JS API members of a
-   * primitive, array, tuple or callable (the profile resolves them by name) and for a mapped member.
+   * primitive, array, tuple or callable (the profile resolves them by name), for a mapped member and for an element read
+   * with a computed key. `type` is the component the arm's read yields (member type, index value, array element, tuple
+   * position, string character); absent where the arm's descriptor has no structure naming it (a JS API member such as
+   * `length`). A single descriptor of the components, where one is needed, is `sums.join`.
    */
   | { readonly kind: "per-arm"; readonly use: Node; readonly sum: SourceSumIdentity;
-      readonly arms: readonly { readonly arm: number; readonly member?: Node }[] }
+      readonly arms: readonly { readonly arm: number; readonly member?: Node; readonly type?: SourceTypeDescriptor }[] }
   | SourceRefusal;
 
 export interface SourceRelationFacts {
@@ -186,6 +199,13 @@ export interface SourceRelationFacts {
    * take part in its own write relation (discriminant rule D-8).
    */
   at(use: Node): SourceUnionRelation | undefined;
+  /**
+   * The write relation of a value use into its Host destination slot (select-arm, map mode "write", identity, or the
+   * write refusal), for every use that flows into a sum, also when `at(use)` publishes another relation for the same
+   * node (a narrowed read or per-arm access that is also written into a sum). Where the write is the node's only
+   * relation, `write(use)` is the same record as `at(use)`. undefined when the use flows into no sum.
+   */
+  write(use: Node): SourceUnionRelation | undefined;
 }
 
 /** Per-use instantiation of a generic callable (G4, E4-7): calls, constructions and generic function values. */

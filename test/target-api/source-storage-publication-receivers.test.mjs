@@ -35,7 +35,7 @@ for (const publication of ["opaque", "exported"]) {
       });
       assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
       assert.equal(checked.extensionDiagnostics.length, 0, "checked declarations are admitted");
-      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
       const file = projectSourceFile(source, "src/index.ts");
       const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
       const variable = name => namedVariable(source.ast, file, name);

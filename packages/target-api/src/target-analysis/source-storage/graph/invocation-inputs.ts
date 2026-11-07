@@ -1,4 +1,5 @@
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import type { Node } from "@tsonic/tsts";
@@ -13,7 +14,7 @@ import {
   sourcePresentStorageArms, sourceStorageArrayElementType, sourceStorageComponentType, sourceStorageIsAbsentType,
   sourceStorageIsArrayLikeType, sourceStorageSubjectType, sourceStorageTupleElements,
 } from "../model/components.js";
-import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisIsOpenArm, sourceAnalysisMayBeAbsent } from "../../analysis-program.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisMayBeAbsent } from "../../analysis-program.js";
 import { sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
@@ -40,7 +41,7 @@ export function sourceStorageBindingParameterType(source: SourceAnalysisProgram,
   const selection = source.facts.selections.call(selected.call);
   if (selection !== undefined && selection.kind !== "refused") {
     const parameter = selection.parameters[binding.sourceParameterIndex];
-    if (parameter !== undefined) return parameter;
+    if (parameter !== undefined) return parameter.type;
   }
   const declaration = selected.parameters[binding.sourceParameterIndex]?.parameterDeclaration;
   return declaration === undefined ? undefined : sourceAnalysisValueType(source, declaration);
@@ -58,7 +59,7 @@ export function sourceStorageBindingArgumentType(source: SourceAnalysisProgram, 
   const operand = source.ast.is.IsSpreadElement(argument) ? Node_Expression(source.ast, argument) : undefined;
   const type = operand === undefined ? undefined : sourceAnalysisValueType(source, operand);
   if (type === undefined) return undefined;
-  if (binding.sourceForm === "spread-sequence") return sourceStorageArrayElementType(type);
+  if (binding.sourceForm === "spread-sequence") return sourceStorageArrayElementType(source, type);
   const index = binding.spreadElementIndex;
   return index === undefined ? undefined : sourceStorageComponentType(source, type, { kind: "tuple-element", index });
 }
@@ -121,7 +122,7 @@ export function sourceStorageInvocationArgumentAbsence(
     const element = index === undefined || tuples?.length !== 1 ? undefined : tuples[0]![index];
     if (element?.kind !== "required") return "possible";
   } else if (binding.sourceForm !== "value") return "possible";
-  return sourceAnalysisMayBeAbsent(type) || sourcePresentStorageArms(type).length === 0 ? "possible" : "present";
+  return sourceAnalysisMayBeAbsent(source.ast, type) || sourcePresentStorageArms(type).length === 0 ? "possible" : "present";
 }
 
 /** The selected signature declaration of a call or the callable's own declaration (source implementation). */
@@ -157,7 +158,7 @@ export function sourceStorageCallableInputSlots(source: SourceAnalysisProgram, d
       continue;
     }
     const type = instantiated !== undefined && instantiated.kind !== "refused" && instantiated.parameters[sourceParameterIndex] !== undefined
-      ? instantiated.parameters[sourceParameterIndex] : sourceAnalysisValueType(source, parameter);
+      ? instantiated.parameters[sourceParameterIndex]!.type : sourceAnalysisValueType(source, parameter);
     const tuples = type === undefined ? undefined : sourceStorageTupleElements(type);
     if (tuples?.length === 1 && tuples[0]!.every(element => element.kind !== "rest")) {
       for (const [index, element] of tuples[0]!.entries()) {
@@ -167,7 +168,7 @@ export function sourceStorageCallableInputSlots(source: SourceAnalysisProgram, d
             ? Object.freeze([Object.freeze({ kind: "tuple-element" as const, index })]) : undefined }));
         effectiveIndex += 1;
       }
-    } else if (type !== undefined && sourceStorageArrayElementType(type) !== undefined) {
+    } else if (type !== undefined && sourceStorageArrayElementType(source, type) !== undefined) {
       slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated: true,
         projection: Object.freeze([Object.freeze({ kind: "array-element" as const })]) }));
       effectiveIndex += 1;
@@ -402,7 +403,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: SourceAnal
         const alternatives = type === undefined ? [] : sourcePresentStorageArms(type);
         if ((type === undefined || alternatives.some(alternative => {
           const structure = sourceTypeDescriptorStructure(alternative);
-          return sourceAnalysisIsOpenArm(alternative) ||
+          return sourceTypeDescriptorOpenness(source.ast, alternative) === "top" ||
             sourceAnalysisCallSignatures(alternative).length !== 0 || sourceAnalysisConstructSignatures(alternative).length !== 0 ||
             structure.kind === "declared" && ast.is.IsTypeParameterDeclaration(structure.declaration);
         })) && !markUncertain(producer)) return undefined;

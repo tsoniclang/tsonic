@@ -42,7 +42,9 @@ test("packaged target source entry publishes intrinsic receiver facts and keeps 
   const target = await import("@tsonic/target-api/source");
   const host = await import("@tsonic/target-api/host");
   const { createJsSourceApiFacts } = await import("@tsonic/js-source-profile");
-  assert.equal(typeof target.createTargetSourceProgram, "function");
+  // K-2668 (I1): the composition factories take the checked program, so they are Host-only (/host), never on /source.
+  assert.equal(target.createTargetSourceProgram, undefined);
+  assert.equal(typeof host.createTargetSourceProgram, "function");
   assert.equal(target.createHostSourceProgram, undefined);
   assert.equal(target.hostSourceProgramOf, undefined);
   assert.equal(typeof host.createHostSourceProgram, "function");
@@ -55,7 +57,7 @@ test("packaged target source entry publishes intrinsic receiver facts and keeps 
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = target.createTargetSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = host.createTargetSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   assert.ok(Object.isFrozen(source));
   assert.equal(source.semantics, undefined);
   assert.equal(source.navigation, undefined);

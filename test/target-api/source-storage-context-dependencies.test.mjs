@@ -15,7 +15,7 @@ function checkedSource(text) {
     files: { "/src/index.ts": text },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   assert.equal(file !== undefined, true, "exact checked source file");
   const nodes = [];

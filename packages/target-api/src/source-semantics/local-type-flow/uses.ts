@@ -32,6 +32,19 @@ export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
   return sourceTypeFlowBroadSlotKind(type) !== undefined;
 }
 
+/**
+ * Whether a descriptor constrains its values (R4: the one classifier). "top": any or unknown (no value is excluded);
+ * "type-parameter": a type parameter reference (its values are fixed only per instantiation); "closed": everything
+ * else, including unions and options, whose arms are classified one by one. Each site asks its own question through
+ * this classifier: a test on an arm is undecided when the arm is not "closed"; a value with a "top" arm may be absent.
+ */
+export function sourceTypeDescriptorOpenness(ast: Pick<AstReader, "is">, type: SourceTypeDescriptor):
+  "top" | "type-parameter" | "closed" {
+  const structure = sourceTypeDescriptorStructure(type);
+  if (structure.kind === "intrinsic" && (structure.intrinsic === "any" || structure.intrinsic === "unknown")) return "top";
+  return structure.kind === "declared" && ast.is.IsTypeParameterDeclaration(structure.declaration) ? "type-parameter" : "closed";
+}
+
 export function sourceTypeFlowBroadSlotKind(type: SourceTypeDescriptor): "unknown" | "any" | "object" | "void" | undefined {
   const broad = (type: SourceTypeDescriptor, absorbing: boolean): "unknown" | "any" | "object" | "void" | undefined => {
     const selected = sourceTypeDescriptorStructure(type);

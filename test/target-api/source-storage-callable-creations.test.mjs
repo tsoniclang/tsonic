@@ -17,7 +17,7 @@ function fixture() {
       export function external(value: () => number): () => number { return identity(value); }
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the source is valid without target annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/project/index.ts");
   const nodes = [];
   const pending = [file];

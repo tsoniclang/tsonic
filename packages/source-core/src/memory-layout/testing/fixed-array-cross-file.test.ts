@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
-import { readTsonicMemoryLayout, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
+import { readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../readers.js";
+import { readTsonicMemoryType } from "../type-contract/facts.js";
+import { selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
+import { tsonicMemoryLayoutFactKey } from "../facts.js";
 import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 import { arrayMemoryLayout, arraySession, arrayTestPrelude, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
 const sharedTypes = `
@@ -100,21 +104,20 @@ for (const [name, declarations, type, size] of [
     const operation = readTsonicRawMemoryOperation(source.sourceFacts, conversion);
     assert.ok(operation?.operation === "reinterpret");
     assert.equal(operation.explicitPointeeTypeNode, undefined);
-    assert.ok(operation.pointeeType);
+    const record = createTsonicHostRecords(source).memory.rawLocation(conversion);
+    assert.ok(record?.kind === "resolved" && record.operation === "reinterpret" && record.layout.call === layouts[1]!.call);
     const selected = selectTsonicRawLocationOperation(source.ast, source.sourceFacts, conversion);
     assert.ok(selected?.kind === "resolved");
     assert.equal(selected.layout.call, layouts[1]!.call);
     const operationType = readTsonicMemoryType(source.sourceFacts, conversion);
     assert.ok(operationType);
-    assert.equal(operationType.sourceType, operation.pointeeType);
-    assert.equal(second.sourceType, selected.layout.sourceType);
     assert.equal(operationType.identity, second.identity);
     if (name !== "record of array") {
       const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(conversion)!).checker.getResolvedCallInfo(conversion);
       const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, operation.layoutExpression);
       assert.equal(operation.call === conversion, true, `${name}: original checked conversion`);
-      assert.equal(operation.pointeeType === selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
-        true, `${name}: original checked pointee type`);
+      assert.equal(selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType !== undefined, true,
+        `${name}: original checked pointee type`);
       assert.equal(operation.layoutExpression === source.ast.arguments(conversion)[1], true,
         `${name}: original selected layout argument`);
       assert.equal(selectedLayout !== undefined && selectedLayout.call === layouts[1]!.call &&

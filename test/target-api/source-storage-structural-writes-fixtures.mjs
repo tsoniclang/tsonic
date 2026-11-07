@@ -15,7 +15,7 @@ export function fixture(body, extraFiles = {}, domain = "complete") {
     files,
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "source checking accepts the unmodified alias program");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFiles = Object.keys(files).map(name => checked.getSourceFile(name));
   const nodes = [];
   const pending = [...sourceFiles];
@@ -48,7 +48,7 @@ export function formalFixture(body, extraFiles = {}, limits = {}) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/project", files,
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/project"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFiles = Object.keys(files).map(name => checked.getSourceFile(name));
   const nodes = [];
   const pending = [...sourceFiles];

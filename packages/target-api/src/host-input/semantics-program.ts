@@ -84,6 +84,7 @@ export function createSourceSemanticsInput(
       generator: queries.checker.getResolvedGeneratorInfo,
       wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
       resourceManagement: queries.checker.getResolvedResourceManagementInfo,
+      yield: queries.checker.getResolvedYieldInfo,
       callResult(call: ResolvedSourceCallInfo) {
         return selectSourceCallResult(source.ast, queries.checker, call, providerSignature);
       },
@@ -184,6 +185,7 @@ export function createSourceSemanticsInput(
       isAny: queries.typeShape.isAny,
       isUnknown: queries.typeShape.isUnknown,
       isNever: queries.typeShape.isNever,
+      intrinsicNullishFlags: queries.typeShape.intrinsicNullishFlags,
       isNonPrimitive: queries.typeShape.isNonPrimitive,
       isVoidLike: queries.typeShape.isVoidLike,
       isNullish: queries.typeShape.isNullish,

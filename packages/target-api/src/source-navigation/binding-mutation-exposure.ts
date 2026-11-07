@@ -1,6 +1,7 @@
 import { argumentPassingFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceDeclarationUseSummary } from "./types.js";
+import { sourceNodeHasRole } from "./callable-boundaries.js";
 
 export function sourceBindingHasMutableExposure(
   input: { readonly ast: AstReader; readonly sourceFacts?: Pick<ReadonlySourceFactResolver, "getFact"> },
@@ -17,13 +18,10 @@ export function sourceBindingHasMutableExposure(
       if (passing !== undefined && !immutablePassingModes.has(passing.mode)) return true;
       const pointer = input.sourceFacts?.getFact(node, pointerOperationFactKey);
       if (pointer?.operation === "address-of") return true;
-      const kind = input.ast.kindName(node);
-      if (kind.endsWith("Statement") || sourceBindingCallableKinds.has(kind)) break;
+      if (input.ast.kindName(node).endsWith("Statement") || sourceNodeHasRole(input.ast, node, "execution-barrier")) break;
     }
   }
   return false;
 }
 
-export const sourceBindingCallableKinds: ReadonlySet<string> = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",
-  "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
 const immutablePassingModes = new Set(["by-value", "byref-readonly", "borrow-shared"]);

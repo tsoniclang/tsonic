@@ -104,7 +104,7 @@ test("a copied equivalent declaration cannot replace an authored field or offset
   for (const mutation of ["field-declaration", "query-declaration", "missing-query-contract", "foreign-query-contract"] as const) {
     const foreign = mutation === "foreign-query-contract"
       ? checkedRecords(recordLayouts + "fieldoffsetof(first, (value: Second) => value.count);") : undefined;
-    const replacement = { ...field, selectedDeclaration: other.selectedDeclaration, selectedSymbol: other.selectedSymbol };
+    const replacement = { ...field, selectedDeclaration: other.selectedDeclaration };
     const rewritten = { ...layout, fields: [replacement, ...layout.fields.slice(1)] };
     const facts: ReadonlySourceFactResolver = {
       ...checked.sourceFacts,

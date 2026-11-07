@@ -1,9 +1,9 @@
 import type { ExtensionFactSubject, ReadonlySourceFactResolver, Symbol } from "@tsonic/tsts";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
-import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
+import { dataLayoutsEqual, memoryArrayExtentsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
 import type { TsonicMemoryLayoutFact } from "./facts.js";
 import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readMemoryTypeMember, readTsonicMemoryType } from "./type-contract/facts.js";
-import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
+import { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 
 type MemoryFactReader = Pick<ReadonlySourceFactResolver, "getFact">;
 
@@ -23,6 +23,7 @@ export function readTsonicMemoryLayoutQuery(facts: MemoryFactReader, subject: Ex
   return facts.getFact(subject, tsonicMemoryLayoutQueryFactKey);
 }
 
+/** Legacy-witness graph bound (tests and the snapshot budget); targets count Host records (host-records.ts). */
 export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maximum: number): number | undefined {
   if (!Number.isSafeInteger(maximum) || maximum < 1) return undefined;
   const counts = new Map<TsonicMemoryLayoutFact, number | undefined>();
@@ -44,9 +45,9 @@ export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maxi
 
 export function isFinalizedMemoryLayout(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
   return finalizedMemoryLayoutFacts(facts, root, layout => {
+    // The memory type identity certified at each call is the domain proof; no checker Type is compared here.
     const type = readTsonicMemoryType(facts, layout.call);
-    if (type === undefined || type.sourceType !== layout.sourceType ||
-        !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
+    if (type === undefined || !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
     if (layout.kind === "array") {
       const childType = readTsonicMemoryType(facts, layout.elementLayout.call);
       return childType !== undefined && memoryArrayTypeMatches(type.identity, childType.identity, layout.call, layout.fixedArray);
@@ -57,8 +58,7 @@ export function isFinalizedMemoryLayout(facts: MemoryFactReader, root: TsonicMem
       const childType = readTsonicMemoryType(facts, field.fieldLayout.call);
       const member = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
       if (member?.owner !== type.identity || members.has(member.member) ||
-          fieldType === undefined || childType === undefined || fieldType.sourceType !== field.fieldType ||
-          fieldType.identity !== childType.identity) return false;
+          fieldType === undefined || childType === undefined || fieldType.identity !== childType.identity) return false;
       members.add(member.member);
     }
     return true;
@@ -85,7 +85,8 @@ function finalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryL
       const fixedArray = facts.getFact(layout.call, tsonicFixedArrayFactKey);
       const selectedChild = readTsonicMemoryLayout(facts, layout.elementLayoutExpression);
       if (fixedArray === undefined || selectedChild === undefined ||
-          !fixedArrayFactsEqual(fixedArray, layout.fixedArray) ||
+          !memoryArrayExtentsEqual({ length: fixedArray.length, lengthRuntimeBase: fixedArray.lengthRuntimeBase,
+            ...(fixedArray.elementType === undefined ? {} : { elementType: fixedArray.elementType }) }, layout.fixedArray) ||
           !memoryLayoutsEqual(layout.elementLayout, selectedChild)) return false;
       pending.push(layout.elementLayout);
       continue;

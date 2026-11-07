@@ -27,6 +27,10 @@ import {
   tsonicCoreTypesModule,
 } from "../identity.js";
 import { createTsonicCoreSourceExtension } from "../extension/source-extension.js";
+import { createTsonicHostRecords } from "../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
+import type { SourceTypeDescriptor } from "@tsonic/target-api/source";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "../extension/virtual-modules.js";
 
@@ -81,7 +85,15 @@ test("native pointer operations retain exact selected pointee and operand eviden
   );
   assert.equal(loadFact?.operation, "load");
   assert.ok(loadFact?.pointerExpression !== undefined);
-  assert.ok(loadFact?.pointeeType !== undefined);
+  // The Legacy witness carries operand nodes only; the pointee is the Host record descriptor (K-2662).
+  const records = createTsonicHostRecords(createHostSourceProgramFixture(checked));
+  const pointee = (node: Node): SourceTypeDescriptor => {
+    const record = records.pointers.native(node);
+    assert.ok(record?.kind === "resolved");
+    assert.equal(record.call, node);
+    return record.pointee;
+  };
+  const loadPointee = pointee(call(checked.ast, sourceFile, "load"));
 
   const storeFact = fact(
     checked,
@@ -90,7 +102,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
   );
   assert.equal(storeFact?.operation, "store");
   assert.ok(storeFact?.valueExpression !== undefined);
-  assert.equal(storeFact?.pointeeType, loadFact?.pointeeType);
+  assert.ok(sourceTypeDescriptorsEqual(pointee(call(checked.ast, sourceFile, "storenativeptr")), loadPointee));
 
   const offsetFact = fact(
     checked,
@@ -99,7 +111,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
   );
   assert.equal(offsetFact?.operation, "offset");
   assert.ok(offsetFact?.offsetExpression !== undefined);
-  assert.equal(offsetFact?.pointeeType, loadFact?.pointeeType);
+  assert.ok(sourceTypeDescriptorsEqual(pointee(call(checked.ast, sourceFile, "offsetnativeptr")), loadPointee));
 
   const namespacedLoad = fact(
     checked,
@@ -107,7 +119,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
     tsonicNativePointerOperationFactKey,
   );
   assert.equal(namespacedLoad?.operation, "load");
-  assert.equal(namespacedLoad?.pointeeType, loadFact?.pointeeType);
+  assert.ok(sourceTypeDescriptorsEqual(pointee(call(checked.ast, sourceFile, "core.loadnativeptr")), loadPointee));
 });
 
 test("native pointer operations ignore local same-spelled calls", () => {

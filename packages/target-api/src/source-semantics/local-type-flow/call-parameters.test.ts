@@ -42,7 +42,7 @@ test("instantiated calls retain ambient parameter descriptors with the same solv
   }
   assert.equal(calls.length, 3);
   for (const call of calls) {
-    const selected = source.semantics.forNode(call).operations.call(call);
+    const selected = source.input.at(call).call(call);
     const published = source.effectiveTypes.callInstantiation(call);
     assert.equal(selected !== undefined && published?.call === selected, true);
     if (selected === undefined || published === undefined) throw new Error("The identical selected call is required.");

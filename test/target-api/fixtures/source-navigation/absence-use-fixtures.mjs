@@ -9,7 +9,7 @@ function fixture(expression) {
     function select(value: number | undefined, other: number | undefined) { return ${expression}; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);
     const callable = source.ast.statements(file).find(node => source.ast.is.IsFunctionDeclaration(node) &&

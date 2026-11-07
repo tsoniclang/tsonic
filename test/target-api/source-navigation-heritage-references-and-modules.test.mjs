@@ -32,7 +32,7 @@ test("shared source navigation resolves exact generic and transitive declared he
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const base = namedDeclaration(source.ast, sourceFile, "Base");
   const named = namedDeclaration(source.ast, sourceFile, "Named");
@@ -115,7 +115,7 @@ test("shared constructors retain checked mandatory arity independently of defaul
       new Derived(undefined, 7); new Optional(1); new TupleRest(1); new EmptyRest();
     `,
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const expected = new Map([["Derived", [false, false]], ["Optional", [false, true]],
     ["TupleRest", [false]], ["EmptyRest", [true]]]);
@@ -147,7 +147,7 @@ test("shared source navigation exposes exact effective class constructors", asyn
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const constructors = (name) => {
     const declaration = namedDeclaration(source.ast, sourceFile, name);
@@ -358,7 +358,7 @@ test("source write occurrences retain original nested defaults and iteration pro
       return value;
     }`,
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
   const selected = requiredNode(ast, file, node => ast.is.IsBindingElement(node) &&

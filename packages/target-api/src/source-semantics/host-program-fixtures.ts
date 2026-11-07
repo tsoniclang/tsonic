@@ -8,13 +8,20 @@ import type { SourceProgramSemantics } from "../host-input/semantics-types.js";
 import type { SourceHostInput } from "../host-input/index.js";
 import { buildHostSourceProgram, createTargetSourceProgram } from "./target-source-program.js";
 import type { HostSourceProgram } from "./types.js";
+import type { SourcePlatformFacts } from "./platform-model.js";
 
 export const emptySourceJsApiFacts: SourceJsApiFacts = Object.freeze({
   collection: () => undefined,
   member: () => undefined,
+  callRefusal: () => undefined,
 });
 
-export const hostProgramFixtureOptions = Object.freeze({ profile: () => emptySourceJsApiFacts });
+/** The known 64-bit native integer premise of Host tests (E24); the 32-bit / missing / conflicting controls are unit tests. */
+export const hostProgramFixturePlatform: SourcePlatformFacts = Object.freeze({
+  kind: "known", nativeIntegerBits: 64, basis: "Host program test fixture",
+});
+
+export const hostProgramFixtureOptions = Object.freeze({ profile: () => emptySourceJsApiFacts, platform: hostProgramFixturePlatform });
 
 /** A Host program for tests, with its checker views (`semantics`) and host-input adapter (`input`). */
 export type HostSourceProgramFixture = HostSourceProgram & {

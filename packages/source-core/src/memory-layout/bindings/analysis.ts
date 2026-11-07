@@ -19,8 +19,7 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
     return;
   }
   publishMemoryFact(call, tsonicMemoryFieldBindingFactKey, {
-    call: selected.call, resultType: selected.selection.sourceResultType, sourceType, pointeeType,
-    fieldExpression: fieldOperand.expression, field, pointerExpression: pointer.expression, pointerType: pointer.type,
+    call: selected.call, fieldExpression: fieldOperand.expression, field, pointerExpression: pointer.expression,
   });
   if (analysis.types.binding(call, field)) analysis.types.publish(call);
 }
@@ -48,7 +47,7 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
     unmatched.delete(declared.call);
   }
   publishMemoryFact(call, tsonicMemoryRecordBindingFactKey, {
-    call: selected.call, resultType: selected.selection.sourceResultType, sourceType, layoutExpression: operand.expression, layout,
+    call: selected.call, layoutExpression: operand.expression, layout,
     fields: fields.map(field => ({ expression: field.expression, binding: field.binding! })),
   });
   analysis.types.publish(call);

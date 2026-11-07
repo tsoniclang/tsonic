@@ -17,7 +17,7 @@ test("the public structural query relates a variable to actual Node provider opt
     }
   ` });
   assertCsharpCheckingSucceeded(checked);
-  const built = buildHostSourceProgram(checked.source, { profile: createJsSourceApiFacts });
+  const built = buildHostSourceProgram(checked.source, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const source = built.program;
   const file = checked.source.getSourceFile("/project/index.ts");
   assert.ok(file);

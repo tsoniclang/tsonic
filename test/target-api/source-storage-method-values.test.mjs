@@ -30,7 +30,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the unchanged authored program checks");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   assert.equal(storage.failureReason(), undefined);
@@ -135,7 +135,7 @@ for (const [label, declarations, inspected, opaque] of [
         export function run(): number { ${declarations} return copied.aaa + copied.read(); }` },
     }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "the exact original copied-method source checks");
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const file = checked.getSourceFile("/src/index.ts");
     const storage = createSourceStorageQuery(source, [file]);
     const declaration = namedVariable(source.ast, file, inspected);
@@ -169,7 +169,7 @@ test("checked spread inputs are receiver uses without erasing unclassified value
       const unknownUse = {}; void unknownUse;` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the actual spread and unclassified inputs check");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const summary = source.navigation.declarationUseSummary(namedVariable(source.ast, file, "source"));
   assert.equal(summary.uses.length === 2 && summary.uses.every(use => use.role === "receiver") &&

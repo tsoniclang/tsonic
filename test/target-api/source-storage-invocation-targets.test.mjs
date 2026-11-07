@@ -22,7 +22,7 @@ test("checked invocation targets retain the authored callee value independently 
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary source checks without target annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   assert.equal(transport.invocations.size === 9, true, "every direct, nested, constructor and property invocation is covered");
@@ -53,7 +53,7 @@ test("intrinsic base constructor dispatch retains the exact checked heritage cal
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const invocation = [...transport.invocations].find(node => source.ast.kindName(Node_Expression(source.ast, node)) === "KindSuperKeyword");

@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { isTypeSyntaxNode } from "./syntax.js";
+import { sourceNodeHasRole } from "./callable-boundaries.js";
 import { sourceReceiverOwner } from "./receiver-owner.js";
 
 export interface SourceLexicalCapture {
@@ -84,6 +85,38 @@ export function sourceLexicalCaptures(
   });
 }
 
+/** The owners a lexical capture selection is published for: callables that own a body, and classes. */
+const lexicalCaptureOwnerKinds: ReadonlySet<string> = new Set([
+  "KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor",
+  "KindGetAccessor", "KindSetAccessor", "KindClassDeclaration", "KindClassExpression",
+]);
+
+/**
+ * The published lexical capture query (`facts.analyses.lexicalCaptures`): the full selection of an owner over the whole
+ * owner (roots `[owner]`), with every captured binding's references, the owner's self references and the captured outer
+ * receivers. Keyed by declaration Node; references resolve through the reference index (no Symbol, I3). One memo table
+ * per program view (I5). An owner outside the published domain (a project callable with a body, or a project class) is
+ * an invariant failure.
+ */
+export function createSourceLexicalCaptureQuery(
+  ast: AstReader,
+  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "isProjectDeclaration">,
+): (owner: Node) => SourceLexicalCaptureSelection {
+  const memo = new WeakMap<Node, SourceLexicalCaptureSelection>();
+  return (owner: Node): SourceLexicalCaptureSelection => {
+    const known = memo.get(owner);
+    if (known !== undefined) return known;
+    const kind = ast.kindName(owner);
+    if (!navigation.isProjectDeclaration(owner) || !lexicalCaptureOwnerKinds.has(kind) ||
+      kind !== "KindClassDeclaration" && kind !== "KindClassExpression" && ast.body(owner) === undefined) {
+      throw new Error(`Lexical captures are published for a project callable with a body or a project class, not '${kind}'.`);
+    }
+    const selected = sourceLexicalCaptures(owner, [owner], ast, navigation, "source");
+    memo.set(owner, selected);
+    return selected;
+  };
+}
+
 export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReader, step: (node?: Node) => void = () => {}): boolean {
   let current: Node | undefined = declaration;
   while (current !== undefined) {
@@ -91,8 +124,8 @@ export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReade
     const parent = ast.parent(current);
     if (parent === undefined) return false;
     const parentKind = ast.kindName(parent);
-    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
-      "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(parentKind)) return false;
+    // A declaration inside another execution (a callable body or a class static block) is not module scoped.
+    if (sourceNodeHasRole(ast, parent, "execution-barrier")) return false;
     if (parentKind === "KindSourceFile") {
       const kind = ast.kindName(declaration);
       return current === declaration
@@ -115,8 +148,8 @@ export function sourceBindingScope(declaration: Node, ast: AstReader): Node | un
   for (let current = ast.parent(binding); current !== undefined; current = ast.parent(current)) {
     const kind = ast.kindName(current);
     if (kind === "KindSourceFile") return current;
-    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
-      "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(kind)) return ast.body(current);
+    // An execution barrier (a callable body or a class static block) owns its `var`s (E13; F2-1 static-block defect).
+    if (sourceNodeHasRole(ast, current, "execution-barrier")) return ast.body(current) ?? current;
     if (!functionScoped && ["KindBlock", "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindCaseBlock"].includes(kind)) return current;
     if (!functionScoped && ast.is.IsCatchClause(current)) return ast.as.AsCatchClause(current)?.Block;
   }

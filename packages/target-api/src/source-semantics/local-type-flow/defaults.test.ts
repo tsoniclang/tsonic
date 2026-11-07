@@ -842,9 +842,8 @@ test("declared undefined and null are absence while a callable void result remai
 test("a required component overrides the occurrence's literal default", () => {
   const current = fixture("declare const required: number[]; export const literal = [1];");
   const declaration = current.declaration("required");
-  const queries = current.source.semantics.forNode(declaration);
-  const selectedType = queries.declarations.declaredValueType(declaration);
-  if (selectedType === undefined) throw new Error("The checked required type is required.");
+  const selectedType = current.source.input.at(declaration).declaredValueType(declaration);
+  if (selectedType === undefined) throw new Error("The declared required type is required.");
   const value = current.defaults.context.describe(current.declaration("literal"), { selectedType, declaration,
     authoredTypeNode: current.source.ast.typeNode(declaration) });
   assertSameValue(value, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });

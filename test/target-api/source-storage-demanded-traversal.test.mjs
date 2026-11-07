@@ -27,7 +27,7 @@ function fixture(limits = {}) {
     files: { "/src/index.ts": `export {}; ${chain}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary recursive class source checks without annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits,
     maximumSteps: 65_536, maximumTransportRows: 4096, ...limits });
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);

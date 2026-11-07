@@ -24,7 +24,7 @@ const getterKey = new Source().key;
 interface GetterShape { [getterKey]: number; }
 export {};
 ` });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["interfaceKey", "literalKey", "methodKey", "queryValue", "ambientKey", "effectKey", "getterKey"]) {
     const declaration = namedVariable(source.ast, file, name);
@@ -68,7 +68,7 @@ const shadow = "outer";
 interface Shadow { [shadow]: number; }
 function inner(): string { const shadow = "inner"; return shadow; }
 ` });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["classKey", "objectKey", "elementKey", "bodyKey", "exported", "linkage", "written", "captured", "unused"]) {
     const declaration = namedVariable(source.ast, file, name);
@@ -89,7 +89,7 @@ test("import/export linkage preserves the actual originating declaration identit
     "src/index.ts": 'import { key as imported } from "./other.js"; interface Shape { [imported]: number; } export {};',
     "src/other.ts": 'export const key = "value"; interface Own { [key]: number; }',
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const declaration = namedVariable(source.ast, projectSourceFile(source, "src/other.ts"), "key");
   const summary = source.navigation.declarationUseSummary(declaration);
   assert.equal(summary.exported, true, "the real exported declaration remains an ABI/runtime obligation");

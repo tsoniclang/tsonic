@@ -23,7 +23,7 @@ async function analyzed(name, body, limits = defaultSourceStorageLimits) {
     `,
   });
   assert.equal(checked.diagnostics.length === 0, true, `${name}: checked source`);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const stored = namedDeclaration(source.ast, file, "Stored");
   const field = source.ast.members(stored)[0];

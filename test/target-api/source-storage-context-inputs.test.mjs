@@ -105,7 +105,7 @@ test("canonical context footprints include checked object members, array compone
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the authored source checks without target annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => undefined, transport.contextualInputs.applicationFor);

@@ -133,7 +133,10 @@ export function createMemoryValueDomains(
             const signatures = callbackType === undefined ? [] : typeShape.getCallSignatures(callbackType);
             const declaration = signatures.length === 1 ? checker.getSignatureDeclaration(signatures[0]) : undefined;
             const annotation = view.explicitPointeeTypeNode ?? ast.typeNode(declaration);
-            const pointee = annotation === undefined ? domains.selected(view.pointeeType) : domains.authored(annotation);
+            // The view pointee is the selected T of viewptr<F, T> (Legacy check-time selection; the fact carries no Type).
+            const target = selected.sourceSelectedMethodTypeArguments?.[1]?.selectedType;
+            const pointee = annotation !== undefined ? domains.authored(annotation)
+              : target === undefined ? undefined : domains.selected(target);
             if (pointee === undefined) return undefined;
             const pointer = domains.pointer(pointee);
             const resultTypes = typeShape.isUnion(selected.sourceResultType)

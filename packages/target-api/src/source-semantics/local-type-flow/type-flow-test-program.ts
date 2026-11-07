@@ -9,6 +9,7 @@ import { analyzeSourceEffectiveTypes, type SourceSolvedValueModel } from "./solv
 import { buildSourceValueModelFacts, type SourceValueModelFacts } from "./program-facts.js";
 import { createSourceTypeDescriptorUnions } from "./terms.js";
 import type { SourceTypeFlowSource } from "./types.js";
+import { hostProgramFixturePlatform } from "../host-program-fixtures.js";
 
 export interface SourceTypeFlowTestProgram extends SourceTypeFlowSource {
   /** The checker services, for tests that compare Host facts with checker answers (tests only; never production). */
@@ -23,10 +24,11 @@ export interface SourceTypeFlowTestProgram extends SourceTypeFlowSource {
 
 export function createSourceTypeFlowTestProgram(checked: CheckedSourceProgram): SourceTypeFlowTestProgram {
   // The value-model tests do not read the JS API profile.
-  const built = buildHostSourceProgram(checked, { profile: () => Object.freeze({}) as unknown as SourceJsApiFacts });
+  const built = buildHostSourceProgram(checked, { profile: () => Object.freeze({}) as unknown as SourceJsApiFacts,
+    platform: hostProgramFixturePlatform });
   const host = built.program;
   const services: SourceTypeFlowSource = Object.freeze({ ast: host.ast, sourceFiles: host.sourceFiles,
-    sourceFacts: host.sourceFacts, navigation: host.navigation });
+    sourceFacts: host.sourceFacts, navigation: host.navigation, platform: hostProgramFixturePlatform });
   const { input, semantics } = built;
   const effectiveTypes = analyzeSourceEffectiveTypes(services, createSourceTypeDescriptorUnions(host.ast, checked.programSourceFiles), input);
   return Object.freeze({ ...services, semantics, input, effectiveTypes,

@@ -24,7 +24,7 @@ function fixture() {
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "the native pointer read has exact checked evidence");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const call = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node));
   const storage = createSourceStorageQuery(source, [file]);
@@ -103,7 +103,7 @@ function declarationFixture(hideNativeDeclaration = false) {
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
   const source = createHostSourceProgram(hideNativeDeclaration ? { ...checked,
-    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) } : checked, { profile: createJsSourceApiFacts });
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) } : checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/declared/index.ts");
   assert.equal(file !== undefined, true, "the declaration-local owner is checked");
   const nodes = source.navigation.nodesForFiles([file]);

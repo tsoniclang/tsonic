@@ -1,6 +1,6 @@
+import { sourceTypeDescriptorOpenness } from "../../source-semantics/local-type-flow/uses.js";
 import {
-  sourceAnalysisArms, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm,
-  sourceAnalysisIsScalar, type SourceAnalysisProgram,
+  sourceAnalysisArms, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsScalar, type SourceAnalysisProgram,
 } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../source-navigation/index.js";
@@ -37,7 +37,7 @@ export function createSourceDeclarationSuspensionQuery(input: {
     if (use === "value") {
       // A value whose every Host arm is never, a scalar or absence cannot be a pending native completion.
       const arms = sourceAnalysisArms(value.component.type);
-      const immediate = arms.length !== 0 && arms.every(arm => budget.step(subject) && !sourceAnalysisIsOpenArm(arm) &&
+      const immediate = arms.length !== 0 && arms.every(arm => budget.step(subject) && sourceTypeDescriptorOpenness(source.ast, arm) !== "top" &&
         (sourceAnalysisIsNeverArm(arm) || sourceAnalysisIsAbsentArm(arm) ||
           sourceAnalysisIsScalar(arm, node => source.ast.is.IsEnumDeclaration(node))));
       if (immediate) {
@@ -94,7 +94,7 @@ export function createSourceDeclarationSuspensionQuery(input: {
       // The Host resource selection: an async disposal selected for this declaration. The cleaned value is the
       // declaration's own Host value (values.forNode(declaration)).
       const selected = source.facts.selections.resource(declaration);
-      if (selected?.declaration !== declaration || !selected.async)
+      if (selected === undefined || "kind" in selected || selected.declaration !== declaration || !selected.async)
         return sourceDeclarationOwnershipUnresolved(operation, "Cleanup suspension requires its exact checked acquisition and selected disposal facts.");
       return select(operation, { kind: "resource-cleanup", declaration });
     },

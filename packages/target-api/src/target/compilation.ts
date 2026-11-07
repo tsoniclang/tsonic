@@ -5,6 +5,7 @@ import type { TargetSourceProgramFacts } from "../public/source/index.js";
 import type { TargetSourcePackageGraph } from "../source-packages/model.js";
 import type { SelectedTargetCapabilityContributions, TargetSourceCompilerContributions } from "./composition.js";
 import type { TargetCompilationPaths } from "./paths.js";
+import type { SourcePlatformFacts } from "../source-semantics/platform-model.js";
 
 export interface TargetCompileInput {
   readonly source: TargetSourceProgramFacts;
@@ -26,6 +27,11 @@ export interface TargetCompilationSessionContext {
 }
 
 export interface TargetCompilationSession {
+  /**
+   * The selected target's native integer premise for this build (E24, N5), from its own configuration or toolchain
+   * selection, never the coordinating machine. The composition root passes it as TargetSourceProgramOptions.platform.
+   */
+  sourcePlatform(): SourcePlatformFacts;
   sourceProfileContributions(): TargetSourceProfileContributions;
   sourceCompilerContributions(): TargetSourceCompilerContributions;
   runtimeContributions(): TargetRuntimeContributions;

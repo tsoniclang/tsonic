@@ -17,7 +17,7 @@ function fixture(limits = {}) {
     const first = pipeline(left); const second = pipeline(right);
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const transport = createSourceStorageTransport(source, [file], budget);

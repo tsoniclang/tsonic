@@ -40,9 +40,11 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
     return;
   }
   const fact: TsonicArrayMemoryLayoutFact = {
-    kind: "array", call: selected.call, sourceType: fixedArray.sourceType,
+    kind: "array", call: selected.call,
     dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
-    fixedArray, elementLayoutExpression, elementLayout,
+    fixedArray: { length: fixedArray.length, lengthRuntimeBase: fixedArray.lengthRuntimeBase,
+      ...(fixedArray.elementType === undefined ? {} : { elementType: fixedArray.elementType }) },
+    elementLayoutExpression, elementLayout,
   };
   const error = memoryLayoutDimensionsError(fact);
   if (error !== undefined) {

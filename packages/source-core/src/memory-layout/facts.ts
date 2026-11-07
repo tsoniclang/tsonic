@@ -1,24 +1,21 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { Node, Symbol, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "@tsonic/target-api/provider";
 import { failTargetCompilerResourceLimit } from "@tsonic/target-api/artifacts";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
-import { snapshotFixedArrayFact, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
-import type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
 
 export interface TsonicDataLayoutFact extends TsonicDataLayoutDescriptor {
   readonly providerDeclaration: TsonicDataLayoutIdentity;
 }
 
+// Legacy-extension layout witnesses: selected nodes, ABI identity and exact dimensions only. No checker Type (I1); the
+// Host publishes the laid-out, field and element descriptors (`TsonicMemoryLayoutRecord`, host-records.ts).
 export interface TsonicMemoryFieldLayoutFact {
   readonly call: Node;
-  readonly sourceType: Type;
   readonly selector: Node;
   readonly selectedDeclaration: Node;
-  readonly selectedSymbol?: Symbol;
-  readonly fieldType: Type;
   readonly fieldLayoutExpression: Node;
   readonly fieldLayout: TsonicMemoryLayoutFact;
   readonly byteOffset: bigint;
@@ -27,7 +24,6 @@ export interface TsonicMemoryFieldLayoutFact {
 
 interface MemoryLayoutBase {
   readonly call: Node;
-  readonly sourceType: Type;
   readonly explicitTypeNode?: Node;
   readonly dataLayoutExpression: Node;
   readonly dataLayout: TsonicDataLayoutFact;
@@ -43,20 +39,39 @@ export interface TsonicValueMemoryLayoutFact extends MemoryLayoutBase {
 
 export interface TsonicArrayMemoryLayoutFact extends MemoryLayoutBase {
   readonly kind: "array";
-  readonly fixedArray: TsonicFixedArrayFact;
+  readonly fixedArray: TsonicMemoryArrayExtent;
   readonly elementLayoutExpression: Node;
   readonly elementLayout: TsonicMemoryLayoutFact;
 }
 
 export type TsonicMemoryLayoutFact = TsonicValueMemoryLayoutFact | TsonicArrayMemoryLayoutFact;
 
+/** The exact extent of a fixed-array layout and its authored element type node (the element type is a Host descriptor). */
+export interface TsonicMemoryArrayExtent {
+  readonly length: bigint;
+  readonly lengthRuntimeBase: "number" | "bigint";
+  readonly elementType?: Node;
+}
+
 export interface TsonicMemoryLayoutQueryFact {
   readonly operation: "size" | "alignment" | "stride" | "field-offset";
   readonly call: Node;
   readonly layoutExpression: Node;
-  readonly layoutType: Type;
   readonly selectedFieldDeclaration?: Node;
-  readonly resultType: Type;
+}
+
+export function snapshotMemoryArrayExtent(value: TsonicMemoryArrayExtent): TsonicMemoryArrayExtent {
+  const result = exactRecord(value, ["length", "lengthRuntimeBase"], ["elementType"]);
+  if (typeof result.length !== "bigint" || result.length < 0n ||
+    (result.lengthRuntimeBase !== "number" && result.lengthRuntimeBase !== "bigint")) {
+    throw new Error("Memory array extent requires an exact non-negative length with its source runtime base.");
+  }
+  if (result.elementType !== undefined) opaqueSubject(result.elementType);
+  return Object.freeze(result);
+}
+
+export function memoryArrayExtentsEqual(left: TsonicMemoryArrayExtent, right: TsonicMemoryArrayExtent): boolean {
+  return left.length === right.length && left.lengthRuntimeBase === right.lengthRuntimeBase && left.elementType === right.elementType;
 }
 
 export function snapshotDataLayoutIdentity(value: TsonicDataLayoutIdentity): TsonicDataLayoutIdentity {
@@ -133,12 +148,8 @@ function memoryLayoutSnapshot() {
   function field(value: TsonicMemoryFieldLayoutFact): TsonicMemoryFieldLayoutFact {
     visit();
     const result = exactRecord(value,
-      ["call", "sourceType", "selector", "selectedDeclaration", "fieldType", "byteOffset", "byteAlignment",
-        "fieldLayoutExpression", "fieldLayout"],
-      ["selectedSymbol"]);
-    for (const subject of [result.call, result.sourceType, result.selector, result.selectedDeclaration,
-      result.fieldType, result.fieldLayoutExpression]) opaqueSubject(subject);
-    if (result.selectedSymbol !== undefined) opaqueSubject(result.selectedSymbol);
+      ["call", "selector", "selectedDeclaration", "byteOffset", "byteAlignment", "fieldLayoutExpression", "fieldLayout"]);
+    for (const subject of [result.call, result.selector, result.selectedDeclaration, result.fieldLayoutExpression]) opaqueSubject(subject);
     const error = memoryFieldDimensionsError(result);
     if (error !== undefined) throw new Error(error);
     return Object.freeze({ ...result, fieldLayout: layout(result.fieldLayout) });
@@ -169,12 +180,12 @@ function memoryLayoutSnapshot() {
     }
     const result = discriminator.value === "value"
       ? exactRecord(value as TsonicValueMemoryLayoutFact,
-        ["kind", "call", "sourceType", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride", "fields"],
+        ["kind", "call", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride", "fields"],
         ["explicitTypeNode"])
       : exactRecord(value as TsonicArrayMemoryLayoutFact,
-        ["kind", "call", "sourceType", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride",
+        ["kind", "call", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride",
           "fixedArray", "elementLayoutExpression", "elementLayout"], ["explicitTypeNode"]);
-    for (const subject of [result.call, result.sourceType, result.dataLayoutExpression]) opaqueSubject(subject);
+    for (const subject of [result.call, result.dataLayoutExpression]) opaqueSubject(subject);
     if (result.explicitTypeNode !== undefined) opaqueSubject(result.explicitTypeNode);
     active.add(value);
     try {
@@ -187,10 +198,7 @@ function memoryLayoutSnapshot() {
         captured = { ...result, dataLayout, fields };
       } else {
         opaqueSubject(result.elementLayoutExpression);
-        const fixedArray = snapshotFixedArrayFact(result.fixedArray);
-        if (fixedArray.sourceType !== result.sourceType) {
-          throw new Error("Memory array layout must retain its exact selected fixed-array type.");
-        }
+        const fixedArray = snapshotMemoryArrayExtent(result.fixedArray);
         const elementLayout = layout(result.elementLayout);
         children = [elementLayout];
         captured = { ...result, dataLayout, fixedArray, elementLayout };
@@ -223,9 +231,8 @@ export function snapshotMemoryLayout(value: TsonicMemoryLayoutFact): TsonicMemor
 }
 
 function memoryFieldSubjectsEqual(left: TsonicMemoryFieldLayoutFact, right: TsonicMemoryFieldLayoutFact): boolean {
-  return left.call === right.call && left.sourceType === right.sourceType && left.selector === right.selector &&
-    left.selectedDeclaration === right.selectedDeclaration && left.selectedSymbol === right.selectedSymbol &&
-    left.fieldType === right.fieldType && left.byteOffset === right.byteOffset && left.byteAlignment === right.byteAlignment &&
+  return left.call === right.call && left.selector === right.selector &&
+    left.selectedDeclaration === right.selectedDeclaration && left.byteOffset === right.byteOffset && left.byteAlignment === right.byteAlignment &&
     left.fieldLayoutExpression === right.fieldLayoutExpression;
 }
 
@@ -235,7 +242,7 @@ export function memoryLayoutsEqual(left: TsonicMemoryLayoutFact, right: TsonicMe
   while (pending.length !== 0) {
     const [current, other] = pending.pop()!;
     if (current === other || visited.get(current)?.has(other)) continue;
-    if (current.kind !== other.kind || current.call !== other.call || current.sourceType !== other.sourceType ||
+    if (current.kind !== other.kind || current.call !== other.call ||
         current.explicitTypeNode !== other.explicitTypeNode || current.dataLayoutExpression !== other.dataLayoutExpression ||
         !dataLayoutsEqual(current.dataLayout, other.dataLayout) || current.byteSize !== other.byteSize ||
         current.byteAlignment !== other.byteAlignment || current.stride !== other.stride) return false;
@@ -244,7 +251,7 @@ export function memoryLayoutsEqual(left: TsonicMemoryLayoutFact, right: TsonicMe
     visited.set(current, peers);
     if (current.kind === "array") {
       if (other.kind !== "array" || current.elementLayoutExpression !== other.elementLayoutExpression ||
-          !fixedArrayFactsEqual(current.fixedArray, other.fixedArray)) return false;
+          !memoryArrayExtentsEqual(current.fixedArray, other.fixedArray)) return false;
       pending.push([current.elementLayout, other.elementLayout]);
     } else {
       if (other.kind !== "value" || current.fields.length !== other.fields.length) return false;
@@ -278,13 +285,12 @@ export const tsonicMemoryLayoutFactKey = defineExtensionFactKey<TsonicMemoryLayo
 export const tsonicMemoryLayoutQueryFactKey = defineExtensionFactKey<TsonicMemoryLayoutQueryFact>({
   extensionId: tsonicCoreSourceExtensionId, name: "memoryLayoutQuery",
   snapshot(value) {
-    const result = exactRecord(value, ["operation", "call", "layoutExpression", "layoutType", "resultType"],
-      ["selectedFieldDeclaration"]);
+    const result = exactRecord(value, ["operation", "call", "layoutExpression"], ["selectedFieldDeclaration"]);
     if (!["size", "alignment", "stride", "field-offset"].includes(result.operation) ||
         (result.operation === "field-offset") !== (result.selectedFieldDeclaration !== undefined)) {
       throw new Error("Layout query requires one exact operation and corresponding field selection.");
     }
-    for (const subject of [result.call, result.layoutExpression, result.layoutType, result.resultType]) opaqueSubject(subject);
+    for (const subject of [result.call, result.layoutExpression]) opaqueSubject(subject);
     if (result.selectedFieldDeclaration !== undefined) opaqueSubject(result.selectedFieldDeclaration);
     return result;
   },

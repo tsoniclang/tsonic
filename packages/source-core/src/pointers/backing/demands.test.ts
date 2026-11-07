@@ -6,6 +6,7 @@ import { createTsonicPointerBackingDemands } from "./demands.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 
 function collect(text: string) {
   const checked = cleanMemorySession('import { allocateptr, addressof } from "@tsonic/core/lang.js";\n' + text);
@@ -88,7 +89,8 @@ test("raw location selection retains inferred pointee evidence and rejects moved
   assert.equal(selected?.kind, "resolved");
   if (selected?.kind !== "resolved" || selected.operation.operation !== "reinterpret") return;
   assert.equal(selected.operation.explicitPointeeTypeNode, undefined);
-  assert.ok(selected.operation.pointeeType);
+  const record = createTsonicHostRecords(source).memory.rawLocation(call);
+  assert.ok(record?.kind === "resolved" && record.operation === "reinterpret" && record.pointee !== undefined);
   for (const mutation of ["call", "abi"]) {
     const facts: typeof source.sourceFacts = {
       ...source.sourceFacts,

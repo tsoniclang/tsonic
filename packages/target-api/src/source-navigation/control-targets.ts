@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { BreakOrContinueStatement_Label, IterationStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement } from "./ast.js";
-import { sourceBindingCallableKinds } from "./binding-mutation-exposure.js";
+import { sourceNodeHasRole } from "./callable-boundaries.js";
 
 export function sourceControlTransferTarget(ast: AstReader, node: Node): Node | undefined {
   const kind = ast.kindName(node);
@@ -11,7 +11,8 @@ export function sourceControlTransferTarget(ast: AstReader, node: Node): Node | 
   for (let parent = ast.parent(node); parent !== undefined && remaining > 0; parent = ast.parent(parent)) {
     remaining -= 1;
     const parentKind = ast.kindName(parent);
-    if (sourceBindingCallableKinds.has(parentKind)) return undefined;
+    // A jump never leaves its execution (a callable body or a class static block, E13 execution-barrier).
+    if (sourceNodeHasRole(ast, parent, "execution-barrier")) return undefined;
     if (labelText !== undefined) {
       if (parentKind !== "KindLabeledStatement") continue;
       const declaration = LabeledStatement_Label(ast, parent);

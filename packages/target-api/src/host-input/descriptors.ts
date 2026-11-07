@@ -1,7 +1,7 @@
 import { sourceMarkerFactKey, sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type, type TypeAliasApplicationInfo } from "@tsonic/tsts";
 import { sourceArrayElementType } from "./semantics-array-types.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
-import { createSourceTypeDescriptorNormalizer, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
+import { createSourceTypeDescriptorNormalizer, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorLiteralKey, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descriptors.js";
 import { hostComponent } from "./queries.js";
@@ -9,7 +9,7 @@ import { failTargetCompilerResourceLimit } from "../artifacts.js";
 import { sourceTypeExpansionBudget } from "../source-semantics/type-expansion-budget.js";
 import { sourceIntegerLiteralValue } from "../source-semantics/integer-literal.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "./semantics-types.js";
-import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorLiteral, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
@@ -188,8 +188,11 @@ export function createSourceTypeDescriptorReader(
           arguments_.splice(0, arguments_.length, ...ordered);
         }
         const body = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+        // A native pointer marker alias (`type Pointer<T> = T`) keeps its declared identity and type argument (R-B4-12):
+        // the pointee is read from the reference, never from the transparent body.
         const referenceOnly = body !== undefined && (ast.is.IsUnionTypeNode(body) || ast.is.IsMappedTypeNode(body) ||
-          ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body) || ast.is.IsTypeLiteralNode(body));
+          ast.is.IsConditionalTypeNode(body) || ast.is.IsIntersectionTypeNode(body) || ast.is.IsTypeLiteralNode(body) ||
+          pointerMarkerDeclaration(declaration));
         if (referenceOnly) return nominal(selectedType, declaration, arguments_, queries, {
           selectedType, declaration, authoredTypeNode: node,
         }, depth, instantiated, application);
@@ -233,11 +236,13 @@ export function createSourceTypeDescriptorReader(
         throw new Error(`Source member '${property.name}' has no approved checked origin (flags ${property.symbol.Flags}).`);
       }
       const origin = selectedOrigin.origin;
+      const literals = memberLiterals(property.type, property.optional, queries);
+      const literal = literals === undefined ? {} : { literals };
       if (origin.kind !== "declared") {
         const value = type(property.type, queries, { selectedType: property.type }, depth + 1, inherited);
         if (value === undefined) return undefined;
         result.push({ name: property.name, optional: property.optional, readonly: property.readonly,
-          origin, type: value });
+          origin, type: value, ...literal });
         continue;
       }
       const declaration = origin.declaration;
@@ -253,9 +258,34 @@ export function createSourceTypeDescriptorReader(
       if (value === undefined) return undefined;
       if (property.optional && value.kind !== "optional") value = { kind: "optional", value };
       result.push({ name: property.name, optional: property.optional, readonly: property.readonly,
-        origin, type: value });
+        origin, type: value, ...literal });
     }
     return result;
+  }
+
+  // The literal values of a member's declared type in this arm (05 §2a D-2, R6): a literal type or a union of literal
+  // types (string, number, bigint, boolean; an enum member by its value). Declaration input only: the property's type
+  // in the selected arm type, after that arm's own application, never an expression type (R3). A type parameter that is
+  // still unbound is not literal (D-10). The full boolean domain is not a literal set; absence of an optional member is
+  // not a value. The set is sorted by value key, so equal sets have one spelling.
+  function memberLiterals(selectedType: Type, optional: boolean,
+    queries: SourceFileSemantics): readonly SourceTypeDescriptorLiteral[] | undefined {
+    const parts = queries.types.isUnion(selectedType) ? queries.types.unionOrIntersectionTypes(selectedType) : [selectedType];
+    const result = new Map<string, SourceTypeDescriptorLiteral>();
+    for (const part of parts) {
+      if (optional && queries.types.isNullish(part)) continue;
+      const string = queries.types.stringLiteralValue(part);
+      const number = string === undefined ? queries.types.numericLiteralValue(part) : undefined;
+      const boolean = string === undefined && number === undefined ? queries.types.booleanLiteralValue(part) : undefined;
+      const literal: SourceTypeDescriptorLiteral | undefined = string !== undefined ? { kind: "string", value: string }
+        : typeof number === "bigint" ? { kind: "bigint", value: number }
+        : typeof number === "number" && Number.isFinite(number) ? { kind: "number", value: number }
+        : boolean !== undefined ? { kind: "boolean", value: boolean } : undefined;
+      if (literal === undefined) return undefined;
+      result.set(sourceTypeDescriptorLiteralKey(literal), Object.freeze(literal));
+    }
+    if (result.size === 0 || result.has("b:true") && result.has("b:false")) return undefined;
+    return Object.freeze([...result].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, literal]) => literal));
   }
 
   function inheritedBindings(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
@@ -382,6 +412,12 @@ export function createSourceTypeDescriptorReader(
   }
 
   // The FixedArray declaration carries the canonical "fixed-array" type marker (tsts).
+  function pointerMarkerDeclaration(declaration: Node): boolean {
+    const marker = source.sourceFacts.getFact(declaration, sourceMarkerFactKey);
+    return marker?.kind === "type-marker" && (marker.marker === "pointer" || marker.marker === "raw-pointer" ||
+      marker.marker === "function-pointer");
+  }
+
   function fixedArrayDeclaration(declaration: Node): boolean {
     const marker = source.sourceFacts.getFact(declaration, sourceMarkerFactKey);
     return marker?.kind === "type-marker" && marker.marker === "fixed-array";

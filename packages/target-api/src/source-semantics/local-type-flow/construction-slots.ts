@@ -1,13 +1,16 @@
 import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
-import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
+import { sourcePrimitiveLiteralFit } from "./operator-decisions.js";
 import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
 import type { SourceTypeDescriptor } from "./types.js";
+import type { SourceNativeIntegerWidthRefusal, SourcePlatformFacts } from "../platform-model.js";
 
 export type SourceTypeFlowScalarCalculationArm =
   | { readonly kind: "resolved"; readonly primitive: SourcePrimitiveKind }
-  | { readonly kind: "unfitted" };
+  | { readonly kind: "unfitted" }
+  /** A native-int / native-uint arm whose fit depends on a width the platform premise does not state would win (E24). */
+  | { readonly kind: "width-refused"; readonly refusal: SourceNativeIntegerWidthRefusal };
 
 // C-2360 Q5 / C-2361 Q12 / C-2379 H3: int64 first, then fixed integers by width and signedness, then platform integers and C-2339 floats.
 const wholeLiteralUnionArmPriority: Readonly<Record<SourcePrimitiveKind, number>> = Object.freeze({
@@ -16,7 +19,7 @@ const wholeLiteralUnionArmPriority: Readonly<Record<SourcePrimitiveKind, number>
 });
 
 export function sourceTypeFlowScalarCalculationArm(
-  type: SourceTypeDescriptor, literal: SourceLiteralValue,
+  type: SourceTypeDescriptor, literal: SourceLiteralValue, platform: SourcePlatformFacts,
 ): SourceTypeFlowScalarCalculationArm {
   const seen = new Set<SourceTypeDescriptor>();
   let fixed: SourceTypeDescriptor | undefined = type;
@@ -27,6 +30,7 @@ export function sourceTypeFlowScalarCalculationArm(
   }
   const candidates = new Set<SourcePrimitiveKind>();
   const numericKinds = new Set<SourcePrimitiveKind>();
+  const widthRefused = new Map<SourcePrimitiveKind, SourceNativeIntegerWidthRefusal>();
   const numeric = literal.form !== "array" && (literal.number !== undefined || literal.integer !== undefined ||
     literal.integerConstant !== undefined || literal.numeric !== undefined);
   const pending = [type];
@@ -40,12 +44,20 @@ export function sourceTypeFlowScalarCalculationArm(
     else if (selected.kind === "union") pending.push(...selected.types);
     else if (selected.kind === "primitive") {
       if (numeric && selected.primitive !== "bool" && selected.primitive !== "char") numericKinds.add(selected.primitive);
-      if (sourcePrimitiveOperatorLiteralFits(literal, selected.primitive)) candidates.add(selected.primitive);
+      const fit = sourcePrimitiveLiteralFit(literal, selected.primitive, platform);
+      if (fit === "fits") candidates.add(selected.primitive);
+      else if (typeof fit === "object") widthRefused.set(selected.primitive, fit);
     }
   }
   let primitive: SourcePrimitiveKind | undefined;
   for (const candidate of candidates) {
     if (primitive === undefined || wholeLiteralUnionArmPriority[candidate] < wholeLiteralUnionArmPriority[primitive]) primitive = candidate;
+  }
+  // A width-dependent native arm decides only when it would outrank the best arm that fits at every width.
+  for (const [candidate, refusal] of widthRefused) {
+    if (primitive === undefined || wholeLiteralUnionArmPriority[candidate] < wholeLiteralUnionArmPriority[primitive]) {
+      return Object.freeze({ kind: "width-refused", refusal });
+    }
   }
   if (primitive === undefined && numericKinds.size === 1) primitive = numericKinds.values().next().value;
   return primitive === undefined ? Object.freeze({ kind: "unfitted" }) : Object.freeze({ kind: "resolved", primitive });

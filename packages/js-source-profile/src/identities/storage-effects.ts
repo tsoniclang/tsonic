@@ -1,4 +1,5 @@
-import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceCallSelection } from "@tsonic/target-api/source";
 import { jsSourceSemanticsIdentity } from "./source.js";
 import { jsSourceReceiverResumeEffect } from "./callable-effects.js";
 
@@ -40,7 +41,7 @@ export function jsSourceNativeConstructorStorage(identity: JsSourceStorageOperat
 
 export function selectJsSourceCallStorageEffect(
   identity: JsSourceStorageOperationIdentity | undefined,
-  call: ResolvedSourceCallInfo,
+  call: SourceCallSelection,
 ) {
   const effect = jsSourceCallStorageEffect(identity, call);
   if (identity === undefined || effect === undefined) return undefined;
@@ -56,21 +57,18 @@ export function selectJsSourceCallStorageEffect(
 export function jsSourceCallStorageEffect(identity: {
   readonly ownerName: string;
   readonly memberName: string;
-} | undefined, call: ResolvedSourceCallInfo): JsSourceCallStorageEffect | undefined {
-  if (call.sourceSelectedSignatureKind !== "resolved") return undefined;
-  if (jsSourceReceiverResumeEffect(identity) === true && call.sourceReceiver !== undefined) {
+} | undefined, call: SourceCallSelection): JsSourceCallStorageEffect | undefined {
+  // A published call selection is always a typed (resolved) selection; an untyped callee is a Host refusal.
+  if (jsSourceReceiverResumeEffect(identity) === true && call.receiver !== undefined) {
     return Object.freeze({ resumeReceiver: true });
   }
   if (identity !== undefined && nativeErrorConstructorOwners.has(identity.ownerName) &&
     (identity.memberName === "constructor" || identity.memberName === "call")) {
-    return Object.freeze({ resultAllocation: call.call });
+    return Object.freeze({ resultAllocation: call.use });
   }
   if (identity?.ownerName !== "ObjectConstructor" || identity.memberName !== "freeze") return undefined;
-  const bindings = call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === 0);
+  const bindings = call.arguments.filter(binding => binding.parameterIndex === 0);
   const binding = bindings.length === 1 ? bindings[0] : undefined;
-  if (binding?.sourceForm !== "value" || binding.sourceParameterForm !== "parameter" ||
-    !Number.isInteger(binding.sourceArgumentIndex) || binding.sourceArgumentIndex < 0) return undefined;
-  const argument = call.sourceArguments[binding.sourceArgumentIndex]?.expression;
-  if (argument === undefined) return undefined;
-  return Object.freeze({ resultAlias: argument });
+  if (binding?.form !== "value" || binding.mode !== "positional") return undefined;
+  return Object.freeze({ resultAlias: binding.argument });
 }

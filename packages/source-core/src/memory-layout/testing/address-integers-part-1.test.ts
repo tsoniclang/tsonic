@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 
 import { test } from "node:test";
 
@@ -21,6 +23,7 @@ test(`${width}-bit ${byteOrder}-endian addresses retain an exact unsigned source
       const sourceFile = checked.getSourceFile("/src/index.ts");
       assert.ok(sourceFile);
       const { checker } = checked.getSourceFileQueries(sourceFile);
+      const records = createTsonicHostRecords(createHostSourceProgramFixture(checked));
       for (const name of ["rawptrtoaddressinteger", "addressintegertorawptr"] as const) {
         for (const call of memoryCalls(checked, name)) {
           const fact = readTsonicRawMemoryOperation(checked.sourceFacts, call);
@@ -34,14 +37,17 @@ test(`${width}-bit ${byteOrder}-endian addresses retain an exact unsigned source
           assert.equal(layout?.byteOrder, byteOrder);
           const selection = checker.getResolvedCallInfo(call);
           assert.equal(selection?.outcome, "applicable");
-          assert.ok(fact.resultType === selection?.sourceResultType);
+          // The Host record keeps the operand role with its Host descriptor and the finalized ABI (K-2662).
+          const record = records.memory.rawAddress(call);
+          assert.ok(record?.kind === "resolved" && record.operation === fact.operation);
+          assert.equal(record.dataLayout.addressWidth, width);
           if (fact.operation === "raw-to-address-integer") {
-            assert.equal(checker.typeToString(fact.resultType), width === 32 ? "number" : "bigint");
+            assert.equal(checker.typeToString(selection!.sourceResultType), width === 32 ? "number" : "bigint");
             assert.ok(fact.rawExpression === selection?.sourceArguments[0]?.expression);
-            assert.ok(fact.rawType === selection?.sourceArguments[0]?.type);
+            assert.ok(record.operation === "raw-to-address-integer" && record.raw.expression === fact.rawExpression);
           } else {
             assert.ok(fact.addressExpression === selection?.sourceArguments[0]?.expression);
-            assert.ok(fact.addressType === selection?.sourceArguments[0]?.type);
+            assert.ok(record.operation === "address-integer-to-raw" && record.address.expression === fact.addressExpression);
           }
           assert.ok(Object.isFrozen(fact));
         }

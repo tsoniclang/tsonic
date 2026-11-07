@@ -139,14 +139,14 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
     return declaration;
   }
   function call(node: Node, places: readonly SourceTypeFlowArgumentPlace[] = []): SourceTypeFlowCall {
-    const queries = source.semantics.forNode(node);
-    const selected = queries.operations.call(node);
+    const queries = context.input.at(node);
+    const selected = queries.call(node);
     if (selected === undefined) throw new Error("The original selected call is required.");
     const receiver = selected.sourceReceiver === undefined ? [] :
-      (queries.types.typeArgumentBindings(selected.sourceReceiver.type) ?? []).map(binding => Object.freeze({
+      (queries.typeArgumentBindings(selected.sourceReceiver.type) ?? []).map(binding => Object.freeze({
         declaration: binding.declaration, variable: Object.freeze({ node, path: Object.freeze([{ kind: "binder" as const, declaration: binding.declaration }]) }),
       }));
-    const declaration = queries.declarations.signatureDeclaration(selected.selectedSignature);
+    const declaration = queries.callSignature(selected);
     const method = declaration === undefined ? [] : ast.typeParameters(declaration).filter((value): value is Node => value !== undefined).map(binder =>
       Object.freeze({ declaration: binder, variable: Object.freeze({ node, path: Object.freeze([{ kind: "binder" as const, declaration: binder }]) }) }));
     const result: SourceTypeFlowCall = Object.freeze({ node, source: selected, receiver: Object.freeze(receiver), method: Object.freeze(method),
@@ -540,7 +540,7 @@ function run() { const n = 1; ${original}; ${captured}; }`);
       assert.equal(uses[0]?.kind === "fill" && uses[0].type === integer, true, "the captured use keeps the original declared demand");
       const argument = current.source.ast.arguments(direct.node)[0];
       assert.equal(direct.source.sourceArguments[0]?.expression === argument, true, "the authored outer wrapper is the checked argument");
-      assert.equal(current.source.semantics.forNode(direct.node).operations.call(direct.node) === direct.source, true, "the original checked call is not reconstructed");
+      assert.equal(current.context.input.at(direct.node).call(direct.node) === direct.source, true, "the original checked call is not reconstructed");
       const foreignArguments: SourceTypeFlowAnalysisContext = { ...current.context, source: { ...current.source,
         ast: { ...current.source.ast, arguments(node: Node | undefined) {
           return node === direct.node ? [] : current.source.ast.arguments(node);
@@ -640,7 +640,7 @@ test("foreign call and parameter associations fail before descriptor children", 
   const current = fixture("declare function take(value: number): void; function run() { const n = 1; take(n); take(2); }");
   current.track("n");
   const original = current.call(current.find("take(n)"));
-  const other = current.source.semantics.forNode(current.find("take(2)")).operations.call(current.find("take(2)"))!;
+  const other = current.context.input.at(current.find("take(2)")).call(current.find("take(2)"))!;
   let children = 0;
   const context: SourceTypeFlowAnalysisContext = { ...current.context, describe() { children += 1; return double; } };
   assert.throws(() => collectSourceTypeFlowUses(context, { ...current.graph(), calls: [{ ...original, source: other }] }), /exact retained selected call/u);

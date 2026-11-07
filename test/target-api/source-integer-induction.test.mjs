@@ -68,7 +68,7 @@ test("integer call uses require exact project parameter and by-value evidence", 
   ` }, { sourceCore: true });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const declarations = [];
   const visit = node => {
     if (source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "index") declarations.push(node);
@@ -81,7 +81,7 @@ test("integer call uses require exact project parameter and by-value evidence", 
   assert.equal(sourceIntegerInduction(declarations[0], source.ast, source.navigation, { ...evidence, sourceFacts: undefined }), undefined);
   const referencePassing = { ...evidence, sourceFacts: { ...source.sourceFacts,
     getFact: (subject, key) => key === argumentPassingFactKey
-      ? { mode: "byref-readwrite", storageExpression: subject }
+      ? { role: "argument", mode: "byref-readwrite", storageExpression: subject }
       : source.sourceFacts.getFact(subject, key),
   } };
   assert.equal(sourceIntegerInduction(declarations[0], source.ast, source.navigation, referencePassing), undefined);

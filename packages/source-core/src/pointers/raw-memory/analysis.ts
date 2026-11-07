@@ -10,13 +10,13 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
   const { selected, context, name } = call;
   const args = selected.selection.sourceArguments;
   const operand = args[0];
-  const base = { call: selected.call, resultType: selected.selection.sourceResultType };
+  const base = { call: selected.call };
   if (operand === undefined) {
     memoryDiagnostic(call, "OPERAND_MISSING", "The memory operation is missing its selected operand.");
     return;
   }
   if (name === "keepalive") {
-    publishMemoryFact(call, tsonicKeepAliveFactKey, { ...base, valueExpression: operand.expression, valueType: operand.type });
+    publishMemoryFact(call, tsonicKeepAliveFactKey, { ...base, valueExpression: operand.expression });
     return;
   }
   if (name === "torawptr" || name === "reinterpretrawptr") {
@@ -31,10 +31,10 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       memoryDiagnostic(call, "POINTEE_LAYOUT_NOT_PROVEN", "Raw conversion requires the same exact closed memory type and marker domain as its finalized layout.");
       return;
     }
-    const typed = { ...base, pointeeType: pointee.selectedType, layoutExpression: layout.expression, layoutType: layout.type };
+    const typed = { ...base, layoutExpression: layout.expression };
     publishMemoryFact(call, tsonicRawMemoryOperationFactKey, name === "torawptr"
-      ? { ...typed, operation: "to-raw", pointerExpression: operand.expression, pointerType: operand.type }
-      : { ...typed, operation: "reinterpret", rawExpression: operand.expression, rawType: operand.type,
+      ? { ...typed, operation: "to-raw", pointerExpression: operand.expression }
+      : { ...typed, operation: "reinterpret", rawExpression: operand.expression,
           ...(pointee.explicitTypeNode === undefined ? {} : { explicitPointeeTypeNode: pointee.explicitTypeNode }) });
     if (analysis.types.raw(call, descriptor)) analysis.types.publish(call);
     return;
@@ -45,7 +45,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
     memoryDiagnostic(call, "ABI_NOT_PROVEN", "Address arithmetic requires one exact registered data-layout token.");
     return;
   }
-  const raw = { ...base, rawExpression: operand.expression, rawType: operand.type, dataLayoutExpression: dataLayoutOperand.expression };
+  const raw = { ...base, rawExpression: operand.expression, dataLayoutExpression: dataLayoutOperand.expression };
   if (name === "offsetrawptr") {
     const offset = args[1];
     const integer = offset === undefined ? undefined : selectedRawOffsetInteger(offset, dataLayout, context, analysis);
@@ -54,7 +54,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       return;
     }
     publishMemoryFact(call, tsonicRawMemoryOperationFactKey, {
-      ...raw, operation: "byte-offset", offsetExpression: offset.expression, offsetType: offset.type,
+      ...raw, operation: "byte-offset", offsetExpression: offset.expression,
       offsetRuntimeBase: integer.runtimeBase, offsetSignedness: integer.signedness, offsetWidth: integer.width,
     });
   } else if (name === "rawptrtoaddressinteger" || name === "addressintegertorawptr") {
@@ -66,7 +66,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
     publishMemoryFact(call, tsonicRawMemoryOperationFactKey, name === "rawptrtoaddressinteger"
       ? { ...raw, ...domain, operation: "raw-to-address-integer" }
       : { ...base, ...domain, operation: "address-integer-to-raw", addressExpression: operand.expression,
-      addressType: operand.type, dataLayoutExpression: dataLayoutOperand.expression,
+      dataLayoutExpression: dataLayoutOperand.expression,
     });
   }
 }

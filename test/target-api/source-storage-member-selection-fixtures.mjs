@@ -25,7 +25,7 @@ async function inheritedNativeMemberFixture(name, body, admitted = true) {
     "src/index.ts": `export {}; ${body} const created = new Retained(); const observed = created.message;`,
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const globals = projectSourceFile(source, "globals.d.ts");
   const error = namedDeclaration(source.ast, globals, "Error");
@@ -53,7 +53,7 @@ function fixture(body, extraFiles = {}) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const storage = createSourceStorageQuery(source, Object.keys(files).map(name => checked.getSourceFile(name)));

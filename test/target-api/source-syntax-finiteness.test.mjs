@@ -14,7 +14,7 @@ function fixture(text) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics).slice(0, 2048));
   assert.equal(checked.extensionDiagnostics.length, 0, "the original program has no extension rejection");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const foreign = checked.getSourceFile("/src/foreign.ts");
   assert.equal(file !== undefined && foreign !== undefined, true, "both original checked files exist");

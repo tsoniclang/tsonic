@@ -116,6 +116,10 @@ function fixture(text = sourceText) {
     const text = label(node);
     if (text !== undefined) calls.set(text, node);
   }
+  // An application whose target is a reference (the `Value` argument), present when the program contains the call.
+  const referenced = calls.get("referenced");
+  const referencedTarget = referenced === undefined ? undefined : ast.arguments(referenced)[1];
+  if (referencedTarget !== undefined) facts.set("referenced", application("constructor", [], referencedTarget));
   let sealed = false;
   const isSealed = () => sealed;
   const constructionReads = new Map<string, number>();
@@ -123,7 +127,7 @@ function fixture(text = sourceText) {
   const index = createTargetSafetyApplicationIndex<{ readonly kind: "remaining-block" }, TestBuilderFact>({
     ast: guardedAst,
     sourceFiles: [file!],
-    navigation: guarded(source.navigation, isSealed, "navigation", constructionReads),
+    identity: guarded(source.facts.navigation.identity, isSealed, "identity", constructionReads),
     readUnsafeContext: () => {
       if (sealed) throw new Error("readUnsafeContext was called after index construction");
       return undefined;
@@ -236,7 +240,7 @@ test("parenthesis-transparent lookups are stored at construction, with exact-nod
   assert.equal(index.operationForExpression(arithmetic!), undefined);
 });
 
-test("no index query reads the AST, navigation or fact readers after construction", () => {
+test("no index query reads the AST, identity roles or fact readers after construction", () => {
   const { ast, guardedAst, index, call, seal, getter, setter, nodes } = fixture();
   const inside = ast.arguments(call("getter"))[0]!;
   const nestedWrapper = nodes.find(node => ast.is.IsParenthesizedExpression(node) &&
@@ -294,4 +298,14 @@ test("each nested parenthesis operand is inspected exactly once during construct
     assert.equal(current.constructionReads.get("ast.as.AsParenthesizedExpression"), before,
       "published queries never inspect an operand");
   }
+});
+
+test("an application target that references a project declaration resolves through the identity roles", () => {
+  const { index, call, value, constructor } = fixture(sourceText
+    .replace('mark("unregistered", Value);', 'mark("unregistered", Value);\nmark("referenced", Value);'));
+  const application = index.all.find(entry => entry.sourceSubject === call("referenced"));
+  assert.equal(application !== undefined, true);
+  assert.equal(application!.resolvedRootDeclaration, value);
+  assert.deepEqual(application!.targetDeclarations, [value, constructor]);
+  assert.equal(index.forDeclaration(constructor).some(entry => entry.sourceSubject === call("referenced")), true);
 });

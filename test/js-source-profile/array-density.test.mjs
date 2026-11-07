@@ -105,7 +105,7 @@ function inspect(text, closed = false, omitIdentity = false, files = {}) {
   }).checkSource();
   assert.equal(formatDiagnostics(checked.diagnostics), "");
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const { ast } = source;

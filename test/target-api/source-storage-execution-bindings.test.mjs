@@ -17,7 +17,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "checked source execution defaults");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const ast = source.ast;
   const declarations = storage.nodes;

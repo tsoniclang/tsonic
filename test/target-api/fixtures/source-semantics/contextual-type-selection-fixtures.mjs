@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts"
 import { buildHostSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
 // A Host program with its checker views and host-input adapter (the HostSourceProgramFixture shape), JS profile on.
 function hostProgramFixture(checked) {
-    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     return Object.freeze(Object.assign(Object.create(null), built.program, { semantics: built.semantics, input: built.input }));
 }
 

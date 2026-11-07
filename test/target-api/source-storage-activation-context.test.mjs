@@ -19,7 +19,7 @@ async function fixture(name, text, effectsFor) {
   });
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const { ast } = source;
   const nodes = [];
@@ -449,7 +449,7 @@ for (const [name, declarationText, sourceText, projections] of [
     assert.equal(checked.extensionDiagnostics.length, 0, "the call needs no source extension workaround");
     const source = createHostSourceProgram({ ...checked,
       sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)),
-    }, { profile: createJsSourceApiFacts });
+    }, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const { ast } = source;
     const file = projectSourceFile(source, "src/index.ts");
     const nodes = [];

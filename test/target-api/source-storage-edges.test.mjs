@@ -18,7 +18,7 @@ function fixture(limits = defaultSourceStorageLimits, selectSource = source => s
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length === 0 && checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics, "/src"));
-  const source = selectSource(createHostSourceProgram(checked, { profile: createJsSourceApiFacts }));
+  const source = selectSource(createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } }));
   const file = projectSourceFile(source, "/src/index.ts");
   const budget = createSourceStorageBudget(limits);
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);

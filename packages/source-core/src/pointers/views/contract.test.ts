@@ -3,7 +3,9 @@ import { test } from "node:test";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { formatDiagnostics, pointerOperationFactKey } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { selectTsonicPointerView, selectTsonicRawLocationOperation, tsonicPointerViewFactKey } from "../../public/facts.js";
+import { selectTsonicPointerView } from "./selection.js";
+import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
+import { tsonicPointerViewFactKey } from "./facts.js";
 import { createTsonicPointerReturnQueries } from "../return-evidence.js";
 import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude } from "../../memory-layout/testing/fixtures.js";
 

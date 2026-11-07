@@ -201,8 +201,14 @@ test("source-core leaves non-storage byref marker arguments to the Host refusal"
 
   for (const calleeText of ["writeonlyref", "readwriteref", "readonlyref"]) {
     const call = callExpression(session, sourceFile, calleeText);
-    assert.notEqual(getSourceFact(session, call, argumentPassingFactKey), undefined);
-    assert.equal(getSourceFact(session, firstCallArgument(session, call), argumentPassingFactKey), undefined);
+    // Legacy records the argument role on the call and its target with no grammar guard; place validity is the Host
+    // decision.
+    const target = firstCallArgument(session, call);
+    for (const subject of [call, target]) {
+      const fact = getSourceFact(session, subject, argumentPassingFactKey);
+      assert.ok(fact?.role === "argument", calleeText);
+      assert.equal(fact.storageExpression, target, calleeText);
+    }
     const refusal = refusals.find(entry => entry.related === call);
     assert.ok(refusal, calleeText);
     assert.equal(refusal.site, firstCallArgument(session, call));

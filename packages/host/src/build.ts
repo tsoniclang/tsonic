@@ -18,8 +18,7 @@ import type {
   TargetCompileOutput,
   TargetDiagnostic,
 } from "@tsonic/target-api/artifacts";
-import { sourceProjectFiles } from "@tsonic/target-api/host";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createTargetSourceProgram, sourceProjectFiles } from "@tsonic/target-api/host";
 import { createJsSourceApiFacts } from "@tsonic/js-source-profile";
 import { tsonicCoreSourceAnalyses } from "@tsonic/source-core";
 import { createCompilerSession } from "@tsonic/tsts";
@@ -242,6 +241,7 @@ function compileTargetBuild(
             source: createTargetSourceProgram(checked.source, {
               profile: createJsSourceApiFacts,
               analyses: [tsonicCoreSourceAnalyses],
+              platform: session.sourcePlatform(),
             }),
             sourcePackages: checked.sourcePackages,
             project: input.project,

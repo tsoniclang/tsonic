@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 
 for (const addressWidth of [32, 64] as const) {
   test(`all layout queries compose with ${addressWidth}-bit unsigned byte offsets`, () => {
@@ -24,6 +27,8 @@ for (const addressWidth of [32, 64] as const) {
     } }] });
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"));
     assertMemoryDiagnostics(checked);
+    const host = createHostSourceProgramFixture(checked);
+    const records = createTsonicHostRecords(host);
     for (const [index, queryName, value] of [
       [0, "sizeof", 12], [1, "alignof", 4], [2, "strideof", 16], [3, "fieldoffsetof", 4],
     ] as const) {
@@ -34,7 +39,11 @@ for (const addressWidth of [32, 64] as const) {
       assert.ok(operation?.operation === "byte-offset");
       assert.ok(observation?.kind === "resolved");
       assert.equal(operation.offsetExpression, queryCall);
-      assert.equal(operation.offsetType, observation.query.resultType);
+      // The offset operand and the observation share one Host descriptor (K-2662).
+      const record = records.memory.rawAddress(call);
+      assert.ok(record?.kind === "resolved" && record.operation === "byte-offset");
+      const observed = host.facts.values.type(queryCall);
+      assert.ok(observed.kind !== "refused" && sourceTypeDescriptorsEqual(record.offset.type, observed.type));
       assert.equal(operation.offsetWidth, addressWidth);
       assert.equal(operation.offsetSignedness, "unsigned");
       assert.equal(operation.offsetRuntimeBase, "number");

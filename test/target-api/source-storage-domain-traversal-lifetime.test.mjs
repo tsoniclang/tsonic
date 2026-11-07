@@ -11,7 +11,7 @@ test("repeated complete value and producer traversals retain exact evidence with
     "/src/index.ts": "const original = {}; const first = original; export const result = first;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true);
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file], { ...defaultSourceStorageLimits, maximumTransportRows: 512 });
   const selected = storage.subjectFor(namedVariable(source.ast, file, "result"));

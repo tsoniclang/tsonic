@@ -17,7 +17,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary source checks without annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ maximumNodes: 256, maximumEdges: 256,
     maximumSubjectRows: 512, maximumTransportRows: 4096, maximumSteps: 65_536 });

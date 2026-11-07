@@ -85,7 +85,7 @@ export function ownershipFixture(options = {}) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(item => item !== undefined)).slice(0, 2048));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "checked fixture file");
   const nodes = [];

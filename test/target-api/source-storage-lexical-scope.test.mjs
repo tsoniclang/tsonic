@@ -23,7 +23,7 @@ function fixture() {
     try { throw first; } catch (caught) { const alias = caught; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 4096 });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);

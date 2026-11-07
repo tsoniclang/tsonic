@@ -4,6 +4,7 @@ import {
   ObjectLiteralProperty_Value, SpreadAssignment_Expression, sourceTransparentExpressionOperand,
 } from "../../source-navigation/ast.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
+import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type {
   SourceHostArgumentBinding, SourceHostCall, SourceHostComponent, SourceHostContribution, SourceHostQueries, SourceHostType, SourceHostValue,
@@ -66,7 +67,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const inType = entry.typeOnly || sourceTypeFlowTypeSyntax(ast, entry.node);
       if (inType) typeOnly.add(entry.node);
       let root = entry.root;
-      if (isCallable(ast, entry.node) && ast.body(entry.node) !== undefined && !isInlineArgument(ast, entry.node)) {
+      if (isSourceCallableBodyBoundary(ast, entry.node) && ast.body(entry.node) !== undefined && !isInlineArgument(ast, entry.node)) {
         root = entry.node;
         roots.push(root);
       }
@@ -83,7 +84,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   for (const node of syntax) {
     if (!ast.is.IsParameterDeclaration(node) || typeOnly.has(node)) continue;
     const owner = ast.parent(node);
-    if (owner === undefined || !isCallable(ast, owner) || ast.body(owner) === undefined) continue;
+    if (owner === undefined || !isSourceCallableBodyBoundary(ast, owner) || ast.body(owner) === undefined) continue;
     const query = host.at(node);
     const projected = declaredSlots.parameter(node, query);
     if (ast.typeNode(node) === undefined && (projected === undefined || isInlineArgument(ast, owner)) && Node_Initializer(ast, node) === undefined &&
@@ -341,7 +342,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const parent = ast.parent(node);
     const isLoop = parent !== undefined && ast.is.IsVariableDeclarationList(parent) &&
       ast.parent(parent) !== undefined && ast.is.IsForStatement(ast.parent(parent));
-    const open = isCallable(ast, root) && ownType === undefined && !isLoop &&
+    const open = isSourceCallableBodyBoundary(ast, root) && ownType === undefined && !isLoop &&
       (ast.variableDeclarationKind(node) === "const" || ast.variableDeclarationKind(node) === "let") &&
       !ast.hasModifierKind(node, "export");
     if (name !== undefined && (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name))) {
@@ -451,7 +452,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const selected = navigation.sourceReferenceFor(node)?.declaration;
       if (selected === undefined) return fixed(node);
       if (selected === node || ast.name(selected) === node) return undefined;
-      if (isCallable(ast, selected)) return fixed(node);
+      if (isSourceCallableBodyBoundary(ast, selected)) return fixed(node);
       const source = declaration(selected);
       if (rootOf.get(selected) !== rootOf.get(node)) {
         if (openValues.has(selected) || derived.has(selected)) {
@@ -1582,11 +1583,6 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   }
 }
 
-function isCallable(ast: AstReader, node: Node): boolean {
-  return ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) ||
-    ast.is.IsMethodDeclaration(node) || ast.is.IsConstructorDeclaration(node) ||
-    ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node);
-}
 
 function isInlineArgument(ast: AstReader, node: Node): boolean {
   if (!ast.is.IsArrowFunction(node) && !ast.is.IsFunctionExpression(node)) return false;
@@ -1616,7 +1612,7 @@ function inlineReturns(ast: AstReader, closure: Node): readonly Node[] {
   const pending = [body];
   while (pending.length !== 0) {
     const node = pending.pop()!;
-    if (isCallable(ast, node)) continue;
+    if (isSourceCallableBodyBoundary(ast, node)) continue;
     if (ast.is.IsReturnStatement(node)) {
       const expression = Node_Expression(ast, node);
       if (expression !== undefined) returns.push(expression);
@@ -1754,7 +1750,7 @@ export function sourceTypeFlowObjectLiteralReceiver(ast: AstReader, node: Node):
   if (ast.kindName(node) !== "KindThisKeyword") return undefined;
   for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
     if (ast.is.IsArrowFunction(owner)) continue;
-    if (isCallable(ast, owner)) {
+    if (isSourceCallableBodyBoundary(ast, owner)) {
       const literal = ast.parent(owner);
       return (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner)) &&
         literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? literal : undefined;

@@ -25,7 +25,7 @@ function fixture(body) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
     files: { "/src/index.ts": `export {}; ${body}` } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const storage = createSourceStorageQuery(source, [file]);
@@ -277,12 +277,21 @@ test("all-array union projections retain the exact checked union of element type
     const { ast } = current.source;
     const parameter = requiredNode(ast, current.file, node => ast.is.IsParameterDeclaration(node));
     const access = requiredNode(ast, current.file, node => ast.is.IsElementAccessExpression(node));
-    // B4 D3: a union receiver component exists only when every arm yields the same Host descriptor; the Host builds no
-    // union outside its sums owner (I6). Arms with different element types leave the element component unresolved.
-    assert.equal(access !== undefined, true, `${label}: the original element read`);
+    // Baseline expectation restored (supervisor ruling on B4 D3): the element component of an all-array union is the
+    // union of the per-arm elements, built by the Host sums owner (facts.sums.join, I6), equal to the Host type of the
+    // original element read.
     const selected = current.storage.subject(parameter, "input", [{ kind: "array-element" }]);
-    assert.equal(selected.kind === "unresolved", true,
-      `${label}: arms with different element types have no single Host element component`);
+    assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? ""}`);
+    const actual = current.storage.typeFor(selected.subject);
+    const expected = typeOf(current.source, access);
+    assert.equal(actual.kind === "resolved" && same(actual.type, expected), true,
+      `${label}: every array arm contributes its original element type`);
+    // The per-arm relation at the read publishes each arm's element (the component the join is built from).
+    const relation = current.source.facts.relations.at(access);
+    assert.equal(relation?.kind, "per-arm", `${label}: element read on a union receiver is per-arm`);
+    assert.equal(relation.arms.every(arm => arm.type !== undefined), true, `${label}: every arm publishes its element`);
+    assert.equal(same(current.source.facts.sums.join(relation.arms.map(arm => arm.type)), expected), true,
+      `${label}: the join of the per-arm elements is the read's Host type`);
   });
 });
 

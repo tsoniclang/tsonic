@@ -1,36 +1,18 @@
-import {
-  defineExtensionFactKey,
-} from "@tsonic/tsts";
-import type {
-  Node,
-  Type,
-} from "@tsonic/tsts";
-import {
-  tsonicCoreSourceExtensionId,
-} from "../identity.js";
+// Legacy-extension witness of a native pointer operation (loadnativeptr / storenativeptr / offsetnativeptr): the
+// selected operand nodes only. Types are published by the Host (`TsonicNativePointerRecord`, I1); no checker Type here.
+import { defineExtensionFactKey } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
 
 interface TsonicNativePointerOperationBase {
   readonly pointerExpression: Node;
-  readonly pointerType: Type;
-  readonly pointeeType: Type;
   readonly explicitPointeeTypeNode?: Node;
-  readonly resultType: Type;
 }
 
 export type TsonicNativePointerOperationFact =
-  | TsonicNativePointerOperationBase & {
-      readonly operation: "load";
-    }
-  | TsonicNativePointerOperationBase & {
-      readonly operation: "store";
-      readonly valueExpression: Node;
-      readonly valueType: Type;
-    }
-  | TsonicNativePointerOperationBase & {
-      readonly operation: "offset";
-      readonly offsetExpression: Node;
-      readonly offsetType: Type;
-    };
+  | TsonicNativePointerOperationBase & { readonly operation: "load" }
+  | TsonicNativePointerOperationBase & { readonly operation: "store"; readonly valueExpression: Node }
+  | TsonicNativePointerOperationBase & { readonly operation: "offset"; readonly offsetExpression: Node };
 
 export const tsonicNativePointerOperationFactKey =
   defineExtensionFactKey<TsonicNativePointerOperationFact>({
@@ -44,23 +26,9 @@ function nativePointerOperationFactsEqual(
   left: TsonicNativePointerOperationFact,
   right: TsonicNativePointerOperationFact,
 ): boolean {
-  if (
-    left.operation !== right.operation ||
-    left.pointerExpression !== right.pointerExpression ||
-    left.pointerType !== right.pointerType ||
-    left.pointeeType !== right.pointeeType ||
-    left.explicitPointeeTypeNode !== right.explicitPointeeTypeNode ||
-    left.resultType !== right.resultType
-  ) {
-    return false;
-  }
-  if (left.operation === "store" && right.operation === "store") {
-    return left.valueExpression === right.valueExpression &&
-      left.valueType === right.valueType;
-  }
-  if (left.operation === "offset" && right.operation === "offset") {
-    return left.offsetExpression === right.offsetExpression &&
-      left.offsetType === right.offsetType;
-  }
+  if (left.operation !== right.operation || left.pointerExpression !== right.pointerExpression ||
+    left.explicitPointeeTypeNode !== right.explicitPointeeTypeNode) return false;
+  if (left.operation === "store" && right.operation === "store") return left.valueExpression === right.valueExpression;
+  if (left.operation === "offset" && right.operation === "offset") return left.offsetExpression === right.offsetExpression;
   return left.operation === "load" && right.operation === "load";
 }

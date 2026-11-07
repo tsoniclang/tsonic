@@ -23,7 +23,7 @@ export function narrowed(value: number | undefined) {
 }
 export function nominal(value: number | undefined) { return value === 3; }
 `,
-  }), { profile: createJsSourceApiFacts });
+  }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, kind, negated] of [
     ["global", "absence", true], ["alias", "absence", false], ["reversed", "absence", true],
@@ -48,7 +48,7 @@ export function nominal(value: number | undefined) { return value === 3; }
   }
   const foreign = createHostSourceProgram(await checkedSource("foreign-native-value-guard", {
     "src/index.ts": "export const value = 1;",
-  }), { profile: createJsSourceApiFacts });
+  }), { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const foreignFile = projectSourceFile(foreign, "src/index.ts");
   const foreignValue = namedVariable(foreign.ast, foreignFile, "value");
   assert.throws(() => source.facts.values.type(foreignValue), /Source value facts/u,

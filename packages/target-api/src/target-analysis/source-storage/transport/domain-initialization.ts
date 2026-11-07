@@ -140,7 +140,9 @@ export function createSourceStorageDomainInitialization(input: {
         const passing = source.sourceFacts.getFact(expression, argumentPassingFactKey);
         const flow = source.sourceFacts.getFact(expression, flowStateFactKey);
         const pointer = sourceStoragePointerOperation(source, expression);
-        const storage = passing?.storageExpression ?? (pointer?.operation === "address-of" ? pointer.storageExpression : undefined);
+        // WP0 A4: only the argument role names storage; a declaration role never authorizes a value exposure.
+        const storage = passing?.role === "argument" ? passing.storageExpression
+          : pointer?.operation === "address-of" ? pointer.storageExpression : undefined;
         const file = storage === undefined ? undefined : ast.getSourceFile(storage);
         if (storage !== undefined && (file === undefined || !sourceAnalysisIncludesFile(source, file))) {
           budget.reject("Source storage exposure requires its exact checked storage expression.");

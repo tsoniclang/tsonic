@@ -176,7 +176,7 @@ test(`contextual constructor closure preserves native, unknown, open and mixed a
       }
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "The negative controls are real checked construction programs.");
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const storage = createSourceStorageQuery(source, source.sourceFiles);
     const invocations = ["Source", "NativeOnly", "Mixed", "Open", "Absent", "Formal"];
     for (const name of reverse ? [...invocations].reverse() : invocations) {

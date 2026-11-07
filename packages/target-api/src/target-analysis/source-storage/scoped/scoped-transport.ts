@@ -190,7 +190,7 @@ export function sourceStorageInitializedValue(source: SourceAnalysisProgram, bud
   if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
   if (sourceStorageIsAbsentType(type)) return [fallback];
-  if (!sourceAnalysisMayBeAbsent(type)) return [value];
+  if (!sourceAnalysisMayBeAbsent(source.ast, type)) return [value];
   // The value read after defaulting is present: a single present arm becomes the input view; several present arms keep
   // the Host type (storage components are always read over present arms).
   const present = sourcePresentStorageArms(type);

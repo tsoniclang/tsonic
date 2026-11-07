@@ -45,7 +45,7 @@ for (const [name, text, expected] of [
   test(`binary entry ${name} uses checked export and call identity`, async () => {
     const checked = await checkedSource(`binary-entry-${name.replaceAll(" ", "-")}`, { "src/index.ts": text });
     assert.equal(checked.diagnostics.filter(diagnostic => diagnostic !== undefined && diagnostic.category === "error").length, 0);
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const issues = validateSourceBinaryEntry(source, projectSourceFile(checked, "src/index.ts"));
     assert.equal(issues.length, expected ? 1 : 0);
     assert.equal(Object.isFrozen(issues), true);
@@ -62,7 +62,7 @@ test("binary entry calls retain exact imported and re-exported declaration ident
     "src/body.ts": "export function start(): void {}",
     "src/uncalled.ts": "export function main(): void {}",
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   assert.equal(validateSourceBinaryEntry(source, projectSourceFile(checked, "src/index.ts")).length, 0);
   assert.equal(validateSourceBinaryEntry(source, projectSourceFile(checked, "src/uncalled.ts")).length, 1);
 });

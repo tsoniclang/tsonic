@@ -70,7 +70,7 @@ function checked(limits = defaultSourceStorageLimits) {
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length === 0, true, "provider admission succeeds");
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   return { source, storage: createSourceStorageQuery(source, source.navigation.sourceFiles, limits),
     file: projectSourceFile(source, "/src/index.ts"), second: projectSourceFile(source, "/src/second.ts") };
 }
@@ -192,7 +192,7 @@ for (const queryFirst of [false, true]) {
     assert.equal(checked.diagnostics.length === 0, true, "the real native declaration and member reference check");
     const file = checked.getSourceFile("/src/index.ts");
     assert.equal(file !== undefined, true, "the actual consumer is present");
-    const source = createHostSourceProgram({ ...checked, sourceFiles: Object.freeze([file]) }, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram({ ...checked, sourceFiles: Object.freeze([file]) }, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
     const alias = storage.subjectFor(namedVariable(source.ast, file, "alias"));
     const selected = storage.subjectFor(namedVariable(source.ast, file, "selected"));

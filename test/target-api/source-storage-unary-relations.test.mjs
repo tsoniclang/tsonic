@@ -10,7 +10,7 @@ function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   // Step bound measured 2026-10-23 (round-1 shared lane): relations stay shared (4 variants derive 1956 relations, 8 derive
   // 4232), but since e7e76d954 each external-input stop proves its call closed with its own walk; for 8 variants that is

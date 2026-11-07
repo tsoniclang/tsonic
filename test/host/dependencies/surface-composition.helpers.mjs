@@ -386,6 +386,9 @@ export function createFakeTargetPack(events, options = {}) {
                 ],
           };
         },
+        sourcePlatform() {
+          return { kind: "known", nativeIntegerBits: 64, basis: "test target session" };
+        },
         sourceCompilerContributions() {
           assert.equal(state, "profile");
           state = "compiler";

@@ -344,7 +344,7 @@ test("receiver and method binders stay distinct and fresh for each pinned call",
   assert.equal(calls[0]!.method[0]!.variable.node !== calls[1]!.method[0]!.variable.node, true,
     "the declaration is retained but never used as the per-call identity");
   assert.equal(current.same(calls[0]!.receiver[0]!.variable, calls[0]!.method[0]!.variable), false);
-  assert.equal(calls.every(call => call.source === current.source.semantics.forNode(call.node).operations.call(call.node)), true);
+  assert.equal(calls.every(call => call.source === current.source.input.at(call.node).call(call.node)), true);
 });
 
 test("callback widths come from their real source declarations rather than element binders", () => {
@@ -454,7 +454,7 @@ test("inline callback construction positions are internal while their parameter 
     }
     const returned = current.source.ast.body(callback!);
     assert.equal(returned !== undefined && current.graph.nodes.some(entry => entry.node === returned && entry.publish), true);
-    assert.equal(call.source === current.source.semantics.forNode(call.node).operations.call(call.node), true);
+    assert.equal(call.source === current.source.input.at(call.node).call(call.node), true);
   }
   assert.equal(current.graph.refusals.length, 0);
 });

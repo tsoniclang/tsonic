@@ -51,7 +51,7 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
     "src/index.ts": `import { Stored, mutate, tuple, nested } from "./values.js"; ${body}`,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   const provider = projectSourceFile(source, "src/values.ts");
   const declaration = namedDeclaration(source.ast, provider, "Stored");
@@ -138,7 +138,7 @@ test("Error writes with an unresolved value frontier retain unresolved storage d
     `,
   });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const declarations = projectSourceFile(source, "globals.d.ts");
   const field = source.ast.members(namedDeclaration(source.ast, declarations, "Error"))
     .find(node => source.ast.text(source.ast.name(node)) === "message");

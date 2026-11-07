@@ -5,6 +5,9 @@ import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
 import { readTsonicDataLayout, readTsonicKeepAlive, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "../readers.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
 
 test("raw reinterpretation returns the canonical inferred Pointer and retains nested operation facts", () => {
@@ -20,10 +23,15 @@ test("raw reinterpretation returns the canonical inferred Pointer and retains ne
   assert.equal(inferred?.operation, "reinterpret");
   assert.equal(explicit?.operation, "reinterpret");
   assert.ok(inferred?.operation === "reinterpret" && explicit?.operation === "reinterpret");
-  assert.ok(inferred.pointeeType);
   assert.equal(inferred.explicitPointeeTypeNode, undefined);
   assert.ok(explicit.explicitPointeeTypeNode);
-  assert.ok(inferred.pointeeType === explicit.pointeeType);
+  // The pointee is the Host record descriptor of the selected T (K-2662), equal for the inferred and explicit forms.
+  const records = createTsonicHostRecords(createHostSourceProgramFixture(checked));
+  const inferredRecord = records.memory.rawLocation(memoryCall(checked, "reinterpretrawptr"));
+  const explicitRecord = records.memory.rawLocation(memoryCall(checked, "reinterpretrawptr", 1));
+  assert.ok(inferredRecord?.kind === "resolved" && explicitRecord?.kind === "resolved");
+  assert.ok(sourceTypeDescriptorsEqual(inferredRecord.pointee, explicitRecord.pointee));
+  assert.equal(explicitRecord.explicitPointeeTypeNode, explicit.explicitPointeeTypeNode);
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts, inferred.layoutExpression)?.byteSize, 4n);
   assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "storeptr"), pointerOperationFactKey)?.operation, "store");
   assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "loadptr"), pointerOperationFactKey)?.operation, "load");

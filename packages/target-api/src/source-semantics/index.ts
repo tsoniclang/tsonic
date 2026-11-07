@@ -1,8 +1,6 @@
 // Host-internal barrel of the Source services (exported from @tsonic/target-api/host for Host packages only).
 // NOT a target surface: targets import @tsonic/target-api/source (public/source.ts), which exposes published facts only
 // (I1). Nothing here reads the checker (I3): the checker views live in host-input and are never exported.
-export { createHostSourceProgram, createTargetSourceProgram } from "./target-source-program.js";
-export type { TargetSourceProgramOptions } from "./target-source-program.js";
 export type * from "./local-type-flow/types.js";
 export { sourceTypeDescriptorMemberOriginsEqual } from "./local-type-flow/member-origins.js";
 export { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue,
@@ -48,6 +46,8 @@ export type { SourceLiteralForm, SourceLiteralIndex, SourceLiteralValue, SourceT
 export { compareSourceNumericLiteralMagnitude, sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "./literal-token.js";
 export { parseBigIntLiteral, parseFiniteNumberLiteral } from "./literal-text.js";
 export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelection } from "./provider-signature.js";
+// Provider declaration facts only (source facts, no checker type): source-core provider-return evidence reads it (R-B4-10).
+export { selectSourceProviderSignature } from "./provider-signature.js";
 export { sourceInterfaceRepresentationBase } from "./interface-representations.js";
 export { selectSourceGuardedValueMembers, selectSourceNativeGuardResult } from "./value-flow-conditions.js";
 export type { SourceFlowCondition, SourceFlowConditions, SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";

@@ -56,6 +56,16 @@ export interface SourceObjectFacts {
   construction(declaration: Node): SourceConstructFacts | SourceRefusal;
   implementation(classDeclaration: Node, contractMember: Node): SourceMemberImplementation | "unrelated" | SourceRefusal;
   contracts(implementation: Node): readonly Node[] | SourceRefusal;
+  /**
+   * The implementation declaration of a project callable contract: a function, method, accessor or constructor
+   * declaration, or a method signature merged with a class method. A contract with a body is its own implementation; a
+   * bodyless one (an overload signature, or a signature merged with its implementation) yields the one declaration of
+   * the same entity and callable kind that has a body. "unrelated": the contract is not a project callable declaration,
+   * or no callable declaration of its entity has a body (interface and abstract members, ambient
+   * declarations). TSONIC_SOURCE_CALLABLE_IMPLEMENTATION_UNRESOLVED: a callable declaration of the entity has a body but
+   * no single implementation of the contract's kind exists (refusal at the contract, collected in `refusals()`).
+   */
+  callableImplementation(contract: Node): Node | "unrelated" | SourceRefusal;
   /** Members an object literal must supply for its destination (required-member coverage). */
   requiredMembers(objectLiteral: Node): readonly SourceObjectMember[];
   /** Own enumerable property keys of a value in producer order, or ambiguous (A17/R12). */
@@ -86,4 +96,9 @@ export interface SourceJsApiMember {
 export interface SourceJsApiFacts {
   collection(type: SourceTypeDescriptor): SourceJsCollectionFacts | undefined;
   member(declaration: Node): SourceJsApiMember | undefined;
+  /**
+   * The Source refusal of calling this JS API member (`Generator.throw`), or undefined when calling it is supported.
+   * The Host raises it at every call that selects the member (facts.refusals()).
+   */
+  callRefusal(declaration: Node): { readonly code: string; readonly message: string } | undefined;
 }

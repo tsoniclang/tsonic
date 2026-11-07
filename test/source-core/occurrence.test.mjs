@@ -21,7 +21,7 @@ test("source occurrence locators round-trip exact checked UTF-16 syntax", () => 
     files: { "/project/index.ts": sourceText },
     compilerOptions: { noLib: true, strict: true },
   }).checkSource();
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = source.sourceFiles.find((candidate) =>
     source.ast.getFileName(candidate) === "/project/index.ts"
   );
@@ -66,7 +66,7 @@ test("source occurrence lookup fails closed for stale, foreign, or wrong-kind lo
     files: { "/project/index.ts": "const value = 1;\n" },
     compilerOptions: { noLib: true, strict: true },
   }).checkSource();
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = source.sourceFiles[0];
   const declaration = descendants(source, sourceFile).find((node) =>
     source.ast.is.IsVariableDeclaration(node)

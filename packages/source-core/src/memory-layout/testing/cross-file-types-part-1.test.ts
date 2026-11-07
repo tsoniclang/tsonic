@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 
-import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
+import { readTsonicMemoryLayout } from "../readers.js";
+import { readTsonicMemoryType } from "../type-contract/facts.js";
+import { selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
 
 import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
 
@@ -12,6 +14,8 @@ import { assertMemoryDiagnostics, memoryCall, memoryCalls, memorySession } from 
 import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
 
 import { prelude, clean, identity } from "./cross-file-types-fixtures.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 
 for (const [label, localType, otherType, aliases] of [
   ["direct", "Pointer<uint32> | undefined", "Pointer<uint32> | undefined", ""],
@@ -54,14 +58,14 @@ test("the reported allocation/import reproduction retains each checker-local typ
   const layoutType = readTsonicMemoryType(checked.sourceFacts, result.layout.call);
   const selectedLayout = readTsonicMemoryLayout(checked.sourceFacts, result.operation.layoutExpression);
   assert.equal(result.operation.call === conversion, true, "the original checked conversion owns the pointee");
-  assert.equal(result.operation.pointeeType === selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
-    true, "the original checked conversion supplies its exact pointee type");
+  const record = createTsonicHostRecords(createHostSourceProgramFixture(checked)).memory.rawLocation(conversion);
+  assert.ok(selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType !== undefined);
+  assert.equal(record?.kind === "resolved" && record.call === conversion && record.layout.call === result.layout.call, true,
+    "the original checked conversion supplies its Host pointee record and selected layout");
   assert.equal(result.operation.layoutExpression === checked.ast.arguments(conversion)[1], true,
     "the original selected layout argument is retained");
   assert.equal(selectedLayout !== undefined && selectedLayout.call === result.layout.call, true,
     "the selected argument retains its original layout declaration");
-  assert.equal(operationType?.sourceType === result.operation.pointeeType && layoutType?.sourceType === result.layout.sourceType,
-    true, "each original checked site retains its own source type");
   assert.equal(operationType?.identity === layoutType?.identity && operationType?.identity === result.memoryType,
     true, "both checked selections share the same exact native memory identity");
   assert.equal(result.memoryType, identity(checked, result.layout.call));

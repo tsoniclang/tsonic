@@ -11,7 +11,7 @@ function fixture(body, extraFiles = {}) {
     files: { "/src/index.ts": `export {}; ${body}`, ...extraFiles },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary authored source checks without target annotations");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const pending = [file];

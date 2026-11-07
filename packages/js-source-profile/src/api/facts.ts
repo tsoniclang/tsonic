@@ -7,6 +7,7 @@ import type {
 import { jsTypedArrayElementKinds } from "../declarations/typed-arrays.js";
 import { jsSourceApiIdentity, type JsSourceApiIdentity } from "./identity.js";
 import { jsSourceApiConstructionMeaning, jsSourceApiMemberMeaning } from "./members.js";
+import { jsSourceCallableRefusal } from "../identities/callable-effects.js";
 
 const typedArrayNames: ReadonlySet<string> = new Set(Object.keys(jsTypedArrayElementKinds));
 
@@ -78,5 +79,12 @@ export function createJsSourceApiFacts(input: SourceJsApiFactsInput): SourceJsAp
     return selected;
   };
 
-  return Object.freeze({ collection, member });
+  /** The profile's call refusal of a member (Generator / AsyncGenerator `throw`), keyed by its declaring name. */
+  const callRefusal = (declaration: Node): { readonly code: string; readonly message: string } | undefined => {
+    const selected = identity(declaration);
+    return selected?.kind !== "member" || selected.declaringName === undefined || selected.name === undefined ? undefined
+      : jsSourceCallableRefusal({ ownerName: selected.declaringName, memberName: selected.name });
+  };
+
+  return Object.freeze({ collection, member, callRefusal });
 }

@@ -4,11 +4,12 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import { sourceStorageCallReceiver } from "../graph/invocation-inputs.js";
 import {
-  sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisIsOpenArm, sourceAnalysisPresentArms,
+  sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisPresentArms,
   type SourceAnalysisProgram,
 } from "../../analysis-program.js";
 import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import { sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
+import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import type { SourceCompletionSelection } from "../../../public/source/selections.js";
 
 /** A generator callable: a function declaration, function expression or method with an authored `*`. */
@@ -90,26 +91,18 @@ export function sourceStorageProjectedSourcePointee(source: Pick<SourceAnalysisP
   return instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.method[0]?.type;
 }
 
-/**
- * Whether a callable body can complete normally (fall off its end): the checker reachability witness. Request R-B4-9:
- * `SourceCompletionSelection.canFallThrough` (host-input/objects.ts witness + object-facts/selections.ts). Until it is
- * published, reading it is an invariant failure, never a guess.
- */
+/** Whether a callable body can complete normally (fall off its end): the Host completion selection (R-B4-9). */
 export function sourceStorageCompletionFallsThrough(completion: SourceCompletionSelection): boolean {
-  const witness = (completion as SourceCompletionSelection & { readonly canFallThrough?: boolean }).canFallThrough;
-  if (witness === undefined) {
-    throw new Error("Source storage: the completion selection carries no fall-through witness (request R-B4-9: SourceCompletionSelection.canFallThrough).");
-  }
-  return witness;
+  return completion.canFallThrough;
 }
 
 /**
  * The indexed element slots of every present arm of a storage type, as their read-only flags: the element index of an
  * array or tuple arm (checker number index) and the index signatures of a shape arm (facts.objects.indexes).
  */
-export function sourceStorageIndexes(source: Pick<SourceAnalysisProgram, "facts">, type: SourceTypeDescriptor):
+export function sourceStorageIndexes(source: Pick<SourceAnalysisProgram, "ast" | "facts">, type: SourceTypeDescriptor):
   readonly { readonly readonly: boolean }[] {
-  return sourceAnalysisPresentArms(type).filter(arm => !sourceAnalysisIsOpenArm(arm)).flatMap(arm => {
+  return sourceAnalysisPresentArms(type).filter(arm => sourceTypeDescriptorOpenness(source.ast, arm) !== "top").flatMap(arm => {
     const structure = sourceTypeDescriptorStructure(arm);
     return structure.kind === "array" || structure.kind === "tuple" ? [{ readonly: structure.readonly }]
       : source.facts.objects.indexes(arm).map(index => ({ readonly: index.readonly }));

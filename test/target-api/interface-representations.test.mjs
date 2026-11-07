@@ -28,7 +28,7 @@ class Nominal {}
 `,
   });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["Tokens", "Redirect", "Merged", "Added", "Changed", "Multiple", "Empty", "Nominal"]) {
     const declaration = namedDeclaration(source.ast, file, name);

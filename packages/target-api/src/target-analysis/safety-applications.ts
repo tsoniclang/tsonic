@@ -1,7 +1,7 @@
 import type { AstReader, ExtensionFactSubject, Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression } from "../source-navigation/ast.js";
 import { isAstNode } from "../source-navigation/node-access.js";
-import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import type { SourceIdentityRoles } from "../public/source/roles.js";
 
 export type TargetSafetyApplicationPlacement =
   | "declaration"
@@ -37,7 +37,8 @@ export type TargetSafetyOperation<UnsafeContext, Builder> =
 export interface TargetSafetyApplicationIndexInput<UnsafeContext, Builder extends TargetSafetyBuilderFact> {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
-  readonly navigation: Pick<SourceProgramNavigation, "referenceFor" | "declarationFor" | "isProjectDeclaration">;
+  /** The published identity roles (`facts.navigation.identity`): application targets resolve through them. */
+  readonly identity: Pick<SourceIdentityRoles, "target" | "isProjectDeclaration">;
   readUnsafeContext(subject: Node): UnsafeContext | undefined;
   readSafetyBuilder(subject: Node): Builder | undefined;
 }
@@ -135,7 +136,7 @@ function resolveApplication<Fact extends TargetSafetyBuilderFact>(
   sourceSubject: Node,
   sourceFile: SourceFile,
   fact: Fact,
-  input: Pick<TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>, "ast" | "navigation">,
+  input: Pick<TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>, "ast" | "identity">,
 ): TargetSafetyApplication<Fact> {
   const selectedMemberDeclarations = Object.freeze(
     [
@@ -149,7 +150,7 @@ function resolveApplication<Fact extends TargetSafetyBuilderFact>(
     : undefined;
   const resolvedRootDeclaration = applicationTarget === undefined
     ? undefined
-    : projectDeclaration(applicationTarget, input.navigation);
+    : projectDeclaration(applicationTarget, input.identity);
   const application: TargetSafetyApplication<Fact> = {
     ...fact,
     sourceSubject,
@@ -166,13 +167,17 @@ function resolveApplication<Fact extends TargetSafetyBuilderFact>(
   return Object.freeze(application);
 }
 
+/**
+ * The project declaration an application target names. The target must be a node of a project source file; a reference
+ * to a project declaration resolves to that declaration, and any other project node is its own root.
+ */
 function projectDeclaration(
   subject: Node,
-  navigation: TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>["navigation"],
+  identity: TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>["identity"],
 ): Node | undefined {
-  return navigation.referenceFor(subject)?.declaration ??
-    navigation.declarationFor(subject) ??
-    (navigation.isProjectDeclaration(subject) ? subject : undefined);
+  if (!identity.isProjectDeclaration(subject)) return undefined;
+  const target = identity.target(subject);
+  return target?.project === true ? target.declaration : subject;
 }
 
 function applicationDeclarations(

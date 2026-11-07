@@ -9,13 +9,14 @@ import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from 
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";
 import type { SourceLiteralMemberCorrespondence } from "./types.js";
-import type { SourceStructuralMemberPair } from "../structural-members.js";
+import type { SourceStructuralMemberPair } from "../../host-input/semantics-structural-members.js";
 import { createSourceTypeDescriptorUnions, createSourceTypeFlowTerms, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorSum, sourceTypeDescriptorTupleValue, substituteSourceTypeDescriptor } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "../../host-input/mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "../../host-input/member-origins.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
+import { hostProgramFixturePlatform } from "../host-program-fixtures.js";
 import { decideSourcePrimitiveBinaryOperator, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 
@@ -501,7 +502,7 @@ test("C2418 inherited authored callback heads do not borrow a self-inferred resu
     }
     const body = ast.body(arrow);
     const selected = body === undefined ? undefined : current.source.effectiveTypes.get(body);
-    const decision = decideSourcePrimitiveBinaryOperator("subtract", { kind: "fixed", primitive }, { kind: "fixed", primitive });
+    const decision = decideSourcePrimitiveBinaryOperator("subtract", { kind: "fixed", primitive }, { kind: "fixed", primitive }, hostProgramFixturePlatform);
     const instance = current.source.effectiveTypes.callInstantiation(ast.parent(arrow)!);
     const required = instance?.parameters[0];
     const callable = required?.kind === "optional" ? required.value : required;
@@ -3775,7 +3776,7 @@ test("C2337 the canonical scalar calculation-arm reader preserves fixed nonfits 
     const parameter = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === name);
     const outcome = parameter === undefined ? undefined : current.source.effectiveTypes.get(parameter);
     if (outcome === undefined || outcome.kind === "refused") throw new Error(`The actual ${name} slot is required.`);
-    const selected = sourceTypeFlowScalarCalculationArm(outcome.type, receipt);
+    const selected = sourceTypeFlowScalarCalculationArm(outcome.type, receipt, hostProgramFixturePlatform);
     assert.equal(selected.kind === kind && (selected.kind !== "resolved" || selected.primitive === primitive), true, name);
   }
 });
@@ -3882,7 +3883,7 @@ test("C2338 multiple fitting literal arms use stable primitive identity priority
     for (const expression of expressions) {
       const receipt = defaults.context.literal(expression);
       if (receipt === undefined) throw new Error("Each actual folded or signed receipt is required.");
-      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt);
+      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt, hostProgramFixturePlatform);
       assert.equal(selected.kind === "resolved" && selected.primitive === "int32", true, annotation);
       const outcome = current.source.effectiveTypes.get(expression);
       assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
@@ -3908,7 +3909,7 @@ test("C2338 folded literal union slots reuse the same fit decision without admit
     for (const expression of expressions) {
       const receipt = defaults.context.literal(expression);
       if (receipt === undefined) throw new Error("The actual whole folded receipt is required.");
-      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt);
+      const selected = sourceTypeFlowScalarCalculationArm(destination.type, receipt, hostProgramFixturePlatform);
       assert.equal(selected.kind === "resolved" && selected.primitive === primitive, true, annotation);
       const outcome = current.source.effectiveTypes.get(expression);
       assert.equal(outcome !== undefined && outcome.kind !== "refused" &&
@@ -4021,12 +4022,12 @@ test("C2339 all co-fitting numeric pairs use the explicit whole-literal priority
     const structure = sourceTypeDescriptorStructure(destination.type);
     assert.equal(structure.kind === "union" && structure.types.length === 2 &&
       structure.types.every(type => type.kind === "primitive" && [pair.left[1], pair.right[1]].some(kind => kind === type.primitive)), true, pair.name);
-    assert.equal(sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.left[1]) &&
-      sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.right[1]), true, pair.name);
-    const selected = sourceTypeFlowScalarCalculationArm(destination.type, positiveReceipt);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.left[1], hostProgramFixturePlatform) &&
+      sourcePrimitiveOperatorLiteralFits(positiveReceipt, pair.right[1], hostProgramFixturePlatform), true, pair.name);
+    const selected = sourceTypeFlowScalarCalculationArm(destination.type, positiveReceipt, hostProgramFixturePlatform);
     assert.equal(selected.kind === "resolved" && selected.primitive === pair.expected, true, pair.name);
     if ([pair.left[1], pair.right[1]].includes("int32") && [pair.left[1], pair.right[1]].includes("float64")) {
-      const signed = sourceTypeFlowScalarCalculationArm(destination.type, negativeReceipt);
+      const signed = sourceTypeFlowScalarCalculationArm(destination.type, negativeReceipt, hostProgramFixturePlatform);
       assert.equal(signed.kind === "resolved" && signed.primitive === "int32", true, pair.name);
     }
   }

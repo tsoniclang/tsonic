@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import { test } from "node:test";
-import { countTsonicMemoryLayoutValues, readTsonicMemoryLayout, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
-import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryLayout } from "../readers.js";
+import { tsonicMemoryLayoutFactKey } from "../facts.js";
+import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../facts.js";
 import { maximumMemoryLayoutDepth } from "../facts.js";
 import { memoryCall, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, cleanArraySession } from "./fixed-array-fixtures.js";
@@ -30,7 +31,7 @@ test("array fact snapshots freeze exact data and preserve compiler subjects and 
   const child = { ...huge.elementLayout };
   const fixedArray = { ...huge.fixedArray };
   const input = { ...huge, fixedArray, elementLayout: child };
-  const subjects = [input.call, input.sourceType, input.fixedArray.elementSourceType, input.elementLayoutExpression];
+  const subjects = [input.call, input.elementLayoutExpression];
   const priorFrozen = subjects.map(subject => Object.isFrozen(subject));
   const captured = arrayMemoryLayout(tsonicMemoryLayoutFactKey.snapshot(input));
   assert.notEqual(captured, input);
@@ -39,7 +40,6 @@ test("array fact snapshots freeze exact data and preserve compiler subjects and 
   for (const value of [captured, captured.fixedArray, captured.elementLayout, captured.dataLayout,
     captured.dataLayout.providerDeclaration]) assert.ok(Object.isFrozen(value));
   assert.equal(captured.call, input.call);
-  assert.equal(captured.sourceType, input.sourceType);
   assert.equal(captured.elementLayoutExpression, input.elementLayoutExpression);
   assert.deepEqual(subjects.map(subject => Object.isFrozen(subject)), priorFrozen);
   fixedArray.length = 9007199254740992n;
@@ -59,7 +59,7 @@ test("array equality distinguishes adjacent exact counts, every array edge and d
   assert.ok(tsonicMemoryLayoutFactKey.equals(huge, clone));
   const changes: readonly TsonicArrayMemoryLayoutFact[] = [
     { ...huge, fixedArray: { ...huge.fixedArray, length: 9007199254740992n } },
-    { ...huge, fixedArray: { ...huge.fixedArray, elementSourceType: root.sourceType } },
+    { ...huge, fixedArray: { ...huge.fixedArray, elementType: root.call } },
     { ...huge, elementLayoutExpression: root.elementLayoutExpression },
     { ...huge, elementLayout: { ...huge.elementLayout, call: root.elementLayout.call } },
     { ...huge, elementLayout: { ...huge.elementLayout, byteAlignment: 2n } },

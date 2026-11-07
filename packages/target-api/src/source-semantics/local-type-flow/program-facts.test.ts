@@ -6,11 +6,14 @@ import { fileURLToPath } from "node:url";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../source-navigation/ast.js";
 import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
+import { sourceTypeDescriptorStructure } from "./terms.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
 // Host fact tests for the value-model share of SourceProgramFacts (nextgen plan §2, CONTRACT.md). Each test is a real
 // TypeScript program; the assertions are on published Host facts only.
-function fixture(text: string) {
+// `checkerDiagnostics`: the TypeScript diagnostic codes the program is expected to carry (a Host guard that TypeScript
+// also rejects); empty for every ordinary fixture.
+function fixture(text: string, checkerDiagnostics: readonly number[] = []) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
     "/src/node_modules/@test/words/index.d.ts": "export type int32 = number; export type int64 = bigint;",
@@ -18,7 +21,8 @@ function fixture(text: string) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
   extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/words", packageName: "@test/words",
     exports: [sourcePrimitive("int32", "int32", "number", true, 32), sourcePrimitive("int64", "int64", "bigint", true, 64)] }] })] } }).checkSource();
-  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
+  assert.deepEqual(checked.diagnostics.map(issue => issue?.code), checkerDiagnostics,
+    formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
   const source = createSourceTypeFlowTestProgram(checked);
   const facts = source.valueFacts;
   const file = checked.getSourceFile("/src/index.ts");
@@ -113,6 +117,23 @@ test("typeof category follows the declared Source type and the authored nullish 
   assert.equal(admission.admission, "null-only");
   assert.equal(admission.category, "string");
   assert.equal(admission.sum, undefined);
+});
+
+test("a class constructor is a function for typeof even with static members; an instance is an object (K-2669)", () => {
+  const { ast, facts, find } = fixture(
+    "class C { static tag = 1; } class D {} function f(): boolean { return typeof C === \"function\"; } " +
+    "function g(): boolean { return typeof D === \"function\"; } function h(): boolean { return typeof new C() === \"object\"; }");
+  const typeofOf = (operandText: string) => {
+    const operation = find(node => ast.is.IsTypeOfExpression(node) && ast.text(Node_Expression(ast, node)!) === operandText,
+      `typeof ${operandText}`);
+    const operand = Node_Expression(ast, operation)!;
+    const admission = facts.values.typeofCategory(operation, operand);
+    if (admission.kind === "refused") throw new Error(admission.message);
+    return admission.category;
+  };
+  assert.equal(typeofOf("C"), "function", "a construct-only shape (class with a static member) is a function");
+  assert.equal(typeofOf("D"), "function", "a class without members stays a function");
+  assert.equal(typeofOf("new C()"), "object", "an instance is an object");
 });
 
 test("the awaited payload comes from the thenable declaration's payload binder, not from a checked awaited type", () => {
@@ -443,7 +464,184 @@ test("typeof site: a value joined from a number and an explicit int64 into one a
   if (record.kind === "refused") assert.equal(record.code, "TSONIC_LOCAL_TYPE_UNION");
 });
 
-// ---- K-2659: canonical method value uses (WP0 A8) -------------------------------------------------------------------
+// ---- K-2665: N7 is scoped to the undefined comparison on a proven both-nullish operand (PLAN.md §10 N7) --------------
+
+const typeofComparisons = (ast: ReturnType<typeof fixture>["ast"], nodes: readonly Node[]) =>
+  typeofs(ast, nodes).map(node => ({ site: node, comparison: ast.parent(node)! }));
+
+test("typeof comparisons other than 'undefined' stay admitted on unknown, both-nullish, aliased and narrowed operands", () => {
+  const { ast, facts, nodes } = fixture(`type MaybeText = string | null | undefined;
+    function a(v: unknown): void { if (typeof v === "string") {} }
+    function b(v: string | null | undefined): void { if (typeof v === "string") {} }
+    function c(v: MaybeText): void { if (typeof v === "string") {} }
+    function d(v: string | null | undefined): void { if (v != null) { if (typeof v === "string") {} } }
+    function e(v: string | null | undefined): void { if (typeof v === "object") {} if (typeof v !== "number") {} }`);
+  const uses = typeofComparisons(ast, nodes);
+  assert.equal(uses.length, 6);
+  const comparisons = uses.map(use => use.comparison);
+  assert.deepEqual(comparisons.map(node => facts.relations.at(node)?.kind), ["test", "test", "test", "test", "test", "test"]);
+  assert.deepEqual(facts.refusals().filter(refusal => comparisons.includes(refusal.site)), [], "no refusal at an admitted comparison");
+  // The Host record says the category or admission is unproven; it never refuses for the admission.
+  const records = uses.map(use => site(facts, ast, use.site));
+  for (const record of records) assert.equal(record.kind, "typeof-site");
+  const admitted = records.filter((_, index) => index !== 3)
+    .map(record => record.kind === "refused" ? record.code : [record.admission, record.category]);
+  assert.deepEqual(admitted, [["unavailable", undefined], ["both", "string"], ["both", "string"], ["both", "string"], ["both", "string"]]);
+  const outcomes = comparisons.filter((_, index) => index !== 3).map(node => testAt(facts, node).outcome);
+  assert.deepEqual(outcomes, ["undecided", "undecided", "undecided", "undecided", "always-true"]);
+});
+
+test("typeof 'undefined' comparisons are decided on undefined-only and null-only operands", () => {
+  const { ast, facts, nodes } = fixture(`function u(v: string | undefined): void { if (typeof v === "undefined") {} }
+    function o(v?: string): void { if (typeof v !== "undefined") {} }
+    function n(v: string | null): void { if (typeof v === "undefined") {} if (typeof v === "object") {} }`);
+  const uses = typeofComparisons(ast, nodes);
+  const comparisons = uses.map(use => use.comparison);
+  assert.deepEqual(uses.map(use => {
+    const record = site(facts, ast, use.site);
+    return record.kind === "refused" ? record.code : record.admission;
+  }), ["undefined-only", "undefined-only", "null-only", "null-only"]);
+  assert.deepEqual(comparisons.map(node => testAt(facts, node).outcome), ["undecided", "undecided", "always-false", "undecided"]);
+  assert.deepEqual(facts.refusals().filter(refusal => comparisons.includes(refusal.site)), []);
+});
+
+test("N7: a typeof 'undefined' comparison on an operand admitting both null and undefined is the one Source refusal", () => {
+  const { ast, facts, nodes } = fixture(`type MaybeText = string | null | undefined;
+    function b(v: string | null | undefined): void { if (typeof v === "undefined") {} }
+    function c(v: MaybeText): void { if (typeof v !== "undefined") {} }
+    function r(v: string | null | undefined): void { if ("undefined" == typeof v) {} }`);
+  const uses = typeofComparisons(ast, nodes);
+  assert.equal(uses.length, 3);
+  for (const use of uses) {
+    const relation = facts.relations.at(use.comparison);
+    assert.equal(relation?.kind, "refused");
+    if (relation?.kind !== "refused") continue;
+    assert.equal(relation.code, "TSONIC_LOCAL_TYPE_UNION");
+    assert.equal(relation.site, use.comparison, "the refusal names the comparison, not the declaration");
+    assert.match(relation.message, /cannot separate null from undefined/u);
+    assert.equal(facts.refusals().filter(refusal => refusal.site === use.comparison && refusal.code === relation.code).length, 1);
+    // The typeof record of the same site stays a fact: admission "both", category of the present value.
+    const record = site(facts, ast, use.site);
+    assert.equal(record.kind === "refused" ? record.code : record.admission, "both");
+  }
+});
+
+// ---- K-2676: the nullish admission applies actual type arguments; an unproven constituent is "unavailable" ----------
+// The admission comes from the intrinsic null / undefined constituents of the value read at the operand (host-input
+// nullish-components, before the one-absence erasure), never from an alias body walked without its arguments.
+
+const admissionsOf = (fixed: ReturnType<typeof fixture>) => typeofComparisons(fixed.ast, fixed.nodes).map(use => {
+  const record = site(fixed.facts, fixed.ast, use.site);
+  return record.kind === "refused" ? record.code : record.admission;
+});
+// N7: the comparison is the one refusal (TSONIC_LOCAL_TYPE_UNION at the comparison), the typeof record stays "both".
+const assertBothRefused = (fixed: ReturnType<typeof fixture>, comparison: Node, label: string) => {
+  const relation = fixed.facts.relations.at(comparison);
+  assert.equal(relation?.kind, "refused", label);
+  if (relation?.kind !== "refused") return;
+  assert.equal(relation.code, "TSONIC_LOCAL_TYPE_UNION", label);
+  assert.equal(relation.site, comparison, label);
+  assert.match(relation.message, /cannot separate null from undefined/u, label);
+  assert.equal(fixed.facts.refusals().filter(refusal => refusal.site === comparison && refusal.code === relation.code).length, 1, label);
+};
+
+test("K-2676: a generic alias applies its actual type argument in both directions (T | null with undefined, T | undefined with null)", () => {
+  const fixed = fixture(`type Maybe<T> = T | null;
+    type Opt<T> = T | undefined;
+    type Wrap<U> = Maybe<U>;
+    function a(value: Maybe<undefined>): boolean { return typeof value === "undefined"; }
+    function b(value: Opt<null>): boolean { return typeof value === "undefined"; }
+    function c(value: Maybe<string | undefined>): boolean { return typeof value === "undefined"; }
+    function d(value: Opt<string | null>): boolean { return typeof value !== "undefined"; }
+    function e(value: Wrap<string | undefined>): boolean { return typeof value === "undefined"; }
+    function f(value: Maybe<string>): boolean { return typeof value === "undefined"; }
+    function g(value: Opt<string>): boolean { return typeof value === "undefined"; }`);
+  const uses = typeofComparisons(fixed.ast, fixed.nodes);
+  assert.equal(uses.length, 7);
+  assert.deepEqual(admissionsOf(fixed), ["both", "both", "both", "both", "both", "null-only", "undefined-only"],
+    "the binder's actual argument contributes its intrinsics; the alias body alone is not the answer");
+  for (const [index, label] of ["Maybe<undefined>", "Opt<null>", "Maybe<string | undefined>", "Opt<string | null>",
+    "Wrap<string | undefined> (argument passed through a second alias)"].entries()) {
+    assertBothRefused(fixed, uses[index]!.comparison, label);
+  }
+  // Opposites: the same aliases closed with a present value keep the one intrinsic of the body.
+  assert.deepEqual(uses.slice(5).map(use => testAt(fixed.facts, use.comparison).outcome), ["always-false", "undecided"]);
+  assert.deepEqual(fixed.facts.refusals().filter(refusal => uses.slice(5).some(use => use.comparison === refusal.site)), []);
+});
+
+test("K-2676: generic member and call-result annotations apply the receiver's and the call's type arguments", () => {
+  const fixed = fixture(`interface Box<T> { value: T | null; read(): T | undefined; }
+    function make<T>(value: T): T | null { return value; }
+    function m(box: Box<string | undefined>): boolean { return typeof box.value === "undefined"; }
+    function n(box: Box<string | null>): boolean { return typeof box.read() === "undefined"; }
+    function r(text: string | undefined): boolean { return typeof make(text) === "undefined"; }
+    function p(box: Box<string>): boolean { return typeof box.value === "undefined"; }
+    function q(box: Box<string>): boolean { return typeof box.read() === "undefined"; }
+    function s(text: string): boolean { return typeof make(text) === "undefined"; }`);
+  const uses = typeofComparisons(fixed.ast, fixed.nodes);
+  assert.equal(uses.length, 6);
+  assert.deepEqual(admissionsOf(fixed), ["both", "both", "both", "null-only", "undefined-only", "null-only"]);
+  for (const [index, label] of ["member T | null with T = string | undefined", "method result T | undefined with T = string | null",
+    "call result T | null with T inferred string | undefined"].entries()) {
+    assertBothRefused(fixed, uses[index]!.comparison, label);
+  }
+  assert.deepEqual(uses.slice(3).map(use => testAt(fixed.facts, use.comparison).outcome), ["always-false", "undecided", "always-false"]);
+});
+
+test("K-2676: direct, null-only and undefined-only operands through declarations, optional members, unannotated ?? and conditional locals", () => {
+  const fixed = fixture(`interface Shape { label?: string; note: string | null; }
+    function direct(v: string | null | undefined): boolean { return typeof v === "string"; }
+    function nulls(v: string | null): boolean { return typeof v === "string"; }
+    function missing(v: string | undefined): boolean { return typeof v === "string"; }
+    function optional(shape: Shape): boolean { return typeof shape.label === "string"; }
+    function chain(shape: Shape | undefined): boolean { return typeof shape?.note === "string"; }
+    function local(shape: Shape): boolean { const note = shape.note; return typeof note === "string"; }
+    function coalesce(a: string | undefined, b: string | null): boolean { const joined = a ?? b; return typeof joined === "string"; }
+    function choose(c: boolean, a: string | undefined, b: string | null): boolean { const chosen = c ? a : b; return typeof chosen === "string"; }`);
+  assert.deepEqual(admissionsOf(fixed),
+    ["both", "null-only", "undefined-only", "undefined-only", "both", "null-only", "null-only", "both"]);
+  const comparisons = typeofComparisons(fixed.ast, fixed.nodes).map(use => use.comparison);
+  assert.deepEqual(fixed.facts.refusals().filter(refusal => comparisons.includes(refusal.site)), [],
+    "a typeof comparison other than 'undefined' is admitted on every admission");
+});
+
+test("K-2676: a narrowed read keeps only the intrinsics that remain at the read", () => {
+  const fixed = fixture(`function f(v: string | null | undefined): void { if (v !== null) { if (typeof v === "undefined") {} } }
+    function g(v: string | null | undefined): void { if (v !== undefined) { if (typeof v === "object") {} } }
+    function h(v: string | null | undefined): void { if (typeof v === "undefined") {} }`);
+  const uses = typeofComparisons(fixed.ast, fixed.nodes);
+  assert.deepEqual(admissionsOf(fixed), ["undefined-only", "null-only", "both"]);
+  assert.deepEqual(uses.slice(0, 2).map(use => testAt(fixed.facts, use.comparison).outcome), ["undecided", "undecided"]);
+  assert.deepEqual(fixed.facts.refusals().filter(refusal => uses.slice(0, 2).some(use => use.comparison === refusal.site)), [],
+    "after a guard removes null the undefined comparison is decided, not refused");
+  assertBothRefused(fixed, uses[2]!.comparison, "the same declaration read before narrowing");
+});
+
+test("K-2676: an opaque constituent gives 'unavailable'; a found pair stays 'both'; alias depth is never a cut", () => {
+  const fixed = fixture(`type Maybe<T> = T | null;
+    type L0<T> = T | null; type L1<T> = L0<T>; type L2<T> = L1<T>; type L3<T> = L2<T>; type L4<T> = L3<T>;
+    type L5<T> = L4<T>; type L6<T> = L5<T>; type L7<T> = L6<T>; type L8<T> = L7<T>; type L9<T> = L8<T>;
+    type L10<T> = L9<T>; type L11<T> = L10<T>;
+    function o<T>(value: Maybe<T>): boolean { return typeof value === "undefined"; }
+    function u(value: unknown): boolean { return typeof value === "undefined"; }
+    function k<T extends string>(value: Maybe<T>): boolean { return typeof value === "undefined"; }
+    function w<T>(value: T | null | undefined): boolean { return typeof value === "undefined"; }
+    function deep(value: L11<string | undefined>): boolean { return typeof value === "undefined"; }
+    function shallow(value: L11<string>): boolean { return typeof value === "undefined"; }`);
+  const uses = typeofComparisons(fixed.ast, fixed.nodes);
+  assert.equal(uses.length, 6);
+  assert.deepEqual(admissionsOf(fixed), ["unavailable", "unavailable", "null-only", "both", "both", "null-only"],
+    "unconstrained T and unknown prove neither intrinsic absent; a constraint without nullish members does");
+  // "unavailable" is not evidence of absence: the comparison stays undecided and is not refused (A4-D1).
+  assert.equal(testAt(fixed.facts, uses[0]!.comparison).outcome, "undecided");
+  assert.deepEqual(fixed.facts.refusals().filter(refusal => refusal.site === uses[0]!.comparison || refusal.site === uses[1]!.comparison), []);
+  assert.equal(testAt(fixed.facts, uses[2]!.comparison).outcome, "undecided", "T extends string: null-only; the T arm has no proven category");
+  assertBothRefused(fixed, uses[3]!.comparison, "explicit null and undefined beside an opaque binder");
+  assertBothRefused(fixed, uses[4]!.comparison, "twelve alias levels with the argument applied");
+  assert.equal(testAt(fixed.facts, uses[5]!.comparison).outcome, "always-false", "twelve alias levels closed with string");
+});
+
+// ---- K-2659: canonical method value uses (WP0 A8)-------------------------------------------------------------------
 
 test("values.methodValueUse publishes the A8 record with the original method identity (BF05/BF06) and its alias", () => {
   const { ast, facts, initializer, reads, find } = fixture(`class Counter { count: int32 = 0; increment(): int32 { return this.count; } }
@@ -490,4 +688,116 @@ test("values.methodValueUse is undefined for a direct call, a slot, a written or
   assert.equal(facts.values.methodValueUse(initializer("indexed")), undefined, "index");
   assert.equal(facts.values.methodValueUse(initializer("got")), undefined, "getter");
   assert.equal(facts.values.methodValueUse(initializer("foreign")), undefined, "a callable property is not a method");
+});
+
+// ---- A5: discriminant arms survive canonical dedup (K-2663; 05 §2a D-2..D-12; R6) -------------------------------------
+// The literal of each discriminator member is carried on the arm descriptor (`member.literals`) and is part of the shape's
+// equality and identity, so arms that differ only in a literal stay two arms; the D-2 selection reads the arm descriptor.
+
+type Fixture = ReturnType<typeof fixture>;
+
+const kindLiterals = (arm: SourceTypeDescriptor, name = "kind"): readonly unknown[] | undefined => {
+  const structure = sourceTypeDescriptorStructure(arm);
+  return structure.kind === "shape" ? structure.members.find(member => member.name === name)?.literals?.map(literal => literal.value)
+    : undefined;
+};
+
+const selectedArm = (facts: Fixture["facts"], use: Node) => {
+  const relation = facts.relations.at(use);
+  if (relation?.kind !== "select-arm") throw new Error(`select-arm required, got ${relation?.kind ?? "no relation"}`);
+  return { relation, sum: facts.sums.sum(relation.sum) };
+};
+
+test("K-2663: otherwise-equal anonymous arms that differ only in their literal discriminant stay two arms; the literal selects 'right'", () => {
+  const { facts, initializer } = fixture(`type Choice = { kind: "left"; v: number } | { kind: "right"; v: number };
+    const c: Choice = { kind: "right", v: 1 };`);
+  const { relation, sum } = selectedArm(facts, initializer("c"));
+  assert.equal(sum.arms.length, 2, "the two authored arms are not deduplicated");
+  assert.deepEqual(sum.arms.map(arm => kindLiterals(arm.type)), [["left"], ["right"]], "authored-first arms with their literals");
+  assert.equal(relation.arm, 1);
+  assert.equal(relation.discriminant?.property, "kind");
+  assert.equal(relation.discriminant?.value.text, "right");
+});
+
+test("genuinely duplicate authored arms still deduplicate, including equal literal sets written in another order", () => {
+  const { facts, initializer, resolved } = fixture(`type Same = { kind: "a"; v: int32 } | { kind: "a"; v: int32 };
+    type Sets = { kind: "a" | "b"; v: int32 } | { kind: "b" | "a"; v: int32 };
+    const s: Same = { kind: "a", v: 1 }; const t: Sets = { kind: "b", v: 1 };`);
+  for (const name of ["s", "t"]) {
+    const structure = sourceTypeDescriptorStructure(resolved(initializer(name)));
+    assert.equal(structure.kind, "shape", `${name}: one arm, so the destination is the shape itself, not a sum`);
+    assert.equal(facts.relations.at(initializer(name)), undefined, `${name}: no union relation for a single arm`);
+  }
+  assert.deepEqual(kindLiterals(resolved(initializer("t"))), ["a", "b"], "one literal set, sorted by value");
+});
+
+test("distinct-shape arms (the opposite) stay two arms and the discriminant selects the left arm", () => {
+  const { facts, initializer } = fixture(`type Pair = { kind: "left"; l: int32 } | { kind: "right"; r: string };
+    const p: Pair = { kind: "left", l: 1 };`);
+  const { relation, sum } = selectedArm(facts, initializer("p"));
+  assert.equal(sum.arms.length, 2);
+  assert.equal(relation.arm, 0);
+});
+
+test("D-10: a generic family's literal discriminators select before application (V unbound) and after application", () => {
+  const { ast, facts, find, initializer } = fixture(`type Step<V> = { kind: "done"; value: V } | { kind: "more"; value: V };
+    function make<V>(value: V): Step<V> { return { kind: "more", value }; }
+    const s: Step<int32> = { kind: "done", value: 1 };`);
+  const returned = find(node => ast.is.IsObjectLiteralExpression(node) && ast.is.IsReturnStatement(ast.parent(node)!), "returned literal");
+  const before = selectedArm(facts, returned);
+  assert.equal(before.sum.arms.length, 2, "before application the two arms differ only in their literal");
+  assert.equal(before.relation.arm, 1);
+  const after = selectedArm(facts, initializer("s"));
+  assert.equal(after.sum.arms.length, 2, "the literals survive the application's substitution");
+  assert.deepEqual(after.sum.arms.map(arm => kindLiterals(arm.type)), [["done"], ["more"]]);
+  assert.equal(after.relation.arm, 0);
+  const value = sourceTypeDescriptorStructure(after.sum.arms[0]!.type);
+  const member = value.kind === "shape" ? value.members.find(selected => selected.name === "value") : undefined;
+  assert.equal(member?.type.kind === "primitive" && member.type.primitive === "int32", true, "the binder is applied");
+  assert.equal(member?.literals, undefined, "a binder-typed member is not literal");
+});
+
+test("D-11/D-12: nested unions flatten, aliased arms and an alias of the sum select by literal, recursive arms stay apart", () => {
+  const { facts, initializer } = fixture(`type Inner = { kind: "a"; v: int32 } | { kind: "b"; v: int32 };
+    type Outer = Inner | { kind: "c"; v: int32 };
+    type L = { kind: "left"; v: int32 }; type R = { kind: "right"; v: int32 }; type Choice = L | R; type Again = Choice;
+    type List = { kind: "nil"; next?: List } | { kind: "cons"; next?: List };
+    const o: Outer = { kind: "b", v: 1 }; const c: Again = { kind: "right", v: 1 }; const l: List = { kind: "cons" };`);
+  const nested = selectedArm(facts, initializer("o"));
+  assert.deepEqual(nested.sum.arms.map(arm => kindLiterals(arm.type)), [["a"], ["b"], ["c"]], "one flattened closed sum");
+  assert.equal(nested.relation.arm, 1);
+  const aliased = selectedArm(facts, initializer("c"));
+  assert.equal(aliased.sum.arms.length, 2);
+  assert.equal(aliased.relation.arm, 1);
+  const recursive = selectedArm(facts, initializer("l"));
+  assert.equal(recursive.sum.arms.length, 2, "recursive arms that differ only in their literal are two arms");
+  assert.equal(recursive.relation.arm, 1);
+});
+
+test("D-5: several matching arms are refused (equal literals, a wider literal union); the narrower value still selects", () => {
+  const { facts, initializer } = fixture(`type S = { kind: "a"; x: int32 } | { kind: "a"; y: string };
+    type W = { kind: "a" | "b"; x: int32 } | { kind: "a"; x: int32 };
+    const s: S = { kind: "a", x: 1 }; const w: W = { kind: "a", x: 1 }; const b: W = { kind: "b", x: 1 };`);
+  for (const name of ["s", "w"]) {
+    const relation = facts.relations.at(initializer(name));
+    assert.equal(relation?.kind, "refused", name);
+    if (relation?.kind === "refused") {
+      assert.equal(relation.code, "TSONIC_LOCAL_TYPE_UNION");
+      assert.match(relation.message, /several union arms/);
+    }
+  }
+  const { relation, sum } = selectedArm(facts, initializer("b"));
+  assert.equal(sum.arms.length, 2, "arms with different literal sets are two arms");
+  assert.equal(relation.arm, 0);
+});
+
+test("D-4: a literal discriminant that matches no arm is refused by the Host (TypeScript also rejects it: TS2322)", () => {
+  const { facts, initializer } = fixture(`type U = { kind: "a"; v: int32 } | { kind: "b"; v: int32 };
+    const z: U = { kind: "c", v: 1 };`, [2322]);
+  const relation = facts.relations.at(initializer("z"));
+  assert.equal(relation?.kind, "refused");
+  if (relation?.kind === "refused") {
+    assert.equal(relation.code, "TSONIC_LOCAL_TYPE_UNION");
+    assert.match(relation.message, /matches no union arm/);
+  }
 });

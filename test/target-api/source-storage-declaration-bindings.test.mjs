@@ -15,7 +15,7 @@ test("referenced native declarations retain ambient context without becoming col
     "/src/index.ts": "export {}; const alias = NativeStorageGlobal;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const native = checked.getSourceFile("/src/native.d.ts");
   const declaration = namedVariable(source.ast, native, "NativeStorageGlobal");
@@ -40,7 +40,7 @@ function fixture(text, limits = {}) {
     files: { "/src/index.ts": `export {}; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const pending = [file];

@@ -5,7 +5,7 @@ import type {
   ResolvedSourceGeneratorInfo,
   ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo,
-  ResolvedSourceWellKnownSymbolInfo, SourceFile, Symbol,
+  ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, SourceFile, Symbol,
   TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
 } from "@tsonic/tsts";
 import type { SourceProjectReference } from "../source-navigation/types.js";
@@ -26,6 +26,7 @@ export interface SourceOperationEvidenceQueries extends SourceNavigationOperatio
   generator(node: Node): ResolvedSourceGeneratorInfo | undefined;
   wellKnownSymbol(node: Node): ResolvedSourceWellKnownSymbolInfo | undefined;
   resourceManagement(node: Node): ResolvedSourceResourceManagementInfo | undefined;
+  yield(node: Node): ResolvedSourceYieldInfo | undefined;
   callResult(source: ResolvedSourceCallInfo): SourceCallResultSelection | undefined;
 }
 
@@ -54,6 +55,8 @@ export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
   isAny(type: Type): boolean;
   isUnknown(type: Type): boolean;
   isNever(type: Type): boolean;
+  /** E9 Legacy input: the exact intrinsic null / undefined flags of one constituent (no union classification). */
+  intrinsicNullishFlags(type: Type): import("@tsonic/tsts").TypeIntrinsicNullishFlags;
   isNonPrimitive(type: Type): boolean;
   isUnion(type: Type): boolean;
   isIntersection(type: Type): boolean;

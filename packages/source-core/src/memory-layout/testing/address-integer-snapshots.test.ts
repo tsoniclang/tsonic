@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import type { TsonicRawMemoryOperationFact } from "../../pointers/raw-memory/facts.js";
 
 for (const operation of ["raw-to-address-integer", "address-integer-to-raw"] as const) {
   test(`${operation} snapshots require and freeze one coherent address domain`, () => {
     const input: TsonicRawMemoryOperationFact = {
-      call: {} as Node, resultType: {} as Type, dataLayoutExpression: {} as Node,
+      call: {} as Node, dataLayoutExpression: {} as Node,
       addressWidth: 64, addressRuntimeBase: "bigint", addressSignedness: "unsigned",
       ...(operation === "raw-to-address-integer"
-        ? { operation, rawExpression: {} as Node, rawType: {} as Type }
-        : { operation, addressExpression: {} as Node, addressType: {} as Type }),
+        ? { operation, rawExpression: {} as Node }
+        : { operation, addressExpression: {} as Node }),
     };
     const captured = tsonicRawMemoryOperationFactKey.snapshot(input);
     assert.ok(Object.isFrozen(captured));
@@ -27,7 +27,7 @@ for (const operation of ["raw-to-address-integer", "address-integer-to-raw"] as 
       assert.throws(() => tsonicRawMemoryOperationFactKey.snapshot(mutated));
       assert.ok(!tsonicRawMemoryOperationFactKey.equals(captured, mutated));
     }
-    const narrow = tsonicRawMemoryOperationFactKey.snapshot({ ...input, addressWidth: 32, addressRuntimeBase: "number" });
+    const narrow = tsonicRawMemoryOperationFactKey.snapshot({ ...input, addressWidth: 32, addressRuntimeBase: "number" } as TsonicRawMemoryOperationFact);
     assert.ok(!tsonicRawMemoryOperationFactKey.equals(captured, narrow));
     const otherAbi = { ...input, dataLayoutExpression: {} as Node };
     assert.ok(!tsonicRawMemoryOperationFactKey.equals(captured, tsonicRawMemoryOperationFactKey.snapshot(otherAbi)));

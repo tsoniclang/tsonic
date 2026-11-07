@@ -157,7 +157,7 @@ test("selected completion contracts retain checked dependency identity without e
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(item => item !== undefined)).slice(0, 2048));
   const source = createHostSourceProgram({ ...checked,
-    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) }, { profile: createJsSourceApiFacts });
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) }, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const visit = node => {

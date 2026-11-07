@@ -1,7 +1,8 @@
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../types.js";
 import { Node_Expression } from "../ast.js";
-import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
+import { sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
+import { sourceNodeHasRole } from "../callable-boundaries.js";
 
 export function sourceIntegerIsNonnegative(input: {
   readonly ast: AstReader;
@@ -81,7 +82,7 @@ export function sourceIntegerIsNonnegative(input: {
   };
   for (let current = expression, parent = ast.parent(current); parent !== undefined;
     current = parent, parent = ast.parent(parent)) {
-    if (!enter() || sourceBindingCallableKinds.has(ast.kindName(parent))) return false;
+    if (!enter() || sourceNodeHasRole(ast, parent, "execution-barrier")) return false;
     if (ast.is.IsIfStatement(parent)) {
       const branch = ast.as.AsIfStatement(parent);
       if (current === branch?.ThenStatement && proves(branch.Expression, true) ||

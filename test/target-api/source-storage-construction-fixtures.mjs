@@ -20,7 +20,7 @@ export function fixture(limits = defaultSourceStorageLimits) {
     const published = new Published(); const changing = new Changing(); const missing = new Missing();
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "The controls are actual checked source, not synthetic result-type identities.");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const storage = createSourceStorageQuery(source, source.sourceFiles, limits);
   const variable = name => storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === name);
@@ -32,7 +32,7 @@ export function constructorResultFixture(text) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "Constructor admission controls are actual checked source.");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const nodes = [];
   const pending = [...source.sourceFiles];
   while (pending.length > 0) {

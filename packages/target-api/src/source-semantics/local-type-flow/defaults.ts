@@ -10,7 +10,7 @@ import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowV
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import { isSourceCallableSignatureDeclaration, sourceNodeHasRole } from "../../source-navigation/callable-boundaries.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import type { SourceHostComponent, SourceHostInput, SourceHostQueries, SourceHostType } from "../../host-input/index.js";
 import type {
@@ -42,12 +42,8 @@ export interface SourceTypeFlowDefaults {
 
 
 export function sourceTypeFlowTypeParameters(ast: SourceTypeFlowSource["ast"], declaration: Node): readonly Node[] {
-  const owner = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) ||
-    ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeAliasDeclaration(declaration) ||
-    ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||
-    ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
-    ast.is.IsFunctionTypeNode(declaration) || ast.is.IsConstructorTypeNode(declaration) ||
-    ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration);
+  // E13 type-parameter-owner: the one role classifier (callable-boundaries.ts), F2-1.
+  const owner = sourceNodeHasRole(ast, declaration, "type-parameter-owner");
   return owner ? ast.typeParameters(declaration).filter((parameter): parameter is Node => parameter !== undefined) : [];
 }
 

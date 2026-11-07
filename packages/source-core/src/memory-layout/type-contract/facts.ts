@@ -3,6 +3,7 @@ import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, Symbol as 
 import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { exactRecord, opaqueSubject, recordsEqual } from "../snapshots.js";
 import { fixedArrayFactsEqual, snapshotFixedArrayFact } from "../../fixed-arrays/facts.js";
+import type { TsonicMemoryArrayExtent } from "../facts.js";
 import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
 
 const identityBrand = Symbol("memory type identity");
@@ -93,13 +94,14 @@ export function memoryArrayTypeMatches(
   identity: TsonicMemoryTypeIdentity,
   element: TsonicMemoryTypeIdentity,
   call: Node,
-  fixedArray: TsonicFixedArrayFact,
+  extent: TsonicMemoryArrayExtent,
 ): boolean {
   const record = identities.get(identity);
   const array = record?.array;
   const selected = record?.bindings.get(call)?.array;
-  return array !== undefined && selected !== undefined && fixedArrayFactsEqual(selected, fixedArray) &&
-    array.element === element && array.length === fixedArray.length && array.lengthRuntimeBase === fixedArray.lengthRuntimeBase;
+  return array !== undefined && selected !== undefined && selected.length === extent.length &&
+    selected.lengthRuntimeBase === extent.lengthRuntimeBase && selected.elementType === extent.elementType &&
+    array.element === element && array.length === extent.length && array.lengthRuntimeBase === extent.lengthRuntimeBase;
 }
 
 export function memoryLayoutTypeKindMatches(

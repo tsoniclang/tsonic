@@ -13,10 +13,12 @@ import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import type { SourceFileSemantics, SourceProgramSemantics } from "./semantics-types.js";
+import { createSourceHostNullishComponents, type SourceHostNullishComponents } from "./nullish-components.js";
 import {
   checkerComponent, checkerType, createSourceHostQueries, hostComponent, sourceHostTypeDeclaration,
   type SourceHostComponent, type SourceHostQueries, type SourceHostType,
 } from "./queries.js";
+import type { SourcePlatformFacts } from "../source-semantics/platform-model.js";
 
 export type * from "./queries.js";
 
@@ -92,6 +94,9 @@ export interface SourceHostInput {
   presence(node: Node): SourceHostPresence | undefined;
   /** Presence witness of a selected component (a declared, parameter or result component). */
   componentPresence(component: SourceHostComponent, at: Node): SourceHostPresence;
+  /** The intrinsic null / undefined constituents of the value read at node: the presence witness split before the
+   * one-absence erasure (E9). The Host admission rule (program-facts.ts) decides from it. */
+  nullishComponents(node: Node): SourceHostNullishComponents;
   /**
    * The returned expression whose checked type refers back to the unannotated callable's own checked type
    * (a self-recursive inferred return), or undefined.
@@ -155,6 +160,8 @@ export interface SourceHostInputServices {
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
   readonly sourceFiles: readonly SourceFile[];
+  /** The active target's native integer premise (E24); carried into the type-flow source the descriptor reader reads. */
+  readonly platform: SourcePlatformFacts;
 }
 
 function presenceOf(queries: SourceFileSemantics, type: Type): SourceHostPresence {
@@ -165,8 +172,8 @@ function presenceOf(queries: SourceFileSemantics, type: Type): SourceHostPresenc
 
 /** One adapter per program view; lifetime is the program's (I5). */
 export function createSourceHostInput(services: SourceHostInputServices): SourceHostInput {
-  const { ast, semantics, sourceFacts, navigation, sourceFiles } = services;
-  const reader = Object.freeze({ ast, navigation, sourceFacts, sourceFiles });
+  const { ast, semantics, sourceFacts, navigation, sourceFiles, platform } = services;
+  const reader = Object.freeze({ ast, navigation, sourceFacts, sourceFiles, platform });
   const calls = new Map<Node, SourceHostCallWitness | undefined>();
   const members = new Map<Node, SourceHostMemberWitness | undefined>();
   const presences = new Map<Node, SourceHostPresence | undefined>();
@@ -191,7 +198,9 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
     const file = ast.getSourceFile(node);
     return file !== undefined && semantics.includes(file);
   };
+  const nullishComponents = createSourceHostNullishComponents(semantics);
   return Object.freeze({
+    nullishComponents,
     at: (node: Node) => facade(semantics.forNode(node)),
     file: (node: Node) => {
       const file = ast.getSourceFile(node);

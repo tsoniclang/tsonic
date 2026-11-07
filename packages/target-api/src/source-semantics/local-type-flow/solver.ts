@@ -21,6 +21,7 @@ import { sourceTypeFlowScalarCalculationArm, type SourceTypeFlowScalarCalculatio
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator, sourcePrimitiveBinaryOperators,
   sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorLiteralPartner,
+  type SourcePrimitiveOperatorRefusal,
   type SourcePrimitiveOperatorOperand, type SourcePrimitiveUnaryOperator,
 } from "./operator-decisions.js";
 import type {
@@ -82,6 +83,8 @@ export interface SourceSolvedValueModel extends SourceEffectiveTypes {
   readonly nodes: readonly Node[];
   /** The instantiation of a generic callable read as a value (not a call's callee), or its refusal. */
   functionValueInstantiation(use: Node): SourceSolvedFunctionValue | SourceTypeFlowRefusal | undefined;
+  /** The declared value of a non-slot declaration (class, function, method, accessor, library declaration). */
+  declarationValue(declaration: Node): SourceTypeDescriptor | undefined;
 }
 
 /** A generic callable value use instantiated against its Host destination (G4 for values). */
@@ -438,7 +441,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       seen.add(selected);
       const literal = context.literal(current.node);
       if (literal !== undefined && selected.terms.some(term => term.kind === "numeric")) {
-        if (!sourcePrimitiveOperatorLiteralFits(literal, primitive)) return false;
+        if (!sourcePrimitiveOperatorLiteralFits(literal, primitive, source.platform)) return false;
       } else if (selected.derived.length > 0 && selected.derived.every(derived => derived.operator === "conditional")) {
         for (const derived of selected.derived) pending.push(...derived.operands);
       } else return false;
@@ -500,7 +503,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       if (!selected.terms.some(term => term.kind === "numeric" && term.site === derived.node)) continue;
       const literal = context.literal(derived.node);
       const arm = literal !== undefined && (primitive.kind === "union" || primitive.kind === "optional")
-        ? sourceTypeFlowScalarCalculationArm(fill.type, literal) : undefined;
+        ? sourceTypeFlowScalarCalculationArm(fill.type, literal, source.platform) : undefined;
       const calculation = primitive.kind === "primitive" ? primitive.primitive : arm?.kind === "resolved" ? arm.primitive : undefined;
       if (calculation === undefined) continue;
       const spelling = (derived.operator === "positive" || derived.operator === "negate") && derived.operands.length === 1;
@@ -806,6 +809,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
         if (expected !== undefined) primitive = expected;
         else if (arm !== undefined) {
           if (arm.kind === "unfitted") return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
+          if (arm.kind === "width-refused") return operatorRefusal(derived, arm.refusal.reason, arm.refusal.code);
           primitive = arm.primitive;
         } else {
           const creation = numericCreation(derived.node);
@@ -819,7 +823,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       } else if (operand?.kind === "union") return unionOperandRefusal(derived, operand);
       if (types.length !== 1 || primitive === undefined) return operatorRefusal(derived, "A unary operator requires one exact primitive operand.");
       const decision = decideSourcePrimitiveUnaryOperator(unary, primitive);
-      return decision.kind === "refused" ? operatorRefusal(derived, decision.reason)
+      return decision.kind === "refused" ? operatorRefusal(derived, decision.reason, decision.code)
         : update !== undefined ? producedOperandType(derived.operands[0]!) : { kind: "primitive", primitive: decision.result };
     }
     const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal"].includes(derived.operator);
@@ -841,10 +845,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
         const selected = group(derived.result);
         const arm = literalDestinationArm(derived);
         const expected = expectedOperatorKind(selected, derived.node);
-        const decision = decideSourcePrimitiveBinaryOperator(binary, left, right,
+        const decision = decideSourcePrimitiveBinaryOperator(binary, left, right, source.platform,
           expected ?? (arm?.kind === "resolved" ? arm.primitive : undefined));
-        if (decision.kind === "refused") return operatorRefusal(derived, decision.reason);
+        if (decision.kind === "refused") return operatorRefusal(derived, decision.reason, decision.code);
         if (arm?.kind === "unfitted") return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
+        if (arm?.kind === "width-refused") return operatorRefusal(derived, arm.refusal.reason, arm.refusal.code);
         const folded = selected.terms.find((term): term is Extract<SourceTypeFlowTerm, { kind: "numeric" }> =>
           term.kind === "numeric" && term.site === derived.node);
         if (folded !== undefined && expected === undefined && arm?.kind !== "resolved") {
@@ -926,7 +931,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       declaredDestination(selected, derived.node)?.type;
     const structure = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination);
     return destination !== undefined && (structure?.kind === "union" || structure?.kind === "optional")
-      ? sourceTypeFlowScalarCalculationArm(destination, whole.literal) : undefined;
+      ? sourceTypeFlowScalarCalculationArm(destination, whole.literal, source.platform) : undefined;
   }
 
   function producedOperandType(variable: SourceTypeFlowVariable): SourceTypeDescriptor | undefined {
@@ -951,9 +956,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       ? { kind: "unbound-literal", primitive: "bigint", literal } : undefined;
   }
 
-  function operatorRefusal(derived: SourceTypeFlowDerived, reason: string): undefined {
+  function operatorRefusal(derived: SourceTypeFlowDerived, reason: string,
+    code: SourcePrimitiveOperatorRefusal["code"] = "TSONIC_LOCAL_TYPE_UNSUPPORTED"): undefined {
     group(derived.result).refused ??= Object.freeze({
-      ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", derived.node), reason,
+      ...createSourceTypeFlowRefusal(code, derived.node), reason,
     });
     return undefined;
   }
@@ -979,7 +985,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
     const partner = partners[0]!;
     return arms.map((arm, index) => {
       const input = inputs[index];
-      const primitive = input === undefined || arm.kind !== "primitive" ? undefined : sourcePrimitiveOperatorLiteralPartner(input, partner);
+      const primitive = input === undefined || arm.kind !== "primitive" ? undefined : sourcePrimitiveOperatorLiteralPartner(input, partner, source.platform);
       return primitive === undefined ? arm : { kind: "primitive", primitive } as const;
     });
   }
@@ -1084,8 +1090,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       const produced = peer.source.type === undefined ? undefined : sourceTypeDescriptorStructure(peer.source.type);
       const present = peer.present && produced?.kind === "optional" ? sourceTypeDescriptorStructure(produced.value) : produced;
       const creation = numericCreation(peer.variable.node);
-      if (literal === undefined || present?.kind !== "primitive" || !sourcePrimitiveOperatorLiteralFits(peer.literal, present.primitive) ||
-        creation.literal === undefined || !sourcePrimitiveOperatorLiteralFits(creation.literal, present.primitive)) continue;
+      if (literal === undefined || present?.kind !== "primitive" || !sourcePrimitiveOperatorLiteralFits(peer.literal, present.primitive, source.platform) ||
+        creation.literal === undefined || !sourcePrimitiveOperatorLiteralFits(creation.literal, present.primitive, source.platform)) continue;
       selected.fills.push({ type: present, site: peer.site, fixed: false,
         authority: peer.source.chosenFill?.authority ?? "inferred" });
     }
@@ -1134,7 +1140,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       } else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
         const creation = numericCreation(term.site);
         if (creation.literal === undefined) continue;
-        const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal);
+        const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal, source.platform);
         if (arm.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, { kind: "primitive", primitive: arm.primitive }));
         else if (term.kind === "fixed" && scalarType(term.type)) scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, term.type));
       } else if (term.kind === "fixed" && scalarType(term.type)) {
@@ -1448,6 +1454,30 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       }
     }
   }
+  // R-B4-6: a member call on a generic receiver binds the selected member's owner binders from the receiver's Host
+  // descriptor: the type arguments of a declared receiver whose merged declarations include the owner, or the element of
+  // an array receiver for the Array / ReadonlyArray owner. An inherited member (owner is a base) binds no receiver binders.
+  function receiverBinders(call: SourceHostCall, queries: SourceHostQueries): readonly SourceEffectiveTypeArgument[] {
+    const { ast } = source;
+    const expression = call.sourceReceiver?.expression;
+    const signature = queries.callSignature(call);
+    const owner = signature === undefined ? undefined : ast.parent(signature);
+    if (expression === undefined || owner === undefined || !(ast.is.IsInterfaceDeclaration(owner) || ast.is.IsClassDeclaration(owner))) {
+      return Object.freeze([]);
+    }
+    const binders = ast.typeParameters(owner).filter((binder): binder is Node => binder !== undefined);
+    const outcome = outcomes.get(expression);
+    if (binders.length === 0 || outcome === undefined || outcome.kind === "refused") return Object.freeze([]);
+    let type = outcome.type;
+    while (type.kind === "optional") type = type.value;
+    const structure = sourceTypeDescriptorStructure(type);
+    const ownerName = ast.name(owner) === undefined ? undefined : ast.text(ast.name(owner)!);
+    const arguments_ = type.kind === "declared" && source.navigation.mergedDeclarations(type.declaration).includes(owner)
+      ? type.typeArguments
+      : structure.kind === "array" && (ownerName === "Array" || ownerName === "ReadonlyArray") ? [structure.element] : undefined;
+    if (arguments_ === undefined || arguments_.length !== binders.length) return Object.freeze([]);
+    return Object.freeze(binders.map((declaration, index) => Object.freeze({ declaration, type: arguments_[index]! })));
+  }
   for (const call of graph.calls) {
     if (graph.refusals.some(issue => issue.site === call.node)) continue;
     const vector = (binders: typeof call.receiver) => binders.flatMap(binder => {
@@ -1477,7 +1507,9 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
     const queries = input.at(node);
     const call = queries.call(node);
     const selected = call?.sourceSelectedMethodTypeArguments ?? [];
-    if (call === undefined || call.sourceSelectedSignatureKind !== "resolved" || selected.length === 0) continue;
+    if (call === undefined || call.sourceSelectedSignatureKind !== "resolved") continue;
+    const receiver = receiverBinders(call, queries);
+    if (selected.length === 0 && receiver.length === 0) continue;
     const method: { readonly declaration: Node; readonly type: SourceTypeDescriptor }[] = [];
     for (const argument of selected) {
       const declarations = queries.typeSymbolDeclarations(argument.typeParameter)
@@ -1487,8 +1519,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
       method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(unions, type) }));
     }
     if (method.length !== selected.length) continue;
-    calls.set(node, Object.freeze({ call, receiver: Object.freeze([]), method: Object.freeze(method),
-      parameters: callParameters(call, [], method) }));
+    const parameters = callParameters(call, receiver, method);
+    // A receiver-only binding is published only when every selected parameter is describable under it; otherwise the
+    // call keeps no instantiation, as before R-B4-6 (no new refusal for a call that had none).
+    if (selected.length === 0 && parameters.some(parameter => parameter === undefined)) continue;
+    calls.set(node, Object.freeze({ call, receiver, method: Object.freeze(method), parameters }));
   }
   for (const node of [...graph.nodes.filter(record => record.declaration === record.node).map(record => record.node), ...defaults.values]) {
     if (outcomes.has(node)) continue;
@@ -2045,6 +2080,19 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
     if (normalized === undefined) throw new Error("A published Source type requires its sealed program sum preferences.");
     return freezeSourceTypeDescriptor(unions, normalized);
   };
+  // The declared value of a declaration that is not a solver slot (R-B4-5): a class (its constructor value), a function,
+  // method or accessor, a library declaration or library callback parameter. Declaration input through the one
+  // descriptor reader, normalized against the sealed sums; undefined when the declaration has no Host description.
+  const declarationValues = new Map<Node, SourceTypeDescriptor | null>();
+  function declarationValue(declaration: Node): SourceTypeDescriptor | undefined {
+    const known = declarationValues.get(declaration);
+    if (known !== undefined) return known ?? undefined;
+    const described = context.describe(declaration);
+    const normalized = described === undefined ? undefined : normalizer(described);
+    const selected = normalized === undefined ? undefined : freezeSourceTypeDescriptor(unions, normalized);
+    declarationValues.set(declaration, selected ?? null);
+    return selected;
+  }
   const normalizedOutcomes = new WeakMap<SourceEffectiveTypeOutcome, SourceEffectiveTypeOutcome>();
   const normalizeOutcome = (outcome: SourceEffectiveTypeOutcome): SourceEffectiveTypeOutcome => {
     if (outcome.kind === "refused") return outcome;
@@ -2140,5 +2188,5 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions
     slotAdmission: (use: Node) => slotAdmissions.admissions.get(use),
     obligations: () => frozenObligations, refusals: () => frozenIssues,
     owner: unions, valueNodes: defaults.values, literal: context.literal, numberOrigin, typeSyntax, contextual,
-    nodes: defaults.nodes, functionValueInstantiation: (use: Node) => functionValues.get(use) });
+    nodes: defaults.nodes, functionValueInstantiation: (use: Node) => functionValues.get(use), declarationValue });
 }

@@ -35,16 +35,13 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
     memoryDiagnostic(call, "FIELD_LAYOUT_NOT_PROVEN", "memoryfield requires the exact selected child layout for its field type.");
     return;
   }
-  const property = context.checker.getResolvedPropertyAccessInfo(member.expression as typeof declaration);
   const error = memoryFieldDimensionsError({ byteOffset, byteAlignment });
   if (error !== undefined) {
     memoryDiagnostic(call, "FIELD_DIMENSIONS_INVALID", error);
     return;
   }
   publishMemoryFact(call, tsonicMemoryFieldLayoutFactKey, {
-    call: selected.call, sourceType, selector, selectedDeclaration: declaration,
-    ...(property?.selectedSymbol === undefined ? {} : { selectedSymbol: property.selectedSymbol }),
-    fieldType, byteOffset, byteAlignment, fieldLayoutExpression, fieldLayout,
+    call: selected.call, selector, selectedDeclaration: declaration, byteOffset, byteAlignment, fieldLayoutExpression, fieldLayout,
   });
   analysis.types.publish(call);
 }
@@ -88,7 +85,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
   }
   const fact = {
     kind: "value" as const,
-    call: selected.call, sourceType: pointee.selectedType,
+    call: selected.call,
     ...(pointee.explicitTypeNode === undefined ? {} : { explicitTypeNode: pointee.explicitTypeNode }),
     dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
     fields: fields.filter((field) => field !== undefined),
@@ -117,7 +114,6 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
   const layout = analysis.layout(operand.expression, context);
   const base = {
     call: selected.call, layoutExpression: operand.expression,
-    layoutType: operand.type, resultType: selected.selection.sourceResultType,
   };
   if (call.name === "fieldoffsetof") {
     const member = selectInlineSourceMember(selected.selection.sourceArguments[1]?.expression, context);

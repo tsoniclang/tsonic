@@ -344,8 +344,8 @@ test("a signature of a declared call result does not include its argument merely
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const argument = checked.find("KindIdentifier", "sourceValue", -1);
   const call = checked.find("KindCallExpression");
-  const receipt = checked.source.semantics.forNode(call).operations.call(call);
-  assert.equal(receipt !== undefined, true, "the original selected call is actual checked evidence");
+  const receipt = checked.source.input.at(call).call(call);
+  assert.equal(receipt !== undefined, true, "the original selected call is the host-input call witness");
   const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(argument, owner)], [], [],
     [{ node: call, source: receipt!, receiver: [], method: [], argumentPlaces: [], result: variable(call) }]));
   assert.equal(includes(result, variable(call)), true, "the declared result occurrence reaches the signature");
@@ -424,7 +424,7 @@ test("only result-dependent method binders are signature roots at a returned gen
   const checked = fixture("declare function selectResult<Argument, Result>(value: Argument): Result; function makeValue() { const sourceValue = 1; return selectResult<number, string>(sourceValue); }");
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const call = checked.find("KindCallExpression");
-  const receipt = checked.source.semantics.forNode(call).operations.call(call);
+  const receipt = checked.source.input.at(call).call(call);
   const argumentDeclaration = checked.find("KindTypeParameter", "Argument");
   const resultDeclaration = checked.find("KindTypeParameter", "Result");
   const argumentBinder = variable(call, [{ kind: "binder", declaration: argumentDeclaration }]);
@@ -469,7 +469,7 @@ test("a returned declared optional result retains its actual value dependency", 
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const call = checked.find("KindCallExpression");
   const declaration = checked.find("KindTypeParameter", "Result");
-  const component = checked.source.semantics.forNode(call).operations.call(call);
+  const component = checked.source.input.at(call).call(call);
   const binder = variable(call, [{ kind: "binder", declaration }]);
   assert.equal(component !== undefined, true, "the actual selected declared result is retained");
   const result = collectEligibleMetadata(checked.context, graph([owner], [

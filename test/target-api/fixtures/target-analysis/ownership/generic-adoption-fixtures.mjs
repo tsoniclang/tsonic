@@ -74,7 +74,7 @@ export function fixture(text, projectRoot = "/src") {
         compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics
         .filter((diagnostic) => diagnostic !== undefined).slice(0, 3)).slice(0, 2048));
-    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
     const nodes = [];
     const visit = (node) => {
         nodes.push(node);

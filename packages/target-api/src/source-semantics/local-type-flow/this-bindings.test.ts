@@ -5,7 +5,7 @@ import { createSourceHostInput } from "../../host-input/index.js";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { createSourceTypeDescriptorUnions } from "./terms.js";
-import type { SourceFileSemantics } from "../types.js";
+import type { SourceFileSemantics } from "../../host-input/semantics-types.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
 function fixture(text: string) {

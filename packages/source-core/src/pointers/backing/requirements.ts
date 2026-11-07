@@ -2,15 +2,15 @@ import type { Node } from "@tsonic/tsts";
 import type { HostSourceProgram, SourceNavigationCall } from "@tsonic/target-api/host";
 import type { SourcePointerOperationRecord } from "@tsonic/target-api/source";
 import { tsonicDescriptorAdmitsAbsence, tsonicDescriptorIsAbsent, tsonicValueType } from "../host-values.js";
-import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
-import type { TsonicRawMemoryOperationFact } from "../raw-memory/facts.js";
+import { createTsonicHostRecords, type TsonicReinterpretRecord } from "../../analysis/host-records.js";
 import { createPointerContainerQueries } from "./containers.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./source-forms.js";
 
-/** A physical backing origin: the Host pointer operation record of an allocation or address-of (I1), or a reinterpretation. */
+/** A physical backing origin: the Host pointer operation record of an allocation or address-of, or the Host record of a
+ * reinterpretation (I1: descriptors and operand nodes only). */
 export type TsonicPointerBackingOrigin =
   | (SourcePointerOperationRecord & { readonly operation: "allocate" | "address-of" })
-  | Extract<TsonicRawMemoryOperationFact, { readonly operation: "reinterpret" }>;
+  | TsonicReinterpretRecord;
 
 export interface TsonicPointerBackingIssue {
   readonly node: Node;
@@ -44,7 +44,8 @@ export function createTsonicPointerBackingQueries(
   if (!Number.isSafeInteger(options.maximumValues) || options.maximumValues < 1) {
     throw new Error("Pointer backing requires a positive finite source-value budget.");
   }
-  const { ast, navigation, facts, sourceFacts } = source;
+  const { ast, navigation, facts } = source;
+  const records = createTsonicHostRecords(source);
   const cached = new WeakMap<Node, TsonicPointerBackingResolution>();
   const containers = createPointerContainerQueries(source, options.maximumValues);
 
@@ -118,9 +119,9 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
-      const raw = sourceFacts.getFact(node, tsonicRawMemoryOperationFactKey);
-      if (raw?.operation === "reinterpret") {
-        if (raw.call !== node) reject(node, "Raw reinterpretation evidence selects another call.");
+      const raw = ast.is.IsCallExpression(node) ? records.reinterpret(node) : undefined;
+      if (raw !== undefined) {
+        if (raw.kind === "rejected") reject(node, raw.reason);
         else {
           origins.set(node, raw);
           terminals.add(node);

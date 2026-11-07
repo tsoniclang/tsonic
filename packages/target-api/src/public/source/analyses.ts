@@ -11,6 +11,7 @@ import type {
 import type { SourceNativeValueGuard } from "../../source-semantics/native-value-guards.js";
 import type { SourceIntegerRange } from "../../source-navigation/integer-ranges/domain.js";
 import type { SourceClosedCallableArgument } from "../../source-navigation/callable-arguments.js";
+import type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "../../source-navigation/lexical-captures.js";
 import type { SourceArtifactFile, SourceArtifactIssue } from "../../target-analysis/artifacts/source-files.js";
 import type { SourceBinaryEntryIssue } from "../../target-analysis/entry-validation.js";
 import type {
@@ -26,15 +27,21 @@ import type { SourceGlobalCallStorageEffect, SourceGlobalStorageBinding }
   from "../../target-analysis/source-storage/model/global-call-effects.js";
 import type { SourceHeritageEdge } from "./objects.js";
 import type { SourceCallSelection } from "./selections.js";
+import type {
+  SourceNativeIntegerBits, SourceNativeIntegerPremise, SourceNativeIntegerWidthRefusalCode, SourcePlatformFacts,
+} from "../../source-semantics/platform-model.js";
 
+export type {
+  SourceNativeIntegerBits, SourceNativeIntegerPremise, SourceNativeIntegerWidthRefusalCode, SourcePlatformFacts,
+};
 export type {
   SourceArtifactFile, SourceArtifactIssue, SourceBinaryEntryIssue, SourceClosedCallableArgument,
   SourceControlFlowSelection, SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipQueries,
   SourceDeclarationOwnershipUnresolved, SourceEnumAdmissionIssue, SourceEnumConstantSelection,
   SourceEnumIntegerWidthSelection, SourceFlowLimits, SourceGenericAdoptionIssue, SourceGlobalCallStorageEffect,
-  SourceGlobalStorageBinding, SourceIntegerRange, SourceNativeValueGuard, SourceStorageEffects, SourceStorageLimits,
-  SourceStorageQueries,
+  SourceGlobalStorageBinding, SourceIntegerRange, SourceLexicalCapture, SourceLexicalCaptureSelection,
+  SourceNativeValueGuard, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries,
 };
 
 /** One type-flow obligation the Host recorded (interface, read-only, constraint, literal admission, write fit). */
@@ -83,6 +90,11 @@ export type SourcePropertyNameConstant =
   | { readonly kind: "enum-member"; readonly declaration: Node; readonly value: bigint | string };
 
 export interface SourcePropertyNameIssue {
+  /**
+   * Host refusal code: TSONIC_COMPUTED_PROPERTY_NAME_NOT_PROVEN for an unproven Source name (was the C#-originated
+   * CSHARP_COMPUTED_FIELD_NAME_NOT_PROVEN), TSONIC_COMPILER_RESOURCE_LIMIT when the name evaluation hit its budget.
+   */
+  readonly code: "TSONIC_COMPUTED_PROPERTY_NAME_NOT_PROVEN" | "TSONIC_COMPILER_RESOURCE_LIMIT";
   readonly node: Node;
   readonly reason: string;
   readonly failure: "source" | "resource";
@@ -134,6 +146,14 @@ export type SourceGenericAdoptionSelection =
   | SourceDeclarationOwnershipUnresolved;
 
 export interface SourceAnalysisFacts {
+  // ---- platform -------------------------------------------------------------------------------------------------
+  /**
+   * The active target/toolchain ABI premise for native-int / native-uint (E24, N5), exactly as the composition root
+   * passed it (TargetSourceProgramOptions.platform). Every Host native-int / native-uint width decision used it; a target
+   * representation that needs the width reads this fact, never a constant of its own.
+   */
+  readonly platform: SourcePlatformFacts;
+
   // ---- integers -------------------------------------------------------------------------------------------------
   /** Proven integer interval of a number-typed expression (number = Host descriptor primitive "number"). */
   integerRange(expression: Node): SourceIntegerRange | undefined;
@@ -151,6 +171,15 @@ export interface SourceAnalysisFacts {
   callableDefinitionDiscarded(declaration: Node): boolean;
   /** Parameter declarations of a callable value (function, arrow, method), declaration order. */
   callableValueParameters(declaration: Node): readonly Node[] | undefined;
+  /**
+   * The full lexical capture selection of an owner, computed over the whole owner (roots `[owner]`): every captured
+   * outer binding (declaration Node, authored first-reference order) with all its references, the owner's self
+   * references, and the captured outer receivers (`this` / `super` owners) with their references.
+   * `navigation.scopes.captures` is the narrower body-only question (binding and written flag). Owners: a project
+   * function declaration, function expression, arrow, method, constructor or accessor with a body, or a project class
+   * declaration or expression; any other node is an invariant failure (throws).
+   */
+  lexicalCaptures(owner: Node): SourceLexicalCaptureSelection;
   /** The call and argument position an expression is passed as (through parentheses / satisfies). */
   callArgument(expression: Node): SourceClosedCallableArgument | undefined;
   /** The authored annotation text that names an expression's destination binding. Naming only. */
@@ -170,6 +199,11 @@ export interface SourceAnalysisFacts {
   // ---- program analyses -----------------------------------------------------------------------------------------
   artifactFiles(constructions: readonly { readonly sourceFile: SourceFile; readonly targetSourceFile: SourceFile }[]):
     { readonly files: readonly SourceArtifactFile[]; readonly issues: readonly SourceArtifactIssue[] };
+  /**
+   * Host refusals TSONIC_UNCALLED_BINARY_ENTRY_MAIN of an executable's entry file (code, message, site Host-originated).
+   * A target that builds an executable (a target output setting) forwards them unchanged before its analysis, as it
+   * forwards enumIssues(); it never originates the code.
+   */
   binaryEntryIssues(entry: SourceFile): readonly SourceBinaryEntryIssue[];
   controlFlow(declaration: Node, options: SourceDeclarationControlFlowOptions):
     SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion>;

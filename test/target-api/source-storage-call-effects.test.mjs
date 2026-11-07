@@ -16,7 +16,7 @@ function fixture() {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"), "");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
   const declaration = namedVariable(source.ast, file, "result");

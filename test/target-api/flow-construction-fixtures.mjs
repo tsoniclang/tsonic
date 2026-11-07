@@ -25,7 +25,7 @@ function fixture(text) {
     files: { "/src/index.ts": `export {}; declare function mark(name: string): number; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unannotated authored construction checks");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const ast = source.ast;
   const named = name => storage.nodes.find(node => (ast.is.IsClassDeclaration(node) || ast.is.IsVariableDeclaration(node)) &&

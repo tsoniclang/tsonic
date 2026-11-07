@@ -11,7 +11,7 @@ test("expression-bodied arrow results retain exact return roles without reclassi
     function arithmetic(value: number) { return () => value + 1; }
     function stored(value: string) { return () => [value]; }
   ` });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, role, unclassified, returned] of [
     ["direct", "return", false, true], ["wrapped", "return", false, true],
@@ -88,7 +88,7 @@ test("instance initializers retain captured bindings without capturing immediate
     function closure<Value>(value: Value) { return class { static read = () => value; }; }
     function mixed<Value>(value: Value) { return class { static eager = value; deferred = value; }; }
   ` });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const { ast, navigation } = source;
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, expected] of [["instance", true], ["declared", true], ["staticValue", false],
@@ -267,7 +267,7 @@ test("source navigation resolves project references, shapes, constructors, and d
   assert.strictEqual(navigation.declarationFor(derivedReference), derivedClass);
   assert.equal(navigation.isProjectDeclaration(derivedClass), true);
   // Project shape / constructibility are role-model facts over the Host value type of a value node (B3 D2).
-  const identity = createHostSourceProgram(source, { profile: createJsSourceApiFacts }).facts.navigation.identity;
+  const identity = createHostSourceProgram(source, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } }).facts.navigation.identity;
   const construction = (reference) => ast.parent(reference);
   assert.equal(identity.isProjectShape(construction(derivedReference)), true);
   assert.equal(identity.isProjectShape(namedVariable(ast, sourceFile, "shaped")), true);
@@ -511,7 +511,7 @@ test("host-input checker views answer checked-source questions without exposing 
   // The Host answer for the same call is the published value fact.
   const published = source.facts.values.type(call);
   assert.equal(published.kind !== "refused" && published.type.kind === "string", true);
-  assert.equal("semantics" in createHostSourceProgram(checked, { profile: createJsSourceApiFacts }), false,
+  assert.equal("semantics" in createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } }), false,
     "the Host program carries no checker service (I3)");
 });
 
@@ -720,7 +720,7 @@ test("source navigation separates type-only references from runtime callable use
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const format = namedDeclaration(source.ast, sourceFile, "format");
   const uses = source.navigation.declarationUses(format);
@@ -746,7 +746,7 @@ test("source navigation separates class-member mutation from binding writes", as
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const counter = namedDeclaration(source.ast, sourceFile, "Counter");
   const value = namedMember(source.ast, counter, "value");
@@ -773,7 +773,7 @@ test("source navigation exposes exact member receivers for declaration uses", as
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const counter = namedDeclaration(source.ast, sourceFile, "Counter");
   const increment = namedMember(source.ast, counter, "increment");
@@ -819,7 +819,7 @@ test("source expression effects stop at function boundaries", async () => {
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const arrow = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsArrowFunction(node));
@@ -860,7 +860,7 @@ test("source expression effects retain coercion, iteration, and computed-key beh
       "",
     ].join("\n"),
   });
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const byOperator = (operator) => requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsBinaryExpression(node) &&

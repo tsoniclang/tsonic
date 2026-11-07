@@ -24,7 +24,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the authored fixture checks without annotations compensating for transport");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   assert.equal(storage.failureReason() === undefined, true);
@@ -98,7 +98,7 @@ test("nested storage projections preserve a proven never prefix without closing 
       declare const unproved: unknown;` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the actual source collection and unknown input check");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const field = namedMember(source.ast, namedDeclaration(source.ast, file, "Box"), "items");
   const resolved = node => {
@@ -145,7 +145,7 @@ test("completed empty value frontiers do not close rootless or opaque producer d
       const recursive = recurse({});` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the original empty, opaque and recursive producers check");
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const variable = name => namedVariable(source.ast, file, name);

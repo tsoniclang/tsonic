@@ -1,25 +1,21 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { memoryLayoutsEqual, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { exactRecord, opaqueSubject, recordsEqual, snapshotDataArray } from "../snapshots.js";
 
+// Legacy-extension binding witnesses: selected nodes and layouts only. No checker Type (I1); the Host publishes the
+// bound field and record descriptors (`TsonicMemoryBindings`, host-records.ts).
 export interface TsonicMemoryFieldBindingFact {
   readonly call: Node;
-  readonly resultType: Type;
-  readonly sourceType: Type;
-  readonly pointeeType: Type;
   readonly fieldExpression: Node;
   readonly field: TsonicMemoryFieldLayoutFact;
   readonly pointerExpression: Node;
-  readonly pointerType: Type;
 }
 
 export interface TsonicMemoryRecordBindingFact {
   readonly call: Node;
-  readonly resultType: Type;
-  readonly sourceType: Type;
   readonly layoutExpression: Node;
   readonly layout: TsonicValueMemoryLayoutFact;
   readonly fields: readonly {
@@ -29,7 +25,7 @@ export interface TsonicMemoryRecordBindingFact {
 }
 
 function snapshotFieldBinding(value: TsonicMemoryFieldBindingFact): TsonicMemoryFieldBindingFact {
-  const result = exactRecord(value, ["call", "resultType", "sourceType", "pointeeType", "fieldExpression", "field", "pointerExpression", "pointerType"]);
+  const result = exactRecord(value, ["call", "fieldExpression", "field", "pointerExpression"]);
   for (const [key, subject] of Object.entries(result)) if (key !== "field") opaqueSubject(subject);
   return Object.freeze({ ...result, field: snapshotMemoryField(result.field) });
 }
@@ -46,8 +42,8 @@ export const tsonicMemoryFieldBindingFactKey = defineExtensionFactKey<TsonicMemo
 export const tsonicMemoryRecordBindingFactKey = defineExtensionFactKey<TsonicMemoryRecordBindingFact>({
   extensionId: tsonicCoreSourceExtensionId, name: "memoryRecordBinding",
   snapshot(value) {
-    const result = exactRecord(value, ["call", "resultType", "sourceType", "layoutExpression", "layout", "fields"]);
-    for (const key of ["call", "resultType", "sourceType", "layoutExpression"] as const) opaqueSubject(result[key]);
+    const result = exactRecord(value, ["call", "layoutExpression", "layout", "fields"]);
+    for (const key of ["call", "layoutExpression"] as const) opaqueSubject(result[key]);
     const layout = snapshotMemoryLayout(result.layout);
     if (layout.kind !== "value") throw new Error("Record bindings require a field layout, not an array layout.");
     if (!Array.isArray(result.fields) || result.fields.length !== layout.fields.length) {
@@ -68,8 +64,7 @@ export const tsonicMemoryRecordBindingFactKey = defineExtensionFactKey<TsonicMem
     return Object.freeze({ ...result, layout, fields });
   },
   equals(left, right) {
-    return left.call === right.call && left.resultType === right.resultType && left.sourceType === right.sourceType &&
-      left.layoutExpression === right.layoutExpression && memoryLayoutsEqual(left.layout, right.layout) &&
+    return left.call === right.call && left.layoutExpression === right.layoutExpression && memoryLayoutsEqual(left.layout, right.layout) &&
       left.fields.length === right.fields.length && left.fields.every((field, index) =>
         field.expression === right.fields[index]!.expression &&
         tsonicMemoryFieldBindingFactKey.equals(field.binding, right.fields[index]!.binding));

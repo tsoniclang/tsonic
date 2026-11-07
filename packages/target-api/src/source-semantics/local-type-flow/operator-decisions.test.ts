@@ -9,10 +9,19 @@ import type { SourceLiteralValue } from "../literal-values-model.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,
   sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorIsIntegral,
-  sourcePrimitiveOperatorLiteralPartner,
+  sourcePrimitiveOperatorLiteralPartner, sourcePrimitiveLiteralFit,
   sourcePrimitiveUnaryOperators, type SourcePrimitiveBinaryOperator, type SourcePrimitiveOperatorOperand,
 } from "./operator-decisions.js";
+import type { SourcePlatformFacts } from "../platform-model.js";
 
+// E24 (N5) unit controls: neutral premises only; no 32-bit runtime target exists.
+const known64: SourcePlatformFacts = Object.freeze({ kind: "known", nativeIntegerBits: 64, basis: "unit control: 64-bit" });
+const known32: SourcePlatformFacts = Object.freeze({ kind: "known", nativeIntegerBits: 32, basis: "unit control: 32-bit" });
+const missing: SourcePlatformFacts = Object.freeze({ kind: "missing", reason: "The unit control states no architecture." });
+const conflicting: SourcePlatformFacts = Object.freeze({ kind: "conflicting", premises: Object.freeze([
+  Object.freeze({ nativeIntegerBits: 64 as const, basis: "first statement" }),
+  Object.freeze({ nativeIntegerBits: 32 as const, basis: "second statement" }),
+]) });
 const fixed = (primitive: SourcePrimitiveKind): SourcePrimitiveOperatorOperand => ({ kind: "fixed", primitive });
 const small = new Set<SourcePrimitiveKind>(["char", "int8", "uint8", "int16", "uint16"]);
 const integral = new Set<SourcePrimitiveKind>([...small, "int32", "uint32", "int64", "uint64", "native-int", "native-uint", "int128", "uint128"]);
@@ -53,7 +62,7 @@ test("D-A every operator family classifies all 18 by 18 primitive pairs with a r
   for (const operator of sourcePrimitiveBinaryOperators) {
     let classified = 0;
     for (const left of sourcePrimitiveOperatorKinds) for (const right of sourcePrimitiveOperatorKinds) {
-      const selected = decideSourcePrimitiveBinaryOperator(operator, fixed(left), fixed(right));
+      const selected = decideSourcePrimitiveBinaryOperator(operator, fixed(left), fixed(right), known64);
       const expected = expectedBinary(operator, left, right);
       const label = `${operator}: ${left}, ${right}`;
       assert.equal(selected.kind === "resolved" ? selected.result : null, expected, label);
@@ -119,61 +128,61 @@ test("D-A numeric promotion and operator admission are different decisions", () 
     ["int32", "int64", "int64"], ["int32", "float64", "float64"], ["float32", "int64", "float32"],
     ["decimal", "uint64", "decimal"], ["int128", "int128", "int128"], ["float16", "float16", "float16"],
   ] as const) {
-    const selected = decideSourcePrimitiveBinaryOperator("add", fixed(left), fixed(right));
+    const selected = decideSourcePrimitiveBinaryOperator("add", fixed(left), fixed(right), known64);
     assert.equal(selected.kind === "resolved" && selected.result === result, true, `${left} + ${right}`);
   }
   for (const [left, right] of [["uint64", "int64"], ["decimal", "float64"], ["float16", "float32"],
     ["native-int", "int32"], ["uint128", "uint64"], ["bool", "int32"]] as const) {
-    assert.equal(decideSourcePrimitiveBinaryOperator("add", fixed(left), fixed(right)).kind, "refused", `${left} + ${right}`);
-    assert.equal(decideSourcePrimitiveBinaryOperator("equal", fixed(left), fixed(right)).kind, "refused", `${left} == ${right}`);
+    assert.equal(decideSourcePrimitiveBinaryOperator("add", fixed(left), fixed(right), known64).kind, "refused", `${left} + ${right}`);
+    assert.equal(decideSourcePrimitiveBinaryOperator("equal", fixed(left), fixed(right), known64).kind, "refused", `${left} == ${right}`);
   }
   for (const primitive of ["float16", "float32", "float64", "decimal", "bool"] as const) {
-    assert.equal(decideSourcePrimitiveBinaryOperator("bit-and", fixed(primitive), fixed(primitive)).kind, "refused", primitive);
+    assert.equal(decideSourcePrimitiveBinaryOperator("bit-and", fixed(primitive), fixed(primitive), known64).kind, "refused", primitive);
   }
-  assert.equal(decideSourcePrimitiveBinaryOperator("equal", fixed("bool"), fixed("bool")).kind, "resolved");
-  assert.equal(decideSourcePrimitiveBinaryOperator("less", fixed("bool"), fixed("bool")).kind, "refused");
+  assert.equal(decideSourcePrimitiveBinaryOperator("equal", fixed("bool"), fixed("bool"), known64).kind, "resolved");
+  assert.equal(decideSourcePrimitiveBinaryOperator("less", fixed("bool"), fixed("bool"), known64).kind, "refused");
 });
 
 test("D-A shifts admit narrow counts and checked int64 counts and promote only the left carrier", () => {
   for (const left of sourcePrimitiveOperatorKinds) for (const right of sourcePrimitiveOperatorKinds) {
-    const selected = decideSourcePrimitiveBinaryOperator("shift-left", fixed(left), fixed(right), "int64");
+    const selected = decideSourcePrimitiveBinaryOperator("shift-left", fixed(left), fixed(right), known64, "int64");
     if (integral.has(left) && shiftCount.has(right)) {
       assert.equal(selected.kind === "resolved" && selected.right === right && selected.result === (small.has(left) ? "int32" : left), true, `${left}, ${right}`);
     } else assert.equal(selected.kind, "refused", `${left}, ${right}`);
   }
   for (const primitive of ["uint32", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
-    const selected = decideSourcePrimitiveBinaryOperator("shift-right", fixed("int64"), fixed(primitive));
+    const selected = decideSourcePrimitiveBinaryOperator("shift-right", fixed("int64"), fixed(primitive), known64);
     assert.equal(selected.kind === "refused" && selected.reason === "A shift count must be a 32-bit integer or narrower.", true, primitive);
   }
   const literal = unbound("3");
-  const selected = decideSourcePrimitiveBinaryOperator("shift-right-unsigned", fixed("uint64"), literal);
+  const selected = decideSourcePrimitiveBinaryOperator("shift-right-unsigned", fixed("uint64"), literal, known64);
   assert.equal(selected.kind === "resolved" && selected.left === "uint64" && selected.right === "int32" && selected.result === "uint64", true);
-  assert.equal(decideSourcePrimitiveBinaryOperator("shift-right", fixed("int64"), unboundBigint(3n)).kind, "refused");
+  assert.equal(decideSourcePrimitiveBinaryOperator("shift-right", fixed("int64"), unboundBigint(3n), known64).kind, "refused");
 });
 
 test("D-A literal adaptation cannot retarget a fixed or already-filled scalar width", () => {
   for (const operator of ["add", "bit-and", "less"] as const) {
-    const selected = decideSourcePrimitiveBinaryOperator(operator, fixed("float64"), unbound("2"), "int32");
+    const selected = decideSourcePrimitiveBinaryOperator(operator, fixed("float64"), unbound("2"), known64, "int32");
     assert.equal(operator === "bit-and" ? selected.kind === "refused"
       : selected.kind === "resolved" && selected.left === "float64" && selected.right === "float64" &&
         selected.result === (operator === "less" ? "bool" : "float64"), true, operator);
   }
-  const fixedPair = decideSourcePrimitiveBinaryOperator("add", fixed("uint64"), fixed("int64"), "uint64");
+  const fixedPair = decideSourcePrimitiveBinaryOperator("add", fixed("uint64"), fixed("int64"), known64, "uint64");
   assert.equal(fixedPair.kind, "refused");
-  const filled = decideSourcePrimitiveBinaryOperator("add", fixed("float32"), fixed("int64"), "int64");
+  const filled = decideSourcePrimitiveBinaryOperator("add", fixed("float32"), fixed("int64"), known64, "int64");
   assert.equal(filled.kind === "resolved" && filled.left === "float32" && filled.result === "float32", true);
 });
 
 test("F6 one C14 literal partner owner preserves actual receipt, fixed widths and nonfit refusal", () => {
   const whole = unbound("17");
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "float32"), "float32");
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "int8"), "int8");
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(fixed("int64"), "float32") === undefined, true);
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "bigint") === undefined, true);
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("256"), "uint8") === undefined, true);
-  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("1.5"), "int32") === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "float32", known64), "float32");
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "int8", known64), "int8");
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(fixed("int64"), "float32", known64) === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "bigint", known64) === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("256"), "uint8", known64) === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("1.5"), "int32", known64) === undefined, true);
   for (const [left, right] of [[whole, fixed("float32")], [fixed("float32"), whole]] as const) {
-    const result = decideSourcePrimitiveBinaryOperator("add", left, right);
+    const result = decideSourcePrimitiveBinaryOperator("add", left, right, known64);
     assert.equal(result.kind === "resolved" && result.result === "float32" && result.left === "float32" && result.right === "float32", true);
   }
 });
@@ -189,10 +198,10 @@ test("D-A one decision owner adapts retained unbound literals and exact all-lite
     [fixed("uint64"), unboundBigint(9007199254740993n), undefined, "uint64"],
     [fixed("int128"), unboundBigint((1n << 127n) - 1n), undefined, "int128"],
   ] as const) {
-    const selected = decideSourcePrimitiveBinaryOperator("add", left, right, expected);
+    const selected = decideSourcePrimitiveBinaryOperator("add", left, right, known64, expected);
     assert.equal(selected.kind === "resolved" && selected.result === result, true, `${left.primitive}, ${right.primitive}, ${expected ?? "none"}`);
   }
-  const overflow = decideSourcePrimitiveBinaryOperator("add", fixed("uint64"), unboundBigint(1n << 64n));
+  const overflow = decideSourcePrimitiveBinaryOperator("add", fixed("uint64"), unboundBigint(1n << 64n), known64);
   assert.equal(overflow.kind, "refused", "overflow cannot acquire an invented floating Source kind");
 });
 
@@ -201,7 +210,6 @@ test("D-A exact literal bounds never introduce a JS integer precision cap", () =
     ["int8", -128n, 127n], ["uint8", 0n, 255n], ["int16", -32768n, 32767n], ["uint16", 0n, 65535n],
     ["int32", -(1n << 31n), (1n << 31n) - 1n], ["uint32", 0n, (1n << 32n) - 1n],
     ["int64", -(1n << 63n), (1n << 63n) - 1n], ["uint64", 0n, (1n << 64n) - 1n],
-    ["native-int", -(1n << 63n), (1n << 63n) - 1n], ["native-uint", 0n, (1n << 64n) - 1n],
     ["int128", -(1n << 127n), (1n << 127n) - 1n], ["uint128", 0n, (1n << 128n) - 1n],
   ] as const) {
     for (const value of [minimum, maximum]) assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(value), primitive), true, `${primitive}: ${value}`);
@@ -210,6 +218,104 @@ test("D-A exact literal bounds never introduce a JS integer precision cap", () =
   assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(9007199254740993n), "uint64"), true);
   assert.equal(sourcePrimitiveOperatorLiteralFits({ form: "parenthesized", integerConstant: (1n << 127n) - 1n }, "int128"), true);
   assert.equal(sourcePrimitiveOperatorLiteralFits({ form: "binary", integerConstant: 1n << 128n }, "uint128"), false);
+});
+
+test("E24 native-int / native-uint literal bounds follow the stated 32-bit or 64-bit premise", () => {
+  for (const [platform, primitive, minimum, maximum] of [
+    [known64, "native-int", -(1n << 63n), (1n << 63n) - 1n], [known64, "native-uint", 0n, (1n << 64n) - 1n],
+    [known32, "native-int", -(1n << 31n), (1n << 31n) - 1n], [known32, "native-uint", 0n, (1n << 32n) - 1n],
+  ] as const) {
+    const label = `${platform.kind === "known" ? platform.nativeIntegerBits : "?"}-bit ${primitive}`;
+    for (const value of [minimum, maximum]) {
+      assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(value), primitive, platform), true, `${label}: ${value}`);
+      assert.equal(sourcePrimitiveLiteralFit(bigintLiteral(value), primitive, platform), "fits", `${label}: ${value}`);
+    }
+    for (const value of [minimum - 1n, maximum + 1n]) {
+      assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(value), primitive, platform), false, `${label}: ${value}`);
+      assert.equal(sourcePrimitiveLiteralFit(bigintLiteral(value), primitive, platform), "outside", `${label}: ${value}`);
+    }
+  }
+  // The Q1 int64 default is not pointer-sized: its bounds take no premise and stay 64-bit.
+  assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral((1n << 63n) - 1n), "int64"), true);
+  for (const platform of [known64, known32, missing, conflicting]) {
+    assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral((1n << 63n) - 1n), "int64", platform), true);
+    assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(1n << 63n), "int64", platform), false);
+    assert.equal(sourcePrimitiveOperatorLiteralFits({ form: "string", text: "x" }, "native-int", platform), false,
+      "a non-integer literal fits no native kind under any premise");
+  }
+});
+
+test("E24 a missing or conflicting premise refuses only a fit the 32-bit and 64-bit widths answer differently", () => {
+  for (const [platform, code] of [
+    [missing, "TSONIC_NATIVE_INTEGER_WIDTH_MISSING"], [conflicting, "TSONIC_NATIVE_INTEGER_WIDTH_CONFLICTING"],
+  ] as const) {
+    // Width-independent answers need no premise.
+    for (const [value, primitive, expected] of [
+      [5n, "native-int", "fits"], [-(1n << 31n), "native-int", "fits"], [(1n << 31n) - 1n, "native-int", "fits"],
+      [(1n << 32n) - 1n, "native-uint", "fits"], [-1n, "native-uint", "outside"],
+      [1n << 63n, "native-int", "outside"], [1n << 64n, "native-uint", "outside"],
+    ] as const) assert.equal(sourcePrimitiveLiteralFit(bigintLiteral(value), primitive, platform), expected, `${code}: ${primitive} ${value}`);
+    // Width-dependent answers are the precise refusal; the boolean fit fails closed.
+    for (const [value, primitive] of [
+      [1n << 31n, "native-int"], [-(1n << 31n) - 1n, "native-int"], [(1n << 63n) - 1n, "native-int"], [1n << 32n, "native-uint"],
+    ] as const) {
+      const fit = sourcePrimitiveLiteralFit(bigintLiteral(value), primitive, platform);
+      assert.equal(typeof fit === "object" && fit.kind === "refused" && fit.code === code, true, `${code}: ${primitive} ${value}`);
+      assert.equal(typeof fit === "object" && fit.reason.includes(`'${primitive}'`), true, `${code}: the refusal names the kind`);
+      assert.equal(sourcePrimitiveOperatorLiteralFits(bigintLiteral(value), primitive, platform), false, `${code}: ${primitive} ${value}`);
+      assert.equal(sourcePrimitiveOperatorLiteralPartner(unboundBigintFloat(value), primitive, platform) === undefined, true);
+    }
+  }
+  const conflict = sourcePrimitiveLiteralFit(bigintLiteral(1n << 31n), "native-int", conflicting);
+  assert.equal(typeof conflict === "object" && conflict.reason.includes("64-bit (first statement), 32-bit (second statement)"), true,
+    "the conflicting refusal lists every stated width with its basis");
+  const absent = sourcePrimitiveLiteralFit(bigintLiteral(1n << 31n), "native-int", missing);
+  assert.equal(typeof absent === "object" && absent.reason.includes("The unit control states no architecture."), true,
+    "the missing refusal carries the target's reason");
+});
+
+test("E24 operator decisions read the premise only where a literal is fitted to a native integer kind", () => {
+  const wide = unbound("2147483648");
+  // A native partner whose fit depends on the width: known widths decide, unknown premises refuse precisely.
+  const at64 = decideSourcePrimitiveBinaryOperator("add", fixed("native-int"), wide, known64);
+  assert.equal(at64.kind === "resolved" && at64.result === "native-int" && at64.right === "native-int", true);
+  const at32 = decideSourcePrimitiveBinaryOperator("add", fixed("native-int"), wide, known32);
+  assert.equal(at32.kind === "refused" && at32.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true, "outside the 32-bit range");
+  for (const [platform, code] of [
+    [missing, "TSONIC_NATIVE_INTEGER_WIDTH_MISSING"], [conflicting, "TSONIC_NATIVE_INTEGER_WIDTH_CONFLICTING"],
+  ] as const) {
+    const refused = decideSourcePrimitiveBinaryOperator("add", unbound("4294967296"), fixed("native-uint"), platform);
+    assert.equal(refused.kind === "refused" && refused.code === code, true, code);
+    const expected = decideSourcePrimitiveBinaryOperator("add", unbound("7"), wide, platform, "native-int");
+    assert.equal(expected.kind === "refused" && expected.code === code, true, `${code}: expected native kind`);
+    // No width decision: width-independent literals, two fixed native operands, shifts and unary operators.
+    const narrow = decideSourcePrimitiveBinaryOperator("add", fixed("native-int"), unbound("2"), platform);
+    assert.equal(narrow.kind === "resolved" && narrow.result === "native-int", true, `${code}: 2 fits every width`);
+    const pair = decideSourcePrimitiveBinaryOperator("multiply", fixed("native-uint"), fixed("native-uint"), platform);
+    assert.equal(pair.kind === "resolved" && pair.result === "native-uint", true, code);
+    const shift = decideSourcePrimitiveBinaryOperator("shift-left", fixed("native-int"), unbound("3"), platform);
+    assert.equal(shift.kind === "resolved" && shift.result === "native-int" && shift.right === "int32", true, code);
+    assert.equal(decideSourcePrimitiveUnaryOperator("bit-not", "native-uint").kind, "resolved");
+    // The expected native kind is not usable when a fixed operand differs, so no width is needed.
+    const unused = decideSourcePrimitiveBinaryOperator("add", fixed("int32"), wide, platform, "native-int");
+    assert.equal(unused.kind === "resolved" && unused.result === "float64", true, `${code}: expected kind not taken`);
+    // int64 decisions are unchanged.
+    const int64 = decideSourcePrimitiveBinaryOperator("add", fixed("int64"), unbound("9223372036854775807"), platform);
+    assert.equal(int64.kind === "resolved" && int64.result === "int64" && int64.right === "int64", true, code);
+  }
+});
+
+test("E24 fixed-operand decisions are identical under every premise", () => {
+  for (const operator of sourcePrimitiveBinaryOperators) {
+    for (const left of sourcePrimitiveOperatorKinds) for (const right of sourcePrimitiveOperatorKinds) {
+      const reference = decideSourcePrimitiveBinaryOperator(operator, fixed(left), fixed(right), known64);
+      const others: readonly SourcePlatformFacts[] = [known32, missing, conflicting];
+      for (const platform of others) {
+        assert.deepEqual(decideSourcePrimitiveBinaryOperator(operator, fixed(left), fixed(right), platform), reference,
+          `${operator}: ${left}, ${right}`);
+      }
+    }
+  }
 });
 
 test("D-A floating literal adaptation uses original authored magnitude and checked provenance", () => {
@@ -351,18 +457,18 @@ test("D-A folded floating fit leaves integer bounds, fixed operand widths and sh
     const operand: SourcePrimitiveOperatorOperand = { kind: "unbound-literal", primitive: "float64", literal };
     const fits = row.constant >= -2147483648n && row.constant <= 2147483647n;
     assert.equal(sourcePrimitiveOperatorLiteralFits(literal, "int32"), fits, row.expression);
-    const shifted = decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), operand, "int64");
+    const shifted = decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), operand, known64, "int64");
     assert.equal(shifted.kind === "resolved", fits, row.expression);
     if (shifted.kind === "resolved") {
       assert.equal(shifted.result === "int64" && shifted.left === "int64" && shifted.right === "int32", true, row.expression);
     }
-    const fixedWidth = decideSourcePrimitiveBinaryOperator("add", fixed("float64"), operand, "int32");
+    const fixedWidth = decideSourcePrimitiveBinaryOperator("add", fixed("float64"), operand, known64, "int32");
     assert.equal(fixedWidth.kind === "resolved" && fixedWidth.left === "float64" && fixedWidth.result === "float64", true, row.expression);
   }
-  assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed("int64"), "int32").kind, "resolved",
+  assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed("int64"), known64, "int32").kind, "resolved",
     "Q3 admits the unchanged int64 count through the existing checked Native index conversion");
   for (const primitive of ["uint32", "uint64", "native-int", "native-uint", "int128", "uint128", "float16", "float32", "float64", "decimal"] as const) {
-    assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed(primitive), "int32").kind, "refused", primitive);
+    assert.equal(decideSourcePrimitiveBinaryOperator("shift-left", fixed("int64"), fixed(primitive), known64, "int32").kind, "refused", primitive);
   }
 });
 
@@ -409,4 +515,9 @@ function bigintLiteral(integer: bigint): SourceLiteralValue {
 
 function unboundBigint(integer: bigint): SourcePrimitiveOperatorOperand {
   return { kind: "unbound-literal", primitive: "bigint", literal: bigintLiteral(integer) };
+}
+
+/** An unbound folded whole number (for example `(2147483648)` or `-(2147483649)`) with its exact integer receipt. */
+function unboundBigintFloat(integer: bigint): SourcePrimitiveOperatorOperand {
+  return { kind: "unbound-literal", primitive: "float64", literal: { form: "parenthesized", integerConstant: integer } };
 }

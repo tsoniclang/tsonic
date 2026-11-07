@@ -14,7 +14,7 @@ function fixture(text, nativeAvailable = true) {
     "/src/index.ts": `export {}; ${text}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const nodes = source.navigation.nodes;
   const budget = createSourceDeclarationOwnershipBudget(nodes[0], defaultSourceDeclarationOwnershipLimits);
