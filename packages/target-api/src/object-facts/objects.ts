@@ -164,9 +164,14 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
   // authored default with the earlier bindings substituted (the sole substitution, I6). A binder with neither is not
   // published (the clause names fewer arguments than binders only when defaults supply the rest).
   const heritageEdge = (edge: SourceDeclaredHeritageEdge): SourceHeritageEdge | SourceRefusal => {
+    const instance = instanceDeclaration(edge.target.declaration);
+    if (instance === undefined) {
+      return raise("TSONIC_SOURCE_HERITAGE_UNRESOLVED", edge.heritage,
+        "The heritage target has no class or interface declaration that names its instance type.");
+    }
     const typeArguments: SourceTypeDescriptor[] = [];
-    const binders = !hasTypeParameters(edge.target.declaration) ? []
-      : ast.typeParameters(edge.target.declaration).filter((binder): binder is Node => binder !== undefined);
+    const binders = !hasTypeParameters(instance) ? []
+      : ast.typeParameters(instance).filter((binder): binder is Node => binder !== undefined);
     const bindings = new Map<Node, SourceTypeDescriptor>();
     for (const [index, argument] of edge.typeArguments.entries()) {
       const selected = descriptor(argument);
@@ -186,7 +191,7 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     }
     // The base reference (FX-CC-H2): the target declaration's Host instance type (values.type of the class / interface
     // declaration, with its definition) applied to this clause's type arguments by the sole substitution (I6).
-    const target = selfType(edge.target.declaration);
+    const target = selfType(instance);
     if (refused(target)) return target;
     const type = bindings.size === 0 ? target : input.substitute(target, bindings);
     return Object.freeze({
@@ -213,6 +218,14 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       : heritageEdges(result.edges);
     heritageMemo.set(declaration, selected);
     return selected;
+  };
+
+  // The declaration that names a heritage target's instance type: the target itself when it is a class or interface,
+  // else the first class or interface declaration merged with it (lib `interface Error` + `declare var Error`).
+  const instanceDeclaration = (target: Node): Node | undefined => {
+    const names = (declaration: Node): boolean => ast.is.IsClassDeclaration(declaration) ||
+      ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration);
+    return names(target) ? target : navigation.mergedDeclarations(target).find(names);
   };
 
   // A declaration kind that can declare type parameters (ast.typeParameters is defined only for those, E13).

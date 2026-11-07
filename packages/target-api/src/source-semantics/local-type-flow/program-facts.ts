@@ -82,7 +82,17 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   const sourceFileOf = (node: Node): SourceFile => ast.getSourceFile(node) ?? invariant(ast, node, "a value node requires its source file");
 
   // ---- values ----------------------------------------------------------------------------------------------------
+  // One outcome per node for this program view. The declaration and ambient branches describe through the descriptor
+  // reader, whose expansion of a recursive library type is costly, so a repeated query must not describe again.
+  const typeOutcomes = new Map<Node, SourceTypeOutcome>();
   function type(node: Node): SourceTypeOutcome {
+    const known = typeOutcomes.get(node);
+    if (known !== undefined) return known;
+    const outcome = describeNode(node);
+    typeOutcomes.set(node, outcome);
+    return outcome;
+  }
+  function describeNode(node: Node): SourceTypeOutcome {
     const outcome = solved.get(node);
     if (outcome !== undefined) {
       // An element access whose selection no Host rule names is refused at the access (E8); its record never exists.
@@ -128,7 +138,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     // member or export-assignment expression) is outside the solver's program-file domain (defaults.ts skips declaration
     // files). It is described from declaration input (the referenced declarations through the one descriptor reader), or
     // refused.
-    if (sourceTypeFlowValueSyntax(ast, node) && ast.isDeclarationFile(sourceFileOf(node))) {
+    if (ambientValueExpression(node)) {
       const described = solved.declarationValue(node);
       if (described === undefined) {
         return Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", site: node,
@@ -207,7 +217,17 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
       isTypeSyntaxNode(ast, node) || declarationValueNode(node) || ast.is.IsPropertyAssignment(node) ||
       ast.is.IsShorthandPropertyAssignment(node) || ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node) ||
       ast.is.IsTypeAliasDeclaration(node) ||
-      sourceTypeFlowValueSyntax(ast, node) && ast.isDeclarationFile(sourceFileOf(node)) || declarationName(node);
+      ambientValueExpression(node) || declarationName(node);
+  }
+  // A value expression of a declaration file: value syntax under the only value positions such a file has, a computed
+  // member name, an enum member or an export assignment. An import or export binding name, a type name and any other
+  // identifier of a declaration file are not values.
+  function ambientValueExpression(node: Node): boolean {
+    if (!sourceTypeFlowValueSyntax(ast, node) || !ast.isDeclarationFile(sourceFileOf(node))) return false;
+    for (let at = ast.parent(node); at !== undefined && !ast.is.IsSourceFile(at); at = ast.parent(at)) {
+      if (ast.is.IsComputedPropertyName(at) || ast.is.IsEnumMember(at) || ast.is.IsExportAssignment(at)) return true;
+    }
+    return false;
   }
   function declarationName(node: Node): boolean {
     const named = ast.parent(node);
