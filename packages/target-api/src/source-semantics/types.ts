@@ -4,7 +4,7 @@ import type {
   ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo,
   ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol,
-  TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
+  TypeSignatureParameterInfo, TypeTupleElementInfo, Type, TypeIntrinsicNullishFlags,
 } from "@tsonic/tsts";
 import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/types.js";
 import type { SourceNavigationDeclarationQueries, SourceNavigationOperationQueries,
@@ -33,6 +33,7 @@ export interface SourceOperationEvidenceQueries extends SourceNavigationOperatio
 }
 
 export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
+  intrinsicNullishFlags(type: Type): TypeIntrinsicNullishFlags;
   awaitedType(type: Type): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): SourceTypeComponentEvidence | undefined;

@@ -8,7 +8,7 @@ import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
-import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeDescriptorUnions, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 
 function fixture(text: string, noImplicitAny = true) {
@@ -21,7 +21,7 @@ function fixture(text: string, noImplicitAny = true) {
     exports: [sourcePrimitive("int32", "int32", "number", true, 32), sourcePrimitive("float32", "float32", "number", true, 32)] }] })] } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
   const source = createTargetSourceProgram(checked);
-  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const defaults = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles));
   const declaration = (name: string): Node => {
     const selected = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
     if (selected === undefined) throw new Error(`The original declaration ${name} is required.`);
@@ -864,7 +864,7 @@ test("excluded annotations and tuple aliases retain the included consumer's quer
     assert.equal(file === consumer, true, "foreign metadata keeps the original consumer query");
     return checked.getSourceFileQueries(file);
   } });
-  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const defaults = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles));
   const retained = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "retained");
   const pair = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "pair");
   if (retained === undefined || pair === undefined) throw new Error("The included declarations are required.");

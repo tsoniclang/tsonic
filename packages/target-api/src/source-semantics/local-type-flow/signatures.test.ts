@@ -6,7 +6,7 @@ import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms } from "./terms.js";
+import { createSourceTypeDescriptorUnions, createSourceTypeFlowTerms } from "./terms.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowCall,
@@ -40,7 +40,7 @@ function fixture(text: string) {
   };
   visit(file);
   const context: SourceTypeFlowAnalysisContext = {
-    source,
+    source, unions: createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles),
     authoredInheritedBindings: () => new Map(),
     describe: () => undefined,
     literal: () => undefined,
@@ -569,7 +569,7 @@ test("C2388 contextual authored results do not become inferred signatures", () =
       const read: () => number[] = () => { const values = [1]; return values; }; return read();
     }
     function inferred() { const values = [1]; take(values); return values; }`);
-  const { context } = createSourceTypeFlowAnalysisContext(current.source);
+  const { context } = createSourceTypeFlowAnalysisContext(current.source, current.context.unions);
   const collected = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(current.source.ast, collected);
   const signatures = collectSourceTypeFlowSignatures(context, collected, terms.isInference);

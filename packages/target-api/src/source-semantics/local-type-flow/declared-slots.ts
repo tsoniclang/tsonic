@@ -254,7 +254,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const retained = origin === undefined ? selected : { ...origin,
       ...(selected.contextualCall === undefined ? {} : { contextualCall: selected.contextualCall }) };
     const projected = described === undefined ? undefined : parameterKind === "optional"
-      ? sourceTypeDescriptorUnion([described, { kind: "intrinsic", intrinsic: "absence" }]) : described;
+      ? sourceTypeDescriptorUnion(context.unions, [described, { kind: "intrinsic", intrinsic: "absence" }]) : described;
     return projected === undefined ? Object.freeze({ component: retained, authority: "declared" })
       : Object.freeze({ ...(parameterIndex === undefined ? slot(node, projected, "declared")
         : { type: projected, authority: "declared" as const }), component: retained });
@@ -315,7 +315,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const parameter = (selected.kind === "callable" || selected.kind === "shape") && selected.calls.length === 1
       ? selected.calls[0]?.parameters[index] : undefined;
     return parameter?.kind === "optional"
-      ? sourceTypeDescriptorUnion([parameter.type, { kind: "intrinsic", intrinsic: "absence" }]) : parameter?.type;
+      ? sourceTypeDescriptorUnion(context.unions, [parameter.type, { kind: "intrinsic", intrinsic: "absence" }]) : parameter?.type;
   }
 
   function parameterValue(node: Node, type: SourceTypeDescriptor | undefined, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
@@ -540,13 +540,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       const numeric = selected.constant.kind === "numeric";
       const index = shape?.indexes.find(index => numeric && index.key.kind === "primitive" && index.key.primitive === "float64") ??
         shape?.indexes.find(index => index.key.kind === "string");
-      const member = shape?.members.find(member => member.name === selected.name);
-      const memberType = member?.type ?? index?.value;
-      if (memberType === undefined) return Object.freeze({ authority: enclosing.authority });
-      const result = projected(node, memberType, enclosing.authority);
-      const declaration = member?.origin.kind === "declared" ? member.origin.declaration : index?.declaration;
-      const retained = declaration === undefined ? undefined : component(declaration, query);
-      return result === undefined || retained === undefined ? result : Object.freeze({ ...result, component: retained });
+      const memberType = shape?.members.find(member => member.name === selected.name)?.type ?? index?.value;
+      return memberType === undefined ? Object.freeze({ authority: enclosing.authority }) : projected(node, memberType, enclosing.authority);
     }
     if (ast.is.IsArrayLiteralExpression(parent)) {
       const enclosing = read(parent, query);

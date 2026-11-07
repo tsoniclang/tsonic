@@ -7,7 +7,7 @@ import {
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
-import { createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeDescriptorUnions, createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
@@ -59,7 +59,7 @@ function fixture(program: string, excludedFiles: Readonly<Record<string, string>
       return checked.getSourceFileQueries(sourceFile);
     },
   });
-  const context = createSourceTypeFlowAnalysisContext(source).context;
+  const context = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles)).context;
   const graph = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(source.ast, graph);
   const syntax: Node[] = [];

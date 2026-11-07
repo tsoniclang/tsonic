@@ -390,18 +390,20 @@ function requiredUse(
   // A declared `object` slot fills only a generic call's result binder (B2: the instantiation becomes concrete). It never
   // fills an ordinary value group: a literal stored there keeps its own construction (C-2246), and an unannotated empty
   // literal keeps its own refusal (28j').
+  if (queries.types.isNonPrimitive(component.selectedType) && homomorphicInput === undefined &&
+    !constructions.some(construction => construction.node === record.node)) {
+    const ast = context.source.ast;
+    if (!(ast.is.IsCallExpression(record.node) || ast.is.IsNewExpression(record.node)) ||
+      record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
+    const type = context.describe(record.node, component);
+    return type === undefined ? refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association)
+      : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
+  }
   if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
   const rawUnion = constructions.length === 0 && queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType);
   let type = projected ?? context.describe(record.node, component);
   if (type === undefined) return refusal(record, site, rawUnion ? "TSONIC_LOCAL_TYPE_UNION" : "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
   const structure = sourceTypeDescriptorStructure(type);
-  if (sourceTypeFlowBroadSlotKind(type) === "object" && homomorphicInput === undefined &&
-    !constructions.some(construction => construction.node === record.node)) {
-    const ast = context.source.ast;
-    if (!(ast.is.IsCallExpression(record.node) || ast.is.IsNewExpression(record.node)) ||
-      record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
-    return Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
-  }
   if (sourceTypeFlowIsBroadSlot(type) && !(structure.kind === "intrinsic" && structure.intrinsic === "object" &&
     homomorphicInput !== undefined)) return none();
   if (rawUnion) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
