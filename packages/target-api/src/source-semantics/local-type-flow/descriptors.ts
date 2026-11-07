@@ -1,7 +1,7 @@
 import { sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type, type TypeAliasApplicationInfo } from "@tsonic/tsts";
 import { sourceArrayElementType } from "../array-types.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
-import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
+import { createSourceTypeDescriptorNormalizer, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descriptors.js";
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
@@ -24,6 +24,7 @@ export type SourceTypeDescriptorReadResult =
 
 export function createSourceTypeDescriptorReader(
   source: SourceTypeFlowSource,
+  unions: SourceTypeDescriptorUnions,
   declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node, excludedDeclarations?: ReadonlySet<Node>) => Node | undefined,
   parametersFor: (declaration: Node) => readonly Node[],
   declaredValue: (declaration: Node, queries: SourceFileSemantics, bindings: Bindings) => SourceTypeDescriptor | undefined,
@@ -85,6 +86,10 @@ export function createSourceTypeDescriptorReader(
 
   function syntax(node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
+    if (ast.is.IsUnionTypeNode(node) && bindings.size > 0) {
+      const original = syntax(node, queries, depth, empty);
+      return original === undefined ? undefined : createSourceTypeDescriptorNormalizer(unions, bindings)(original);
+    }
     return expand(queries.types.authoredType(node), node, depth, () => readSyntax(node, queries, depth, bindings));
   }
 
@@ -125,7 +130,7 @@ export function createSourceTypeDescriptorReader(
         if (value === undefined) return undefined;
         types.push(value);
       }
-      return sourceTypeDescriptorUnion(types);
+      return sourceTypeDescriptorUnion(unions, types, { kind: "authored", node }, bindings);
     }
     if (ast.is.IsTypeLiteralNode(node)) return structure(selectedType, queries, depth, bindings);
     if (ast.is.IsMappedTypeNode(node)) return structure(selectedType, queries, depth, bindings, node);
@@ -345,7 +350,7 @@ export function createSourceTypeDescriptorReader(
     let definition: SourceTypeDescriptor | undefined;
     try {
       definition = application?.kind === "conditional"
-        ? sourceTypeDescriptorConditionalDefinition(source, queries, application, bindings,
+        ? sourceTypeDescriptorConditionalDefinition(source, unions, queries, application, bindings,
           (node, selected, checked) => {
             const previous = conditionalBindings;
             conditionalBindings = new Map([...previous, ...checked]);
@@ -527,7 +532,7 @@ export function createSourceTypeDescriptorReader(
         if (selected === undefined) return undefined;
         types.push(selected);
       }
-      return sourceTypeDescriptorUnion(types);
+      return sourceTypeDescriptorUnion(unions, types);
     }
     if (queries.types.isIntersection(selectedType)) {
       if (declaration !== undefined) return nominal(selectedType, declaration, [], queries, component, depth, bindings);

@@ -1,4 +1,5 @@
 import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, SourcePrimitiveKind, Type } from "@tsonic/tsts";
+import type { SourceTypeDescriptorUnions } from "./terms.js";
 import type { SourceProgramNavigation } from "../../source-navigation/types.js";
 import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
@@ -173,8 +174,42 @@ export interface SourceEffectiveCallInstantiation {
   readonly result?: SourceTypeDescriptor;
 }
 
+export interface SourceSumIdentity {
+  readonly family: Node;
+  readonly application: readonly SourceTypeDescriptor[];
+}
+
+export interface SourceClosedSum {
+  readonly identity: SourceSumIdentity;
+  readonly arms: readonly { readonly role: number; readonly type: SourceTypeDescriptor }[];
+  readonly roles: readonly { readonly role: number; readonly arms: readonly number[] }[];
+}
+
+export interface SourceDeclaredSlot {
+  readonly slot: Node;
+  readonly type: SourceTypeDescriptor;
+  readonly broad: boolean;
+}
+
+export interface SourceMethodValueUse {
+  readonly occurrence: Node;
+  readonly read: Node;
+  readonly receiver: Node;
+  readonly declaration: Node;
+  readonly type: SourceTypeDescriptor;
+  readonly provenance: SourceEffectiveTypeProvenance;
+  readonly alias: {
+    readonly principal: Node;
+    readonly initializer: Node;
+    readonly provenance: SourceEffectiveTypeProvenance;
+  } | undefined;
+}
+
 export interface SourceEffectiveTypes {
+  sum(identity: SourceSumIdentity): SourceClosedSum | undefined;
   get(node: Node): SourceEffectiveTypeOutcome | undefined;
+  declaredSlot(slot: Node): SourceDeclaredSlot | undefined;
+  methodValueUse(occurrence: Node): SourceMethodValueUse | undefined;
   callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined;
   callInstantiation(call: Node): SourceEffectiveCallInstantiation | undefined;
   obligations(): readonly SourceTypeFlowObligation[];
@@ -201,6 +236,7 @@ export interface SourceTypeFlowInheritedBinding {
 
 export interface SourceTypeFlowAnalysisContext {
   readonly source: SourceTypeFlowSource;
+  readonly unions: SourceTypeDescriptorUnions;
   describe(node: Node, component?: SourceTypeComponentEvidence,
     arguments_?: readonly SourceEffectiveTypeArgument[]): SourceTypeDescriptor | undefined;
   authoredInheritedBindings(type: Type, queries: SourceFileSemantics, bindings: ReadonlyMap<Node, SourceTypeDescriptor>):
@@ -224,6 +260,8 @@ export interface SourceTypeFlowVariable {
 export type SourceTypeFlowTerm =
   | { readonly kind: "numeric"; readonly site: Node; readonly form: "integer" | "fractional"; readonly literal: SourceLiteralValue }
   | { readonly kind: "fixed"; readonly site: Node; readonly type: SourceTypeDescriptor }
+  | { readonly kind: "template"; readonly site: Node; readonly type: SourceTypeDescriptor;
+      readonly bindings: readonly { readonly declaration: Node; readonly variable: SourceTypeFlowVariable }[] }
   | { readonly kind: "array"; readonly site: Node; readonly element: SourceTypeFlowVariable; readonly readonly: boolean }
   | { readonly kind: "optional"; readonly site: Node; readonly value: SourceTypeFlowVariable; readonly source: SourceTypeComponentEvidence }
   | { readonly kind: "tuple"; readonly site: Node; readonly elements: readonly {
@@ -319,6 +357,7 @@ export interface SourceTypeFlowGraph {
   readonly roots: readonly Node[];
   readonly nodes: readonly SourceTypeFlowNode[];
   readonly links: readonly SourceTypeFlowLink[];
+  readonly inferenceInputs: readonly SourceTypeFlowLink[];
   readonly derived: readonly SourceTypeFlowDerived[];
   readonly calls: readonly SourceTypeFlowCall[];
   readonly refusals: readonly SourceTypeFlowRefusal[];

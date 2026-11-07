@@ -1,14 +1,67 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/ast.js";
-import { freezeSourceTypeDescriptor, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
+import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceTypeComponentEvidence } from "../types.js";
 import type {
-  SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceTypeDescriptor,
+  SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceMethodValueUse, SourceTypeDescriptor,
   SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal,
 } from "./types.js";
+
+export function createSourceMethodValueUses(context: SourceTypeFlowAnalysisContext, nodes: readonly Node[],
+  outcomes: ReadonlyMap<Node, SourceEffectiveTypeOutcome>): ReadonlyMap<Node, SourceMethodValueUse> {
+  const { ast, semantics, navigation } = context.source;
+  const result = new Map<Node, SourceMethodValueUse>();
+  for (const occurrence of nodes) {
+    const outcome = outcomes.get(occurrence);
+    if (outcome === undefined || outcome.kind === "refused" || outcome.type.kind !== "callable" ||
+      outcome.type.calls.length !== 1 || outcome.type.constructs.length !== 0) continue;
+    const declaration = outcome.type.calls[0]!.declaration;
+    if (declaration === undefined || !(ast.is.IsMethodDeclaration(declaration) ||
+      ast.is.IsMethodSignatureDeclaration(declaration))) continue;
+    let read = occurrence;
+    let alias: SourceMethodValueUse["alias"];
+    if (!(ast.is.IsPropertyAccessExpression(read) || ast.is.IsElementAccessExpression(read))) {
+      const principal = ast.is.IsVariableDeclaration(occurrence) ? occurrence : ast.is.IsIdentifier(occurrence)
+        ? navigation.sourceReferenceFor(occurrence)?.declaration : undefined;
+      if (principal === undefined || !ast.is.IsVariableDeclaration(principal) || ast.typeNode(principal) !== undefined ||
+        navigation.declarationUseSummary(principal).bindingWritten) continue;
+      const initializer = Node_Initializer(ast, principal);
+      if (initializer === undefined || !(ast.is.IsPropertyAccessExpression(initializer) ||
+        ast.is.IsElementAccessExpression(initializer))) continue;
+      const selected = outcomes.get(principal);
+      const initial = outcomes.get(initializer);
+      if (selected === undefined || selected.kind === "refused" || selected.provenance.occurrence !== principal ||
+        initial === undefined || initial.kind === "refused" || selected.type.kind !== "callable" ||
+        initial.type.kind !== "callable" || selected.type.calls.length !== 1 || initial.type.calls.length !== 1 ||
+        selected.type.calls[0]!.declaration !== declaration || initial.type.calls[0]!.declaration !== declaration ||
+        !sourceTypeDescriptorsEqual(outcome.type, selected.type) || !sourceTypeDescriptorsEqual(outcome.type, initial.type)) continue;
+      read = initializer;
+      alias = Object.freeze({ principal, initializer, provenance: selected.provenance });
+    }
+    const queries = semantics.forNode(read);
+    const access = ast.is.IsPropertyAccessExpression(read) ? queries.operations.propertyAccess(read)
+      : queries.operations.elementAccess(read);
+    const selected = access === undefined ? undefined : "selectedReadDeclaration" in access
+      ? access.selectedReadDeclaration ?? access.selectedDeclaration : access.selectedDeclaration;
+    if (selected !== declaration || access === undefined) continue;
+    let input = read;
+    let parent = ast.parent(input);
+    while (parent !== undefined && sourceTransparentExpressionOperand(ast, parent) === input) {
+      input = parent;
+      parent = ast.parent(parent);
+    }
+    if (parent !== undefined && (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
+      Node_Expression(ast, parent) === input) continue;
+    const receiver = access.receiver.expression;
+    if (receiver === undefined) continue;
+    result.set(occurrence, Object.freeze({ occurrence, read, receiver, declaration, type: outcome.type,
+      provenance: outcome.provenance, alias }));
+  }
+  return result;
+}
 
 export function sourceLiteralMemberCorrespondence(context: SourceTypeFlowAnalysisContext, node: Node,
   type: SourceTypeDescriptor, component?: SourceTypeComponentEvidence): readonly SourceLiteralMemberCorrespondence[] | undefined {
@@ -102,7 +155,7 @@ export function publishSourceLiteralMetadata(
       types.push(projected);
     }
     return { kind: "array", readonly: false,
-      element: sourceTypeDescriptorUnion(types) ?? { kind: "intrinsic", intrinsic: "never" } };
+      element: sourceTypeDescriptorUnion(context.unions, types) ?? { kind: "intrinsic", intrinsic: "never" } };
   }
 
   function object(node: Node): SourceTypeDescriptor | SourceTypeFlowRefusal {
@@ -133,7 +186,7 @@ export function publishSourceLiteralMetadata(
       const selected = evidence?.sourceElementSymbol === undefined ? undefined
         : queries.types.propertyInfos(evidence.objectLiteralType).find(member => member.symbol === evidence.sourceElementSymbol);
       if (!ast.is.IsSetAccessorDeclaration(property) || !members.has(name.name)) members.set(name.name, {
-        name: name.name, type: outcome.type, origin: { kind: "declared", declaration: property }, optional: false,
+        name: name.name, type: outcome.construction ?? outcome.type, origin: { kind: "declared", declaration: property }, optional: false,
         ...(selected === undefined ? {} : { readonly: selected.readonly }),
       });
     }
@@ -155,8 +208,10 @@ export function publishSourceLiteralMetadata(
       return refusal;
     }
     const broad = type.kind === "intrinsic" && (type.intrinsic === "object" || type.intrinsic === "unknown");
-    const construction = !broad ? undefined : ast.is.IsObjectLiteralExpression(node) ? object(node) : array(node);
-    if (construction?.kind === "refused") { outcomes.set(node, construction); return construction; }
+    const constructed = broad || ast.is.IsObjectLiteralExpression(node) && type.kind === "shape";
+    const produced = !constructed ? undefined : ast.is.IsObjectLiteralExpression(node) ? object(node) : array(node);
+    if (produced?.kind === "refused") { outcomes.set(node, produced); return produced; }
+    const construction = produced === undefined || sourceTypeDescriptorsEqual(produced, type) ? undefined : produced;
     const memberCorrespondence = sourceLiteralMemberCorrespondence(context, node, type, retainedFill(node));
     const owner = ast.parent(node);
     const principal = ast.is.IsObjectLiteralExpression(node) && owner !== undefined && ast.is.IsVariableDeclaration(owner) &&

@@ -31,6 +31,17 @@ const shifts = new Set([
   "KindGreaterThanGreaterThanGreaterThanEqualsToken",
 ]);
 
+export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
+  const broad = (type: SourceTypeDescriptor, absorbing: boolean): boolean => {
+    const selected = sourceTypeDescriptorStructure(type);
+    if (selected.kind === "optional") return broad(selected.value, absorbing);
+    if (selected.kind === "union") return selected.types.some(member => broad(member, true));
+    return selected.kind === "intrinsic" && (selected.intrinsic === "unknown" || selected.intrinsic === "any" ||
+      !absorbing && (selected.intrinsic === "object" || selected.intrinsic === "void"));
+  };
+  return broad(type, false);
+}
+
 export function collectSourceTypeFlowUses(
   context: SourceTypeFlowAnalysisContext,
   graph: SourceTypeFlowGraph,
@@ -96,7 +107,7 @@ export function collectSourceTypeFlowUses(
   function declaredSlotFill(record: SourceTypeFlowNode, site: Node, association: SourceTypeFlowAssociation): SourceTypeFlowUse | undefined {
     const slot = declaredSlots.get(record.node);
     if (slot?.authority !== "declared" || slot.type === undefined || slot.refusal !== undefined) return undefined;
-    if (slot.type.kind === "intrinsic" && ["unknown", "any", "object", "void"].includes(slot.type.intrinsic)) return undefined;
+    if (sourceTypeFlowIsBroadSlot(slot.type)) return undefined;
     const retained = slot.component === undefined ? association : Object.freeze({ ...association, component: slot.component });
     const selected = constructionFamilySlot(context, record, constructionFamilies.get(record.variable) ?? [], slot.type);
     if (selected.kind === "refused") return Object.freeze({ kind: "refused", site: selected.site,
@@ -369,7 +380,6 @@ function requiredUse(
   const queries = context.source.semantics.forNode(record.node);
   const association = retained ?? sourceAssociation(context, record.node, component);
   const none = (): SourceTypeFlowUse => Object.freeze({ kind: "none", site, variable: record.variable, association });
-  if (queries.types.isUnknown(component.selectedType) || queries.types.isAny(component.selectedType)) return none();
   // A declared `object` slot fills only a generic call's result binder (B2: the instantiation becomes concrete). It never
   // fills an ordinary value group: a literal stored there keeps its own construction (C-2246), and an unannotated empty
   // literal keeps its own refusal (28j').
@@ -383,11 +393,13 @@ function requiredUse(
       : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
   }
   if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
-  if (constructions.length === 0 && queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
-    return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
-  }
+  const rawUnion = constructions.length === 0 && queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType);
   let type = projected ?? context.describe(record.node, component);
-  if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
+  if (type === undefined) return refusal(record, site, rawUnion ? "TSONIC_LOCAL_TYPE_UNION" : "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
+  const structure = sourceTypeDescriptorStructure(type);
+  if (sourceTypeFlowIsBroadSlot(type) && !(structure.kind === "intrinsic" && structure.intrinsic === "object" &&
+    homomorphicInput !== undefined)) return none();
+  if (rawUnion) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   if (constructions.length > 0) {
     const selected = constructionFamilySlot(context, record, constructions, type);
     if (selected.kind === "refused") return Object.freeze({ kind: "refused", site: selected.site,

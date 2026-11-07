@@ -254,7 +254,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const retained = origin === undefined ? selected : { ...origin,
       ...(selected.contextualCall === undefined ? {} : { contextualCall: selected.contextualCall }) };
     const projected = described === undefined ? undefined : parameterKind === "optional"
-      ? sourceTypeDescriptorUnion([described, { kind: "intrinsic", intrinsic: "absence" }]) : described;
+      ? sourceTypeDescriptorUnion(context.unions, [described, { kind: "intrinsic", intrinsic: "absence" }]) : described;
     return projected === undefined ? Object.freeze({ component: retained, authority: "declared" })
       : Object.freeze({ ...(parameterIndex === undefined ? slot(node, projected, "declared")
         : { type: projected, authority: "declared" as const }), component: retained });
@@ -315,7 +315,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const parameter = (selected.kind === "callable" || selected.kind === "shape") && selected.calls.length === 1
       ? selected.calls[0]?.parameters[index] : undefined;
     return parameter?.kind === "optional"
-      ? sourceTypeDescriptorUnion([parameter.type, { kind: "intrinsic", intrinsic: "absence" }]) : parameter?.type;
+      ? sourceTypeDescriptorUnion(context.unions, [parameter.type, { kind: "intrinsic", intrinsic: "absence" }]) : parameter?.type;
   }
 
   function parameterValue(node: Node, type: SourceTypeDescriptor | undefined, query: SourceFileSemantics): SourceTypeDescriptor | undefined {
@@ -556,6 +556,10 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
   }
 
   return Object.freeze({ get: (node: Node) => read(node, semantics.forNode(node)), authoredBinding,
+    annotation(node: Node): SourceTypeDescriptor | undefined {
+      const selected = component(node, semantics.forNode(node));
+      return selected === undefined ? undefined : context.describe(node, selected);
+    },
     callable: declaredCallable, parameter, returned, retainFixedConstruction(node: Node, type: SourceTypeDescriptor,
     component?: SourceTypeComponentEvidence): void {
     if (read(node, semantics.forNode(node)) !== undefined) return;

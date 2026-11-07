@@ -4,7 +4,8 @@ import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatD
   type CompilerExtension, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import type { SourceTypeComponentEvidence } from "../types.js";
-import { collectSourceTypeFlowUses } from "./uses.js";
+import { collectSourceTypeFlowUses, sourceTypeFlowIsBroadSlot } from "./uses.js";
+import { createSourceTypeDescriptorUnions } from "./terms.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace,
   SourceTypeFlowCall, SourceTypeFlowGraph, SourceTypeFlowLink, SourceTypeFlowNode, SourceTypeFlowTerm,
@@ -17,6 +18,26 @@ const wide: SourceTypeDescriptor = Object.freeze({ kind: "primitive", primitive:
 const single: SourceTypeDescriptor = Object.freeze({ kind: "primitive", primitive: "float32" });
 const string: SourceTypeDescriptor = Object.freeze({ kind: "string" });
 const array = (element: SourceTypeDescriptor, readonly = false): SourceTypeDescriptor => Object.freeze({ kind: "array", element, readonly });
+
+test("C2462 one Host broad-slot classifier preserves absorption, optionality and genuine union destinations", () => {
+  const unknown: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "unknown" };
+  const dynamic: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "any" };
+  const object: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "object" };
+  const empty: SourceTypeDescriptor = { kind: "intrinsic", intrinsic: "void" };
+  const cases: readonly (readonly [string, SourceTypeDescriptor, boolean])[] = [
+    ["unknown", unknown, true], ["any", dynamic, true], ["object", object, true], ["void", empty, true],
+    ["unknown absorbs string", { kind: "union", types: [unknown, string] }, true],
+    ["any absorbs a primitive", { kind: "union", types: [double, dynamic] }, true],
+    ["optional unknown", { kind: "optional", value: unknown }, true],
+    ["optional object", { kind: "optional", value: object }, true],
+    ["object does not absorb string", { kind: "union", types: [object, string] }, false],
+    ["void does not absorb string", { kind: "union", types: [empty, string] }, false],
+    ["optional genuine union", { kind: "optional", value: { kind: "union", types: [object, string] } }, false],
+    ["primitive", double, false], ["string", string, false], ["absence", { kind: "intrinsic", intrinsic: "absence" }, false],
+    ["broad nested element is not a broad array slot", array(unknown), false],
+  ];
+  for (const [name, type, expected] of cases) assert.equal(sourceTypeFlowIsBroadSlot(type), expected, name);
+});
 
 function fixture(program: string, options: { readonly files?: Readonly<Record<string, string>>;
   readonly extensions?: readonly CompilerExtension[]; readonly onlyConsumer?: boolean } = {}) {
@@ -60,12 +81,14 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   const links: SourceTypeFlowLink[] = [];
   const described: { readonly node: Node; readonly component?: SourceTypeComponentEvidence }[] = [];
   const descriptors = new Map<string, SourceTypeDescriptor>([
+    ["unknown", { kind: "intrinsic", intrinsic: "unknown" }], ["any", { kind: "intrinsic", intrinsic: "any" }],
+    ["object", { kind: "intrinsic", intrinsic: "object" }], ["void", { kind: "intrinsic", intrinsic: "void" }],
     ["number", double], ["int32", integer], ["int64", wide], ["float32", single], ["string", string],
     ["number[]", array(double)], ["int32[]", array(integer)], ["int64[]", array(wide)], ["float32[]", array(single)],
     ["readonly number[]", array(double, true)], ["readonly int32[]", array(integer, true)],
   ]);
   const context: SourceTypeFlowAnalysisContext = Object.freeze({
-    source,
+    source, unions: createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles),
     authoredInheritedBindings: () => new Map(),
     describe(node: Node, component?: SourceTypeComponentEvidence): SourceTypeDescriptor | undefined {
       described.push({ node, ...(component === undefined ? {} : { component }) });
@@ -127,7 +150,7 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   }
   function graph(): SourceTypeFlowGraph {
     return Object.freeze({ roots: Object.freeze([root!]), nodes: Object.freeze([...nodes]), calls: Object.freeze([...calls]),
-      links: Object.freeze([...links]), derived: Object.freeze([]), refusals: Object.freeze([]) });
+      links: Object.freeze([...links]), inferenceInputs: Object.freeze([]), derived: Object.freeze([]), refusals: Object.freeze([]) });
   }
   function link(source: SourceTypeFlowVariable, target: SourceTypeFlowVariable, site: Node): void {
     links.push(Object.freeze({ source, target, site }));
