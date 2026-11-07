@@ -1,11 +1,11 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "../types.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
 // The awaited payload of an await operand from the operand's own descriptor: the declared type argument identical to the
 // checker's awaited type (the same rule as async returns). A non-thenable operand is its own payload.
-export function sourceTypeFlowAwaitedPayload(unions: SourceTypeDescriptorUnions, queries: SourceFileSemantics, operand: Node,
+export function sourceTypeFlowAwaitedPayload(queries: SourceFileSemantics, operand: Node,
   described: SourceTypeDescriptor | undefined): SourceTypeDescriptor | undefined {
   const actual = queries.types.expressionType(operand);
   const awaited = actual === undefined ? undefined : queries.types.awaitedType(actual);
@@ -57,5 +57,5 @@ export function sourceTypeFlowAwaitedPayload(unions: SourceTypeDescriptorUnions,
   }
   if (sourceAbsent !== absent) return undefined;
   if (absent) payloads.push({ kind: "intrinsic", intrinsic: "absence" });
-  return sourceTypeDescriptorUnion(unions, payloads);
+  return sourceTypeDescriptorUnion(payloads);
 }

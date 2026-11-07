@@ -4,7 +4,6 @@ import type { SourceLiteralValue } from "../literal-values-model.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
 import { getSourceCallTypeParameterDeclaration, getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
-import type { SourceTypeDescriptorUnions } from "./terms.js";
 import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
@@ -19,7 +18,7 @@ import type {
 } from "./types.js";
 
 export interface SourceTypeFlowDefaults {
-  readonly unionComponents: ReadonlyMap<Node, SourceTypeDescriptor>;
+  readonly numberOrigins: ReadonlyMap<Node, SourceLiteralValue>;
   readonly context: SourceTypeFlowAnalysisContext;
   readonly nodes: readonly Node[];
   readonly values: readonly Node[];
@@ -31,12 +30,12 @@ export interface SourceTypeFlowDefaults {
   hasDeclaredSourceType(node: Node): boolean;
 }
 
-export function sourceTypeFlowCallResultType(unions: SourceTypeDescriptorUnions, queries: SourceFileSemantics, call: ResolvedSourceCallInfo,
+export function sourceTypeFlowCallResultType(queries: SourceFileSemantics, call: ResolvedSourceCallInfo,
   type: SourceTypeDescriptor): SourceTypeDescriptor {
   return call.optionalChain === true && sourceTypeDescriptorStructure(type).kind !== "optional" &&
     queries.types.isUnion(call.sourceResultType) && queries.types.unionOrIntersectionTypes(call.sourceResultType)
       .some(member => queries.types.isNullish(member))
-    ? sourceTypeDescriptorUnion(unions, [type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
+    ? sourceTypeDescriptorUnion([type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
 }
 
 export function sourceTypeFlowTypeIsPresent(types: SourceFileSemantics["types"], type: Type | undefined): boolean {
@@ -99,7 +98,7 @@ function sourceTypeFlowOptionalChainRead(node: Node, queries: SourceFileSemantic
     queries.operations.call(node)?.optionalChain === true;
 }
 
-export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource, unions: SourceTypeDescriptorUnions): SourceTypeFlowDefaults {
+export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource): SourceTypeFlowDefaults {
   const { ast, semantics, navigation, sourceFacts } = source;
   const literals = analyzeSourceLiteralValues(ast, source.sourceFiles).literalValue;
   const nodes: Node[] = [];
@@ -123,6 +122,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       const child = children[index];
       if (child !== undefined) pending.push({ node: child, typeOnly });
     }
+  }
+  const numberOrigins = new Map<Node, SourceLiteralValue>();
+  for (const node of nodes) {
+    const literal = literals.get(node);
+    if (literal?.numeric !== undefined) numberOrigins.set(node, literal);
   }
   const cache = new WeakMap<Node, SourceTypeDescriptor>();
   const signatureRefusals = sourceTypeFlowRecursiveSignatures(source, nodes);
@@ -205,7 +209,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return sourceTypeFlowTypeDeclaration(source, queries, type, authoredTypeNode, excludedDeclarations);
   }
 
-  const descriptor = createSourceTypeDescriptorReader(source, unions, typeDeclaration,
+  const descriptor = createSourceTypeDescriptorReader(source, typeDeclaration,
     declaration => sourceTypeFlowTypeParameters(ast, declaration), (declaration, queries, bindings) =>
       describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))),
     declaration => signatureRefusals.has(declaration));
@@ -323,7 +327,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
           elements: positions.map((position, index) => ({ kind: position.elementKind === "variadic" ? "rest" : position.elementKind,
             type: elements[index]!, ...(position.declaration === undefined ? {} : { declaration: position.declaration }) })) };
       }
-      const selected = sourceTypeDescriptorUnion(unions, elements);
+      const selected = sourceTypeDescriptorUnion(elements);
       return selected === undefined ? undefined : { kind: "array", readonly: false, element: selected };
     }
     if (ast.is.IsObjectLiteralExpression(node)) {
@@ -455,7 +459,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (selected?.kind === "authored-members") {
         const members = selected.nodes.map(member => describeSyntax(member, queries, depth, bindings));
         if (members.every((member): member is SourceTypeDescriptor => member !== undefined)) {
-          result = sourceTypeDescriptorUnion(unions, [...members,
+          result = sourceTypeDescriptorUnion([...members,
             ...selected.selectedNullishTypes.map(() => ({ kind: "intrinsic", intrinsic: "absence" }) as const)]);
         }
       } else result = describeSyntax(annotation, queries, depth, bindings);
@@ -518,7 +522,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     if (result !== undefined && ast.is.IsCallExpression(node)) {
       const call = component?.contextualCall ?? (component === undefined ? queries.operations.call(node) : undefined);
-      if (call?.call === node) result = sourceTypeFlowCallResultType(unions, queries, call, result);
+      if (call?.call === node) result = sourceTypeFlowCallResultType(queries, call, result);
     }
     // A declared alias whose definition already carries absence (type T = U | undefined) is not wrapped again.
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
@@ -561,7 +565,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       ...(annotation === undefined ? [] : queries.facts.authoredTypeSubjects(annotation))]) !== undefined;
   }
 
-  const context: SourceTypeFlowAnalysisContext = Object.freeze({ source, unions,
+  const context: SourceTypeFlowAnalysisContext = Object.freeze({ source,
     describe: (node: Node, component?: SourceTypeComponentEvidence, arguments_?: readonly SourceEffectiveTypeArgument[]) =>
       describe(node, component, 0, undefined, arguments_),
     authoredInheritedBindings: (type: Type, queries: SourceFileSemantics, bindings: ReadonlyMap<Node, SourceTypeDescriptor>) => {
@@ -579,23 +583,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return { start: range.kind === "authored" ? range.start : ast.pos(node), preorder: ordinals.get(node) ?? nodes.length };
     } });
   declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
-  const unionComponents = new Map<Node, SourceTypeDescriptor>();
-  const syntaxNodes: Node[] = [...unions.files].reverse();
-  const queryFile = source.sourceFiles[0];
-  const originalQueries = queryFile === undefined ? undefined : semantics.forFile(queryFile);
-  while (syntaxNodes.length > 0 && queryFile !== undefined) {
-    const node = syntaxNodes.pop()!;
-    if (ast.is.IsSourceFile(node) && originalQueries!.declarations.isDefaultLibraryDeclaration(node)) continue;
-    if (ast.is.IsUnionTypeNode(node)) {
-      const file = ast.getSourceFile(node);
-      const queries = file !== undefined && semantics.includes(file) ? semantics.forFile(file) : semantics.forFile(queryFile);
-      const read = descriptor.syntax(node, queries);
-      if (read.kind === "resolved" && read.type !== undefined) unionComponents.set(node, read.type);
-    }
-    const children = ast.children(node);
-    for (let index = children.length - 1; index >= 0; index -= 1) if (children[index] !== undefined) syntaxNodes.push(children[index]!);
-  }
-  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots, unionComponents,
+  return Object.freeze({ context, nodes: Object.freeze(nodes), values: Object.freeze(values), signatureRefusals, descriptorRefusals, declaredSlots, numberOrigins,
     fixedRule, hasDeclaredSourceType, numericCreationRefusal });
 }
 

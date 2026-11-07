@@ -119,8 +119,8 @@ export function decideSourcePrimitiveBinaryOperator(
     effectiveLeft = expectedKind;
     effectiveRight = expectedKind;
   } else {
-    effectiveLeft = sourcePrimitiveOperatorLiteralPartner(left, right.primitive) ?? effectiveLeft;
-    effectiveRight = sourcePrimitiveOperatorLiteralPartner(right, left.primitive) ?? effectiveRight;
+    if (left.kind === "unbound-literal" && right.primitive !== "bigint" && sourcePrimitiveOperatorLiteralFits(left.literal, right.primitive)) effectiveLeft = right.primitive;
+    if (right.kind === "unbound-literal" && left.primitive !== "bigint" && sourcePrimitiveOperatorLiteralFits(right.literal, left.primitive)) effectiveRight = left.primitive;
   }
   if (effectiveLeft === "bigint" || effectiveRight === "bigint") return refusal("A bigint literal has no admitted primitive partner or result.");
   const position = primitivePositions.get(effectiveRight);
@@ -130,12 +130,6 @@ export function decideSourcePrimitiveBinaryOperator(
   );
   if (bitwiseOperators.has(operator) && !integrals.has(promoted)) return refusal("A bitwise operator requires integral operands.");
   return { kind: "resolved", result: comparisonOperators.has(operator) ? "bool" : promoted, left: promoted, right: promoted };
-}
-
-export function sourcePrimitiveOperatorLiteralPartner(operand: SourcePrimitiveOperatorOperand,
-  partner: SourcePrimitiveKind | "bigint"): SourcePrimitiveKind | undefined {
-  return operand.kind === "unbound-literal" && partner !== "bigint" && sourcePrimitiveOperatorLiteralFits(operand.literal, partner)
-    ? partner : undefined;
 }
 
 export function decideSourcePrimitiveUnaryOperator(

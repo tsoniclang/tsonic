@@ -1,6 +1,6 @@
 import type { Node, Type, TypeAliasApplicationInfo } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "../types.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeDescriptorMemberKey, sourceTypeDescriptorMemberKeysEqual } from "./member-origins.js";
 import type { SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
 
@@ -8,7 +8,6 @@ type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
 export function sourceTypeDescriptorConditionalDefinition(
   source: SourceTypeFlowSource,
-  unions: SourceTypeDescriptorUnions,
   queries: SourceFileSemantics,
   application: TypeAliasApplicationInfo,
   bindings: Bindings,
@@ -94,7 +93,7 @@ export function sourceTypeDescriptorConditionalDefinition(
     const structure = sourceTypeDescriptorStructure(result);
     return structure.kind !== "intrinsic" || structure.intrinsic !== "never";
   });
-  return results.length === 0 ? undefined : sourceTypeDescriptorUnion(unions, inhabited.length === 0 ? results : inhabited);
+  return results.length === 0 ? undefined : sourceTypeDescriptorUnion(inhabited.length === 0 ? results : inhabited);
 
   function selectedBinding(previous: Type, value: SourceTypeDescriptor, selected: Type): SourceTypeDescriptor | undefined {
     if (queries.types.isIdentical(previous, selected)) return value;

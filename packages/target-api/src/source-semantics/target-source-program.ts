@@ -22,7 +22,6 @@ import { createSourceStructuralMemberQueries } from "./structural-members.js";
 import { analyzeSourcePropertyNames } from "./property-names.js";
 import { analyzeSourceEnumConstants } from "./enum-constants.js";
 import { analyzeSourceEffectiveTypes } from "./local-type-flow/solver.js";
-import { createSourceTypeDescriptorUnions } from "./local-type-flow/terms.js";
 import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
 import type { SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
 
@@ -391,7 +390,7 @@ export function createTargetSourceProgram(
     navigation,
     semantics,
   });
-  const effectiveTypes = analyzeSourceEffectiveTypes(program, createSourceTypeDescriptorUnions(source.ast, source.programSourceFiles));
+  const effectiveTypes = analyzeSourceEffectiveTypes(program);
   return Object.freeze({ ...program, effectiveTypes });
 }
 

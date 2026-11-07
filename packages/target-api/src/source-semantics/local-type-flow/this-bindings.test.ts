@@ -3,7 +3,6 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
-import { createSourceTypeDescriptorUnions } from "./terms.js";
 import type { SourceFileSemantics } from "../types.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
@@ -19,7 +18,7 @@ function fixture(text: string) {
   const declared = queries.declarations.declaredType(owner);
   const bindings = declared === undefined ? undefined : queries.types.typeArgumentBindings(declared);
   if (bindings === undefined) throw new Error("The checked class declaration requires its complete argument vector.");
-  return { source, unions: createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles), owner, receiver, declared, bindings, queries };
+  return { source, owner, receiver, declared, bindings, queries };
 }
 
 const examples = [
@@ -70,7 +69,7 @@ for (const unavailable of ["missing", "foreign"] as const) test(`a ${unavailable
     } } };
   const source = { ...current.source, semantics: { ...current.source.semantics,
     forNode: (_node: Node) => changed, forFile: () => changed } };
-  const context = createSourceTypeFlowAnalysisContext(source, current.unions);
+  const context = createSourceTypeFlowAnalysisContext(source);
   assert.equal(context.context.describe(current.receiver) === undefined, true,
     "missing or foreign owner evidence cannot manufacture a lexical capture vector");
 });
